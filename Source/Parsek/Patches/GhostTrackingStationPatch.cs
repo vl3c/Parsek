@@ -83,6 +83,12 @@ namespace Parsek.Patches
 
     internal static class TrackingStationGhostActionPresentation
     {
+        // Stock Fly / Delete / Recover are intentionally absent from the
+        // action panel: they are blocked on ghost ProtoVessels by the
+        // GhostTracking{Fly,Delete,Recover} patches and only ever rendered as
+        // permanently-disabled buttons here. Removing them tightens the panel
+        // to the four real actions and lets the Materialize button claim its
+        // own row at full width.
         internal static TrackingStationGhostActionState[] BuildActionStates(
             TrackingStationGhostActionContext context)
         {
@@ -125,28 +131,7 @@ namespace Parsek.Patches
                     "Materialize",
                     TrackingStationGhostActionSafety.SafeWhenEligible,
                     canMaterialize,
-                    DescribeMaterializeReason(context, hasRecording)),
-
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.Fly,
-                    "Fly",
-                    TrackingStationGhostActionSafety.SafeOnlyAfterMaterialization,
-                    false,
-                    "Blocked on ghosts; materialize the recording before using stock Fly."),
-
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.Delete,
-                    "Delete",
-                    TrackingStationGhostActionSafety.BlockedOnGhost,
-                    false,
-                    "Blocked on ghosts; they are removed automatically when the chain resolves."),
-
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.Recover,
-                    "Recover",
-                    TrackingStationGhostActionSafety.BlockedOnGhost,
-                    false,
-                    "Blocked on ghosts; recover the real vessel after materialization.")
+                    DescribeMaterializeReason(context, hasRecording))
             };
         }
 

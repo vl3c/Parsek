@@ -35,6 +35,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            FlightRecorder.ResetResumeValidationVesselsOverrideForTesting();
         }
 
         #region StartNewTrackSection
@@ -247,6 +248,122 @@ namespace Parsek.Tests
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
             Assert.Equal(lastPoint.altitude, reopened.frames[0].altitude);
+        }
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_StaleAnchorDowngrade_DoesNotSeedRelativeOffsetAsAbsoluteBoundary()
+        {
+            // PR #613 review P1: when stale-anchor validation downgrades a
+            // RELATIVE resume to ABSOLUTE, the boundary point harvested from
+            // the prior section's `frames` is anchor-local Cartesian metres
+            // (not body-fixed lat/lon/alt). Seeding it into the new ABSOLUTE
+            // section would write a meaningless metre-scale "lat/lon/alt"
+            // sample at the seam. The fix swaps the boundary to the v7
+            // absolute-shadow point when present, or skips the seed entirely
+            // when the prior section is legacy (no shadow).
+            //
+            // This test forces the downgrade by overriding the resume-time
+            // vessel list with an empty list (anchor PID will not be found
+            // → not loaded → downgrade). The prior section is RELATIVE with
+            // a frames[0] holding obviously-wrong metre-scale "altitude" (-3.4)
+            // that would never be a real body-fixed altitude, plus a
+            // parallel absoluteFrames entry with realistic body-fixed coords.
+            FlightRecorder.SetResumeValidationVesselsOverrideForTesting(
+                () => new List<Vessel>());
+
+            var relativeOffsetPoint = new TrajectoryPoint
+            {
+                ut = 209.5,
+                latitude = 12.5,    // metres along anchor x — would be misread as latitude
+                longitude = 76.8,   // metres along anchor y
+                altitude = -3.4,    // metres along anchor z — negative "altitude" tell
+                bodyName = "Kerbin"
+            };
+            var absoluteShadowPoint = new TrajectoryPoint
+            {
+                ut = 209.5,
+                latitude = -0.097,
+                longitude = -74.557,
+                altitude = 76140.0,  // recorded body-fixed altitude
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                anchorVesselId = 2450432355u,
+                startUT = 200.0,
+                endUT = 210.0,
+                frames = new List<TrajectoryPoint> { relativeOffsetPoint },
+                absoluteFrames = new List<TrajectoryPoint> { absoluteShadowPoint },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(relativeOffsetPoint);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(210.0);
+            recorder.CloseCurrentTrackSection(220.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            var reopened = recorder.TrackSections[1];
+            Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame); // downgraded
+            Assert.Equal(0u, reopened.anchorVesselId);                       // anchor cleared
+
+            // The seed must NOT be the relative-offset point (whose
+            // lat/lon/alt are anchor-local metres). It must be either the
+            // absolute-shadow point (preferred) or absent entirely. Negative
+            // tell: the relative-offset point's altitude is -3.4, which a
+            // real body-fixed altitude would never carry at this UT.
+            Assert.Single(reopened.frames);
+            Assert.Equal(absoluteShadowPoint.ut, reopened.frames[0].ut);
+            Assert.Equal(absoluteShadowPoint.altitude, reopened.frames[0].altitude);
+            Assert.NotEqual(relativeOffsetPoint.altitude, reopened.frames[0].altitude);
+        }
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_StaleAnchorDowngrade_NoShadow_SkipsBoundarySeed()
+        {
+            // Companion to the test above: legacy v5/v6 RELATIVE sections
+            // carry no `absoluteFrames` payload. When the downgrade fires
+            // and there's no shadow to substitute, the boundary seed must
+            // be skipped entirely — leaving the new ABSOLUTE section empty
+            // until the next normal sample arrives — rather than writing a
+            // mis-framed point.
+            FlightRecorder.SetResumeValidationVesselsOverrideForTesting(
+                () => new List<Vessel>());
+
+            var relativeOffsetPoint = new TrajectoryPoint
+            {
+                ut = 209.5,
+                latitude = 12.5,
+                longitude = 76.8,
+                altitude = -3.4,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                anchorVesselId = 2450432355u,
+                startUT = 200.0,
+                endUT = 210.0,
+                frames = new List<TrajectoryPoint> { relativeOffsetPoint },
+                absoluteFrames = null, // legacy — no shadow
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(relativeOffsetPoint);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(210.0);
+            recorder.CloseCurrentTrackSection(220.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            var reopened = recorder.TrackSections[1];
+            Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame);
+            Assert.Equal(0u, reopened.anchorVesselId);
+            Assert.Empty(reopened.frames); // boundary skipped
         }
 
         [Fact]

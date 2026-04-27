@@ -303,6 +303,57 @@ namespace Parsek
             public Vector3d ghostPos;
             public float time;
         }
+
+        private struct RelativeAnchorPose
+        {
+            public Vector3d worldPos;
+            public Quaternion worldRotation;
+            public bool fromRecordedTrajectory;
+            public bool hasSurfacePose;
+            public CelestialBody bodyBefore;
+            public CelestialBody bodyAfter;
+            public double latBefore, lonBefore, altBefore;
+            public double latAfter, lonAfter, altAfter;
+            public float t;
+            public Quaternion surfaceRot;
+        }
+
+        private sealed class RelativeAnchorPoseSnapshot
+        {
+            public Vector3d worldPos;
+            public Quaternion worldRotation;
+            public bool hasSurfacePose;
+            public CelestialBody bodyBefore;
+            public CelestialBody bodyAfter;
+            public double latBefore, lonBefore, altBefore;
+            public double latAfter, lonAfter, altAfter;
+            public float t;
+            public Quaternion surfaceRot;
+
+            public static RelativeAnchorPoseSnapshot FromRecordedPose(RelativeAnchorPose pose)
+            {
+                if (!pose.fromRecordedTrajectory)
+                    return null;
+
+                return new RelativeAnchorPoseSnapshot
+                {
+                    worldPos = pose.worldPos,
+                    worldRotation = pose.worldRotation,
+                    hasSurfacePose = pose.hasSurfacePose,
+                    bodyBefore = pose.bodyBefore,
+                    bodyAfter = pose.bodyAfter,
+                    latBefore = pose.latBefore,
+                    lonBefore = pose.lonBefore,
+                    altBefore = pose.altBefore,
+                    latAfter = pose.latAfter,
+                    lonAfter = pose.lonAfter,
+                    altAfter = pose.altAfter,
+                    t = pose.t,
+                    surfaceRot = pose.surfaceRot
+                };
+            }
+        }
+
         private readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
             new Dictionary<string, ProximityVelocitySample>();
         // Sample is trustworthy when 0.5s <= dt <= 5s. Below: jitter dominates.
@@ -367,6 +418,7 @@ namespace Parsek
             public Quaternion relativeRot;         // interpolated relative rotation
             public string relativeBodyName;        // body name for altitude computation
             public int relativeRecordingFormatVersion;
+            public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1187,23 +1239,50 @@ namespace Parsek
                     }
                     case GhostPosMode.Relative:
                     {
-                        // Re-compute ghost position from anchor's current world position + stored offset.
-                        // This handles FloatingOrigin shifts because anchor vessel positions are
-                        // already corrected by KSP before LateUpdate.
-                        Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
-                        if (anchor != null)
+                        Vector3d anchorPos;
+                        Quaternion anchorRotation;
+                        bool haveAnchor = false;
+
+                        if (e.relativeRecordedAnchorPose != null)
                         {
-                            Vector3d anchorPos = anchor.GetWorldPos3D();
+                            haveAnchor = TryResolveStoredRecordedAnchorPose(
+                                e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
+                        }
+                        else
+                        {
+                            // Re-compute ghost position from anchor's current world position + stored offset.
+                            // This handles FloatingOrigin shifts because anchor vessel positions are
+                            // already corrected by KSP before LateUpdate.
+                            Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
+                            if (anchor != null)
+                            {
+                                anchorPos = anchor.GetWorldPos3D();
+                                anchorRotation = anchor.transform.rotation;
+                                haveAnchor = true;
+                            }
+                            else
+                            {
+                                // LateUpdate only reapplies the pose chosen in Update for
+                                // the post-FloatingOrigin frame. If the live anchor vanishes
+                                // between Update and LateUpdate, the next Update pass reruns
+                                // the full live-or-recorded resolver.
+                                anchorPos = Vector3d.zero;
+                                anchorRotation = Quaternion.identity;
+                            }
+                        }
+
+                        if (haveAnchor)
+                        {
                             Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                                 anchorPos,
-                                anchor.transform.rotation,
+                                anchorRotation,
                                 e.relDx,
                                 e.relDy,
                                 e.relDz,
                                 e.relativeRecordingFormatVersion);
                             e.ghost.transform.position = ghostPos;
                             e.ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
-                                anchor.transform.rotation,
+                                anchorRotation,
                                 e.relativeRot);
                         }
                         else
@@ -1221,6 +1300,38 @@ namespace Parsek
             ghostPosEntries.Clear();
 
             watchMode.UpdateWatchCamera();
+        }
+
+        private static bool TryResolveStoredRecordedAnchorPose(
+            RelativeAnchorPoseSnapshot snapshot,
+            out Vector3d anchorPos,
+            out Quaternion anchorRotation)
+        {
+            anchorPos = snapshot != null ? snapshot.worldPos : Vector3d.zero;
+            anchorRotation = snapshot != null ? snapshot.worldRotation : Quaternion.identity;
+            if (snapshot == null)
+                return false;
+
+            if (snapshot.hasSurfacePose)
+            {
+                CelestialBody bodyBefore = snapshot.bodyBefore;
+                CelestialBody bodyAfter = snapshot.bodyAfter ?? bodyBefore;
+                if (bodyBefore == null || bodyBefore.bodyTransform == null || bodyAfter == null)
+                    return false;
+
+                Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
+                    snapshot.latBefore,
+                    snapshot.lonBefore,
+                    snapshot.altBefore);
+                Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
+                    snapshot.latAfter,
+                    snapshot.lonAfter,
+                    snapshot.altAfter);
+                anchorPos = Vector3d.Lerp(posBefore, posAfter, snapshot.t);
+                anchorRotation = bodyBefore.bodyTransform.rotation * snapshot.surfaceRot;
+            }
+
+            return IsFiniteVector3d(anchorPos);
         }
 
         /// <summary>
@@ -1271,6 +1382,16 @@ namespace Parsek
 
         void OnGUI()
         {
+            // The Esc / pause overlay lives on KSP's Canvas and sorts above
+            // our IMGUI layer, so without this gate the custom map markers,
+            // watch-mode HUD, ghost labels, and Parsek windows render on top
+            // of the pause menu. Stock vessel labels hide automatically
+            // because they live on the same Canvas as the overlay; ours do
+            // not. Skip both Layout and Repaint passes so layout-driven sizes
+            // don't flicker between events while paused.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
@@ -1397,6 +1518,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             ClearGhostSkipReasonLogState();
 
@@ -2554,6 +2676,135 @@ namespace Parsek
             return false;
         }
 
+        internal static bool ShouldIncludeVesselInDeferredBreakupScan(Vessel v, out string rejectReason)
+        {
+            rejectReason = null;
+            if (v == null)
+            {
+                rejectReason = "null-vessel";
+                return false;
+            }
+
+            if (IsSpaceObjectLikeBreakupScanReject(v.vesselType, EnumeratePartNames(v), EnumerateModuleNames(v),
+                out rejectReason))
+                return false;
+
+            return true;
+        }
+
+        internal static bool IsSpaceObjectLikeBreakupScanReject(
+            VesselType vesselType,
+            IEnumerable<string> partNames,
+            IEnumerable<string> moduleNames,
+            out string rejectReason)
+        {
+            rejectReason = null;
+
+            if (vesselType == VesselType.SpaceObject)
+            {
+                rejectReason = "space-object-type";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometPart(partNames))
+            {
+                rejectReason = "asteroid-comet-part";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometModule(moduleNames))
+            {
+                rejectReason = "asteroid-comet-module";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> EnumeratePartNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                if (p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    yield return p.partInfo.name;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.partName))
+                {
+                    yield return p.partName;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.name))
+                    yield return p.name;
+            }
+        }
+
+        private static IEnumerable<string> EnumerateModuleNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null)
+                    continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.IsNullOrEmpty(module.moduleName))
+                        yield return module.moduleName;
+                    Type moduleType = module.GetType();
+                    if (moduleType != null && !string.IsNullOrEmpty(moduleType.Name))
+                        yield return moduleType.Name;
+                }
+            }
+        }
+
+        private static bool ContainsAsteroidOrCometPart(IEnumerable<string> partNames)
+        {
+            if (partNames == null)
+                return false;
+
+            foreach (string partName in partNames)
+            {
+                if (string.IsNullOrEmpty(partName))
+                    continue;
+                // Part cfg/runtime names can carry expansion or variant suffixes,
+                // while module names below are stable C# class identifiers.
+                if (partName.IndexOf("PotatoRoid", StringComparison.OrdinalIgnoreCase) >= 0
+                    || partName.IndexOf("PotatoComet", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAsteroidOrCometModule(IEnumerable<string> moduleNames)
+        {
+            if (moduleNames == null)
+                return false;
+
+            foreach (string moduleName in moduleNames)
+            {
+                if (string.IsNullOrEmpty(moduleName))
+                    continue;
+                if (string.Equals(moduleName, "ModuleAsteroid", StringComparison.Ordinal)
+                    || string.Equals(moduleName, "ModuleComet", StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Determines whether a debris vessel is significant enough to record.
         /// Filters out trivial crash fragments (single struts, panels, shroud pieces)
@@ -3669,6 +3920,14 @@ namespace Parsek
                         if (newVesselPids.Contains(v.persistentId))
                             continue;
 
+                        if (!ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"DeferredJointBreakCheck: ignoring unrelated new vessel pid={v.persistentId} " +
+                                $"name='{v.vesselName ?? "<unnamed>"}' type={v.vesselType} reason={rejectReason}");
+                            continue;
+                        }
+
                         newVesselPids.Add(v.persistentId);
 
                         bool hasController = IsTrackableVessel(v);
@@ -3917,17 +4176,72 @@ namespace Parsek
         /// <summary>
         /// Pure decision: should the controlled-child loop in
         /// <see cref="ProcessBreakupEvent"/> skip creating a recording for a
-        /// breakup child whose live <see cref="Vessel"/> is gone and which
-        /// has no pre-captured snapshot? Such a child would produce a
-        /// 1-point "Unknown" 0s row with no playback or replay value (no
-        /// ghost visuals, no spawn snapshot, no events). The parent
-        /// recording's BREAKUP branch point already records the split.
+        /// breakup child whose live <see cref="Vessel"/> is already gone?
+        /// Such a child cannot be sampled or controlled after the coalescer
+        /// window; even with a pre-captured snapshot it becomes a destroyed
+        /// 1-point "Unknown" 0s row. The parent recording's BREAKUP branch
+        /// point already records the split.
         /// </summary>
         internal static bool ShouldSkipDeadOnArrivalControlledChild(
             bool childVesselIsAlive,
             bool hasPreCapturedSnapshot)
         {
-            return !childVesselIsAlive && !hasPreCapturedSnapshot;
+            // Kept in the signature for call-site/test forensics: the 2026-04-26
+            // repro proved that snapshot presence does not make a destroyed live
+            // vessel a useful controlled continuation.
+            _ = hasPreCapturedSnapshot;
+            return !childVesselIsAlive;
+        }
+
+        internal static string BuildDeadOnArrivalControlledChildSkipLog(
+            uint pid,
+            bool hasPreCapturedSnapshot)
+        {
+            return $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
+                $"pid={pid} (vessel destroyed before window expired, preCapturedSnapshot={hasPreCapturedSnapshot}) — " +
+                "would produce an 'Unknown' 0s row with no playback value";
+        }
+
+        // Why 50m: this gate uses propagated residual, not raw seed-live travel.
+        // KSP.log:10596 showed the pathological child seed had normal ~866m
+        // along-track travel over 0.5s but a ~270m radial/perpendicular miss after
+        // propagation. Healthy split seeds should land within a few metres of the
+        // live root over the coalescer window; 50m is intentionally below that
+        // captured failure while still leaving room for frame skew.
+        internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
+        internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
+
+        internal static bool ShouldPreferLiveBreakupChildSeed(
+            bool childHasController,
+            bool liveVesselAvailable,
+            bool capturedSeedAvailable,
+            double propagatedSeedLiveRootResidualMeters,
+            double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
+        {
+            // Debris seeds remain excluded in this PR: the controlled child is the
+            // user-visible Re-Fly stage, while debris needs a separate threshold policy.
+            return childHasController
+                && liveVesselAvailable
+                && capturedSeedAvailable
+                && IsFinite(propagatedSeedLiveRootResidualMeters)
+                && propagatedSeedLiveRootResidualMeters > toleranceMeters;
+        }
+
+        internal static double ComputeBreakupSeedPropagatedResidualMeters(
+            Vector3d seedWorld,
+            Vector3 seedVelocity,
+            double seedUT,
+            Vector3d liveRootWorld,
+            double liveUT,
+            double maxPropagationDeltaSeconds = MaxBreakupSeedPropagationDeltaSeconds)
+        {
+            double dt = liveUT - seedUT;
+            if (!IsFinite(dt) || dt < 0 || dt > maxPropagationDeltaSeconds)
+                return double.NaN;
+
+            Vector3d velocity = new Vector3d(seedVelocity.x, seedVelocity.y, seedVelocity.z);
+            Vector3d propagatedSeedWorld = seedWorld + velocity * dt;
+            return (propagatedSeedWorld - liveRootWorld).magnitude;
         }
 
         /// <summary>
@@ -4110,6 +4424,121 @@ namespace Parsek
                 $"seedLiveRootDist={seedRootDelta.magnitude.ToString("F2", ic)}m";
         }
 
+        private static TrajectoryPoint? ResolveControlledChildInitialTrajectoryPoint(
+            uint pid,
+            TrajectoryPoint? capturedPoint,
+            Vessel liveVessel,
+            double liveUT)
+        {
+            if (liveVessel == null)
+            {
+                if (capturedPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Coalescer",
+                        $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                        $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        "reason=live-vessel-missing");
+                }
+                return capturedPoint;
+            }
+
+            TrajectoryPoint livePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                liveVessel,
+                liveUT,
+                preferRootPartSurfacePose: true);
+
+            if (!capturedPoint.HasValue)
+            {
+                ParsekLog.Info("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=live-current " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    "reason=no-captured-seed");
+                return livePoint;
+            }
+
+            double seedLiveRootDistance;
+            double propagatedSeedResidual;
+            bool hasDistance = TryComputeBreakupSeedLiveRootDistance(
+                capturedPoint.Value,
+                liveVessel,
+                liveUT,
+                out seedLiveRootDistance,
+                out propagatedSeedResidual);
+            bool preferLive = ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: hasDistance ? propagatedSeedResidual : double.NaN);
+
+            if (!preferLive)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                    $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"seedLiveRootDist={(hasDistance ? seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"propagatedResidual={(hasDistance ? propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m");
+                return capturedPoint;
+            }
+
+            ParsekLog.Info("Coalescer",
+                $"Controlled child initial seed replaced with live sample: pid={pid} " +
+                $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"seedLiveRootDist={seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"propagatedResidual={propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                "source=decouple-callback reason=propagated-seed-misses-live-root");
+            return livePoint;
+        }
+
+        private static bool TryComputeBreakupSeedLiveRootDistance(
+            TrajectoryPoint seedPoint,
+            Vessel liveVessel,
+            double liveUT,
+            out double distanceMeters,
+            out double propagatedResidualMeters)
+        {
+            distanceMeters = double.NaN;
+            propagatedResidualMeters = double.NaN;
+
+            Part rootPart = liveVessel?.rootPart;
+            CelestialBody body = liveVessel?.mainBody;
+            if (rootPart == null || rootPart.transform == null || body == null)
+                return false;
+
+            if (!string.Equals(body.name, seedPoint.bodyName, StringComparison.Ordinal)
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, seedPoint.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null)
+                return false;
+
+            Vector3d seedWorld = body.GetWorldSurfacePosition(
+                seedPoint.latitude,
+                seedPoint.longitude,
+                seedPoint.altitude);
+            Vector3d rootWorld = rootPart.transform.position;
+            distanceMeters = (seedWorld - rootWorld).magnitude;
+            propagatedResidualMeters = ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld,
+                seedPoint.velocity,
+                seedPoint.ut,
+                rootWorld,
+                liveUT);
+            return IsFinite(distanceMeters) && IsFinite(propagatedResidualMeters);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
         private static string FormatVector3(Vector3 value)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -4219,24 +4648,20 @@ namespace Parsek
                     ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
                     TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
 
-                    // Skip dead-on-arrival controlled children: when the live
-                    // vessel is gone AND no pre-captured snapshot exists, the
-                    // recording would land in the table as a 1-point "Unknown"
-                    // 0s row with no playback or replay value (no ghost
-                    // visuals, no spawn snapshot, no events). The decoupled
-                    // probe immediately Punch-Through'd subsurface and Unity
-                    // tore the Vessel down before the coalescer window
-                    // expired — there is nothing useful to record. The parent
-                    // recording's BREAKUP branch point already captures that
-                    // the split happened.
+                    // Skip dead-on-arrival controlled children: once the live
+                    // Vessel is gone before the coalescer window expires there
+                    // is no controlled continuation to sample. A pre-captured
+                    // snapshot only turns that into a destroyed one-point
+                    // "Unknown" row, so leave the split represented by the
+                    // parent BREAKUP branch point.
                     if (ShouldSkipDeadOnArrivalControlledChild(
                             childVesselIsAlive: childVessel != null,
                             hasPreCapturedSnapshot: ctrlSnap != null))
                     {
                         ParsekLog.Info("Coalescer",
-                            $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
-                            $"pid={pid} (vessel destroyed before window expired, no pre-captured snapshot) — " +
-                            "would produce an 'Unknown' 0s row with no playback value");
+                            BuildDeadOnArrivalControlledChildSkipLog(
+                                pid,
+                                hasPreCapturedSnapshot: ctrlSnap != null));
                         continue;
                     }
 
@@ -4244,15 +4669,13 @@ namespace Parsek
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
+                    TrajectoryPoint? initialPoint = ResolveControlledChildInitialTrajectoryPoint(
+                        pid,
+                        breakupChildPoint,
+                        childVessel,
+                        Planetarium.GetUniversalTime());
                     if (childVessel != null && backgroundRecorder != null)
                     {
-                        TrajectoryPoint? initialPoint = breakupChildPoint;
-                        if (!initialPoint.HasValue)
-                        {
-                            double sampleUT = Planetarium.GetUniversalTime();
-                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, sampleUT, preferRootPartSurfacePose: true);
-                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
@@ -4267,7 +4690,7 @@ namespace Parsek
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null} " +
-                        $"{DescribeBreakupChildSeedPose(breakupChildPoint, childVessel, Planetarium.GetUniversalTime())}");
+                        $"{DescribeBreakupChildSeedPose(initialPoint, childVessel, Planetarium.GetUniversalTime())}");
                 }
             }
 
@@ -9926,6 +10349,8 @@ namespace Parsek
             {
                 if (finalizeVessel != null)
                 {
+                    if (isSceneExit)
+                        rec.SceneExitSituation = (int)finalizeVessel.situation;
                     rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
                     CaptureTerminalOrbit(rec, finalizeVessel);
                     CaptureTerminalPosition(rec, finalizeVessel);
@@ -12387,7 +12812,7 @@ namespace Parsek
             watchMode.FindNextWatchTarget(currentIndex, currentRec);
 
         /// <summary>Called by policy to transfer watch to the next chain segment.</summary>
-        internal void TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
+        internal bool TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
             watchMode.TransferWatchToNextSegment(nextIndex);
 
         /// <summary>Called by policy to exit watch mode.</summary>
@@ -13105,6 +13530,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             ClearGhostSkipReasonLogState();
         }
@@ -13623,21 +14049,32 @@ namespace Parsek
             bool forceWatchedFullFidelity = false;
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
+                if (isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance))
                 {
+                    // Append ghost-world + active-section + anchor context so a
+                    // "ghost flew off into space" cutoff is diagnosable from
+                    // KSP.log alone. Common root cause is a Relative-anchor
+                    // section whose live anchor is in a totally different
+                    // physical location than at recording time (e.g.
+                    // previously re-flown booster now in stable orbit).
+                    // Without this context the user has to cross-reference
+                    // prec.txt + flight state to figure out why the distance
+                    // went absurd.
+                    string cutoffContext = DescribeWatchCutoffContext(rec, state);
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
-                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m; " +
-                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode" +
+                        (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
                 {
-                    forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
-                        isWatchedGhost, activeVesselDistance, cutoffKm);
+                    forceWatchedFullFidelity = isWatchProtectedRecording
+                        || WatchModeController.ShouldForceWatchedFullFidelityAtDistance(
+                            isWatchedGhost, activeVesselDistance);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
                             shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
@@ -13744,6 +14181,90 @@ namespace Parsek
             return state == null || !state.deferVisibilityUntilPlaybackSync;
         }
 
+        /// <summary>
+        /// Diagnostic context appended to the watch-cutoff log line: ghost
+        /// world position + (when known from the active section under the
+        /// current game UT) the section's reference frame and live anchor
+        /// data. The 818 km cutoff trip in
+        /// `logs/2026-04-27_0123_watch-jump-and-ghost-misalign` was
+        /// indecipherable from KSP.log alone; this turns "the cutoff
+        /// fired" into "the cutoff fired because the section's anchor is
+        /// in stable orbit while the recording wanted the ghost in
+        /// atmosphere." Returns empty when there's no useful context to
+        /// append (state/ghost null) so the call site stays clean.
+        /// </summary>
+        internal static string DescribeWatchCutoffContext(
+            IPlaybackTrajectory rec, GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null)
+                return string.Empty;
+
+            var ic = CultureInfo.InvariantCulture;
+            Vector3d ghostWorld = state.ghost.transform.position;
+            string ghostWorldStr = $"ghostWorld={FormatVector3d(ghostWorld)}";
+
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return ghostWorldStr;
+
+            // Probe the section under the current game UT for relative-anchor
+            // context. If the trajectory is using a different playback UT
+            // (loops, overlap shift), this lookup may pick a neighbouring
+            // section, which is fine — the goal is "give the user a
+            // starting point for diagnosing", not perfect attribution.
+            double currentUT;
+            try
+            {
+                currentUT = Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                // Defensive — Planetarium is alive in flight scenes but the
+                // catch keeps the cutoff log path noise-free if we ever get
+                // called from an off-nominal scene. Surface the skip so the
+                // next surprise is debuggable.
+                ParsekLog.VerboseRateLimited("Zone", "watch-cutoff-context-skip",
+                    $"DescribeWatchCutoffContext: Planetarium.GetUniversalTime threw {ex.GetType().Name} — skipping section/anchor context");
+                return ghostWorldStr;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, currentUT);
+            if (sectionIdx < 0 || sectionIdx >= rec.TrackSections.Count)
+                return ghostWorldStr + " section=none";
+
+            TrackSection section = rec.TrackSections[sectionIdx];
+            string sectionStr =
+                $"section={section.referenceFrame} " +
+                $"sectionUT=[{section.startUT.ToString("F1", ic)}," +
+                $"{section.endUT.ToString("F1", ic)}]";
+
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.anchorVesselId == 0u)
+            {
+                return $"{ghostWorldStr} {sectionStr}";
+            }
+
+            string anchorStr;
+            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
+            if (anchor == null)
+            {
+                anchorStr = $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
+            }
+            else
+            {
+                Vector3d anchorWorld = anchor.GetWorldPos3D();
+                // Match DescribeAppearanceLiveAnchorContext's |anchor-root|
+                // label so KSP.log greps that look at one site work for the
+                // other (state.ghost.transform.position IS the ghost root).
+                Vector3d delta = ghostWorld - anchorWorld;
+                anchorStr =
+                    $"anchorPid={section.anchorVesselId} " +
+                    $"anchorWorld={FormatVector3d(anchorWorld)} " +
+                    $"|anchor-root|={delta.magnitude.ToString("F0", ic)}m";
+            }
+
+            return $"{ghostWorldStr} {sectionStr} {anchorStr}";
+        }
+
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
             ResolveZoneWatchState(int recIdx, GhostPlaybackState state, int protectedIndex)
         {
@@ -13797,9 +14318,29 @@ namespace Parsek
             if (state?.ghost == null || traj?.Points == null) return;
             // Find the relative TrackSection to get section-local frames
             int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
-            var sectionFrames = (sectionIdx >= 0 && traj.TrackSections[sectionIdx].frames != null)
-                ? traj.TrackSections[sectionIdx].frames
+            TrackSection section = sectionIdx >= 0 ? traj.TrackSections[sectionIdx] : default(TrackSection);
+            var sectionFrames = (sectionIdx >= 0 && section.frames != null)
+                ? section.frames
                 : traj.Points;
+            uint sectionAnchorVesselId = sectionIdx >= 0 && section.anchorVesselId != 0
+                ? section.anchorVesselId
+                : anchorVesselId;
+
+            if (sectionIdx >= 0
+                && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                    index, traj, section, sectionAnchorVesselId, ut, out List<TrajectoryPoint> absoluteFrames))
+            {
+                int absolutePlaybackIdx = state.playbackIndex;
+                InterpolationResult absoluteInterpResult;
+                InterpolateAndPosition(state.ghost, absoluteFrames, null,
+                    ref absolutePlaybackIdx, ut, index * 10000, out absoluteInterpResult,
+                    allowActivation: ShouldAutoActivateGhost(state),
+                    skipOrbitSegments: true);
+                state.SetInterpolated(absoluteInterpResult);
+                state.playbackIndex = absolutePlaybackIdx;
+                return;
+            }
+
             long relKey = ((long)index << 32) | anchorVesselId;
             if (loggedRelativeStart.Add(relKey))
             {
@@ -13814,8 +14355,16 @@ namespace Parsek
 
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
+            // PR #594 P1 review fix: pass `state` so the relative-frame
+            // retirement branch can set state.anchorRetiredThisFrame, which
+            // the engine's per-frame loop reads to skip ApplyFrameVisuals'
+            // transient events, ActivateGhostVisualsIfNeeded, and
+            // TrackGhostAppearance. Without this signal, the engine's
+            // unconditional SetActive(true) at the end of the frame would
+            // re-show the just-hidden ghost at its stale (0,0,0) transform.
             InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
                 ut, anchorVesselId, traj.RecordingFormatVersion,
+                index, traj.RecordingId, traj.VesselName, state,
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
@@ -14161,8 +14710,12 @@ namespace Parsek
                 useAnchor = false;
             }
             InterpolationResult interpResult;
+            // PR #594 P1 review fix: pass `state` so the relative-frame
+            // retirement branch can set state.anchorRetiredThisFrame for
+            // the loop-playback path. Same rationale as in
+            // IGhostPositioner.InterpolateAndPositionRelative above.
             PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
-                index, index * 10000, useAnchor,
+                index, index * 10000, useAnchor, state,
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
@@ -14178,6 +14731,18 @@ namespace Parsek
         void IGhostPositioner.ClearOrbitCache()
         {
             orbitCache.Clear();
+        }
+
+        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (anchorVesselId == 0u) return false;
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null) return false;
+            Vector3d candidate = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(candidate)) return false;
+            worldPosition = candidate;
+            return true;
         }
 
         #endregion
@@ -14515,8 +15080,12 @@ namespace Parsek
 
         // Tracks which (recording index, anchor PID) combos have been logged for relative playback start
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
+        private readonly HashSet<string> loggedRelativeAbsoluteShadowStart =
+            new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
+        private readonly HashSet<string> recordedAnchorSeenRecordingIds =
+            new HashSet<string>(StringComparer.Ordinal);
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
@@ -14608,6 +15177,21 @@ namespace Parsek
                 return Vector3d.Distance(worldPos, referencePosition);
             }
 
+            return ResolveUnresolvedPlaybackDistanceFallback(
+                traj, state, playbackUT, referencePosition);
+        }
+
+        internal static double ResolveUnresolvedPlaybackDistanceFallback(
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            Vector3d referencePosition)
+        {
+            double? relativeDistance = ResolveUnresolvedRelativeSectionDistanceFallback(
+                traj, playbackUT);
+            if (relativeDistance.HasValue)
+                return relativeDistance.Value;
+
             if (state != null && state.ghost != null)
             {
                 return Vector3d.Distance(
@@ -14616,6 +15200,24 @@ namespace Parsek
             }
 
             return double.NaN;
+        }
+
+        internal static double? ResolveUnresolvedRelativeSectionDistanceFallback(
+            IPlaybackTrajectory traj,
+            double playbackUT)
+        {
+            return IsRelativeSectionAtUT(traj, playbackUT)
+                ? (double?)double.MaxValue
+                : null;
+        }
+
+        private static bool IsRelativeSectionAtUT(IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            return sectionIdx >= 0
+                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
         }
 
         bool TryInterpolateAndPositionCheckpointSection(
@@ -14951,15 +15553,30 @@ namespace Parsek
                         uint anchorPid = section.anchorVesselId != 0
                             ? section.anchorVesselId
                             : traj.LoopAnchorVesselId;
+                        if (anchorPid != 0 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                                index, traj, section, anchorPid, playbackUT, out List<TrajectoryPoint> absoluteFrames))
+                        {
+                            return TryResolvePointWorldPosition(
+                                absoluteFrames,
+                                ref cachedIndex,
+                                playbackUT,
+                                out worldPos);
+                        }
                         if (anchorPid != 0 && TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
                                 anchorPid,
+                                traj.RecordingId,
                                 traj.RecordingFormatVersion,
                                 out worldPos))
                         {
                             return true;
                         }
+                        // Relative sections store metre offsets in the
+                        // lat/lon/alt fields. If their anchor cannot resolve,
+                        // do not fall through to absolute/interpolated
+                        // surface playback or checkpoint recovery.
+                        return false;
                     }
                     else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
                         && section.frames != null
@@ -15119,6 +15736,7 @@ namespace Parsek
             List<TrajectoryPoint> frames,
             double targetUT,
             uint anchorVesselId,
+            string victimRecordingId,
             int recordingFormatVersion,
             out Vector3d worldPos)
         {
@@ -15129,7 +15747,8 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, recordingFormatVersion, out worldPos);
+                    anchorVesselId, victimRecordingId, targetUT,
+                    recordingFormatVersion, out worldPos);
             }
 
             int cachedIndex = 0;
@@ -15137,14 +15756,16 @@ namespace Parsek
             if (indexBefore < 0)
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, recordingFormatVersion, out worldPos);
+                    anchorVesselId, victimRecordingId, frames[0].ut,
+                    recordingFormatVersion, out worldPos);
             if (indexBefore >= frames.Count - 1)
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[frames.Count - 1].latitude,
                     frames[frames.Count - 1].longitude,
                     frames[frames.Count - 1].altitude,
-                    anchorVesselId, recordingFormatVersion, out worldPos);
+                    anchorVesselId, victimRecordingId, frames[frames.Count - 1].ut,
+                    recordingFormatVersion, out worldPos);
             }
 
             TrajectoryPoint before = frames[indexBefore];
@@ -15154,7 +15775,8 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     before.latitude, before.longitude, before.altitude,
-                    anchorVesselId, recordingFormatVersion, out worldPos);
+                    anchorVesselId, victimRecordingId, before.ut,
+                    recordingFormatVersion, out worldPos);
             }
 
             float t = (float)((targetUT - before.ut) / segmentDuration);
@@ -15168,6 +15790,8 @@ namespace Parsek
                 dy,
                 dz,
                 anchorVesselId,
+                victimRecordingId,
+                targetUT,
                 recordingFormatVersion,
                 out worldPos);
         }
@@ -15177,25 +15801,1153 @@ namespace Parsek
             double dy,
             double dz,
             uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
             int recordingFormatVersion,
             out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-            if (anchor == null)
+            RelativeAnchorPose anchorPose;
+            if (!TryResolveRelativeAnchorPose(
+                    anchorVesselId, victimRecordingId, targetUT, out anchorPose))
                 return false;
 
-            Vector3d anchorPos = anchor.GetWorldPos3D();
             worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                anchorPos,
-                anchor.transform.rotation,
+                anchorPose.worldPos,
+                anchorPose.worldRotation,
                 dx,
                 dy,
                 dz,
                 recordingFormatVersion);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
-                worldPos = anchorPos;
+                worldPos = anchorPose.worldPos;
             return true;
+        }
+
+        bool TryResolveRelativeAnchorPose(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            IReadOnlyList<RecordingTree> searchTrees = null;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            bool shouldCheckReFlyBypass =
+                marker != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && !string.IsNullOrEmpty(victimRecordingId)
+                && string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal);
+            if (shouldCheckReFlyBypass)
+            {
+                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            }
+
+            bool bypassLiveAnchor = shouldCheckReFlyBypass
+                && ShouldBypassLiveRelativeAnchorForActiveReFly(
+                    anchorVesselId, victimRecordingId, marker, searchTrees);
+
+            RelativeAnchorPose livePose = default(RelativeAnchorPose);
+            bool liveAnchorAvailable = false;
+            if (!bypassLiveAnchor)
+            {
+                Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+                if (anchor != null)
+                {
+                    livePose.worldPos = anchor.GetWorldPos3D();
+                    livePose.worldRotation = anchor.transform.rotation;
+                    livePose.fromRecordedTrajectory = false;
+                    liveAnchorAvailable = IsFiniteVector3d(livePose.worldPos);
+                }
+            }
+
+            // Proximity fast-path: when the live anchor is loaded AND within
+            // physics range of the active vessel, trust the live pose and
+            // skip the (more expensive) recorded-anchor probe. This restores
+            // the pre-PR fast path for the common docking/rendezvous case —
+            // anchor is the station the player is approaching, live pose is
+            // by definition the right answer because the recording was made
+            // in the same world frame the player is currently in.
+            //
+            // The bug class this PR fixes (post-merge watch of a recording
+            // whose Relative anchor is now in stable orbit hundreds of km
+            // from the player) is, by construction, far from the active
+            // vessel — the orbital booster sits at ~818 km from the pad in
+            // the captured repro. So this fast-path keeps the docking case
+            // perf-equivalent to pre-PR while still letting the staleness
+            // check fire for the failure mode.
+            //
+            // Threshold (5 km) sits comfortably above KSP's ~2.5 km physics
+            // bubble (anchors loaded for physics are within that range) and
+            // well below the km-scale separations the bug exhibits. NaN /
+            // Infinity distances fall through to the slow path rather than
+            // tripping the fast-path; better to spend one extra probe than
+            // misclassify.
+            //
+            // Perf coverage analysis (review P2 from the Opus pass):
+            //  - Anchor loaded AND in physics range (≤5 km from active):
+            //    fast-path returns. O(1). This is the docking/rendezvous
+            //    common case.
+            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
+            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
+            //    of the active vessel, so this band is narrow and rare —
+            //    typically only happens for a few frames around physics-
+            //    range crossings, or with mods extending the load distance.
+            //  - Anchor unloaded (vessel exists but physics-asleep): live
+            //    pose unavailable, fast-path can't apply, we fall through
+            //    to recorded probe. THIS is the bug-class path and the
+            //    probe is exactly what's needed.
+            // Net: under default KSP load behaviour, the residual probe-
+            // every-frame cost only applies to the bug-class scenario the
+            // PR is closing. If a future playtest with extended-physics
+            // mods shows perf regression for the loaded-but-far-from-active
+            // band, a per-FixedUpdate cache keyed on (anchorPid,
+            // sectionStartUT) is the natural follow-up — left out here to
+            // keep the surface area small until measured to matter.
+            if (liveAnchorAvailable && !bypassLiveAnchor)
+            {
+                Vessel activeForFastPath = FlightGlobals.ActiveVessel;
+                if (activeForFastPath != null)
+                {
+                    Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
+                    double distFromActive = (livePose.worldPos - activeWorld).magnitude;
+                    if (!double.IsNaN(distFromActive)
+                        && !double.IsInfinity(distFromActive)
+                        && distFromActive < LiveAnchorProximityFastPathMeters)
+                    {
+                        pose = livePose;
+                        return true;
+                    }
+                }
+            }
+
+            // Slow path: probe the recorded anchor pose so we can detect
+            // pose drift (live anchor far from active vessel — likely a
+            // post-merge / time-warp / cross-mission case). Pre-PR the
+            // early-exit at this point returned Live whenever
+            // liveAnchorAvailable && !bypass, skipping the recorded probe
+            // entirely; that made the post-merge watch-jump bug invisible
+            // because the Relative section's offset got decoded against the
+            // live anchor's CURRENT pose (hundreds of km from recording),
+            // tripping the watch zone cutoff. Keeping the recorded probe
+            // means we have the data to detect that drift and downgrade to
+            // the recorded path via IsStaleLiveAnchor below.
+            if (searchTrees == null)
+            {
+                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            }
+
+            bool recordedAnchorAvailable = TryResolveRecordedAnchorPoseWithCoverage(
+                anchorVesselId,
+                victimRecordingId,
+                targetUT,
+                searchTrees,
+                marker,
+                bypassLiveAnchor,
+                requireCoverage: true,
+                out RelativeAnchorPose recordedPose);
+
+            // Stale-anchor staleness gate: when we have BOTH a live and a
+            // recorded pose for the anchor at the playback UT, and they
+            // disagree by more than StaleRelativeAnchorRejectMeters, the
+            // live anchor's pose isn't what the recording captured (anchor
+            // has progressed past the recording's UT range, anchor was
+            // rewound, etc.). Prefer the recorded pose so the ghost renders
+            // at its recorded geometry instead of being decoded against an
+            // anchor that is now in a totally different physical location.
+            // This upgrades the active-Re-Fly bypass into a general "live
+            // anchor is unreliable" signal — same downstream path, broader
+            // applicability.
+            //
+            // Threshold rationale lives next to the constant; in short,
+            // 250 m is well above docking-approach noise (200 m
+            // DockingApproachMeters) and well below the km-scale drift the
+            // bug exhibits.
+            //
+            // Why this clause naturally no-ops during active Re-Fly:
+            // ShouldBypassLiveRelativeAnchorForActiveReFly already set
+            // bypassLiveAnchor=true above, which short-circuited the live
+            // probe (so liveAnchorAvailable=false). Both conditions
+            // conspire to skip this `if`. Don't add an explicit
+            // `bypassLiveAnchor` early-out here — leaving the predicate
+            // self-documenting via `liveAnchorAvailable` keeps the gate's
+            // semantics ("we have two poses to compare") readable.
+            if (liveAnchorAvailable
+                && recordedAnchorAvailable
+                && !bypassLiveAnchor
+                && RelativeAnchorResolution.IsStaleLiveAnchor(
+                    livePose.worldPos,
+                    recordedPose.worldPos,
+                    StaleRelativeAnchorRejectMeters,
+                    out double posDelta))
+            {
+                var ic = CultureInfo.InvariantCulture;
+                string staleKey = string.Concat(
+                    "stale-anchor|",
+                    anchorVesselId.ToString(ic),
+                    "|",
+                    victimRecordingId ?? "<no-victim>");
+                ParsekLog.VerboseRateLimited("Playback", staleKey,
+                    $"Stale relative anchor detected: anchorPid={anchorVesselId} " +
+                    $"victim={ShortRecordingId(victimRecordingId)} " +
+                    $"targetUT={targetUT.ToString("F2", ic)} " +
+                    $"liveWorld=({livePose.worldPos.x.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.y.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.z.ToString("F1", ic)}) " +
+                    $"recordedWorld=({recordedPose.worldPos.x.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.y.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.z.ToString("F1", ic)}) " +
+                    $"delta={posDelta.ToString("F0", ic)}m " +
+                    $"threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m " +
+                    "— preferring recorded anchor pose");
+                bypassLiveAnchor = true;
+            }
+
+            bool recordedFallbackAvailable = false;
+            RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
+            if (!recordedAnchorAvailable && bypassLiveAnchor)
+            {
+                recordedFallbackAvailable = TryResolveRecordedAnchorPoseWithCoverage(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    searchTrees,
+                    marker,
+                    bypassLiveAnchor,
+                    requireCoverage: false,
+                    out recordedFallbackPose);
+            }
+
+            RelativeAnchorResolution.AnchorFrameSource source =
+                RelativeAnchorResolution.SelectAnchorFrameSource(
+                    liveAnchorAvailable,
+                    bypassLiveAnchor,
+                    recordedAnchorAvailable,
+                    recordedFallbackAvailable);
+            switch (source)
+            {
+                case RelativeAnchorResolution.AnchorFrameSource.Live:
+                    pose = livePose;
+                    return true;
+                case RelativeAnchorResolution.AnchorFrameSource.Recorded:
+                    pose = recordedPose;
+                    return true;
+                case RelativeAnchorResolution.AnchorFrameSource.RecordedFallback:
+                    pose = recordedFallbackPose;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Stale-anchor staleness threshold (metres). Live anchor world position
+        // at the playback UT differs from recorded anchor world position at
+        // the same UT by more than this → the resolver downgrades to the
+        // recorded pose.
+        //
+        // Why 250 m:
+        // - During *normal* in-physics-range playback the live anchor is
+        //   either the active vessel or a vessel within ~2.5 km being
+        //   physics-simulated alongside; sample-interp drift across the
+        //   recording's ~0.1-0.5 s sample interval is at most a few tens of
+        //   metres for atmospheric flight and centimetres for a Kepler-on-
+        //   rails anchor (deterministic). 250 m gives ~5x safety margin
+        //   above that noise floor.
+        // - The *bug class* (post-merge watch session, plain rewind, time-
+        //   warp etc.) puts the live anchor hundreds of metres to hundreds
+        //   of km from where the recording captured it — orders of magnitude
+        //   above 250 m. The captured repro at
+        //   logs/2026-04-27_0123_watch-jump-and-ghost-misalign sat at
+        //   818 km, comfortably across the threshold.
+        // - Sits above DockingApproachMeters (200 m) so legitimate close-
+        //   rendezvous ghosts whose anchor is a docking target the player
+        //   is actively flying near don't false-positive on
+        //   sample-interp noise.
+        // - The companion proximity fast-path at LiveAnchorProximityFastPathMeters
+        //   already short-circuits the staleness check entirely for anchors
+        //   in physics range of the active vessel, so this threshold only
+        //   gates the cases where probing recorded was already going to
+        //   happen.
+        internal const double StaleRelativeAnchorRejectMeters = 250.0;
+
+        // Proximity fast-path threshold (metres). When the live anchor is
+        // closer than this to the active vessel, the relative-anchor
+        // resolver trusts the live pose and skips the recorded probe (and
+        // the staleness check that follows). Picked at 5 km: above KSP's
+        // ~2.5 km physics bubble so any legitimately-loaded anchor falls
+        // inside the fast-path, well below the bug-class km-scale
+        // separations.
+        internal const double LiveAnchorProximityFastPathMeters = 5_000.0;
+
+        bool ShouldBypassLiveRelativeAnchorForActiveReFly(
+            uint anchorVesselId,
+            string victimRecordingId,
+            ReFlySessionMarker marker,
+            IReadOnlyList<RecordingTree> searchTrees)
+        {
+            if (marker == null)
+                return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                || string.IsNullOrEmpty(victimRecordingId))
+                return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+                return false;
+
+            if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
+                return false;
+            if (anchorVesselId != activeReFlyPid)
+                return false;
+
+            // Compute the parent-chain hint for telemetry only — the bypass
+            // applies to any victim recording whose section anchor is the
+            // active Re-Fly PID, regardless of topological relationship. See
+            // RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly's
+            // docstring (PR after the 2026-04-26 sibling-chain repro).
+            bool victimIsParentOfActiveReFly =
+                GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                    victimRecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    searchTrees,
+                    out _);
+
+            return RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+                anchorVesselId,
+                activeReFlyPid,
+                victimRecordingId,
+                marker.ActiveReFlyRecordingId,
+                victimIsParentOfActiveReFly);
+        }
+
+        bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+            int recordingIndex,
+            IPlaybackTrajectory trajectory,
+            TrackSection section,
+            uint anchorVesselId,
+            double targetUT,
+            out List<TrajectoryPoint> absoluteFrames)
+        {
+            absoluteFrames = null;
+            if (trajectory == null
+                || section.referenceFrame != ReferenceFrame.Relative
+                || anchorVesselId == 0
+                || section.absoluteFrames == null
+                || section.absoluteFrames.Count < 1
+                || string.IsNullOrEmpty(trajectory.RecordingId))
+            {
+                return false;
+            }
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null
+                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                || !string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            IReadOnlyList<RecordingTree> searchTrees =
+                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (!ShouldBypassLiveRelativeAnchorForActiveReFly(
+                    anchorVesselId,
+                    trajectory.RecordingId,
+                    marker,
+                    searchTrees))
+            {
+                return false;
+            }
+
+            absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
+                trajectory,
+                section,
+                targetUT);
+            string logKey = string.Concat(
+                trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
+                "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
+            if (loggedRelativeAbsoluteShadowStart.Add(logKey))
+            {
+                ParsekLog.Info("Playback",
+                    $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
+                    $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
+                    $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
+                    $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
+                    $"reason=active-refly-parent-chain");
+            }
+            return true;
+        }
+
+        // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
+        // bounds. The 0.5s bridge window covers frame/float skew without spanning a
+        // real gap to an unrelated future section.
+        internal const double AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds = 0.5;
+
+        internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+            IPlaybackTrajectory trajectory,
+            TrackSection section,
+            double targetUT)
+        {
+            List<TrajectoryPoint> absoluteFrames = section.absoluteFrames;
+            if (absoluteFrames == null || absoluteFrames.Count == 0)
+                return absoluteFrames;
+            if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
+                return absoluteFrames;
+            if (targetUT >= absoluteFrames[0].ut)
+            {
+                TrajectoryPoint forwardBridge;
+                if (!TryFindAbsoluteShadowForwardBridgeFrame(
+                        trajectory, section, targetUT, out forwardBridge))
+                {
+                    return absoluteFrames;
+                }
+
+                TrajectoryPoint last = absoluteFrames[absoluteFrames.Count - 1];
+                if (forwardBridge.ut <= last.ut + 0.0001)
+                    return absoluteFrames;
+
+                var forwardBridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+                forwardBridged.AddRange(absoluteFrames);
+                forwardBridged.Add(forwardBridge);
+                ParsekLog.WarnRateLimited(
+                    "Playback",
+                    string.Concat(
+                        "absolute-shadow-forward-bridge|",
+                        trajectory?.RecordingId ?? "(none)",
+                        "|",
+                        section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "RELATIVE absolute shadow forward bridge inserted: recording={0} targetUT={1:F2} " +
+                        "lastShadowUT={2:F2} bridgeUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                        ShortRecordingId(trajectory?.RecordingId),
+                        targetUT,
+                        last.ut,
+                        forwardBridge.ut,
+                        section.startUT,
+                        section.endUT),
+                    30.0);
+                return forwardBridged;
+            }
+
+            TrajectoryPoint bridge;
+            if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
+                return absoluteFrames;
+            if (bridge.ut >= absoluteFrames[0].ut - 0.0001)
+                return absoluteFrames;
+
+            var bridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+            bridged.Add(bridge);
+            bridged.AddRange(absoluteFrames);
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                string.Concat(
+                    "absolute-shadow-bridge|",
+                    trajectory?.RecordingId ?? "(none)",
+                    "|",
+                    section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RELATIVE absolute shadow bridge inserted: recording={0} targetUT={1:F2} " +
+                    "bridgeUT={2:F2} firstShadowUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                    ShortRecordingId(trajectory?.RecordingId),
+                    targetUT,
+                    bridge.ut,
+                    absoluteFrames[0].ut,
+                    section.startUT,
+                    section.endUT),
+                30.0);
+            return bridged;
+        }
+
+        internal static bool TryFindAbsoluteShadowForwardBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            if (relativeSection.referenceFrame != ReferenceFrame.Relative
+                || relativeSection.absoluteFrames == null
+                || relativeSection.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            double lastShadowUT =
+                relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
+            double adjacentStartLimit = relativeSection.endUT + AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds;
+            bool found = false;
+            double bestUT = double.PositiveInfinity;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    // Do not bridge through an intervening non-RELATIVE section:
+                    // that means the frame changed, so returning the original
+                    // under-sampled shadow list is safer than mixing anchors.
+                    if (section.referenceFrame != ReferenceFrame.Relative
+                        || section.absoluteFrames == null
+                        || section.absoluteFrames.Count == 0)
+                    {
+                        continue;
+                    }
+                    if (section.anchorVesselId != relativeSection.anchorVesselId)
+                        continue;
+                    if (section.startUT > adjacentStartLimit)
+                        continue;
+                    if (section.endUT < relativeSection.endUT - 0.0001)
+                        continue;
+
+                    for (int j = 0; j < section.absoluteFrames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.absoluteFrames[j];
+                        if (candidate.ut <= lastShadowUT + 0.0001)
+                            continue;
+                        if (candidate.ut <= targetUT + 0.0001)
+                            continue;
+                        if (candidate.ut >= bestUT)
+                            continue;
+
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
+        }
+
+        internal static bool TryFindAbsoluteShadowBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            bool found = false;
+            double bestUT = double.NegativeInfinity;
+            double cutoffUT = Math.Max(targetUT, relativeSection.startUT) + 0.0001;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    if (section.referenceFrame != ReferenceFrame.Absolute || section.frames == null)
+                        continue;
+                    for (int j = 0; j < section.frames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.frames[j];
+                        if (candidate.ut > cutoffUT || candidate.ut <= bestUT)
+                            continue;
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
+        }
+
+        private static string ShortRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return "-";
+            return recordingId.Length <= 8 ? recordingId : recordingId.Substring(0, 8);
+        }
+
+        bool TryResolveActiveReFlyPid(
+            ReFlySessionMarker marker,
+            IReadOnlyList<RecordingTree> searchTrees,
+            out uint activeReFlyPid)
+        {
+            activeReFlyPid = 0u;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null)
+                        continue;
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        return true;
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec == null
+                        || !string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
+                        || rec.VesselPersistentId == 0u)
+                    {
+                        continue;
+                    }
+
+                    activeReFlyPid = rec.VesselPersistentId;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private const double RecordedAnchorFallbackGapWarnThresholdSeconds = 5.0;
+
+        bool TryResolveRecordedAnchorPoseWithCoverage(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            IReadOnlyList<RecordingTree> searchTrees,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly,
+            bool requireCoverage,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (anchorVesselId == 0u)
+                return false;
+
+            HashSet<string> seenRecordingIds = recordedAnchorSeenRecordingIds;
+            seenRecordingIds.Clear();
+            if (TryResolvePreReFlyFrozenAnchorPose(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    searchTrees,
+                    marker,
+                    bypassLiveAnchorForActiveReFly,
+                    seenRecordingIds,
+                    requireCoverage,
+                    out pose))
+            {
+                seenRecordingIds.Clear();
+                return true;
+            }
+
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null)
+                        continue;
+                    foreach (Recording rec in tree.Recordings.Values)
+                    {
+                        if (ShouldSkipMutableActiveReFlyAnchorCandidate(
+                                rec, marker, bypassLiveAnchorForActiveReFly))
+                        {
+                            continue;
+                        }
+                        if (TryResolveRecordedAnchorPoseFromCandidate(
+                                rec, anchorVesselId, victimRecordingId,
+                                targetUT, seenRecordingIds, requireCoverage, out pose))
+                        {
+                            seenRecordingIds.Clear();
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (ShouldSkipMutableActiveReFlyAnchorCandidate(
+                            committed[i], marker, bypassLiveAnchorForActiveReFly))
+                    {
+                        continue;
+                    }
+                    if (TryResolveRecordedAnchorPoseFromCandidate(
+                            committed[i], anchorVesselId, victimRecordingId,
+                            targetUT, seenRecordingIds, requireCoverage, out pose))
+                    {
+                        seenRecordingIds.Clear();
+                        return true;
+                    }
+                }
+            }
+
+            seenRecordingIds.Clear();
+            return false;
+        }
+
+        internal static bool ShouldSkipMutableActiveReFlyAnchorCandidate(
+            Recording candidate,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly)
+        {
+            if (!bypassLiveAnchorForActiveReFly)
+                return false;
+            if (candidate == null || marker == null)
+                return false;
+            if (string.IsNullOrEmpty(candidate.RecordingId)
+                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            return string.Equals(
+                candidate.RecordingId,
+                marker.ActiveReFlyRecordingId,
+                StringComparison.Ordinal);
+        }
+
+        bool TryResolvePreReFlyFrozenAnchorPose(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            IReadOnlyList<RecordingTree> searchTrees,
+            ReFlySessionMarker marker,
+            bool bypassLiveAnchorForActiveReFly,
+            HashSet<string> seenRecordingIds,
+            bool requireCoverage,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (!bypassLiveAnchorForActiveReFly)
+                return false;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+
+            Recording liveActive = FindActiveReFlyRecording(marker, searchTrees);
+            if (!ShouldUsePreReFlyAnchorTrajectory(
+                    liveActive,
+                    anchorVesselId,
+                    victimRecordingId,
+                    marker))
+            {
+                return false;
+            }
+
+            Recording frozen = liveActive.BuildPreReFlyAnchorTrajectoryRecording(marker.SessionId);
+            if (frozen == null)
+                return false;
+
+            return TryResolveRecordedAnchorPoseFromCandidate(
+                frozen,
+                anchorVesselId,
+                victimRecordingId,
+                targetUT,
+                seenRecordingIds,
+                requireCoverage,
+                out pose);
+        }
+
+        Recording FindActiveReFlyRecording(
+            ReFlySessionMarker marker,
+            IReadOnlyList<RecordingTree> searchTrees)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return null;
+
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null)
+                        continue;
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
+                        && rec != null)
+                    {
+                        return rec;
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec != null
+                        && string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        return rec;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        internal static bool ShouldUsePreReFlyAnchorTrajectory(
+            Recording candidate,
+            uint anchorVesselId,
+            string victimRecordingId,
+            ReFlySessionMarker marker)
+        {
+            if (candidate == null || marker == null)
+                return false;
+            if (anchorVesselId == 0u || candidate.VesselPersistentId != anchorVesselId)
+                return false;
+            if (string.IsNullOrEmpty(candidate.RecordingId)
+                || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                return false;
+            if (!string.IsNullOrEmpty(victimRecordingId)
+                && string.Equals(victimRecordingId, candidate.RecordingId, StringComparison.Ordinal))
+                return false;
+            return true;
+        }
+
+        bool TryResolveRecordedAnchorPoseFromCandidate(
+            Recording rec,
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            HashSet<string> seenRecordingIds,
+            bool requireCoverage,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (rec == null || rec.VesselPersistentId != anchorVesselId)
+                return false;
+            if (!string.IsNullOrEmpty(rec.RecordingId))
+            {
+                if (!string.IsNullOrEmpty(victimRecordingId)
+                    && string.Equals(rec.RecordingId, victimRecordingId, StringComparison.Ordinal))
+                    return false;
+                if (seenRecordingIds != null && !seenRecordingIds.Add(rec.RecordingId))
+                    return false;
+            }
+
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, targetUT);
+                if (sectionIdx < 0)
+                {
+                    if (requireCoverage)
+                        return false;
+
+                    if (!TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose, out double fallbackGapSeconds))
+                    {
+                        return false;
+                    }
+
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec, anchorVesselId, victimRecordingId, targetUT, fallbackGapSeconds);
+                    return true;
+                }
+
+                TrackSection section = rec.TrackSections[sectionIdx];
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                {
+                    if (requireCoverage)
+                        return false;
+
+                    if (!TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+                            rec, targetUT, out pose, out double fallbackGapSeconds))
+                    {
+                        return false;
+                    }
+
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec, anchorVesselId, victimRecordingId, targetUT, fallbackGapSeconds);
+                    return true;
+                }
+
+                List<TrajectoryPoint> anchorPoints =
+                    section.frames != null && section.frames.Count > 0
+                        ? section.frames
+                        : rec.Points;
+                bool resolved = TryResolveRecordedAnchorPointPose(
+                    anchorPoints,
+                    targetUT,
+                    requireCoverage: requireCoverage,
+                    out pose);
+                if (resolved && !requireCoverage)
+                {
+                    MaybeWarnLargeRecordedAnchorFallbackGap(
+                        rec,
+                        anchorVesselId,
+                        victimRecordingId,
+                        targetUT,
+                        DistanceOutsideRecordedAnchorCoverage(anchorPoints, targetUT));
+                }
+
+                return resolved;
+            }
+
+            bool resolvedFromPoints = TryResolveRecordedAnchorPointPose(
+                rec.Points,
+                targetUT,
+                requireCoverage: requireCoverage,
+                out pose);
+            if (resolvedFromPoints && !requireCoverage)
+            {
+                MaybeWarnLargeRecordedAnchorFallbackGap(
+                    rec,
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    DistanceOutsideRecordedAnchorCoverage(rec.Points, targetUT));
+            }
+
+            return resolvedFromPoints;
+        }
+
+        bool TryResolveNearestRecordedAnchorAbsoluteSectionPose(
+            Recording rec,
+            double targetUT,
+            out RelativeAnchorPose pose,
+            out double fallbackGapSeconds)
+        {
+            pose = default(RelativeAnchorPose);
+            fallbackGapSeconds = double.MaxValue;
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            List<TrajectoryPoint> bestPoints = null;
+            double bestGap = double.MaxValue;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection section = rec.TrackSections[i];
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                    continue;
+
+                List<TrajectoryPoint> points =
+                    section.frames != null && section.frames.Count > 0
+                        ? section.frames
+                        : rec.Points;
+                if (points == null || points.Count == 0)
+                    continue;
+
+                double gap = DistanceOutsideRecordedAnchorCoverage(points, targetUT);
+                if (gap < bestGap)
+                {
+                    bestGap = gap;
+                    bestPoints = points;
+                }
+            }
+
+            bool resolved = TryResolveRecordedAnchorPointPose(
+                bestPoints,
+                targetUT,
+                requireCoverage: false,
+                out pose);
+            if (resolved)
+                fallbackGapSeconds = bestGap;
+            return resolved;
+        }
+
+        void MaybeWarnLargeRecordedAnchorFallbackGap(
+            Recording rec,
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT,
+            double fallbackGapSeconds)
+        {
+            if (!ShouldWarnRecordedAnchorFallbackGap(fallbackGapSeconds))
+                return;
+
+            string anchorRecordingId = rec?.RecordingId;
+            string key = string.Format(CultureInfo.InvariantCulture,
+                "recorded-anchor-fallback-gap|anchorRec={0}|victimRec={1}|anchorPid={2}",
+                string.IsNullOrEmpty(anchorRecordingId) ? "(none)" : anchorRecordingId,
+                string.IsNullOrEmpty(victimRecordingId) ? "(none)" : victimRecordingId,
+                anchorVesselId);
+            ParsekLog.WarnRateLimited(
+                "Anchor",
+                key,
+                BuildRecordedAnchorFallbackGapLog(
+                    anchorRecordingId,
+                    victimRecordingId,
+                    anchorVesselId,
+                    targetUT,
+                    fallbackGapSeconds),
+                minIntervalSeconds: 30.0);
+        }
+
+        internal static bool ShouldWarnRecordedAnchorFallbackGap(double fallbackGapSeconds)
+        {
+            return !double.IsNaN(fallbackGapSeconds)
+                && !double.IsInfinity(fallbackGapSeconds)
+                && fallbackGapSeconds > RecordedAnchorFallbackGapWarnThresholdSeconds;
+        }
+
+        internal static string BuildRecordedAnchorFallbackGapLog(
+            string anchorRecordingId,
+            string victimRecordingId,
+            uint anchorVesselId,
+            double targetUT,
+            double fallbackGapSeconds)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "recorded-anchor-fallback-gap: anchorRec={0} victimRec={1} anchorPid={2} " +
+                "targetUT={3:F2} gap={4:F2}s reason=active-refly-live-anchor-bypass",
+                string.IsNullOrEmpty(anchorRecordingId) ? "(none)" : anchorRecordingId,
+                string.IsNullOrEmpty(victimRecordingId) ? "(none)" : victimRecordingId,
+                anchorVesselId,
+                targetUT,
+                fallbackGapSeconds);
+        }
+
+        internal static double DistanceOutsideRecordedAnchorCoverage(
+            List<TrajectoryPoint> points,
+            double targetUT)
+        {
+            if (points == null || points.Count == 0)
+                return double.MaxValue;
+
+            double firstUT = points[0].ut;
+            double lastUT = points[points.Count - 1].ut;
+            if (targetUT < firstUT)
+                return firstUT - targetUT;
+            if (targetUT > lastUT)
+                return targetUT - lastUT;
+            return 0.0;
+        }
+
+        internal static bool RecordedAnchorPointListCoversUT(
+            List<TrajectoryPoint> points,
+            double targetUT)
+        {
+            if (points == null || points.Count == 0)
+                return false;
+
+            const double eps = 0.0001;
+            double firstUT = points[0].ut;
+            double lastUT = points[points.Count - 1].ut;
+            return targetUT >= firstUT - eps && targetUT <= lastUT + eps;
+        }
+
+        internal static string BuildRelativeOffsetAppliedLog(
+            int recordingFormatVersion,
+            double dx,
+            double dy,
+            double dz,
+            uint anchorVesselId,
+            bool anchorFromRecordedTrajectory)
+        {
+            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
+                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId} " +
+                $"source={(anchorFromRecordedTrajectory ? "recorded" : "live")}";
+        }
+
+        bool TryResolveRecordedAnchorPointPose(
+            List<TrajectoryPoint> points,
+            double targetUT,
+            bool requireCoverage,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (points == null || points.Count == 0)
+                return false;
+            if (requireCoverage && !RecordedAnchorPointListCoversUT(points, targetUT))
+                return false;
+            if (points.Count == 1)
+                return TryBuildRecordedAnchorPoseFromPoint(points[0], out pose);
+
+            int cachedIndex = 0;
+            TrajectoryPoint before;
+            TrajectoryPoint after;
+            float t;
+            bool hasSegment = TrajectoryMath.InterpolatePoints(
+                points, ref cachedIndex, targetUT, out before, out after, out t);
+            if (!hasSegment)
+                return requireCoverage
+                    ? false
+                    : TryBuildRecordedAnchorPoseFromPoint(before, out pose);
+
+            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            if (bodyBefore == null || bodyAfter == null)
+                return false;
+
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
+                before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
+                after.latitude, after.longitude, after.altitude);
+            Quaternion surfaceRot = TrajectoryMath.SanitizeQuaternion(
+                Quaternion.Slerp(before.rotation, after.rotation, t));
+
+            pose.worldPos = Vector3d.Lerp(posBefore, posAfter, t);
+            pose.worldRotation = bodyBefore.bodyTransform.rotation * surfaceRot;
+            pose.fromRecordedTrajectory = true;
+            pose.hasSurfacePose = true;
+            pose.bodyBefore = bodyBefore;
+            pose.bodyAfter = bodyAfter;
+            pose.latBefore = before.latitude;
+            pose.lonBefore = before.longitude;
+            pose.altBefore = before.altitude;
+            pose.latAfter = after.latitude;
+            pose.lonAfter = after.longitude;
+            pose.altAfter = after.altitude;
+            pose.t = t;
+            pose.surfaceRot = surfaceRot;
+            return IsFiniteVector3d(pose.worldPos);
+        }
+
+        bool TryBuildRecordedAnchorPoseFromPoint(
+            TrajectoryPoint point, out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
+            if (body == null || body.bodyTransform == null)
+                return false;
+
+            Quaternion surfaceRot = TrajectoryMath.SanitizeQuaternion(point.rotation);
+            pose.worldPos = body.GetWorldSurfacePosition(
+                point.latitude, point.longitude, point.altitude);
+            pose.worldRotation = body.bodyTransform.rotation * surfaceRot;
+            pose.fromRecordedTrajectory = true;
+            pose.hasSurfacePose = true;
+            pose.bodyBefore = body;
+            pose.bodyAfter = body;
+            pose.latBefore = point.latitude;
+            pose.lonBefore = point.longitude;
+            pose.altBefore = point.altitude;
+            pose.latAfter = point.latitude;
+            pose.lonAfter = point.longitude;
+            pose.altAfter = point.altitude;
+            pose.t = 0f;
+            pose.surfaceRot = surfaceRot;
+            return IsFiniteVector3d(pose.worldPos);
         }
 
         bool TryResolveSurfaceWorldPosition(SurfacePosition surfacePos, out Vector3d worldPos)
@@ -15223,6 +16975,7 @@ namespace Parsek
             int recIdx,
             int ghostIdSalt,
             bool useAnchor,
+            GhostPlaybackState retireSignalState,
             bool allowActivation,
             out InterpolationResult interpResult)
         {
@@ -15238,26 +16991,40 @@ namespace Parsek
                 return;
             }
 
-            if (useAnchor)
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
+            if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
             {
-                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
-                if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
-                {
-                    var section = rec.TrackSections[sectionIdx];
-                    var sectionFrames = section.frames ?? rec.Points;
+                var section = rec.TrackSections[sectionIdx];
+                var sectionFrames = section.frames ?? rec.Points;
+                uint anchorVesselId = section.anchorVesselId != 0
+                    ? section.anchorVesselId
+                    : rec.LoopAnchorVesselId;
 
-                    long relKey = ((long)recIdx << 32) | rec.LoopAnchorVesselId;
+                if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                        recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
+                {
+                    InterpolateAndPosition(ghost, absoluteFrames, null,
+                        ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
+                        allowActivation: allowActivation,
+                        skipOrbitSegments: true);
+                    return;
+                }
+
+                if (useAnchor)
+                {
+                    long relKey = ((long)recIdx << 32) | anchorVesselId;
                     if (loggedRelativeStart.Add(relKey))
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
-                            $"\"{rec.VesselName}\" anchorPid={rec.LoopAnchorVesselId} " +
+                            $"\"{rec.VesselName}\" anchorPid={anchorVesselId} " +
                             $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
                     InterpolateAndPositionRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
-                        rec.LoopAnchorVesselId, rec.RecordingFormatVersion,
+                        anchorVesselId, rec.RecordingFormatVersion,
+                        recIdx, rec.RecordingId, rec.VesselName, retireSignalState,
                         allowActivation, out interpResult);
                     return;
                 }
@@ -15281,6 +17048,10 @@ namespace Parsek
             double targetUT,
             uint anchorVesselId,
             int recordingFormatVersion,
+            int recordingIndex,
+            string recordingId,
+            string recordingVesselName,
+            GhostPlaybackState retireSignalState,
             bool allowActivation,
             out InterpolationResult interpResult)
         {
@@ -15301,6 +17072,10 @@ namespace Parsek
                     frames[0],
                     anchorVesselId,
                     recordingFormatVersion,
+                    recordingIndex,
+                    recordingId,
+                    recordingVesselName,
+                    retireSignalState,
                     allowActivation);
                 interpResult = new InterpolationResult(frames[0].velocity, frames[0].bodyName, 0);
                 return;
@@ -15317,6 +17092,10 @@ namespace Parsek
                     before,
                     anchorVesselId,
                     recordingFormatVersion,
+                    recordingIndex,
+                    recordingId,
+                    recordingVesselName,
+                    retireSignalState,
                     allowActivation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, 0);
                 return;
@@ -15336,17 +17115,14 @@ namespace Parsek
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
-            // Find anchor vessel
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
             string bodyName = before.bodyName ?? "Kerbin";
+            RelativeAnchorPose anchorPose;
 
-            if (anchor != null)
+            if (TryResolveRelativeAnchorPose(anchorVesselId, recordingId, targetUT, out anchorPose))
             {
-                // Primary path: ghost position = anchor world position + interpolated offset
-                Vector3d anchorPos = anchor.GetWorldPos3D();
                 Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                    anchorPos,
-                    anchor.transform.rotation,
+                    anchorPose.worldPos,
+                    anchorPose.worldRotation,
                     dx,
                     dy,
                     dz,
@@ -15355,18 +17131,22 @@ namespace Parsek
                 if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
                 {
                     ParsekLog.Warn("Flight", "InterpolateAndPositionRelative: NaN in ghost position, using anchor position");
-                    ghostPos = anchorPos;
+                    ghostPos = anchorPose.worldPos;
                 }
 
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
-                    anchor.transform.rotation,
+                    anchorPose.worldRotation,
                     interpolatedRot);
 
                 ParsekLog.VerboseRateLimited("Flight", "relative-offset-applied",
-                    $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
-                    $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
-                    $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId}",
+                    BuildRelativeOffsetAppliedLog(
+                        recordingFormatVersion,
+                        dx,
+                        dy,
+                        dz,
+                        anchorVesselId,
+                        anchorPose.fromRecordedTrajectory),
                     2.0);
 
                 // Compute altitude for InterpolationResult
@@ -15384,7 +17164,8 @@ namespace Parsek
                     relativeBodyName = bodyName,
                     relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body, // for fallback in LateUpdate
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
+                    relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose)
                 });
 
                 interpResult = new InterpolationResult(
@@ -15393,18 +17174,23 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — keep ghost at its last position instead of hiding.
-                // RELATIVE frames store dx/dy/dz meter offsets, not geographic coordinates,
-                // so we can't position the ghost. But hiding it during watch mode is worse
-                // than freezing it in place. The ghost stays visible at its last known
-                // position from the previous ABSOLUTE section.
-                long key = ((long)anchorVesselId << 32);
+                // No live or recorded anchor pose is available. Retire for this
+                // frame so v6 metre offsets are never interpreted as surface
+                // lat/lon/alt or left frozen at a stale transform.
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long key = RelativeAnchorResolution.DedupeKey(recordingIndex, anchorVesselId);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found — " +
-                        $"ghost frozen at last known position (RELATIVE offsets unusable without anchor)");
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recordingIndex,
+                            recordingVesselName,
+                            anchorVesselId,
+                            "InterpolateAndPositionRelative"));
 
-                // Return zero result — the ghost stays where it was positioned last frame
+                // Return zero result -- ghost stays hidden until the next
+                // absolute section or until the anchor resolves.
                 interpResult = InterpolationResult.Zero;
             }
         }
@@ -15418,6 +17204,10 @@ namespace Parsek
             TrajectoryPoint point,
             uint anchorVesselId,
             int recordingFormatVersion,
+            int recordingIndex,
+            string recordingId,
+            string recordingVesselName,
+            GhostPlaybackState retireSignalState,
             bool allowActivation)
         {
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
@@ -15427,21 +17217,20 @@ namespace Parsek
             double dy = point.longitude;
             double dz = point.altitude;
             string bodyName = point.bodyName ?? "Kerbin";
+            RelativeAnchorPose anchorPose;
 
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-            if (anchor != null)
+            if (TryResolveRelativeAnchorPose(anchorVesselId, recordingId, point.ut, out anchorPose))
             {
-                Vector3d anchorPos = anchor.GetWorldPos3D();
                 Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                    anchorPos,
-                    anchor.transform.rotation,
+                    anchorPose.worldPos,
+                    anchorPose.worldRotation,
                     dx,
                     dy,
                     dz,
                     recordingFormatVersion);
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
-                    anchor.transform.rotation,
+                    anchorPose.worldRotation,
                     sanitized);
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
@@ -15455,19 +17244,25 @@ namespace Parsek
                     relativeBodyName = bodyName,
                     relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body,
-                    latBefore = dx, lonBefore = dy, altBefore = dz
+                    latBefore = dx, lonBefore = dy, altBefore = dz,
+                    relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose)
                 });
             }
             else
             {
-                // Anchor not found — keep ghost at its last position instead of hiding.
-                // Same rationale as InterpolateAndPositionRelative: freezing in place is
-                // better than disappearing during watch mode.
-                long key = ((long)anchorVesselId << 32);
+                // No live or recorded anchor pose is available. Retire for this
+                // frame; see InterpolateAndPositionRelative for the same gate.
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long key = RelativeAnchorResolution.DedupeKey(recordingIndex, anchorVesselId);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found — " +
-                        $"ghost frozen at last known position");
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recordingIndex,
+                            recordingVesselName,
+                            anchorVesselId,
+                            "PositionGhostRelativeAt"));
             }
         }
 

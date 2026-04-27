@@ -65,6 +65,62 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Deferred breakup scan filtering
+
+        [Fact]
+        public void IsSpaceObjectLikeBreakupScanReject_SpaceObject_ReturnsTrue()
+        {
+            bool rejected = ParsekFlight.IsSpaceObjectLikeBreakupScanReject(
+                VesselType.SpaceObject,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                out string reason);
+
+            Assert.True(rejected);
+            Assert.Equal("space-object-type", reason);
+        }
+
+        [Fact]
+        public void IsSpaceObjectLikeBreakupScanReject_AsteroidModule_ReturnsTrue()
+        {
+            bool rejected = ParsekFlight.IsSpaceObjectLikeBreakupScanReject(
+                VesselType.Ship,
+                new[] { "probeCoreOcto" },
+                new[] { "ModuleAsteroid" },
+                out string reason);
+
+            Assert.True(rejected);
+            Assert.Equal("asteroid-comet-module", reason);
+        }
+
+        [Fact]
+        public void IsSpaceObjectLikeBreakupScanReject_PotatoRoidPart_ReturnsTrue()
+        {
+            bool rejected = ParsekFlight.IsSpaceObjectLikeBreakupScanReject(
+                VesselType.Ship,
+                new[] { "PotatoRoid" },
+                Array.Empty<string>(),
+                out string reason);
+
+            Assert.True(rejected);
+            Assert.Equal("asteroid-comet-part", reason);
+        }
+
+        [Fact]
+        public void IsSpaceObjectLikeBreakupScanReject_NormalShip_ReturnsFalse()
+        {
+            bool rejected = ParsekFlight.IsSpaceObjectLikeBreakupScanReject(
+                VesselType.Ship,
+                new[] { "mk1pod" },
+                new[] { "ModuleCommand" },
+                out string reason);
+
+            Assert.False(rejected);
+            Assert.Null(reason);
+        }
+
+        #endregion
+
         #region GetEvaBackgroundInitialEnvironmentOverride
 
         [Fact]

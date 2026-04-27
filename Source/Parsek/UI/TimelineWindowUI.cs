@@ -898,7 +898,12 @@ namespace Parsek
                     // or any recording already looping so the timeline can still disable it.
                     // Uses the shared toggleButtonStyle so the "on" state looks pressed in
                     // (same idiom as the filter/tab toggles); text color stays default.
-                    if (ShouldShowLoopToggle(rec, isFuture))
+                    // Suppressed for Unfinished Flight recordings: loop on a crashed
+                    // sibling that the user is meant to re-fly is misleading. Mirrors
+                    // the rec window's hide-loop-checkbox treatment for the virtual
+                    // "Unfinished Flights" group.
+                    bool isUnfinishedFlight = EffectiveState.IsUnfinishedFlight(rec);
+                    if (ShouldShowLoopToggle(rec, isFuture, isUnfinishedFlight))
                     {
                         string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
                         bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
@@ -1043,9 +1048,10 @@ namespace Parsek
                 : RowActionButtonWidth;
         }
 
-        internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture)
+        internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture, bool isUnfinishedFlight = false)
         {
             return !isFuture
+                && !isUnfinishedFlight
                 && rec != null
                 && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
         }

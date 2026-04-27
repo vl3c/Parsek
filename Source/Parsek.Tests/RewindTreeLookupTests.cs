@@ -432,7 +432,20 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(head);
             RecordingStore.AddRecordingWithTreeForTesting(tip);
 
-            var rp = new RewindPoint { RewindPointId = "rp_uf", BranchPointId = "bp_uf" };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_uf",
+                BranchPointId = "bp_uf",
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_head_uf",
+                        Controllable = true
+                    }
+                }
+            };
             var scenario = new ParsekScenario
             {
                 RewindPoints = new List<RewindPoint> { rp },

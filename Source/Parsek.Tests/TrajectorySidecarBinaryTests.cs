@@ -50,6 +50,7 @@ namespace Parsek.Tests
         [InlineData(4, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
@@ -125,6 +126,28 @@ namespace Parsek.Tests
             AssertTrajectoryPayloadEqual(original, restored);
             Assert.Equal(original.Points.Count, restored.Points.Count);
             Assert.Equal(original.OrbitSegments.Count, restored.OrbitSegments.Count);
+        }
+
+        [Fact]
+        public void WriteRead_RelativeSection_PreservesAbsoluteShadowFrames()
+        {
+            Recording original = BuildRelativeShadowFixture();
+
+            string path = Path.Combine(tempDir, "relative-shadow.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 13);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.Equal(RecordingStore.RelativeAbsoluteShadowFormatVersion, probe.FormatVersion);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            AssertTrajectoryPayloadEqual(original, restored);
+            Assert.Single(restored.TrackSections);
+            Assert.Equal(2, restored.TrackSections[0].absoluteFrames.Count);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
         }
 
         [Fact]
@@ -335,6 +358,64 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static TrajectoryPoint MakePoint(
+            double ut,
+            double latitude,
+            double longitude,
+            double altitude,
+            string bodyName)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+                bodyName = bodyName,
+                funds = 1000f,
+                science = 1f,
+                reputation = 0.5f
+            };
+        }
+
+        private static Recording BuildRelativeShadowFixture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "relative-shadow",
+                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion,
+                VesselName = "Upper Stage",
+                VesselPersistentId = 12001u
+            };
+
+            var relativeA = MakePoint(100.0, 1.0, 2.0, 3.0, "Kerbin");
+            var relativeB = MakePoint(101.0, 4.0, 5.0, 6.0, "Kerbin");
+            var absoluteA = MakePoint(100.0, -0.04, -74.55, 78000.0, "Kerbin");
+            var absoluteB = MakePoint(101.0, -0.03, -74.54, 78120.0, "Kerbin");
+
+            rec.Points.Add(relativeA);
+            rec.Points.Add(relativeB);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 101.0,
+                anchorVesselId = 3314061462u,
+                sampleRateHz = 2f,
+                minAltitude = 3f,
+                maxAltitude = 6f,
+                frames = new List<TrajectoryPoint> { relativeA, relativeB },
+                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
         private static BinaryTrajectoryEnvelope ReadEnvelopeHeader(string path)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -456,6 +537,14 @@ namespace Parsek.Tests
             Assert.Equal(expected.frames.Count, actual.frames.Count);
             for (int i = 0; i < expected.frames.Count; i++)
                 AssertPointEqual(expected.frames[i], actual.frames[i]);
+
+            List<TrajectoryPoint> expectedAbsoluteFrames =
+                expected.absoluteFrames ?? new List<TrajectoryPoint>();
+            List<TrajectoryPoint> actualAbsoluteFrames =
+                actual.absoluteFrames ?? new List<TrajectoryPoint>();
+            Assert.Equal(expectedAbsoluteFrames.Count, actualAbsoluteFrames.Count);
+            for (int i = 0; i < expectedAbsoluteFrames.Count; i++)
+                AssertPointEqual(expectedAbsoluteFrames[i], actualAbsoluteFrames[i]);
 
             Assert.Equal(expected.checkpoints.Count, actual.checkpoints.Count);
             for (int i = 0; i < expected.checkpoints.Count; i++)
