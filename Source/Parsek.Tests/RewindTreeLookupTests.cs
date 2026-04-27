@@ -509,6 +509,120 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        [Fact]
+        public void ShouldShowLegacyRewindButton_ChainHeadWithUnfinishedTip_ReturnsTrue()
+        {
+            // Repro for the launch-row bug: the recordings table dropped the R
+            // (Rewind-to-launch) button on a launch row because a sibling chain
+            // segment (the destroyed continuation under the staging
+            // BranchPoint) qualified as an Unfinished Flight. The launch row
+            // (chain HEAD, chainIndex=0) does not own a parentBranchPointId
+            // and is NOT itself an unfinished flight — only the TIP is — so
+            // the legacy R must still render so the player can rewind the
+            // mission to the pad. Pre-fix the row showed neither R nor RtS.
+            var bp = new BranchPoint { Id = "bp_stage", Type = BranchPointType.JointBreak };
+            var tree = new RecordingTree
+            {
+                Id = "tree_chain",
+                TreeName = "LaunchChainTree",
+                RootRecordingId = "rec_head",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+            // HEAD = launch row. Owns the rewind quicksave, no BP link.
+            var head = new Recording
+            {
+                RecordingId = "rec_head",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = null,
+                ParentBranchPointId = null,
+                ChildBranchPointId = null,
+                TreeId = "tree_chain",
+                ChainId = "chain_kx",
+                ChainIndex = 0,
+                RewindSaveFileName = "parsek_rw_launch"
+            };
+            head.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            // TIP = destroyed continuation under the staging BP.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X (continued)",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage",
+                TreeId = "tree_chain",
+                ChainId = "chain_kx",
+                ChainIndex = 1
+            };
+            tip.Points.Add(new TrajectoryPoint { ut = 30.0 });
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_tip",
+                        Controllable = true
+                    }
+                }
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint> { rp },
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            scenario.BumpTombstoneStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            // Sanity: TIP is the unfinished flight, HEAD is not.
+            Assert.True(EffectiveState.IsUnfinishedFlight(tip));
+            Assert.False(EffectiveState.IsUnfinishedFlight(head));
+            // Sanity: HEAD owns the rewind save.
+            Assert.Same(head, RecordingStore.GetRewindRecording(head));
+
+            // HEAD keeps R-to-launch. TIP gets Rewind-to-Staging instead, so
+            // the legacy R is suppressed there.
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(head, now: 100.0));
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(tip, now: 100.0));
+        }
+
+        [Fact]
+        public void ShouldShowLegacyRewindButton_StandaloneCrashedRecording_StillReturnsTrue()
+        {
+            // Inverse-regression: a plain standalone crashed recording with
+            // its own rewind save (no chain, no BranchPoint linkage) is NOT an
+            // unfinished flight (no parent/child BP id) and must still render
+            // the legacy R-to-launch button — same as the existing
+            // StandaloneWithOwnSave case but with a destroyed terminal to
+            // make sure the new gate doesn't accidentally suppress it.
+            var rec = new Recording
+            {
+                RecordingId = "standalone_crashed",
+                VesselName = "CrashTester",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                RewindSaveFileName = "parsek_rw_crashed"
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+
+            bool result = RecordingsTableUI.ShouldShowLegacyRewindButton(rec, now: 200.0);
+
+            Assert.True(result);
+        }
+
         #endregion
     }
 }

@@ -1589,10 +1589,12 @@ namespace Parsek
                     // ShouldShowLegacyRewindButton suppresses tree branches
                     // (debris / decouple children / EVA splits) so the player
                     // only sees one R per tree — on the launch row.
-                    // The unfinished-flight chain check inside the helper
-                    // keeps Rewind-to-Staging chains from falling back to
-                    // rewind-to-launch (drawn above via
-                    // DrawUnfinishedFlightRewindButton).
+                    // The unfinished-flight gate inside the helper suppresses
+                    // R only for the row that is itself an unfinished flight
+                    // (it gets Rewind-to-Staging instead via
+                    // DrawUnfinishedFlightRewindButton); the chain HEAD keeps
+                    // R-to-launch even when a sibling chain TIP is the
+                    // unfinished flight.
                     string rewindReason;
                     bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
@@ -2696,9 +2698,12 @@ namespace Parsek
         /// duplicate buttons that all rewind to the same root launch — the
         /// player sees four identical "R" buttons after a normal merge and
         /// reasonably concludes they're broken. Future rows take the FF path
-        /// instead, and rows that are part of an unfinished-flight chain use
+        /// instead, and rows that ARE THEMSELVES an unfinished flight render
         /// the Rewind-to-Staging button drawn separately by
-        /// <c>DrawUnfinishedFlightRewindButton</c>.
+        /// <c>DrawUnfinishedFlightRewindButton</c>; the chain HEAD (the launch
+        /// row that owns the rewind quicksave) keeps its R-to-launch even when
+        /// a sibling chain TIP is the unfinished flight, so the player can
+        /// always rewind a launch to the pad.
         /// </summary>
         internal static bool ShouldShowLegacyRewindButton(Recording rec, double now)
         {
@@ -2714,10 +2719,16 @@ namespace Parsek
             var owner = RecordingStore.GetRewindRecording(rec);
             if (owner == null) return false;
             if (!ReferenceEquals(owner, rec)) return false;
-            // Unfinished-flight chain members get the Rewind-to-Staging button
-            // (drawn by DrawUnfinishedFlightRewindButton); silently rewinding
-            // the whole mission to the pad here would be a footgun.
-            if (EffectiveState.IsChainMemberOfUnfinishedFlight(rec)) return false;
+            // Suppress only when THIS row is itself an unfinished flight: the
+            // Rewind-to-Staging button (DrawUnfinishedFlightRewindButton) takes
+            // over and offering rewind-to-launch alongside it would be a
+            // footgun. We must NOT suppress when only some OTHER chain member
+            // is the unfinished flight — that incorrectly hides R on the
+            // launch row of a multi-segment chain whose destroyed continuation
+            // (TIP) carries the BP link, leaving the player no way to rewind
+            // the mission to the pad. See bug: launch root recording with
+            // chainIndex=0 + destroyed chain TIP at chainIndex=1.
+            if (EffectiveState.IsUnfinishedFlight(rec)) return false;
             return true;
         }
 
