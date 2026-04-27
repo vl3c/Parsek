@@ -199,6 +199,14 @@ namespace Parsek
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers.
         /// Used by the optimizer split pass where ghosting triggers don't block splitting.
         /// </summary>
+        /// <remarks>
+        /// Splits are driven by `rec.TrackSections` only — `rec.OrbitSegments` is never
+        /// inspected here and carries no `environment` field. On-rails BG vessels emit
+        /// OrbitSegments but never env-classified TrackSections (see
+        /// `BackgroundRecorder.BackgroundOnRailsState`), so an eccentric grazing-Pe orbit
+        /// coasted for thousands of orbits produces zero split candidates regardless of
+        /// orbit count. The invariant is guarded by `EccentricOrbitOptimizerInvariantTests`.
+        /// </remarks>
         internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
         {
             var candidates = new List<(int, int)>();

@@ -81,6 +81,12 @@ namespace Parsek
                     : SegmentEnvironment.SurfaceStationary;
             }
 
+            // Atmospheric is altitude-only — KSP's on-rails propagator ignores drag, so a
+            // packed vessel with Pe inside atmosphere classifies as Atmospheric here even
+            // though it does not decelerate. Callers that route this into TrackSection
+            // emission must gate on "off rails" (see `BackgroundRecorder.OnBackgroundPhysicsFrame`'s
+            // `bgVessel.packed` early-return and `FlightRecorder.OnPhysicsFrame`'s `isOnRails`
+            // early-return) to avoid spurious atmo<->exo splits per orbit on grazing-Pe coasts.
             if (hasAtmosphere && altitude < atmosphereDepth)
                 return SegmentEnvironment.Atmospheric;
 
