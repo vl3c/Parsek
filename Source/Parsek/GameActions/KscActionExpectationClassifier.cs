@@ -18,11 +18,11 @@ namespace Parsek
 
                 case GameActionType.FundsSpending:
                     // The KSC path uses FundsSpending for part purchases (via
-                    // ConvertPartPurchased -> source=Other) and for rollout deductions
-                    // (#445, OnVesselRolloutSpending -> source=VesselBuild). Each pairs
+                    // ConvertPartPurchased → source=Other) and for rollout deductions
+                    // (#445, OnVesselRolloutSpending → source=VesselBuild). Each pairs
                     // with a different KSP TransactionReasons key on FundsChanged.
                     // Strategy input (source=Strategy) is not yet captured on KSC (Phase
-                    // E1.5) - skip if we ever see it. Stock bypass=true part unlocks
+                    // E1.5) — skip if we ever see it. Stock bypass=true part unlocks
                     // now record a zero charged cost in GameStateRecorder, so they stay
                     // on the untransformed path here and short-circuit later via the
                     // zero-expected-delta early return in ReconcileKscAction.
