@@ -132,11 +132,19 @@ namespace Parsek.Tests
 
         // A standard subtree: origin (in closure) + one descendant inside the
         // closure + one unrelated recording outside.
+        //
+        // origin and inside share VesselPersistentId (linear same-PID
+        // continuation through the BP). After the
+        // fix-refly-suppress-side-off PID gate (2026-04-27), the BP-children
+        // walk only enqueues children whose PID matches the parent — so the
+        // inside descendant must declare the same PID to land in the closure.
+        // outside has a distinct PID because it stays out of the closure
+        // (not connected via any BP edge to origin).
         private void InstallOriginClosureFixture(string originId = "rec_origin",
             string insideId = "rec_inside", string outsideId = "rec_outside")
         {
             var origin = Rec(originId, "tree_1", childBranchPointId: "bp_c", vesselPid: 1001);
-            var inside = Rec(insideId, "tree_1", parentBranchPointId: "bp_c", vesselPid: 1002);
+            var inside = Rec(insideId, "tree_1", parentBranchPointId: "bp_c", vesselPid: 1001);
             var outside = Rec(outsideId, "tree_1", vesselPid: 1003);
             var bp_c = Bp("bp_c", BranchPointType.Undock,
                 parents: new List<string> { originId },
@@ -280,8 +288,15 @@ namespace Parsek.Tests
             // Undock branch-point claiming an outside PID, plus a control
             // outside subtree doing the same claim. Only the outside claim
             // should survive during re-fly.
+            //
+            // rec_inside shares VesselPersistentId with rec_origin so it is
+            // a same-PID linear continuation through the BP — this is the
+            // shape that lands in the SessionSuppressedSubtree closure after
+            // the fix-refly-suppress-side-off PID gate (2026-04-27). A side-
+            // off child (different PID) would be excluded from the closure
+            // by design and would not exercise the chain-walker skip path.
             var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_undock_inside", vesselPid: 1001);
-            var insideClaimer = Rec("rec_inside", "tree_1", parentBranchPointId: "bp_undock_inside", vesselPid: 2001);
+            var insideClaimer = Rec("rec_inside", "tree_1", parentBranchPointId: "bp_undock_inside", vesselPid: 1001);
             var outsideClaimer = Rec("rec_outside", "tree_2", childBranchPointId: "bp_undock_outside", vesselPid: 3001);
             var outsideChild = Rec("rec_outside_child", "tree_2", parentBranchPointId: "bp_undock_outside", vesselPid: 3002);
 

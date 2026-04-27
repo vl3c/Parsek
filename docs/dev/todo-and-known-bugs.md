@@ -11,6 +11,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~629. Re-Fly hides side-off vessels (e.g. previous lower stage) for the entire session~~
+
+Repro logs: `logs/2026-04-27_2157_stage-separation-bugs/KSP.log` lines around
+18045-18047. Re-Fly origin recording `5ca2cac9d7b24b87a0a4367a5929c0e7`
+("Kerbal X" upper stage U, pid 2708531065) carries `ChildBranchPointId =
+ff480fe7…` (the LU separation BP). That BP has two children: the same-PID
+linear continuation of U, AND `d252fa498a5c476abb852f66d57f0f02` ("Kerbal X
+Probe", pid 3295431853 = lower stage L) which is the side-off booster from the
+original separation. L runs on its own ChainId, reached orbit, and is a
+stand-alone branch. While re-flying U, the user expects L's ghost to keep
+playing so they can watch the original booster do its thing — instead L
+disappears from flight, map view, and ghost playback for the entire re-fly
+session because the SessionSuppressedSubtree closure was treating every
+BP-child as suppressed.
+
+Root cause: `EffectiveState.ComputeSessionSuppressedSubtreeInternal`'s
+BP-children loop walked every child of every BP encountered. Side-off
+branches (children whose `VesselPersistentId` differs from the parent
+recording's PID) are separate physical vessels with their own lineage; the
+re-fly only re-records the same-PID linear continuation and cannot
+legitimately supersede sibling branches with different PIDs. Same-PID
+continuations across chains were already handled separately by
+`EnqueueChainSiblings` and `EnqueuePidPeerSiblings`.
+
+Fix: restrict the BP-children walk to children whose `VesselPersistentId`
+matches the dequeued recording's `VesselPersistentId`. Side-off children are
+skipped with a verbose `[ReFlySession] SessionSuppressedSubtree: skipped
+side-off …` log line; the summary log gains a `sideOffSkips=N` counter.
+PID 0 on either side falls back to the prior wide-walk behavior so legacy /
+unset-PID data is unchanged. The fewer supersede rows / fewer kerbal-death
+tombstones produced at merge time are the correct outcome — the re-fly does
+not supersede side-offs; the new flight will produce its own side-offs at
+its own future staging events and supersede the old ones at that moment.
+
+Regression coverage in `SessionSuppressedSubtreeTests`:
+`BpChildrenWalk_SidePidChild_Excluded`,
+`BpChildrenWalk_DownstreamOfSideOff_AlsoExcluded`,
+`BpChildrenWalk_BothPidsZero_LegacyWideWalk_Preserved`,
+`BpChildrenWalk_OriginPidZero_ChildPidNonZero_StillExcluded`. The two
+`SessionSuppressionWiringTests` fixtures that incidentally used different
+PIDs for origin/inside descendants were updated to use the same PID so they
+still exercise the linear-continuation path the closure now scopes to.
+
 ## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
 
 Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),

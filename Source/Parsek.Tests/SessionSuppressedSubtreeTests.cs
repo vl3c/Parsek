@@ -536,5 +536,167 @@ namespace Parsek.Tests
             // Null marker → always false.
             Assert.False(EffectiveState.IsInSessionSuppressedSubtree(inside, null));
         }
+
+        // =====================================================================
+        // Same-PID-only BP-children gate (bug fix-refly-suppress-side-off,
+        // 2026-04-27).
+        //
+        // Reproduces the LU staging case from KSP.log 2026-04-27_2157:
+        // origin U (pid X) re-flown after staging; the BP child A continues
+        // U's PID (linear continuation, MUST be in closure); the BP child B
+        // is the side-off lower-stage L (different PID Y, MUST NOT be in
+        // closure — L is a separate physical vessel still standing on its own
+        // chain). The new flight will produce its own side-offs at its own
+        // future staging events; those will supersede old side-offs at that
+        // future moment, not now.
+        // =====================================================================
+
+        [Fact]
+        public void BpChildrenWalk_SidePidChild_Excluded()
+        {
+            // origin U (pid 100) -> bp_stage -> child A (pid 100, linear) +
+            //                                   child B (pid 200, side-off / L)
+            const uint upperPid = 100u;
+            const uint lowerPid = 200u;
+
+            var origin = Rec("rec_origin_U", "tree_1", childBranchPointId: "bp_stage");
+            origin.VesselPersistentId = upperPid;
+            var sameLine = Rec("rec_child_U_continuation", "tree_1",
+                parentBranchPointId: "bp_stage");
+            sameLine.VesselPersistentId = upperPid;
+            var sideOff = Rec("rec_child_L_lower", "tree_1",
+                parentBranchPointId: "bp_stage");
+            sideOff.VesselPersistentId = lowerPid;
+
+            var bp_stage = Bp("bp_stage", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin_U" },
+                children: new List<string> { "rec_child_U_continuation", "rec_child_L_lower" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, sameLine, sideOff },
+                new List<BranchPoint> { bp_stage });
+            InstallScenario(Marker("rec_origin_U"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin_U"));
+
+            Assert.Contains("rec_origin_U", closure);
+            Assert.Contains("rec_child_U_continuation", closure);
+            Assert.DoesNotContain("rec_child_L_lower", closure);
+            Assert.Equal(2, closure.Count);
+
+            // Verbose log line for the skipped side-off.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("skipped side-off")
+                && l.Contains("rec_child_L_lower"));
+            // Summary counter present.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("sideOffSkips=1"));
+        }
+
+        [Fact]
+        public void BpChildrenWalk_DownstreamOfSideOff_AlsoExcluded()
+        {
+            // origin U (pid 100) -> bp_stage -> child U_cont (pid 100) [in]
+            //                                  child L (pid 200) [side-off, OUT]
+            //                                                    -> bp_l_dock -> L_merged (pid 200) [OUT — never enqueued]
+            // Confirms the side-off skip stops walking the L subtree entirely.
+            const uint upperPid = 100u;
+            const uint lowerPid = 200u;
+
+            var origin = Rec("rec_origin_U", "tree_1", childBranchPointId: "bp_stage");
+            origin.VesselPersistentId = upperPid;
+            var uCont = Rec("rec_u_cont", "tree_1", parentBranchPointId: "bp_stage");
+            uCont.VesselPersistentId = upperPid;
+            var lSide = Rec("rec_l_side", "tree_1",
+                parentBranchPointId: "bp_stage", childBranchPointId: "bp_l_dock");
+            lSide.VesselPersistentId = lowerPid;
+            var lDownstream = Rec("rec_l_downstream", "tree_1",
+                parentBranchPointId: "bp_l_dock");
+            lDownstream.VesselPersistentId = lowerPid;
+
+            var bp_stage = Bp("bp_stage", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin_U" },
+                children: new List<string> { "rec_u_cont", "rec_l_side" });
+            var bp_l_dock = Bp("bp_l_dock", BranchPointType.Undock,
+                parents: new List<string> { "rec_l_side" },
+                children: new List<string> { "rec_l_downstream" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, uCont, lSide, lDownstream },
+                new List<BranchPoint> { bp_stage, bp_l_dock });
+            InstallScenario(Marker("rec_origin_U"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin_U"));
+
+            Assert.Contains("rec_origin_U", closure);
+            Assert.Contains("rec_u_cont", closure);
+            Assert.DoesNotContain("rec_l_side", closure);
+            Assert.DoesNotContain("rec_l_downstream", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void BpChildrenWalk_BothPidsZero_LegacyWideWalk_Preserved()
+        {
+            // Legacy / unset PID on both sides (== 0) — fall back to the prior
+            // wide-walk behavior so legacy data is not silently re-scoped.
+            // Same fixture as ForwardOnlyClosure_LinearChain_IncludesAllDescendants
+            // but with sibling structure to mirror the side-off case.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            // Both siblings have VesselPersistentId == 0 (default).
+            var siblingA = Rec("rec_sibA", "tree_1", parentBranchPointId: "bp_c");
+            var siblingB = Rec("rec_sibB", "tree_1", parentBranchPointId: "bp_c");
+
+            var bp_c = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_sibA", "rec_sibB" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, siblingA, siblingB },
+                new List<BranchPoint> { bp_c });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            // PID 0 == 0 ⇒ both children admitted (legacy wide walk).
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_sibA", closure);
+            Assert.Contains("rec_sibB", closure);
+            Assert.Equal(3, closure.Count);
+        }
+
+        [Fact]
+        public void BpChildrenWalk_OriginPidZero_ChildPidNonZero_StillExcluded()
+        {
+            // Edge case: origin has unset PID (legacy), child has a real PID.
+            // 0 != 200 so the child is treated as side-off and excluded. This
+            // preserves the design intent (only enqueue same-PID children) at
+            // the cost of being slightly more conservative for legacy origins.
+            // The cross-chain pid-peer walk does not fire here either because
+            // origin's PID is 0 (the gate `rec.VesselPersistentId == 0` short-
+            // circuits in EnqueuePidPeerSiblings).
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            // origin.VesselPersistentId left as 0
+            var child = Rec("rec_child", "tree_1", parentBranchPointId: "bp_c");
+            child.VesselPersistentId = 200u;
+
+            var bp_c = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_child" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, child },
+                new List<BranchPoint> { bp_c });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_child", closure);
+            Assert.Single(closure);
+        }
     }
 }
