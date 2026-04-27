@@ -11,6 +11,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle
+
+When the user clicked Watch on ghost B while watching ghost A, returned to A
+several seconds later, then re-clicked Watch on B, the camera resumed pointing
+in the same world-space direction it had on B before the user left — but B's
+horizon proxy / camera pivot had rotated continuously during the gap, so the
+"same world direction" decomposed into a meaningfully different (and visually
+surprising) local pitch/heading on the rotated basis. Logs:
+`logs/2026-04-27_1902/KSP.log:208600-208760` — `Watch camera capture
+(switch-source)` ... `Watch camera apply (switch-apply)` pairs show
+`sourceWorldOrbit ≈ resolvedWorldOrbit` with a different local
+pitch/hdg on each W->W round-trip.
+
+Root cause: `WatchModeController.EnterWatchMode` stored the captured source
+state into the per-mode remembered slot via the raw `RememberWatchCameraState`,
+which kept `HasWorldOrbitDirection=true`. The local `switchCameraState` was
+then passed to `TryApplySwitchedWatchCameraState`, where
+`CompensateTransferredWatchAngles` decomposed the world direction into the
+destination ghost's *current* basis — fine for chain transfers (immediate
+within-frame auto-handoff via `TransferWatchToNextSegment`, no drift window),
+wrong for explicit user W->W switches separated by many frames.
+
+Fix: Extracted pure `WatchModeController.MakeWatchCameraStateTargetRelative`
+helper that strips `HasTargetRotation` and `HasWorldOrbitDirection` from a
+copy of a captured camera state. `EnterWatchMode`'s W->W branch now passes
+the captured state through this helper before remembering and before applying,
+so the restore re-applies the captured `(pitch, hdg)` directly relative to
+the destination ghost's own target transform. `TransferWatchToNextSegment`
+keeps the raw world-direction path because the auto-handoff applies on the
+same frame.
+
+Regression tests in `WatchModeControllerTests`:
+
+- `MakeWatchCameraStateTargetRelative_ClearsBasisFields_KeepsPitchHeadingDistanceMode`
+- `CompensateTransferredWatchAngles_TargetRelativeStateIgnoresNewTargetRotation`
+- `CompensateTransferredWatchAngles_RawWorldDirectionStateStillProjectsForChainTransfers`
+
 ## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
 
 Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
