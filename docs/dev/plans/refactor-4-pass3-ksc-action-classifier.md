@@ -8,7 +8,8 @@ fast-forward).
 **Status:** Proposal plus implementation checkpoints. The classifier-only
 extraction behind `LedgerOrchestrator.ClassifyAction` is complete, and the
 DTO/enum type migration to `KscActionExpectationClassifier` is complete.
-Reconciliation movement remains a separate follow-up.
+The KSC per-action reconciler helper extraction is also complete behind
+`LedgerOrchestrator` compatibility facades.
 
 ## Goal
 
@@ -346,8 +347,9 @@ green and continuation on the open PR was approved:
   existing production and test call sites.
 - Kept `OnKscSpending`, `OnVesselRolloutSpending`, ledger action insertion,
   sequence assignment, post-walk reconciliation, legacy migration, ledger
-  mutation, logging policy, and resource/currency mutation order in
-  `LedgerOrchestrator`.
+  mutation, and resource/currency mutation order in `LedgerOrchestrator`.
+- Preserved the existing reconciliation logging policy and text inside the
+  extracted helper; only the helper's file/class owner changed.
 - Migrated the `EarningsReconciliationTests` reflection hooks for
   `KscExpectedLegMatch` and `ComputeExpectedDeltaForLeg` to
   `typeof(KscActionReconciler)`.
