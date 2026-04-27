@@ -669,15 +669,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BpChildrenWalk_OriginPidZero_ChildPidNonZero_StillExcluded()
+        public void BpChildrenWalk_OriginPidZero_ChildPidNonZero_AdmittedAsLegacy()
         {
-            // Edge case: origin has unset PID (legacy), child has a real PID.
-            // 0 != 200 so the child is treated as side-off and excluded. This
-            // preserves the design intent (only enqueue same-PID children) at
-            // the cost of being slightly more conservative for legacy origins.
-            // The cross-chain pid-peer walk does not fire here either because
-            // origin's PID is 0 (the gate `rec.VesselPersistentId == 0` short-
-            // circuits in EnqueuePidPeerSiblings).
+            // Asymmetric unknown-PID: origin has unset PID (legacy data),
+            // child has a real PID. We cannot tell whether the child is a
+            // side-off branch or a same-vessel continuation that simply got
+            // its PID assigned later, so the gate must NOT skip — preserve the
+            // prior wide-walk behavior and admit the child. Only the fully
+            // known asymmetric case (both PIDs nonzero AND different) is a
+            // confident side-off.
             var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
             // origin.VesselPersistentId left as 0
             var child = Rec("rec_child", "tree_1", parentBranchPointId: "bp_c");
@@ -695,8 +695,36 @@ namespace Parsek.Tests
             var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
 
             Assert.Contains("rec_origin", closure);
-            Assert.DoesNotContain("rec_child", closure);
-            Assert.Single(closure);
+            Assert.Contains("rec_child", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void BpChildrenWalk_OriginPidNonZero_ChildPidZero_AdmittedAsLegacy()
+        {
+            // Symmetric edge: origin has a real PID, child has unset PID
+            // (legacy seed). Same reasoning — unknown PID on the child means
+            // we cannot confidently classify it as side-off. Admit it and
+            // preserve the wide-walk behavior for legacy data.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            origin.VesselPersistentId = 100u;
+            var child = Rec("rec_child", "tree_1", parentBranchPointId: "bp_c");
+            // child.VesselPersistentId left as 0
+
+            var bp_c = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_child" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, child },
+                new List<BranchPoint> { bp_c });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_child", closure);
+            Assert.Equal(2, closure.Count);
         }
     }
 }

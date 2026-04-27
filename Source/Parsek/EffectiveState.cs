@@ -677,8 +677,13 @@ namespace Parsek
                 // will produce its OWN side-off recordings if it stages, and
                 // those will supersede the old ones at that future moment via
                 // the standard supersede-row path. PID 0 (legacy / unset) on
-                // either side falls back to the prior wide-walk behavior because
-                // 0 == 0; legacy recordings continue to behave as before.
+                // EITHER side falls back to the prior wide-walk behavior — when
+                // one PID is unknown we cannot tell side-off from same-vessel
+                // continuation, so we admit the child rather than silently
+                // dropping a possibly-legitimate continuation from the closure
+                // (and from supersede / tombstone generation). Only the fully
+                // known asymmetric case (both PIDs nonzero and different) is
+                // confidently a side-off.
                 //
                 // Cross-chain same-PID peers (different ChainId, same PID) are
                 // still picked up by EnqueuePidPeerSiblings. Same-chain segments
@@ -758,10 +763,18 @@ namespace Parsek
                         // Same-PID-only gate: skip side-off branches (different
                         // VesselPersistentId from the current dequeued recording).
                         // See block comment above for the design rationale.
-                        // Both PIDs == 0 (legacy / unset) match by definition and
-                        // preserve the prior wide-walk behavior for legacy data.
+                        // Gate is bypassed whenever EITHER side's PID is 0
+                        // (unknown / unset — legacy data or freshly seeded
+                        // pre-PID records). With one side unknown we can't
+                        // tell side-off from same-vessel continuation, so we
+                        // preserve the prior wide-walk behavior and admit the
+                        // child. The fully-known case (both PIDs nonzero and
+                        // different) is the only one we can confidently call a
+                        // side-off.
                         if (recById.TryGetValue(childId, out var childRec)
                             && childRec != null
+                            && currentRec.VesselPersistentId != 0
+                            && childRec.VesselPersistentId != 0
                             && childRec.VesselPersistentId != currentRec.VesselPersistentId)
                         {
                             sideOffSkips++;

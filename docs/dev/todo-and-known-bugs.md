@@ -114,7 +114,7 @@ Fix: restrict the BP-children walk to children whose `VesselPersistentId`
 matches the dequeued recording's `VesselPersistentId`. Side-off children are
 skipped with a verbose `[ReFlySession] SessionSuppressedSubtree: skipped
 side-off …` log line; the summary log gains a `sideOffSkips=N` counter.
-PID 0 on either side falls back to the prior wide-walk behavior so legacy /
+PID 0 on EITHER side falls back to the prior wide-walk behavior so legacy /
 unset-PID data is unchanged. The fewer supersede rows / fewer kerbal-death
 tombstones produced at merge time are the correct outcome — the re-fly does
 not supersede side-offs; the new flight will produce its own side-offs at
@@ -124,7 +124,8 @@ Regression coverage in `SessionSuppressedSubtreeTests`:
 `BpChildrenWalk_SidePidChild_Excluded`,
 `BpChildrenWalk_DownstreamOfSideOff_AlsoExcluded`,
 `BpChildrenWalk_BothPidsZero_LegacyWideWalk_Preserved`,
-`BpChildrenWalk_OriginPidZero_ChildPidNonZero_StillExcluded`. The two
+`BpChildrenWalk_OriginPidZero_ChildPidNonZero_AdmittedAsLegacy`,
+`BpChildrenWalk_OriginPidNonZero_ChildPidZero_AdmittedAsLegacy`. The two
 `SessionSuppressionWiringTests` fixtures that incidentally used different
 PIDs for origin/inside descendants were updated to use the same PID so they
 still exercise the linear-continuation path the closure now scopes to.
