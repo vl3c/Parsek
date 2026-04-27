@@ -216,16 +216,45 @@ namespace Parsek.Tests.Rendering
             // What makes it fail: missing-file path doesn't surface the
             // distinct reason → can't differentiate a fresh recording from
             // a recording whose .pann was deleted.
+            //
+            // L7 split (design doc §19.2 Sidecar table): the absent-file path
+            // emits BOTH a Pipeline-Sidecar Info line ("Pannotations missing →
+            // lazy compute scheduled", asserted in
+            // L7_PannotationsMissing_LogsLazyComputeScheduled below) AND the
+            // existing Pipeline-Smoothing "Lazy compute" Info line asserted
+            // here. The two serve distinct concerns — sidecar I/O state vs
+            // smoothing-stage recompute — and were collapsed into a single log
+            // site during initial implementation; the split restores §19.2's
+            // documented contract.
             var rec = MakeRecording("rec-L7");
             string pannPath = Path.Combine(tempDir, "rec-L7.pann");
 
             SmoothingPipeline.LoadOrCompute(rec, pannPath);
 
-            // The lazy-compute reason in L7 ↔ Pipeline-Smoothing line; the
-            // sidecar table's "node missing → lazy compute scheduled" Info
-            // becomes the Pipeline-Smoothing line we already emit.
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Smoothing]")
                 && l.Contains("Lazy compute")
+                && l.Contains("reason=file-missing"));
+        }
+
+        [Fact]
+        public void L7_PannotationsMissing_LogsLazyComputeScheduled()
+        {
+            // What makes it fail: the Pipeline-Sidecar half of L7 ("Node
+            // missing → lazy compute scheduled" in §19.2's Sidecar table) was
+            // collapsed into the Pipeline-Smoothing line during initial
+            // implementation. Re-splitting the two lets a developer grep the
+            // sidecar tag for I/O concerns independently from the smoothing
+            // stage's recompute concerns.
+            var rec = MakeRecording("rec-L7-sidecar");
+            string pannPath = Path.Combine(tempDir, "rec-L7-sidecar.pann");
+
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("Pannotations missing")
+                && l.Contains("lazy compute scheduled")
+                && l.Contains("recordingId=rec-L7-sidecar")
+                && l.Contains("block=SmoothingSplineList")
                 && l.Contains("reason=file-missing"));
         }
 
@@ -242,6 +271,15 @@ namespace Parsek.Tests.Rendering
             // What makes it fail: a non-canonical reason string would break
             // log greps that key on the documented reason set in §19.2 (the
             // Sidecar row "Whole-file invalidation").
+            //
+            // The five InlineData cases above cover the full canonical
+            // whole-file-invalidation reason set documented in design doc
+            // §19.2 / §21.3. The remaining two members of the six-token
+            // canonical set (`file-missing` and `payload-corrupt`) are
+            // emitted on different code paths (absent-file branch and
+            // mid-stream read failure respectively); see
+            // L7_PannotationsMissing_LogsLazyComputeScheduled and the
+            // payload-corrupt assertion in SmoothingPipelineTests for those.
             string id = "rec-L8-" + expectedReason;
             string pannPath = Path.Combine(tempDir, id + ".pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
@@ -275,25 +313,28 @@ namespace Parsek.Tests.Rendering
             var rec = MakeRecording(id);
             SmoothingPipeline.LoadOrCompute(rec, pannPath);
 
-            // version-drift produces a probe Supported=false → orchestrator
-            // emits a probe-failed line at the file-present branch. The other
-            // four are post-probe drift signals.
-            if (expectedReason == "version-drift")
-            {
-                // Phase 1 contract: version-drift surfaces as a probe failure
-                // (the file's binary version doesn't match what we know how to
-                // read). The orchestrator's L8 line uses reason=probe-failed
-                // in this case because the probe itself is the source of truth.
-                Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
-                    && l.Contains("Pannotations probe failed")
-                    && l.Contains("reason=probe-failed"));
-                return;
-            }
-
+            // Every reason — including version-drift — flows through the
+            // canonical L8 "whole-file invalidation" line with the documented
+            // reason token. The previous "version-drift surfaces as
+            // probe-failed" carve-out hid the real reason behind a generic
+            // label and broke greps keyed on §19.2's documented set.
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
                 && l.Contains("whole-file invalidation")
                 && l.Contains("recordingId=" + id)
                 && l.Contains("reason=" + expectedReason));
+
+            if (expectedReason == "version-drift")
+            {
+                // Pin the foundVersion / expectedVersion fields specifically
+                // for the version-drift case so the diagnostic data carries
+                // enough context to classify the mismatch from the log alone.
+                Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                    && l.Contains("whole-file invalidation")
+                    && l.Contains("reason=version-drift")
+                    && l.Contains("foundVersion=99")
+                    && l.Contains("expectedVersion="
+                        + PannotationsSidecarBinary.PannotationsBinaryVersion));
+            }
         }
 
         // --- L9: Verbose Pipeline-Sidecar on atomic write OK ---

@@ -136,11 +136,16 @@ namespace Parsek.Rendering
                 $"pannPresent={(pannPresent ? "true" : "false")} degradedFeatures=[]");
 
             if (pannPresent && PannotationsSidecarBinary.TryProbe(pannPath, out PannotationsSidecarProbe probe)
-                && probe.Success
-                && probe.Supported)
+                && probe.Success)
             {
+                // ClassifyDrift handles both the supported-but-stale cases
+                // (epoch / format / config-hash / alg-stamp) and the
+                // !Supported case (binary version mismatch → version-drift).
+                // Surfacing the canonical reason token here is what the §19.2
+                // logging contract pins; the legacy "probe-failed" wording
+                // hid a real version-drift case behind a generic label.
                 string drift = ClassifyDrift(probe, rec, expectedHash);
-                if (drift == null)
+                if (drift == null && probe.Supported)
                 {
                     if (PannotationsSidecarBinary.TryRead(pannPath, probe,
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
@@ -171,7 +176,8 @@ namespace Parsek.Rendering
                     $"Pannotations whole-file invalidation: recordingId={recordingId} reason={drift} " +
                     $"binaryVersion={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} " +
                     $"sidecarEpoch={probe.SourceSidecarEpoch} formatVersion={probe.SourceRecordingFormatVersion} " +
-                    $"recordingEpoch={rec.SidecarEpoch} recordingFormatVersion={rec.RecordingFormatVersion}");
+                    $"recordingEpoch={rec.SidecarEpoch} recordingFormatVersion={rec.RecordingFormatVersion} " +
+                    $"foundVersion={probe.BinaryVersion} expectedVersion={PannotationsSidecarBinary.PannotationsBinaryVersion}");
                 ParsekLog.Info("Pipeline-Smoothing",
                     $"Lazy compute: recordingId={recordingId} reason={drift}");
             }
@@ -182,6 +188,18 @@ namespace Parsek.Rendering
                 {
                     ParsekLog.Info("Pipeline-Sidecar",
                         $"Pannotations probe failed: recordingId={recordingId} reason={drift} path={pannPath}");
+                }
+                else
+                {
+                    // L7 (design doc §19.2 Sidecar table): the absent-file path
+                    // emits a Pipeline-Sidecar Info line "Pannotations missing
+                    // → lazy compute scheduled" alongside the existing
+                    // Pipeline-Smoothing "Lazy compute" line. The two serve
+                    // distinct concerns — sidecar I/O state vs smoothing-stage
+                    // recompute — and grep gates pin both independently.
+                    ParsekLog.Info("Pipeline-Sidecar",
+                        $"Pannotations missing → lazy compute scheduled recordingId={recordingId} " +
+                        $"block=SmoothingSplineList reason=file-missing");
                 }
                 ParsekLog.Info("Pipeline-Smoothing",
                     $"Lazy compute: recordingId={recordingId} reason={drift}");
@@ -252,6 +270,17 @@ namespace Parsek.Rendering
         /// safe to read. The token returned is the value we surface in the
         /// <c>Pipeline-Sidecar</c> Info log for L8 — keep the canonical set
         /// stable so log greps and tests can pin to it.
+        ///
+        /// <para>
+        /// The canonical reason set (design doc §19.2 / §21.3): <c>version-drift</c>
+        /// (binary version unsupported — emitted when <c>probe.Supported == false &amp;&amp;
+        /// probe.BinaryVersion != PannotationsSidecarBinary.PannotationsBinaryVersion</c>),
+        /// <c>alg-stamp-drift</c>, <c>epoch-drift</c>, <c>format-drift</c>,
+        /// <c>config-hash-drift</c>. The orchestrator additionally surfaces
+        /// <c>file-missing</c> (for the absent-file path) and
+        /// <c>payload-corrupt</c> (for mid-stream read failures) outside this
+        /// method, completing the six-token canonical set.
+        /// </para>
         /// </summary>
         private static string ClassifyDrift(
             PannotationsSidecarProbe probe, Recording rec, byte[] expectedConfigHash)
