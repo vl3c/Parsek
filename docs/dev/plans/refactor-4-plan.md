@@ -228,7 +228,11 @@ Pass 3 starts only after the Pass 2 analysis is reviewed and approved.
 Likely candidates to evaluate, not promises:
 
 - `LedgerOrchestrator` decomposition if Pass 2 finds separable lifecycle,
-  reconciliation, migration, or UI-reporting responsibilities.
+  reconciliation, migration, or UI-reporting responsibilities. The first Pass 3
+  LedgerOrchestrator slice is complete: PR #620 proposed the KSC action
+  classifier/reconciler boundary and PR #621 extracted
+  `KscActionExpectationClassifier` plus `KscActionReconciler` behind stable
+  `LedgerOrchestrator` facades with zero production logic changes.
 - `UI/RecordingsTableUI` sub-splitting if the field/callback coupling has a
   clean ownership boundary.
 - storage helper extraction across `RecordingStore`,
@@ -238,6 +242,8 @@ Likely candidates to evaluate, not promises:
 - finalization cache producer/applier/shared endpoint helpers.
 
 Every Pass 3 change must be a separate logical commit with a focused review.
+Do not fold more work into the completed PR #621 stack; the next Pass 3 split
+needs its own proposal/update and PR.
 
 ## Magic Values Pass
 
@@ -254,7 +260,7 @@ Run separately from structural moves. For each candidate literal:
 | Gate | When | Criteria |
 |------|------|----------|
 | `dotnet build Source/Parsek/Parsek.csproj` | After every Tier 1 file or Tier 2 batch | Build succeeds; no new warnings from code changes |
-| Filtered xUnit baseline | While KSP is open/locked | `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passes 8,625+ tests |
+| Filtered xUnit baseline | While KSP is open/locked | `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passes the current non-injection gate (9,261 tests at PR #621 closeout) |
 | Full xUnit baseline | When KSP is closed or a clean `KSPDIR` is provided | `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` passes, including `InjectAllRecordings` |
 | Orchestrator diff review | Every change | No behavior change; logs/tests meaningful |
 | Refactor checklist review | Every commit or small group | Use `docs/dev/done/refactor/refactor-review-checklist.md` |
