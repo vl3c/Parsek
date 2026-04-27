@@ -28,7 +28,7 @@ if (envChanged || bodyChanged) && CanAutoSplitIgnoringGhostTriggers(rec, s)
     candidates.Add(...)
 ```
 
-`SplitEnvironmentClass` ([RecordingOptimizer.cs:850-862](../../Source/Parsek/RecordingOptimizer.cs)):
+`SplitEnvironmentClass` ([RecordingOptimizer.cs:850-862](../../../Source/Parsek/RecordingOptimizer.cs)):
 
 | `SegmentEnvironment` | class |
 | --- | --- |
@@ -45,17 +45,17 @@ The intent (per `parsek-flight-recorder-design.md` §9A.5) is to break a multi-e
 
 Two recorder pathways write env-tagged TrackSections:
 
-**A. `FlightRecorder.UpdateEnvironmentTracking` ([FlightRecorder.cs:5640](../../Source/Parsek/FlightRecorder.cs))** — runs every physics frame for the focused vessel. `EnvironmentDetector.Classify` is fed through `EnvironmentHysteresis` (debounce). On a confirmed transition, it closes the current section and opens a new one tagged with `TrackSectionSource.Active`.
+**A. `FlightRecorder.UpdateEnvironmentTracking` ([FlightRecorder.cs:5640](../../../Source/Parsek/FlightRecorder.cs))** — runs every physics frame for the focused vessel. `EnvironmentDetector.Classify` is fed through `EnvironmentHysteresis` (debounce). On a confirmed transition, it closes the current section and opens a new one tagged with `TrackSectionSource.Active`.
 
-**B. `BackgroundRecorder.OnBackgroundPhysicsFrame` ([BackgroundRecorder.cs:1450-1476](../../Source/Parsek/BackgroundRecorder.cs))** — runs for every loaded-but-not-active vessel in the physics bubble (`bgVessel.loaded && !bgVessel.packed`). Same hysteresis pattern; sections tagged `TrackSectionSource.Background`.
+**B. `BackgroundRecorder.OnBackgroundPhysicsFrame` ([BackgroundRecorder.cs:1450-1476](../../../Source/Parsek/BackgroundRecorder.cs))** — runs for every loaded-but-not-active vessel in the physics bubble (`bgVessel.loaded && !bgVessel.packed`). Same hysteresis pattern; sections tagged `TrackSectionSource.Background`.
 
-**C. Loaded → on-rails transition with no-payload boundary section.** When a background-loaded vessel transitions to on-rails AND the env class differs across the boundary AND the new on-rails state will not produce a playable payload, `FlushLoadedStateForOnRailsTransition` ([BackgroundRecorder.cs:2985-3018](../../Source/Parsek/BackgroundRecorder.cs)) calls `ShouldPersistNoPayloadOnRailsBoundaryTrackSection` ([BackgroundRecorder.cs:2352-2362](../../Source/Parsek/BackgroundRecorder.cs)) and emits a single-frame TrackSection at the boundary. That section is `source = Background`, `referenceFrame = Absolute`, env = the *next* env on the on-rails side. The previous Background/Absolute section ends with the *previous* env. Net effect: two adjacent Background/Absolute sections with differing env class and *no PartEvent at the seam*. **This is the one path the meaningful-action gate has to handle deliberately** — the source/reference-frame backstop (S2/S4 below) does not catch it because both sides are Background/Absolute, not Checkpoint or OrbitalCheckpoint, and there is no nearby thrust/decouple/parachute event because the seam is created at the *transition*, not at any in-flight action.
+**C. Loaded → on-rails transition with no-payload boundary section.** When a background-loaded vessel transitions to on-rails AND the env class differs across the boundary AND the new on-rails state will not produce a playable payload, `FlushLoadedStateForOnRailsTransition` ([BackgroundRecorder.cs:2985-3018](../../../Source/Parsek/BackgroundRecorder.cs)) calls `ShouldPersistNoPayloadOnRailsBoundaryTrackSection` ([BackgroundRecorder.cs:2352-2362](../../../Source/Parsek/BackgroundRecorder.cs)) and emits a single-frame TrackSection at the boundary. That section is `source = Background`, `referenceFrame = Absolute`, env = the *next* env on the on-rails side. The previous Background/Absolute section ends with the *previous* env. Net effect: two adjacent Background/Absolute sections with differing env class and *no PartEvent at the seam*. **This is the one path the meaningful-action gate has to handle deliberately** — the source/reference-frame backstop (S2/S4 below) does not catch it because both sides are Background/Absolute, not Checkpoint or OrbitalCheckpoint, and there is no nearby thrust/decouple/parachute event because the seam is created at the *transition*, not at any in-flight action.
 
 Two pathways do **not** open env-tagged TrackSections:
 
-**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, the recorder accumulates `OrbitSegment` entries on the recording's flat `OrbitSegments` list. No `TrackSection`s are opened by this path. `UpdateOnRails` ([BackgroundRecorder.cs:1348](../../Source/Parsek/BackgroundRecorder.cs)) only refreshes `ExplicitEndUT`. So a probe that is *purely* on-rails for hundreds of orbits produces zero env-tagged sections, regardless of how many times its trajectory crosses the atmosphere line.
+**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, the recorder accumulates `OrbitSegment` entries on the recording's flat `OrbitSegments` list. No `TrackSection`s are opened by this path. `UpdateOnRails` ([BackgroundRecorder.cs:1348](../../../Source/Parsek/BackgroundRecorder.cs)) only refreshes `ExplicitEndUT`. So a probe that is *purely* on-rails for hundreds of orbits produces zero env-tagged sections, regardless of how many times its trajectory crosses the atmosphere line.
 
-**E. Active-vessel pack transition** — when a focused vessel goes on rails, `FlightRecorder` opens a single `OrbitalCheckpoint` TrackSection ([FlightRecorder.cs:6268-6269](../../Source/Parsek/FlightRecorder.cs)) and stamps it with the env classified at the moment of packing. While packed, no further env transitions are written. The whole on-rails coast is one section.
+**E. Active-vessel pack transition** — when a focused vessel goes on rails, `FlightRecorder` opens a single `OrbitalCheckpoint` TrackSection ([FlightRecorder.cs:6268-6269](../../../Source/Parsek/FlightRecorder.cs)) and stamps it with the env classified at the moment of packing. While packed, no further env transitions are written. The whole on-rails coast is one section.
 
 **Conclusion.** The S16 "100 orbit chain explosion" cannot fire from a *purely* on-rails recording in the current code — there is no producer of multiple env-tagged sections. It can fire only when the vessel transits the loaded physics bubble across multiple periapsis passes (e.g. another mission flying nearby, or the player briefly switching to it). The atmo-grazing concern is therefore narrower than §2.1 framed it, but the *principle* (geometric crossings ≠ gameplay events) still applies, and there is a real cluster of focused-flight scenarios where it matters:
 
@@ -81,7 +81,7 @@ These are not common but they are not zero, and the redesign is cheap.
 | Surface (2) → Exo (1) | Take-off from airless body | Bouncy EVA hop (debounce already handles) | **Always meaningful** — keep current behavior |
 | Exo (1) → Approach (3) | Vacuum descent crossing the airless approach altitude | Highly eccentric flyby just dipping below approach altitude (rare) | **Always meaningful** — keep current behavior (see resolution below) |
 | Approach (3) → Exo (1) | Take-off ascent past approach altitude | Same flyby case in reverse | **Always meaningful** — keep current behavior |
-| Surface (2) → Approach (3) | Take-off on airless body before reaching escape (debounce already covers near-surface jitter) | EVA jetpack on Mun | **Keep current** — Surface↔Approach already debounced (`ApproachDebounceSeconds = 3.0`, see [EnvironmentDetector.cs:243-245](../../Source/Parsek/EnvironmentDetector.cs)) |
+| Surface (2) → Approach (3) | Take-off on airless body before reaching escape (debounce already covers near-surface jitter) | EVA jetpack on Mun | **Keep current** — Surface↔Approach already debounced (`ApproachDebounceSeconds = 3.0`, see [EnvironmentDetector.cs:243-245](../../../Source/Parsek/EnvironmentDetector.cs)) |
 | Approach (3) → Surface (2) | Vacuum landing — passes through approach zone before touchdown | EVA jetpack settle | **Keep current** |
 
 **Aggregating into three buckets:**
@@ -96,7 +96,7 @@ These are not common but they are not zero, and the redesign is cheap.
 
 Candidate signals, ranked by reliability and ease of implementation:
 
-**S1. PartEvent within a window of the boundary UT.** The optimizer already has `Recording.PartEvents` in hand and walks them in `IsInertPartEventForTailTrim` etc. A boundary at `prev.endUT` is meaningful if any PartEvent satisfies `|evt.ut - prev.endUT| <= W` and `evt.eventType ∈ MeaningfulSet`, where:
+**S1. PartEvent within a window of the split UT.** The optimizer already has `Recording.PartEvents` in hand and walks them in `IsInertPartEventForTailTrim` etc. The boundary is meaningful if any PartEvent satisfies `|evt.ut - splitUT| <= W` and `evt.eventType ∈ MeaningfulSet`, where `splitUT = next.startUT` — the same UT that `RecordingOptimizer.SplitAtSection` ([RecordingOptimizer.cs:367](../../../Source/Parsek/RecordingOptimizer.cs)) actually cuts at. Adjacent sections can have a small gap or overlap (the recorder closes/opens at slightly different UTs across some seam paths, and `TrimOverlappingSectionFrames` reconciles after merges), so anchoring the gate to `prev.endUT` instead of the real cut UT can accept or suppress the wrong boundary. Pass `splitUT` in explicitly:
 
 ```
 MeaningfulSet = {
@@ -113,7 +113,7 @@ MeaningfulSet = {
 }
 ```
 
-RCS events are necessary because `EnvironmentDetector.Classify` ([EnvironmentDetector.cs:96-99](../../Source/Parsek/EnvironmentDetector.cs)) sets `ExoPropulsive` only when an `ModuleEngines` engine has `finalThrust > 0`. RCS thrust is tracked via separate dictionaries (`activeRcsKeys`/`lastRcsThrottle`, see CLAUDE.md "Engine key encoding") and does **not** flip the env from `ExoBallistic` to `ExoPropulsive`. Without RCS in the set, an RCS-only deorbit kick that crosses 70 km would have `ExoBallistic → Atmospheric` on both sides, S3 would not short-circuit, and the gate would suppress the split despite a recorded RCS event at the crossing UT.
+RCS events are necessary because `EnvironmentDetector.Classify` ([EnvironmentDetector.cs:96-99](../../../Source/Parsek/EnvironmentDetector.cs)) sets `ExoPropulsive` only when an `ModuleEngines` engine has `finalThrust > 0`. RCS thrust is tracked via separate dictionaries (`activeRcsKeys`/`lastRcsThrottle`, see CLAUDE.md "Engine key encoding") and does **not** flip the env from `ExoBallistic` to `ExoPropulsive`. Without RCS in the set, an RCS-only deorbit kick that crosses 70 km would have `ExoBallistic → Atmospheric` on both sides, S3 would not short-circuit, and the gate would suppress the split despite a recorded RCS event at the crossing UT.
 
 `W = 5.0 s` is a reasonable starting point: physics-tick PartEvent timestamps and TrackSection boundary UTs are usually within milliseconds, so any honest reentry/ascent will land in the window. Tightening to 2 s also works but risks missing throttle-hold ascents where the throttle stays constant across the 70 km mark and the nearest engine event is the launch at T-0; in that case a thermal or decouple event normally lands closer.
 
@@ -133,7 +133,7 @@ This is a defensive backstop, not the primary signal.
 
 ```
 internal static bool IsMeaningfulSplitBoundary(
-    Recording rec, TrackSection prev, TrackSection next)
+    Recording rec, TrackSection prev, TrackSection next, double splitUT)
 {
     int prevClass = SplitEnvironmentClass(prev.environment);
     int nextClass = SplitEnvironmentClass(next.environment);
@@ -154,19 +154,24 @@ internal static bool IsMeaningfulSplitBoundary(
         && next.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
         return false;
 
-    // S1: meaningful PartEvent within ±W of the crossing UT.
-    return HasMeaningfulPartEventNearUT(rec, prev.endUT, MeaningfulBoundaryWindowSeconds);
+    // S1: meaningful PartEvent within ±W of the split UT (next.startUT — the UT
+    // SplitAtSection actually cuts at; not prev.endUT, which can drift by gap/overlap).
+    return HasMeaningfulPartEventNearUT(rec, splitUT, MeaningfulBoundaryWindowSeconds);
 }
 ```
 
 Wired into `FindSplitCandidatesForOptimizer`:
 
 ```
+TrackSection prev = rec.TrackSections[s - 1];
+TrackSection next = rec.TrackSections[s];
+double splitUT    = next.startUT;   // matches RecordingOptimizer.SplitAtSection:367
+
 bool envChanged   = SplitEnvironmentClass(prev) != SplitEnvironmentClass(next);
 bool bodyChanged  = SectionBodyChanged(prev, next);   // #251 — always meaningful
 
 bool meaningful   = bodyChanged
-                 || (envChanged && IsMeaningfulSplitBoundary(rec, prev, next));
+                 || (envChanged && IsMeaningfulSplitBoundary(rec, prev, next, splitUT));
 
 if (!meaningful) continue;
 if (CanAutoSplitIgnoringGhostTriggers(rec, s)) candidates.Add((i, s));
@@ -182,13 +187,13 @@ The body-change rule stays unconditional. The env-class rule gains the meaningfu
 
 ### Forward-only application
 
-The optimizer split pass runs in `RecordingStore.RunOptimizationPass` ([RecordingStore.cs:1970-1980](../../Source/Parsek/RecordingStore.cs)) and is invoked from `ParsekScenario.OnLoad`, `ChainSegmentManager`, `MergeDialog`, and a few other commit sites ([grep audit above](#references)). On every load and every commit, the pass walks committed recordings looking for split candidates.
+The optimizer split pass runs in `RecordingStore.RunOptimizationPass` ([RecordingStore.cs:1970-1980](../../../Source/Parsek/RecordingStore.cs)) and is invoked from `ParsekScenario.OnLoad`, `ChainSegmentManager`, `MergeDialog`, and a few other commit sites ([grep audit above](#references)). On every load and every commit, the pass walks committed recordings looking for split candidates.
 
 For a recording that was *already* split under the old rule, each half has fewer than two TrackSections of distinct class — usually exactly one section, since splits partition by section index. `FindSplitCandidatesForOptimizer` requires `rec.TrackSections.Count >= 2` and an env-class transition; an already-split half does not satisfy that on its own. **Already-split recordings are not re-evaluated by the new gate.**
 
 ### Could already-split chains get re-merged?
 
-The merge pass uses `CanAutoMerge` ([RecordingOptimizer.cs:25-70](../../Source/Parsek/RecordingOptimizer.cs)). The relevant gate:
+The merge pass uses `CanAutoMerge` ([RecordingOptimizer.cs:25-70](../../../Source/Parsek/RecordingOptimizer.cs)). The relevant gate:
 
 ```
 bool samePhase = a.SegmentPhase == b.SegmentPhase;
@@ -217,14 +222,14 @@ No schema change. `TrackSection.source`, `referenceFrame`, and `environment` are
 
 The existing fixtures in `RecordingOptimizerTests.cs:467-533` are the model. They use `MakeRecordingWithSections(startUT, midUT, endUT, env1, env2)` — extend that helper (or add a sibling) to also accept a `PartEvent[]` for the meaningful-action signal.
 
-Tests to add under `#region FindSplitCandidatesForOptimizer` (the production split entry point):
+Tests to add under `#region FindSplitCandidatesForOptimizer` (the production split entry point). All event timestamps are expressed relative to `splitUT = next.startUT` (the same UT the implementation gates on); when the test fixture introduces a deliberate gap or overlap between `prev.endUT` and `next.startUT`, both timestamps must be set explicitly so the tests pin down the cut UT, not the prior section's tail.
 
 1. **Atmo ↔ ExoBallistic, no PartEvents anywhere** → empty (the new noise-suppression case). Two variants: forward (atmo → exo) and reverse.
-2. **Atmo ↔ ExoBallistic, with `EngineIgnited` within 2 s of boundary** → split. Confirms thrust gates the split.
-3. **Atmo ↔ ExoBallistic, with `EngineIgnited` 30 s before boundary (outside window)** → empty. Confirms window bounds.
-4. **Atmo ↔ ExoBallistic, with `Decoupled` event at boundary** → split.
-5. **Atmo ↔ ExoBallistic, with `ParachuteDeployed` event at boundary** → split.
-6. **Atmo ↔ ExoBallistic, with `ThermalAnimationHot` at boundary** → split. Covers passive reentry without engine.
+2. **Atmo ↔ ExoBallistic, with `EngineIgnited` within 2 s of `splitUT`** → split. Confirms thrust gates the split.
+3. **Atmo ↔ ExoBallistic, with `EngineIgnited` 30 s before `splitUT` (outside window)** → empty. Confirms window bounds.
+4. **Atmo ↔ ExoBallistic, with `Decoupled` event at `splitUT`** → split.
+5. **Atmo ↔ ExoBallistic, with `ParachuteDeployed` event at `splitUT`** → split.
+6. **Atmo ↔ ExoBallistic, with `ThermalAnimationHot` at `splitUT`** → split. Covers passive reentry without engine.
 7. **Atmo → ExoPropulsive (S3 short-circuit)** → split, even without nearby PartEvents.
 8. **ExoBallistic → ExoBallistic (no class change)** → empty (current behavior, regression check).
 9. **Atmo ↔ Surface boundary** → split (Surface bucket bypasses the gate).
@@ -236,8 +241,9 @@ Tests to add under `#region FindSplitCandidatesForOptimizer` (the production spl
 15. **Both adjacent sections are `OrbitalCheckpoint` with differing env class** → empty (defensive S4 check).
 16. **Atmo ↔ ExoBallistic, with `RCSActivated` and `RCSThrottle (value > 0.1)` within window** → split. Covers RCS-only deorbit kick (see §5 RCS-event note).
 17. **Two `Background`/`Absolute` sections with differing env class, second is single-frame, no PartEvents at the seam** → empty. Covers Producer C (no-payload boundary section from `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`).
+18. **`prev.endUT < next.startUT - 3` (gap), event placed exactly at `prev.endUT`, no event at `next.startUT`** → empty. Confirms the gate measures from `splitUT = next.startUT` and a 3-second-old event in the prior section's tail does not satisfy a 5-second window centered on the cut. Symmetric overlap variant: `prev.endUT > next.startUT + 3`, event at `prev.endUT`, no event at `next.startUT` → also empty.
 
-`MeaningfulBoundaryWindowSeconds` should be exposed `internal const` so tests can compute boundary-relative timestamps without hard-coding the literal.
+`MeaningfulBoundaryWindowSeconds` should be exposed `internal const` so tests can compute timestamps relative to `splitUT` without hard-coding the literal.
 
 ### Synthetic-data scenarios — xUnit, NOT in-game
 
@@ -275,7 +281,7 @@ Every existing test in `#region FindSplitCandidates` and `#region FindSplitCandi
 
 4. **Where does the meaningful-action gate live?** The natural home is `RecordingOptimizer` itself (alongside `SplitEnvironmentClass`). Extracting to a separate file would be premature — the function is small and tightly coupled to the optimizer's responsibilities.
 
-5. **Logging.** Per the project logging requirements: when the new gate suppresses a candidate, emit a `ParsekLog.Verbose("Optimizer", "Split suppressed (passive crossing): rec={recId} ut={boundaryUT} prev={prev.environment} next={next.environment}")`. When it accepts a previously-borderline candidate, log the discriminator that fired (thrust / decouple / thermal / body-change). The optimizer pass already logs split outcomes ([RecordingOptimizer.cs:600-604](../../Source/Parsek/RecordingOptimizer.cs)); the new lines fit alongside.
+5. **Logging.** Per the project logging requirements: when the new gate suppresses a candidate, emit a `ParsekLog.Verbose("Optimizer", "Split suppressed (passive crossing): rec={recId} splitUT={splitUT} prev={prev.environment} next={next.environment}")`. When it accepts a previously-borderline candidate, log the discriminator that fired (thrust / decouple / thermal / body-change). Use `splitUT = next.startUT` in the log for both lines — same UT the gate measures against and the same UT `SplitAtSection` cuts at. The optimizer pass already logs split outcomes ([RecordingOptimizer.cs:600-604](../../../Source/Parsek/RecordingOptimizer.cs)); the new lines fit alongside.
 
 ---
 
@@ -289,6 +295,6 @@ Every existing test in `#region FindSplitCandidates` and `#region FindSplitCandi
 - `Source/Parsek/BackgroundRecorder.cs:1450-1476` — loaded-physics-mode background producer.
 - `Source/Parsek/BackgroundRecorder.cs:1348` — on-rails update loop (does *not* produce env transitions; clarifies why pure-on-rails atmo grazing cannot trigger the bug today).
 - `Source/Parsek/RecordingStore.cs:1970-2080` — `RunOptimizationPass`, the only production caller of `FindSplitCandidatesForOptimizer`.
-- `Source/Parsek/Source/Parsek.Tests/RecordingOptimizerTests.cs:465-535` — current `FindSplitCandidates` tests; pattern to extend.
+- `Source/Parsek.Tests/RecordingOptimizerTests.cs:465-535` — current `FindSplitCandidates` tests; pattern to extend.
 - `docs/parsek-flight-recorder-design.md` §9A.5 — design intent for env-class splits (per-phase loop control).
 - `docs/dev/research/extending-rewind-to-stable-leaves.md` §2.1, §S16 — original symptom report.
