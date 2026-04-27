@@ -419,6 +419,14 @@ namespace Parsek
             public string relativeBodyName;        // body name for altitude computation
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
+
+            // Phase 2 anchor correction (design doc §6.3 / §7.1 / §18 Phase 2):
+            // additive world-space ε translation captured at registration so
+            // the LateUpdate FloatingOrigin re-positioning preserves the
+            // correction (otherwise the lerped lat/lon-based recompute would
+            // snap the ghost back to the un-corrected position).
+            public Vector3d anchorEpsilon;
+            public bool hasAnchorEpsilon;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1078,6 +1086,13 @@ namespace Parsek
                         Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                             e.latAfter, e.lonAfter, e.altAfter);
                         Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        // Phase 2 anchor correction (design doc §6.3 / §18
+                        // Phase 2): re-apply the world-space ε captured at
+                        // initial registration so the FloatingOrigin frame-
+                        // velocity shift cannot snap the ghost back to the
+                        // un-corrected lerped position.
+                        if (e.hasAnchorEpsilon)
+                            pos += e.anchorEpsilon;
                         e.ghost.transform.position = pos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         break;
@@ -14902,6 +14917,22 @@ namespace Parsek
                 }
             }
 
+            // Phase 2 anchor correction (design doc §6.3 Stage 3, §6.4 single-
+            // anchor case, §7.1, §18 Phase 2 / HR-15). Additive world-space
+            // ε translation pinned once at session entry; the lookup reads
+            // the cached AnchorCorrection.Epsilon and never touches live
+            // vessel state. Any miss (no recordingId, no section, flag off,
+            // no anchor in the store) is a silent fall-through — re-fly
+            // sessions with no marker yet are normal state, not failure.
+            Vector3d anchorEps = default(Vector3d);
+            bool hasAnchorEps = false;
+            if (allowAnchorCorrection(recordingId, sectionIndex, out Parsek.Rendering.AnchorCorrection ac))
+            {
+                anchorEps = ac.Epsilon;
+                hasAnchorEps = true;
+                interpolatedPos += anchorEps;
+            }
+
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
@@ -14917,6 +14948,8 @@ namespace Parsek
                 t = t,
                 pointUT = targetUT,
                 interpolatedRot = interpolatedRot,
+                anchorEpsilon = anchorEps,
+                hasAnchorEpsilon = hasAnchorEps,
             });
 
             interpResult = new InterpolationResult(
@@ -14951,6 +14984,38 @@ namespace Parsek
                 return false;
 
             return spline.IsValid;
+        }
+
+        /// <summary>
+        /// Phase 2 anchor-correction gate (design doc §6.3 / §6.4 single-
+        /// anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15). Returns
+        /// <c>true</c> with a populated <paramref name="ac"/> when (a) the
+        /// caller supplied both a recording id and a non-negative section
+        /// index, (b) the <c>useAnchorCorrection</c> rollout flag is on, and
+        /// (c) <see cref="Parsek.Rendering.RenderSessionState"/> holds a
+        /// start-side anchor for the (recordingId, sectionIndex) pair.
+        ///
+        /// <para>
+        /// HR-15 — the lookup reads the cached <see cref="Parsek.Rendering.AnchorCorrection.Epsilon"/>
+        /// frozen at session entry; no live vessel state is read. Any miss is
+        /// a silent fall-through (HR-9: a missing anchor is a normal state for
+        /// non-re-fly sessions and for siblings that have not yet had their
+        /// ε computed, not a failure).
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrection(string recordingId, int sectionIndex,
+            out Parsek.Rendering.AnchorCorrection ac)
+        {
+            ac = default(Parsek.Rendering.AnchorCorrection);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            return Parsek.Rendering.RenderSessionState.TryLookup(
+                recordingId, sectionIndex, Parsek.Rendering.AnchorSide.Start, out ac);
         }
 
         // Keep the old signature for backward compat with tests
