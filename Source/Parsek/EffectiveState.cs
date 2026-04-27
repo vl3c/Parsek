@@ -661,6 +661,30 @@ namespace Parsek
                 // weak-link id to the tree's BranchPoint node.
                 // Phase 2 implementation: BranchPoints live on RecordingTree; look
                 // them up via each recording's tree.
+                //
+                // Same-PID-only BP-children gate (bug fix-refly-suppress-side-off,
+                // 2026-04-27): the BP-children walk only enqueues children whose
+                // VesselPersistentId matches the dequeued recording's
+                // VesselPersistentId. The re-fly only re-records the SAME-PID
+                // linear continuation (e.g. upper-stage U after staging is the
+                // same PID as the pre-staging vessel). Side-off branches
+                // (different PID — e.g. lower stage L after a Decouple BP) are
+                // separate physical vessels with their own ChainId / lineage and
+                // are NOT being re-flown by this session. Including them in the
+                // closure suppressed every previous side-off ghost during a re-fly
+                // (visible symptom: the previous L booster vanished from flight,
+                // map view, and ghost playback while re-flying U). The new flight
+                // will produce its OWN side-off recordings if it stages, and
+                // those will supersede the old ones at that future moment via
+                // the standard supersede-row path. PID 0 (legacy / unset) on
+                // either side falls back to the prior wide-walk behavior because
+                // 0 == 0; legacy recordings continue to behave as before.
+                //
+                // Cross-chain same-PID peers (different ChainId, same PID) are
+                // still picked up by EnqueuePidPeerSiblings. Same-chain segments
+                // (HEAD/TIP from SplitAtSection) are still picked up by
+                // EnqueueChainSiblings — those are by-construction same physical
+                // vessel and the chain identity guarantees the same PID.
                 var queue = new Queue<string>();
                 queue.Enqueue(marker.OriginChildRecordingId);
 
@@ -668,6 +692,7 @@ namespace Parsek
                 int childrenAdded = 0;
                 int siblingsAdded = 0;
                 int pidPeersAdded = 0;
+                int sideOffSkips = 0;
 
                 while (queue.Count > 0)
                 {
@@ -730,6 +755,23 @@ namespace Parsek
                             continue;
                         }
 
+                        // Same-PID-only gate: skip side-off branches (different
+                        // VesselPersistentId from the current dequeued recording).
+                        // See block comment above for the design rationale.
+                        // Both PIDs == 0 (legacy / unset) match by definition and
+                        // preserve the prior wide-walk behavior for legacy data.
+                        if (recById.TryGetValue(childId, out var childRec)
+                            && childRec != null
+                            && childRec.VesselPersistentId != currentRec.VesselPersistentId)
+                        {
+                            sideOffSkips++;
+                            ParsekLog.Verbose("ReFlySession",
+                                $"SessionSuppressedSubtree: skipped side-off child={childId} " +
+                                $"childPid={childRec.VesselPersistentId} parent={currentRec.RecordingId} " +
+                                $"parentPid={currentRec.VesselPersistentId} bp={bp.Id} type={bp.Type}");
+                            continue;
+                        }
+
                         result.Add(childId);
                         childrenAdded++;
                         queue.Enqueue(childId);
@@ -742,7 +784,8 @@ namespace Parsek
 
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
-                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} mixedParentHalts={mixedParentHalts})");
+                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
+                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
 
                 return suppressionCache;
             }
