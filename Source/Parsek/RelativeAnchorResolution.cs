@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -148,6 +149,50 @@ namespace Parsek
             return recordedAnchorAvailable
                 ? AnchorFrameSource.Recorded
                 : AnchorFrameSource.Retired;
+        }
+
+        /// <summary>
+        /// Pure staleness predicate: returns true when the live anchor's world
+        /// position differs from the recorded anchor's world position at the
+        /// playback UT by more than <paramref name="thresholdMeters"/>.
+        ///
+        /// <para>
+        /// Used by <see cref="ParsekFlight"/>'s relative-anchor resolver to
+        /// detect "live anchor pose disagrees with what the recording captured"
+        /// cases that PR #613's active-Re-Fly bypass doesn't cover. Most
+        /// common trigger is post-merge watch sessions where the anchor (e.g.
+        /// a previously re-flown booster) has progressed far past the
+        /// recording's UT range while the playback wants ghosts at an
+        /// earlier UT — see <c>logs/2026-04-27_0123_watch-jump-and-ghost-misalign</c>
+        /// where this caused an 818 km computed distance and a watch-cutoff
+        /// trip mid-flight.
+        /// </para>
+        ///
+        /// <para>
+        /// Threshold contract is owned by the caller (<see cref="ParsekFlight"/>'s
+        /// <c>StaleRelativeAnchorRejectMeters</c> = 250 m). 250 m sits above
+        /// the 200 m DockingApproachMeters noise floor (so legitimate
+        /// close-rendezvous ghosts don't false-positive) and well below the
+        /// km-scale drift the bug exhibits. NaN / Infinity deltas
+        /// (degenerate anchor data) return false rather than tripping the
+        /// gate — better to fall through to the existing Live/Recorded
+        /// selector than to mis-flag arithmetic-NaN as staleness.
+        /// </para>
+        /// </summary>
+        /// <param name="liveAnchorWorld">Live anchor's current world position.</param>
+        /// <param name="recordedAnchorWorld">Recorded anchor's world position at the playback UT.</param>
+        /// <param name="thresholdMeters">Staleness threshold; live anchor is stale when |delta| exceeds this.</param>
+        /// <param name="positionDeltaMeters">Computed delta magnitude in metres (always populated, even when not stale or when NaN).</param>
+        internal static bool IsStaleLiveAnchor(
+            Vector3d liveAnchorWorld,
+            Vector3d recordedAnchorWorld,
+            double thresholdMeters,
+            out double positionDeltaMeters)
+        {
+            positionDeltaMeters = (liveAnchorWorld - recordedAnchorWorld).magnitude;
+            if (double.IsNaN(positionDeltaMeters) || double.IsInfinity(positionDeltaMeters))
+                return false;
+            return positionDeltaMeters > thresholdMeters;
         }
 
         /// <summary>

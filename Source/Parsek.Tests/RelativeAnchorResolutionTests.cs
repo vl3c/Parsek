@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -178,6 +179,123 @@ namespace Parsek.Tests
                 victimRecordingId: null,
                 activeReFlyRecordingId: "booster",
                 victimIsParentOfActiveReFly: true));
+        }
+
+        #endregion
+
+        #region IsStaleLiveAnchor
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaBelowThreshold_ReturnsFalse()
+        {
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(100, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(100.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaAtThreshold_ReturnsFalse()
+        {
+            // Boundary semantics: equal does NOT trip the gate. Threshold is
+            // strict-greater-than so a tiny float-precision drift right at
+            // the limit doesn't false-positive.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(250, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(250.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaAboveThreshold_ReturnsTrue()
+        {
+            // The watch-jump bug case: anchor is in stable orbit ~818 km
+            // from where the recording wanted it. Comfortably above 250 m.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(818000, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.True(stale);
+            Assert.Equal(818000.0, delta, 1);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_NaNDelta_ReturnsFalse()
+        {
+            // NaN propagates from any-coord NaN through magnitude. A
+            // misbehaving anchor (uninitialized vessel, divide-by-zero
+            // somewhere upstream) must NOT trip the staleness gate — that
+            // would silently swap to recorded for legitimate live-anchor
+            // playback. Fall through to existing Live/Recorded selector.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(double.NaN, 0, 0),
+                new Vector3d(0, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.True(double.IsNaN(delta));
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_InfinityDelta_ReturnsFalse()
+        {
+            // Same defensive contract as NaN: a vessel pose that ended up at
+            // infinity (e.g. expired Krakensbane state) must not be treated
+            // as a staleness signal — fall through.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(double.PositiveInfinity, 0, 0),
+                new Vector3d(0, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.True(double.IsInfinity(delta));
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_NormalSampleGap_ReturnsFalse()
+        {
+            // Documents the design intent: typical sample-interp drift in
+            // physics-simulated atmospheric flight is tens of metres per
+            // sample-interval (~0.1-0.5 s). A drift of 50 m at the playback
+            // UT must NOT trip the staleness gate — that would silently
+            // swap to recorded for legitimate live-anchor playback. This
+            // test pins the threshold's role as "catch km-scale drift
+            // (the bug class), not catch normal physics interpolation
+            // noise."
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(50, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(50.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_ZeroDelta_ReturnsFalse()
+        {
+            // Identical poses (matching live anchor case): never stale.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(123, 456, 789),
+                new Vector3d(123, 456, 789),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(0.0, delta, 6);
         }
 
         #endregion

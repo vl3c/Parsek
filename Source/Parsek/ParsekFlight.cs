@@ -14051,11 +14051,22 @@ namespace Parsek
             {
                 if (isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance))
                 {
+                    // Append ghost-world + active-section + anchor context so a
+                    // "ghost flew off into space" cutoff is diagnosable from
+                    // KSP.log alone. Common root cause is a Relative-anchor
+                    // section whose live anchor is in a totally different
+                    // physical location than at recording time (e.g.
+                    // previously re-flown booster now in stable orbit).
+                    // Without this context the user has to cross-reference
+                    // prec.txt + flight state to figure out why the distance
+                    // went absurd.
+                    string cutoffContext = DescribeWatchCutoffContext(rec, state);
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
                         $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
-                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode" +
+                        (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
@@ -14168,6 +14179,90 @@ namespace Parsek
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             return state == null || !state.deferVisibilityUntilPlaybackSync;
+        }
+
+        /// <summary>
+        /// Diagnostic context appended to the watch-cutoff log line: ghost
+        /// world position + (when known from the active section under the
+        /// current game UT) the section's reference frame and live anchor
+        /// data. The 818 km cutoff trip in
+        /// `logs/2026-04-27_0123_watch-jump-and-ghost-misalign` was
+        /// indecipherable from KSP.log alone; this turns "the cutoff
+        /// fired" into "the cutoff fired because the section's anchor is
+        /// in stable orbit while the recording wanted the ghost in
+        /// atmosphere." Returns empty when there's no useful context to
+        /// append (state/ghost null) so the call site stays clean.
+        /// </summary>
+        internal static string DescribeWatchCutoffContext(
+            IPlaybackTrajectory rec, GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null)
+                return string.Empty;
+
+            var ic = CultureInfo.InvariantCulture;
+            Vector3d ghostWorld = state.ghost.transform.position;
+            string ghostWorldStr = $"ghostWorld={FormatVector3d(ghostWorld)}";
+
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return ghostWorldStr;
+
+            // Probe the section under the current game UT for relative-anchor
+            // context. If the trajectory is using a different playback UT
+            // (loops, overlap shift), this lookup may pick a neighbouring
+            // section, which is fine — the goal is "give the user a
+            // starting point for diagnosing", not perfect attribution.
+            double currentUT;
+            try
+            {
+                currentUT = Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                // Defensive — Planetarium is alive in flight scenes but the
+                // catch keeps the cutoff log path noise-free if we ever get
+                // called from an off-nominal scene. Surface the skip so the
+                // next surprise is debuggable.
+                ParsekLog.VerboseRateLimited("Zone", "watch-cutoff-context-skip",
+                    $"DescribeWatchCutoffContext: Planetarium.GetUniversalTime threw {ex.GetType().Name} — skipping section/anchor context");
+                return ghostWorldStr;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, currentUT);
+            if (sectionIdx < 0 || sectionIdx >= rec.TrackSections.Count)
+                return ghostWorldStr + " section=none";
+
+            TrackSection section = rec.TrackSections[sectionIdx];
+            string sectionStr =
+                $"section={section.referenceFrame} " +
+                $"sectionUT=[{section.startUT.ToString("F1", ic)}," +
+                $"{section.endUT.ToString("F1", ic)}]";
+
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.anchorVesselId == 0u)
+            {
+                return $"{ghostWorldStr} {sectionStr}";
+            }
+
+            string anchorStr;
+            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
+            if (anchor == null)
+            {
+                anchorStr = $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
+            }
+            else
+            {
+                Vector3d anchorWorld = anchor.GetWorldPos3D();
+                // Match DescribeAppearanceLiveAnchorContext's |anchor-root|
+                // label so KSP.log greps that look at one site work for the
+                // other (state.ghost.transform.position IS the ghost root).
+                Vector3d delta = ghostWorld - anchorWorld;
+                anchorStr =
+                    $"anchorPid={section.anchorVesselId} " +
+                    $"anchorWorld={FormatVector3d(anchorWorld)} " +
+                    $"|anchor-root|={delta.magnitude.ToString("F0", ic)}m";
+            }
+
+            return $"{ghostWorldStr} {sectionStr} {anchorStr}";
         }
 
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
@@ -14636,6 +14731,18 @@ namespace Parsek
         void IGhostPositioner.ClearOrbitCache()
         {
             orbitCache.Clear();
+        }
+
+        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (anchorVesselId == 0u) return false;
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null) return false;
+            Vector3d candidate = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(candidate)) return false;
+            worldPosition = candidate;
+            return true;
         }
 
         #endregion
@@ -15760,21 +15867,77 @@ namespace Parsek
                 }
             }
 
+            // Proximity fast-path: when the live anchor is loaded AND within
+            // physics range of the active vessel, trust the live pose and
+            // skip the (more expensive) recorded-anchor probe. This restores
+            // the pre-PR fast path for the common docking/rendezvous case —
+            // anchor is the station the player is approaching, live pose is
+            // by definition the right answer because the recording was made
+            // in the same world frame the player is currently in.
+            //
+            // The bug class this PR fixes (post-merge watch of a recording
+            // whose Relative anchor is now in stable orbit hundreds of km
+            // from the player) is, by construction, far from the active
+            // vessel — the orbital booster sits at ~818 km from the pad in
+            // the captured repro. So this fast-path keeps the docking case
+            // perf-equivalent to pre-PR while still letting the staleness
+            // check fire for the failure mode.
+            //
+            // Threshold (5 km) sits comfortably above KSP's ~2.5 km physics
+            // bubble (anchors loaded for physics are within that range) and
+            // well below the km-scale separations the bug exhibits. NaN /
+            // Infinity distances fall through to the slow path rather than
+            // tripping the fast-path; better to spend one extra probe than
+            // misclassify.
+            //
+            // Perf coverage analysis (review P2 from the Opus pass):
+            //  - Anchor loaded AND in physics range (≤5 km from active):
+            //    fast-path returns. O(1). This is the docking/rendezvous
+            //    common case.
+            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
+            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
+            //    of the active vessel, so this band is narrow and rare —
+            //    typically only happens for a few frames around physics-
+            //    range crossings, or with mods extending the load distance.
+            //  - Anchor unloaded (vessel exists but physics-asleep): live
+            //    pose unavailable, fast-path can't apply, we fall through
+            //    to recorded probe. THIS is the bug-class path and the
+            //    probe is exactly what's needed.
+            // Net: under default KSP load behaviour, the residual probe-
+            // every-frame cost only applies to the bug-class scenario the
+            // PR is closing. If a future playtest with extended-physics
+            // mods shows perf regression for the loaded-but-far-from-active
+            // band, a per-FixedUpdate cache keyed on (anchorPid,
+            // sectionStartUT) is the natural follow-up — left out here to
+            // keep the surface area small until measured to matter.
             if (liveAnchorAvailable && !bypassLiveAnchor)
             {
-                RelativeAnchorResolution.AnchorFrameSource liveSource =
-                    RelativeAnchorResolution.SelectAnchorFrameSource(
-                        liveAnchorAvailable,
-                        bypassLiveAnchor,
-                        recordedAnchorAvailable: false,
-                        recordedFallbackAvailable: false);
-                if (liveSource == RelativeAnchorResolution.AnchorFrameSource.Live)
+                Vessel activeForFastPath = FlightGlobals.ActiveVessel;
+                if (activeForFastPath != null)
                 {
-                    pose = livePose;
-                    return true;
+                    Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
+                    double distFromActive = (livePose.worldPos - activeWorld).magnitude;
+                    if (!double.IsNaN(distFromActive)
+                        && !double.IsInfinity(distFromActive)
+                        && distFromActive < LiveAnchorProximityFastPathMeters)
+                    {
+                        pose = livePose;
+                        return true;
+                    }
                 }
             }
 
+            // Slow path: probe the recorded anchor pose so we can detect
+            // pose drift (live anchor far from active vessel — likely a
+            // post-merge / time-warp / cross-mission case). Pre-PR the
+            // early-exit at this point returned Live whenever
+            // liveAnchorAvailable && !bypass, skipping the recorded probe
+            // entirely; that made the post-merge watch-jump bug invisible
+            // because the Relative section's offset got decoded against the
+            // live anchor's CURRENT pose (hundreds of km from recording),
+            // tripping the watch zone cutoff. Keeping the recorded probe
+            // means we have the data to detect that drift and downgrade to
+            // the recorded path via IsStaleLiveAnchor below.
             if (searchTrees == null)
             {
                 searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -15791,6 +15954,62 @@ namespace Parsek
                 bypassLiveAnchor,
                 requireCoverage: true,
                 out RelativeAnchorPose recordedPose);
+
+            // Stale-anchor staleness gate: when we have BOTH a live and a
+            // recorded pose for the anchor at the playback UT, and they
+            // disagree by more than StaleRelativeAnchorRejectMeters, the
+            // live anchor's pose isn't what the recording captured (anchor
+            // has progressed past the recording's UT range, anchor was
+            // rewound, etc.). Prefer the recorded pose so the ghost renders
+            // at its recorded geometry instead of being decoded against an
+            // anchor that is now in a totally different physical location.
+            // This upgrades the active-Re-Fly bypass into a general "live
+            // anchor is unreliable" signal — same downstream path, broader
+            // applicability.
+            //
+            // Threshold rationale lives next to the constant; in short,
+            // 250 m is well above docking-approach noise (200 m
+            // DockingApproachMeters) and well below the km-scale drift the
+            // bug exhibits.
+            //
+            // Why this clause naturally no-ops during active Re-Fly:
+            // ShouldBypassLiveRelativeAnchorForActiveReFly already set
+            // bypassLiveAnchor=true above, which short-circuited the live
+            // probe (so liveAnchorAvailable=false). Both conditions
+            // conspire to skip this `if`. Don't add an explicit
+            // `bypassLiveAnchor` early-out here — leaving the predicate
+            // self-documenting via `liveAnchorAvailable` keeps the gate's
+            // semantics ("we have two poses to compare") readable.
+            if (liveAnchorAvailable
+                && recordedAnchorAvailable
+                && !bypassLiveAnchor
+                && RelativeAnchorResolution.IsStaleLiveAnchor(
+                    livePose.worldPos,
+                    recordedPose.worldPos,
+                    StaleRelativeAnchorRejectMeters,
+                    out double posDelta))
+            {
+                var ic = CultureInfo.InvariantCulture;
+                string staleKey = string.Concat(
+                    "stale-anchor|",
+                    anchorVesselId.ToString(ic),
+                    "|",
+                    victimRecordingId ?? "<no-victim>");
+                ParsekLog.VerboseRateLimited("Playback", staleKey,
+                    $"Stale relative anchor detected: anchorPid={anchorVesselId} " +
+                    $"victim={ShortRecordingId(victimRecordingId)} " +
+                    $"targetUT={targetUT.ToString("F2", ic)} " +
+                    $"liveWorld=({livePose.worldPos.x.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.y.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.z.ToString("F1", ic)}) " +
+                    $"recordedWorld=({recordedPose.worldPos.x.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.y.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.z.ToString("F1", ic)}) " +
+                    $"delta={posDelta.ToString("F0", ic)}m " +
+                    $"threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m " +
+                    "— preferring recorded anchor pose");
+                bypassLiveAnchor = true;
+            }
 
             bool recordedFallbackAvailable = false;
             RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
@@ -15828,6 +16047,45 @@ namespace Parsek
                     return false;
             }
         }
+
+        // Stale-anchor staleness threshold (metres). Live anchor world position
+        // at the playback UT differs from recorded anchor world position at
+        // the same UT by more than this → the resolver downgrades to the
+        // recorded pose.
+        //
+        // Why 250 m:
+        // - During *normal* in-physics-range playback the live anchor is
+        //   either the active vessel or a vessel within ~2.5 km being
+        //   physics-simulated alongside; sample-interp drift across the
+        //   recording's ~0.1-0.5 s sample interval is at most a few tens of
+        //   metres for atmospheric flight and centimetres for a Kepler-on-
+        //   rails anchor (deterministic). 250 m gives ~5x safety margin
+        //   above that noise floor.
+        // - The *bug class* (post-merge watch session, plain rewind, time-
+        //   warp etc.) puts the live anchor hundreds of metres to hundreds
+        //   of km from where the recording captured it — orders of magnitude
+        //   above 250 m. The captured repro at
+        //   logs/2026-04-27_0123_watch-jump-and-ghost-misalign sat at
+        //   818 km, comfortably across the threshold.
+        // - Sits above DockingApproachMeters (200 m) so legitimate close-
+        //   rendezvous ghosts whose anchor is a docking target the player
+        //   is actively flying near don't false-positive on
+        //   sample-interp noise.
+        // - The companion proximity fast-path at LiveAnchorProximityFastPathMeters
+        //   already short-circuits the staleness check entirely for anchors
+        //   in physics range of the active vessel, so this threshold only
+        //   gates the cases where probing recorded was already going to
+        //   happen.
+        internal const double StaleRelativeAnchorRejectMeters = 250.0;
+
+        // Proximity fast-path threshold (metres). When the live anchor is
+        // closer than this to the active vessel, the relative-anchor
+        // resolver trusts the live pose and skips the recorded probe (and
+        // the staleness check that follows). Picked at 5 km: above KSP's
+        // ~2.5 km physics bubble so any legitimately-loaded anchor falls
+        // inside the fast-path, well below the bug-class km-scale
+        // separations.
+        internal const double LiveAnchorProximityFastPathMeters = 5_000.0;
 
         bool ShouldBypassLiveRelativeAnchorForActiveReFly(
             uint anchorVesselId,
