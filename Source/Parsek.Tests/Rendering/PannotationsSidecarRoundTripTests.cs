@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using Parsek;
 using Parsek.Rendering;
 using Xunit;
@@ -279,6 +280,188 @@ namespace Parsek.Tests.Rendering
             Assert.False(File.Exists(path + ".tmp"),
                 "FileIOUtils.SafeWriteBytes must clean up the .tmp after rename.");
         }
+
+        // --- P2#2: malformed-payload defence ---
+
+        // Helpers: locate where each post-header count sits in a freshly-written
+        // .pann. Header layout from PannotationsSidecarBinary.Write:
+        //   magic(4) + binVer(4) + algStamp(4) + epoch(4) + formatVer(4) + cfgHash(32)
+        //   = 52 bytes, plus the length-prefixed recordingId string.
+        // BinaryWriter.Write(string) prefixes a LEB128 7-bit length byte; for
+        // strings < 128 bytes the prefix is a single byte equal to the length.
+        // So total pre-payload = 52 + 1 + recordingId.Length (ASCII).
+        private static int CountOffset(string recordingId, int blockIndex)
+        {
+            // blockIndex: 0 = stringTableCount, 1 = splineCount, 2 = outlierCount,
+            // 3 = anchorCount, 4 = coBubbleCount. With Phase 1's empty payload,
+            // each post-block-0 count sits exactly 4 bytes after the previous
+            // one (no entries written between them).
+            int header = 52 + 1 + Encoding.UTF8.GetByteCount(recordingId);
+            return header + blockIndex * 4;
+        }
+
+        private static void WriteInt32At(byte[] bytes, int offset, int value)
+        {
+            bytes[offset + 0] = (byte)(value & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 16) & 0xFF);
+            bytes[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+
+        [Fact]
+        public void TryRead_NegativeStringTableCount_ReturnsFalseWithReason()
+        {
+            // What makes it fail: P2#2 root cause — without the count
+            // validation, `new List<string>(tableCount)` throws
+            // ArgumentOutOfRangeException for tableCount = -1, escapes the
+            // narrow catch (EndOfStreamException / IOException) and crashes
+            // the load thread. The fix returns false with a human-readable
+            // failureReason and lets the caller recompute.
+            string path = Path.Combine(tempDir, "rec_negtable.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 0), -1);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.Contains("invalid string-table count", reason);
+        }
+
+        [Fact]
+        public void TryRead_NegativeSplineCount_ReturnsFalseWithReason()
+        {
+            // What makes it fail: P2#2 — same risk as above for the spline-list
+            // count. A negative value would propagate as
+            // ArgumentOutOfRangeException out of the for-loop's allocation.
+            string path = Path.Combine(tempDir, "rec_negspline.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 1), -1);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.Contains("invalid spline count", reason);
+        }
+
+        [Fact]
+        public void TryRead_OversizedStringTableCount_ReturnsFalseWithReason()
+        {
+            // What makes it fail: P2#2 — int.MaxValue passes a < 0 check but
+            // forces a multi-GB List<string> allocation and either crashes
+            // with OutOfMemoryException or locks the process for seconds.
+            // The MaxReasonableCount upper bound stops the allocation before
+            // it starts.
+            string path = Path.Combine(tempDir, "rec_hugetable.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 0), int.MaxValue);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.Contains("invalid string-table count", reason);
+        }
+
+        [Fact]
+        public void TryRead_OversizedSplineCount_ReturnsFalseWithReason()
+        {
+            // What makes it fail: P2#2 — same upper-bound concern for the
+            // spline-list count.
+            string path = Path.Combine(tempDir, "rec_hugespline.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 1), int.MaxValue);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.Contains("invalid spline count", reason);
+        }
+
+        [Fact]
+        public void TryRead_TruncatedFile_ReturnsFalseWithReason()
+        {
+            // What makes it fail: a truncated file is the canonical "crash
+            // mid-write" outcome the atomic-write contract is supposed to
+            // prevent. The reader still must reject it gracefully — never
+            // throw — because a tampered or corrupted file can show up by
+            // any means (manual edit, disk error, unfinished SafeWriteBytes
+            // recovery).
+            string path = Path.Combine(tempDir, "rec_truncated.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Probe needs the full header + recordingId string, so truncate
+            // mid-payload after the probe would succeed. Slice to just past
+            // the recordingId — TryRead will EndOfStream on the first
+            // ReadInt32 of the string table.
+            byte[] full = File.ReadAllBytes(path);
+            int tableOffset = CountOffset("recT", 0);
+            byte[] truncated = new byte[tableOffset + 2];
+            Array.Copy(full, truncated, truncated.Length);
+            File.WriteAllBytes(path, truncated);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.NotNull(reason);
+        }
+
+        [Fact]
+        public void TryRead_GenericMalformedPayload_DoesNotThrow()
+        {
+            // What makes it fail: the broad catch (Exception) safety net.
+            // A malformed string at the head of the table would throw
+            // ArgumentOutOfRangeException from BinaryReader.ReadString on
+            // a negative LEB128 length byte, which is neither
+            // EndOfStreamException nor IOException — without the broad
+            // catch the load thread crashes.
+            string path = Path.Combine(tempDir, "rec_malformed.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Plant a non-zero string-table count (1) and corrupt the first
+            // string entry's LEB128 length prefix (0xFF + 0xFF + 0xFF + 0xFF
+            // = invalid 7-bit-encoded length, ReadString throws).
+            byte[] full = File.ReadAllBytes(path);
+            int tableCountOffset = CountOffset("recT", 0);
+            WriteInt32At(full, tableCountOffset, 1);
+            byte[] corrupt = new byte[tableCountOffset + 4 + 8];
+            Array.Copy(full, corrupt, tableCountOffset + 4);
+            for (int i = tableCountOffset + 4; i < corrupt.Length; i++)
+                corrupt[i] = 0xFF;
+            File.WriteAllBytes(path, corrupt);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            // The key invariant: TryRead must not throw. The exact
+            // failureReason wording is implementation-dependent; we only
+            // require returns=false and a populated reason.
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.NotNull(reason);
+        }
+
+        // --- existing tests resume ---
 
         [Fact]
         public void Write_OverwritesExistingFile()

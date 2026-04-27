@@ -60,6 +60,16 @@ namespace Parsek
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PANN");
         private static readonly byte[] CanonicalMagic = Encoding.ASCII.GetBytes("PANC");
 
+        // P2#2: upper bound on every count field read from a .pann file.
+        // A real .pann has at most a few hundred entries per block; a value
+        // above this is malformed and triggers a discard-and-recompute.
+        // Without the bound, an attacker-controlled or randomly-corrupted
+        // file with int.MaxValue could force a multi-GB allocation
+        // (ArgumentOutOfRangeException for negative values, OutOfMemory for
+        // huge ones) and either crash or lock the process before TryRead
+        // returns.
+        internal const int MaxReasonableCount = 10_000_000;
+
         internal const int PannotationsBinaryVersion = 1;
         // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
         // fitted in inertial-longitude space (FrameTag = 1) instead of body-
@@ -176,21 +186,31 @@ namespace Parsek
                     // String table — unused in Phase 1 but reserved for parity
                     // with .prec layout so future blocks can reference it.
                     int tableCount = reader.ReadInt32();
+                    if (tableCount < 0 || tableCount > MaxReasonableCount)
+                    {
+                        failureReason = $"invalid string-table count: {tableCount}";
+                        return false;
+                    }
                     var stringTable = new List<string>(tableCount);
                     for (int i = 0; i < tableCount; i++)
                         stringTable.Add(reader.ReadString());
 
                     // SmoothingSplineList
                     int splineCount = reader.ReadInt32();
+                    if (splineCount < 0 || splineCount > MaxReasonableCount)
+                    {
+                        failureReason = $"invalid spline count: {splineCount}";
+                        return false;
+                    }
                     for (int i = 0; i < splineCount; i++)
                     {
                         int sectionIndex = reader.ReadInt32();
                         byte splineType = reader.ReadByte();
                         float tension = reader.ReadSingle();
                         int knotCount = reader.ReadInt32();
-                        if (knotCount < 0)
+                        if (knotCount < 0 || knotCount > MaxReasonableCount)
                         {
-                            failureReason = $"negative knotCount at smoothing-spline entry {i}";
+                            failureReason = $"invalid knotCount at smoothing-spline entry {i}: {knotCount}";
                             return false;
                         }
 
@@ -221,18 +241,33 @@ namespace Parsek
                     // Reserved blocks — Phase 1 writes count = 0 for each;
                     // skip silently for forward-tolerance with future blocks.
                     int outlierCount = reader.ReadInt32();
+                    if (outlierCount < 0 || outlierCount > MaxReasonableCount)
+                    {
+                        failureReason = $"invalid outlier-flags count: {outlierCount}";
+                        return false;
+                    }
                     if (outlierCount != 0)
                     {
                         failureReason = $"unexpected outlier-flags count {outlierCount} for binary version {probe.BinaryVersion}";
                         return false;
                     }
                     int anchorCount = reader.ReadInt32();
+                    if (anchorCount < 0 || anchorCount > MaxReasonableCount)
+                    {
+                        failureReason = $"invalid anchor-candidate count: {anchorCount}";
+                        return false;
+                    }
                     if (anchorCount != 0)
                     {
                         failureReason = $"unexpected anchor-candidate count {anchorCount} for binary version {probe.BinaryVersion}";
                         return false;
                     }
                     int coBubbleCount = reader.ReadInt32();
+                    if (coBubbleCount < 0 || coBubbleCount > MaxReasonableCount)
+                    {
+                        failureReason = $"invalid co-bubble-trace count: {coBubbleCount}";
+                        return false;
+                    }
                     if (coBubbleCount != 0)
                     {
                         failureReason = $"unexpected co-bubble-trace count {coBubbleCount} for binary version {probe.BinaryVersion}";
@@ -248,6 +283,22 @@ namespace Parsek
             catch (IOException ex)
             {
                 failureReason = $"io error reading pannotations: {ex.Message}";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // P2#2: broad catch for malformed payloads. The .pann is a
+                // regenerable cache (HR-9: failure visible, HR-10: drift triggers
+                // recompute) so any malformed-payload exception (negative
+                // ReadString length → ArgumentOutOfRangeException, oversized
+                // pre-validated count slipping past the bound check via integer
+                // overflow → OutOfMemoryException, etc.) is treated as cache
+                // invalidation. The TryRead returns false → caller logs
+                // "Pannotations payload corrupt: ... — recomputing" via
+                // SmoothingPipeline.LoadOrCompute, and the recompute path
+                // overwrites the bad file. Without this catch, a malformed file
+                // would crash the load thread and block recording use entirely.
+                failureReason = $"malformed payload: {ex.GetType().Name}: {ex.Message}";
                 return false;
             }
 
