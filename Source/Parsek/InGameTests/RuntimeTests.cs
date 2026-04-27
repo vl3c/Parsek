@@ -13459,15 +13459,21 @@ namespace Parsek.InGameTests
         /// What makes it fail: a regression that bypasses
         /// <c>SectionAnnotationStore.PutSmoothingSpline</c> at the section's
         /// playback UT, or any change in <c>InterpolateAndPosition</c> that
-        /// stops gating on the spline. The 60-frame sample window is wide
-        /// enough that any visually-noticeable jitter (above 0.1 m on a
-        /// nominally smooth coast) is caught.
+        /// stops gating on the spline. The integration assertion runs the
+        /// full <c>SmoothingPipeline.FitAndStorePerSection</c> →
+        /// <c>SectionAnnotationStore</c> → consumer-side
+        /// <c>TryGetSmoothingSpline</c> chain a real ghost positioning frame
+        /// uses, so any break in that plumbing is caught here even though
+        /// this test does not spawn an actual ghost. The 60-frame sample
+        /// window is wide enough that any visually-noticeable jitter (above
+        /// 0.1 m on a nominally smooth coast) is caught by the math check.
         ///
         /// Runs only in FLIGHT scene because <c>Parsek.Rendering.SectionAnnotationStore</c>
         /// is a pure POCO store but the underlying <c>body.GetWorldSurfacePosition</c>
         /// requires a live <c>FlightGlobals.Bodies</c> table. The xUnit
         /// suite covers the orchestrator behaviour; this test pins the live
-        /// world-space jitter contract.
+        /// world-space jitter contract AND the orchestrator → store →
+        /// consumer-lookup integration plumbing in one go.
         /// </remarks>
         [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
             Description = "ExoBallistic coast playback with smoothing spline produces sub-jitter frame deltas")]
@@ -13499,15 +13505,45 @@ namespace Parsek.InGameTests
                 });
             }
 
-            // Fit + store the spline through the synthetic frames.
+            // Integration assertion (design doc §18 Phase 1 modified files):
+            // drive the same orchestrator entry point that
+            // RecordingSidecarStore.LoadOrCompute uses, then look the result
+            // up exactly the way the consumer-side gate
+            // (ParsekFlight.allowSplinePositioning) does. This proves the
+            // SmoothingPipeline → SectionAnnotationStore → consumer-side
+            // lookup chain holds end-to-end. A regression that breaks the
+            // gate or the store plumbing fails here even though no ghost
+            // is spawned. The bare math validation below remains as a
+            // sanity check on the spline shape itself.
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            var spline = TrajectoryMath.CatmullRomFit.Fit(
-                frames, SmoothingConfiguration.Default.Tension,
-                out string fitFailure);
-            InGameAssert.IsTrue(spline.IsValid,
-                "Fit should produce a valid spline (failure='" + (fitFailure ?? "<none>") + "')");
-            Parsek.Rendering.SectionAnnotationStore.PutSmoothingSpline(
-                recordingId, sectionIndex, spline);
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = 7,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (sampleCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = (float)(1.0 / dutPerSample),
+            });
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                        recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                    && spline.IsValid,
+                "SmoothingPipeline.FitAndStorePerSection did not populate"
+                    + " SectionAnnotationStore for section 0 — orchestrator → store →"
+                    + " consumer-lookup integration broken");
 
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
             InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
