@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.1
+
+### Bug Fixes
+
+- Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
+
+---
+
 ## 0.9.0
 
 ### Features
@@ -50,7 +58,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
 - Watching a ghost whose Relative-frame section is anchored to a vessel now in a totally different physical location (e.g. previously re-flown booster sitting in stable orbit while the player flies a fresh launch from the pad) no longer mis-positions the ghost hundreds of km away and trips the watch-mode camera cutoff. The relative-anchor resolver compares the live anchor's current pose to the recorded anchor's pose at the playback UT and, when they disagree by more than 250 m, prefers the recorded pose so the ghost stays on its recorded ground-relative trajectory.
 - Re-Fly merge now supersedes destroyed sibling recordings that share the in-place origin's vessel across chain boundaries, so a destroyed run no longer lingers in the mission list and as a ghost after re-flying.
 - Re-Fly ghosts whose relative-frame anchor matches the re-flown vessel — not just direct parents but any sibling chain too — now play back at their recorded ground-relative positions instead of locking onto the player's live pose, eliminating the upper-stage ghost map jumps and below-ground renders.
