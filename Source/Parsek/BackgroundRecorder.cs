@@ -154,6 +154,16 @@ namespace Parsek
 
         #region Inner Classes
 
+        // INVARIANT: on-rails BG vessels never produce env-classified TrackSections.
+        // This class deliberately omits the `currentTrackSection` / `trackSections` /
+        // `environmentHysteresis` fields that BackgroundVesselState (loaded mode) carries.
+        // An on-rails BG vessel grazing atmosphere across N orbits therefore cannot generate
+        // optimizer-splittable Atmospheric<->ExoBallistic toggles — there is no place to
+        // store such a section, and no per-frame path runs while the vessel is packed.
+        // See `OnBackgroundPhysicsFrame`'s early-return on `bgVessel.packed`. Adding a
+        // TrackSection field here would resurrect the eccentric-orbit chain-explosion
+        // failure mode flagged in `docs/dev/research/extending-rewind-to-stable-leaves.md`
+        // §S16; do not.
         private class BackgroundOnRailsState
         {
             public uint vesselPid;
@@ -1404,7 +1414,13 @@ namespace Parsek
                 return;
             }
 
-            // Only process loaded/physics vessels (not packed)
+            // Only process loaded/physics vessels (not packed).
+            // Load-bearing for the eccentric-orbit invariant: this early-return is the
+            // sole reason on-rails BG vessels do not run `EnvironmentHysteresis.Update`
+            // and therefore do not emit Atmospheric<->ExoBallistic TrackSection toggles
+            // for periapsis grazes. Removing it would cause `RecordingOptimizer` to
+            // accumulate one split per orbit on long-coasting vessels — see
+            // `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16.
             if (bgVessel.packed)
             {
                 if (!hasOnRailsState)

@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 - Fixed five flaky in-game tests that were failing for harness reasons rather than code regressions: the four `Bug613` ghost-retire tests that targeted the overlap-loop path were silently routed through `LoopEnter` because their 2 s loop interval clamped to `LoopTiming.MinCycleDuration` (5 s); the resolved-anchor `DeferredSync` variant could never satisfy its `appearanceCount >= 1` assertion because the harness ghost was a bare `GameObject` with no renderers; and the `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` canary raced the post-commit `TryTakeCommittedTreeForSpawnedVesselRestore` auto-restore that pulls the just-committed tree back out of `CommittedRecordings` to keep it as the live active tree.
 - Removed two redundant `"WARNING:"` payload prefixes from `TimeJumpManager`'s atmospheric warnings; `ParsekLog.Warn` already emits the `[Parsek][WARN][TimeJump]` prefix, and the live `KSP.log` validation rule `WRN-001` now stays clean across time-jump sessions.
+- Added `EccentricOrbitOptimizerInvariantTests` and an `OnRailsGrazingPeriapsis_ProducesNoTrackSections_Across_Many_Orbits` in-game test guarding the structural invariant that on-rails BG vessels emit no env-classified TrackSections, so an eccentric orbit grazing atmosphere across many periapsis passes cannot drive `RecordingOptimizer` into an unbounded chain split. Code comments and `.claude/CLAUDE.md` / `AGENTS.md` document the gate against future regressions.
 
 ### Internals
 
