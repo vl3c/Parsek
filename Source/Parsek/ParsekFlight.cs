@@ -14060,19 +14060,39 @@ namespace Parsek
             // hidden-without-positioning loop. Real cutoff crossings exit
             // after the debounce window (~50 ms at 60 fps).
             bool forceWatchedFullFidelity = false;
-            bool cachedCutoffTripped =
-                isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
-            bool cutoffTriggered = watchMode != null
-                ? watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped)
-                : cachedCutoffTripped;
-            if (cachedCutoffTripped && !cutoffTriggered && watchMode != null)
+            // Drive the cutoff debounce counter only when we're processing
+            // the watched ghost. Every other ghost would register a
+            // within-range sample and reset the counter, so a real cutoff
+            // crossing on the watched ghost could never accumulate enough
+            // consecutive samples to fire whenever any non-watched ghost
+            // ran later in the same frame.
+            bool cutoffTriggered;
+            if (isWatchedGhost && watchMode != null)
             {
-                ParsekLog.VerboseRateLimited("Zone", $"watch-cutoff-debounce-{recIdx}",
-                    $"Ghost #{recIdx} \"{rec.VesselName}\" cached cutoff tripped " +
-                    $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
-                    $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m), " +
-                    $"debounce={watchMode.WatchCutoffConsecutiveFramesForDiagnostics}/" +
-                    $"{WatchModeController.WatchExitCutoffDebounceFrames} — staying in watch mode");
+                bool cachedCutoffTripped =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+                cutoffTriggered = watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped);
+                if (cachedCutoffTripped && !cutoffTriggered)
+                {
+                    ParsekLog.VerboseRateLimited("Zone", $"watch-cutoff-debounce-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" cached cutoff tripped " +
+                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m), " +
+                        $"debounce={watchMode.WatchCutoffConsecutiveFramesForDiagnostics}/" +
+                        $"{WatchModeController.WatchExitCutoffDebounceFrames} — staying in watch mode");
+                }
+            }
+            else if (isWatchedGhost)
+            {
+                // No watch controller available (e.g. test stubs): fall
+                // back to immediate exit on cached cutoff trip so we do
+                // not silently drop real exits.
+                cutoffTriggered =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+            }
+            else
+            {
+                cutoffTriggered = false;
             }
             if (isWatchedGhost || isWatchProtectedRecording)
             {

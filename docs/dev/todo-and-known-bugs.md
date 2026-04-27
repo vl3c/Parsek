@@ -59,7 +59,11 @@ watched-ghost frame regardless of zone hide/positioning order, so the bug
 where `renderDistance >= Beyond` returned hidden before positioning ran (and
 left a stale ghost transform that could indefinitely re-trigger any
 sanity-check using `state.ghost.transform.position`) is structurally
-impossible. The first cutoff log at the actual exit now ends with
+impossible. The Register call is gated on `isWatchedGhost && watchMode != null`
+so non-watched ghosts running later in the same frame never reset the counter
+back to 0 (which would otherwise prevent the threshold from ever being
+reached in any multi-ghost frame, since the controller-level counter is
+shared across all ghost states). The first cutoff log at the actual exit now ends with
 `after 3-frame debounce — exiting watch mode`, and intermediate frames emit a
 rate-limited `[VERBOSE][Zone] cached cutoff tripped (...) debounce=N/3 —
 staying in watch mode` line so the debounce window is observable from
