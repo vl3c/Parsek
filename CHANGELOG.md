@@ -10,6 +10,10 @@ All notable changes to Parsek are documented here.
 
 - Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
 
+### Internals
+
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.
+
 ---
 
 ## 0.9.0

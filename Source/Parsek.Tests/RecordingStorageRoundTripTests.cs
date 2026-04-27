@@ -1073,6 +1073,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingSidecarStore_SaveRecordingFilesToPaths_WritesAuthoritativeSidecarsAndClearsDirty()
+        {
+            string dir = Path.Combine(tempDir, "sidecar-store-direct-save");
+            Directory.CreateDirectory(dir);
+
+            string precPath = Path.Combine(dir, "sidecar-store-direct-save.prec");
+            string vesselPath = Path.Combine(dir, "sidecar-store-direct-save_vessel.craft");
+            string ghostPath = Path.Combine(dir, "sidecar-store-direct-save_ghost.craft");
+
+            Recording rec = BuildRecordingWithSnapshots(
+                "sidecar-store-direct-save",
+                sidecarEpoch: 4,
+                vesselName: "Direct Save Vessel",
+                ghostName: "Direct Save Ghost",
+                pidBase: 5350,
+                pointUt: 654);
+
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
+                rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+            Assert.Equal(5, rec.SidecarEpoch);
+            Assert.Equal(GhostSnapshotMode.Separate, rec.GhostSnapshotMode);
+            Assert.False(rec.FilesDirty);
+            Assert.True(File.Exists(precPath));
+            Assert.True(File.Exists(vesselPath));
+            Assert.True(File.Exists(ghostPath));
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.Equal(5, probe.SidecarEpoch);
+        }
+
+        [Fact]
         public void SaveRecordingFiles_ReadableMirrorsDisabled_DeletesExistingMirrorFiles()
         {
             string dir = Path.Combine(tempDir, "readable-mirrors-disabled");
