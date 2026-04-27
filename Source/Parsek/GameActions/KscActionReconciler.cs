@@ -8,6 +8,7 @@ namespace Parsek
 {
     internal static class KscActionReconciler
     {
+        // Preserve the original LedgerOrchestrator subsystem tag so log lines stay byte-stable.
         private const string Tag = "LedgerOrchestrator";
 
         private struct KscExpectedLegMatch

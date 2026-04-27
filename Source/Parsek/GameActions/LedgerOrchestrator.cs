@@ -4360,6 +4360,7 @@ namespace Parsek
             return KscActionExpectationClassifier.ClassifyAction(action);
         }
 
+        /// <summary>Compatibility facade for <see cref="KscActionReconciler.ReconcileKscAction"/>.</summary>
         internal static void ReconcileKscAction(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
@@ -4369,30 +4370,15 @@ namespace Parsek
             KscActionReconciler.ReconcileKscAction(events, ledgerActions, action, ut);
         }
 
-        /// <summary>Pure: short channel tag used in the reconciliation log lines.</summary>
+        /// <summary>Compatibility facade for <see cref="KscActionReconciler.ResourceChannelTag"/>.</summary>
         internal static string ResourceChannelTag(GameStateEventType t)
         {
             return KscActionReconciler.ResourceChannelTag(t);
         }
 
         /// <summary>
-        /// UT window (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
-        /// action with its resource-changed event and to aggregate both sides across
-        /// coalesced same-key entries. Must match <c>GameStateStore.ResourceCoalesceEpsilon</c>
-        /// (private, 0.1 s — see <c>GameStateStore.cs:21</c> and <c>AddEvent</c> at line 42).
-        /// <para>
-        /// Rationale: within this window, <see cref="GameStateStore.AddEvent"/> has
-        /// already merged same-type/same-tag resource deltas into a single slot, so
-        /// summing ledger actions and events across the window is safe by construction
-        /// — the summed observed delta is one coalesced entry that equals the sum of
-        /// the individual raw deltas. Beyond this window same-key events stay separate
-        /// in the store, so aggregating them would cross-attribute deltas and opposing
-        /// per-action errors could cancel out (review round 3, PR #340).
-        /// </para>
-        /// <para>
-        /// If <c>GameStateStore.ResourceCoalesceEpsilon</c> ever changes, update this
-        /// value in lockstep. The two constants encode the same physical invariant.
-        /// </para>
+        /// Compatibility facade for <see cref="KscActionReconciler.KscReconcileEpsilonSeconds"/>;
+        /// see the extracted reconciler constant for the coalescing rationale.
         /// </summary>
         internal const double KscReconcileEpsilonSeconds = KscActionReconciler.KscReconcileEpsilonSeconds;
 
@@ -4417,10 +4403,10 @@ namespace Parsek
 
         /// <summary>
         /// UT window (seconds) used by <see cref="ReconcilePostWalk"/> to pair a
-        /// transformed-type action with its resource-changed event. Matches the
-        /// <see cref="KscReconcileEpsilonSeconds"/> rationale: same coalesce
-        /// invariant, kept independent so a future tune cannot inadvertently
-        /// couple the two paths.
+        /// transformed-type action with its resource-changed event. Matches the same
+        /// coalesce invariant documented on
+        /// <see cref="KscActionReconciler.KscReconcileEpsilonSeconds"/>, kept
+        /// independent so a future tune cannot inadvertently couple the two paths.
         /// </summary>
         internal const double PostWalkReconcileEpsilonSeconds = 0.1;
 
