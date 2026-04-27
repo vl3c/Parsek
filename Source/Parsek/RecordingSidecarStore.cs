@@ -7,10 +7,6 @@ namespace Parsek
 {
     internal static class RecordingSidecarStore
     {
-        // Kept local during the wrapper-facade split so legacy log text stays stable.
-        // Consolidate with RecordingStore.Log after sidecar/codec ownership settles.
-        private const string LegacyPrefix = "[Parsek] ";
-
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
@@ -627,27 +623,6 @@ namespace Parsek
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
             FileIOUtils.SafeWriteConfigNode(node, path, "RecordingStore");
-        }
-
-        // Mirrors RecordingStore.Log while preserving legacy prefix and WARN normalization.
-        private static void Log(string message)
-        {
-            if (RecordingStore.SuppressLogging) return;
-
-            string clean = message ?? "(empty)";
-            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
-                clean = clean.Substring(LegacyPrefix.Length);
-
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
-                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
-            {
-                int idx = clean.IndexOf(':');
-                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
-                ParsekLog.Warn("RecordingStore", trimmed);
-                return;
-            }
-
-            ParsekLog.Info("RecordingStore", clean);
         }
 
         private struct ReadableMirrorReconcileSummary
