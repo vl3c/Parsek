@@ -9,6 +9,20 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Watch mode no longer auto-exits during time warp when the cached cutoff distance is stale across a FloatingOrigin/Krakensbane frame seam. A 3-frame debounce now requires the cached distance to stay over the cutoff for several consecutive frames before the camera detaches, suppressing single-frame false positives while keeping real cutoff crossings within ~50 ms.
+- Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
+
+### Tests
+
+- Fixed five flaky in-game tests that were failing for harness reasons rather than code regressions: the four `Bug613` ghost-retire tests that targeted the overlap-loop path were silently routed through `LoopEnter` because their 2 s loop interval clamped to `LoopTiming.MinCycleDuration` (5 s); the resolved-anchor `DeferredSync` variant could never satisfy its `appearanceCount >= 1` assertion because the harness ghost was a bare `GameObject` with no renderers; and the `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` canary raced the post-commit `TryTakeCommittedTreeForSpawnedVesselRestore` auto-restore that pulls the just-committed tree back out of `CommittedRecordings` to keep it as the live active tree.
+- Removed two redundant `"WARNING:"` payload prefixes from `TimeJumpManager`'s atmospheric warnings; `ParsekLog.Warn` already emits the `[Parsek][WARN][TimeJump]` prefix, and the live `KSP.log` validation rule `WRN-001` now stays clean across time-jump sessions.
+
+### Internals
+
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` load-path extraction: trajectory probe/id/epoch validation, sidecar load-failure marking, post-hydration loop and endpoint repairs, terminal-orbit backfill, and snapshot fallback policy now live behind `RecordingStore` wrappers while codecs stay in their existing owners.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `TrajectoryTextSidecarCodec` extraction: text trajectory ConfigNode serialization, deserialization, section-authoritative helpers, and flat/section fallback repair now live behind unchanged `RecordingStore` wrappers.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingManifestCodec` extraction: crew end states plus resource, inventory, and crew manifests now live behind unchanged `RecordingStore` wrappers.
+- Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingTreeRecordCodec` extraction: per-record `.sfs` ConfigNode field serialization now lives behind unchanged `RecordingTree` wrappers while endpoint backfill, whole-tree save/load order, branch-point serialization, and caller migration stay outside this slice.
 
 ---
 

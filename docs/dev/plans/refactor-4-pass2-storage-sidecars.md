@@ -1,10 +1,17 @@
 # Refactor-4 Pass 2 - Storage and Sidecar Owner Proposal
 
 **Date:** 2026-04-25.
-**Worktree:** `Parsek-refactor-4-pass2`, branch `refactor-4-pass2`.
-**Base:** `18574260` (`main`, after PR #545 merge).
-**Status:** Proposal only. No production code changes are approved by this
-document.
+**Worktree:** latest implementation slice in
+`Parsek-refactor-4-pass2-tree-record-codec`, branch
+`refactor-4-pass2-tree-record-codec`.
+**Base:** stacked on the accepted but unmerged
+`refactor-4-pass2-tree-record-codec-plan` branch for the later 0.9.1 batch.
+**Status:** Proposal plus implementation checkpoints. The
+`SidecarFileCommitBatch`, save-path `RecordingSidecarStore`, load-path
+`RecordingSidecarStore`, `TrajectoryTextSidecarCodec`,
+`RecordingManifestCodec`, and record-only `RecordingTreeRecordCodec` slices are
+complete; branch point serialization and raw-record caller migration remain
+separate follow-ups.
 
 ## Guardrails
 
@@ -161,8 +168,8 @@ only after tests confirm identical nodes and log output.
 
 ### 5. `RecordingTreeRecordCodec`
 
-Later owner, not first. It would move record-level `.sfs` metadata serialization
-out of `RecordingTree`:
+Record-only owner, completed after manifest ownership settled. It moves
+record-level `.sfs` metadata serialization out of `RecordingTree`:
 
 - `SaveRecordingInto`
 - `LoadRecordingFrom`
@@ -170,10 +177,16 @@ out of `RecordingTree`:
 - resource/state save/load helpers
 - branch point serialization only if a second, separate pass says so
 
-This is useful, but it should wait until manifest ownership is settled because
-`SaveRecordingResourceAndState` and `LoadRecordingResourceAndState` currently
-bridge tree metadata, manifest codecs, rewind metadata, UI grouping tags, and
-legacy merge-state migration.
+This waited until manifest ownership settled because
+`SaveRecordingResourceAndState` and `LoadRecordingResourceAndState` bridge tree
+metadata, manifest codecs, rewind metadata, UI grouping tags, and legacy
+merge-state migration.
+
+Re-evaluation is tracked in
+`docs/dev/plans/refactor-4-pass2-tree-record-codec.md`. The first
+implementation slice is complete as a record-only extraction; branch point
+serialization remains out of scope, and `RecordingTree` wrappers stay stable
+until a separate review approves selective raw-record caller migration.
 
 ## RecordingStore Target State
 
@@ -210,20 +223,23 @@ details, or manifest field serialization.
 4. Extract `TrajectoryTextSidecarCodec`, again behind wrappers. Before this
    step, grep `Source/Parsek.Tests/Generators/` for direct `RecordingStore`
    codec calls so the wrapper surface is known up front. Do not merge it
-   with `TrajectorySidecarBinary`.
-5. Extract `RecordingManifestCodec` behind wrappers.
+   with `TrajectorySidecarBinary`. Completed as its own slice.
+5. Extract `RecordingManifestCodec` behind wrappers. Completed as its own slice.
 6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
-   start it in the same PR as sidecar orchestration.
+   start it in the same PR as sidecar orchestration. The re-evaluation is in
+   `refactor-4-pass2-tree-record-codec.md`; the approved record-only extraction
+   is completed as its own slice.
 
 PR granularity:
 
 - PR 1: `SidecarFileCommitBatch` only.
 - PR 2: `RecordingSidecarStore` only, preferably save and load as separate
   commits after an explicit pre-review of the split.
-- PR 3: `TrajectoryTextSidecarCodec` and `RecordingManifestCodec` may share a
-  PR only if manifest movement is small and wrappers keep the call surface
-  stable.
-- PR 4: `RecordingTreeRecordCodec` only.
+- PR 3: `TrajectoryTextSidecarCodec` first; `RecordingManifestCodec` followed
+  separately.
+- PR 4: `RecordingTreeRecordCodec` record-only extraction.
+- PR 5: optional selective raw-record caller migration, only if the wrapper exit
+  criteria in `refactor-4-pass2-tree-record-codec.md` are met.
 
 ## Validation Scope
 
@@ -295,3 +311,155 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
 dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
 ```
+
+## Implementation Checkpoint - RecordingSidecarStore Save Path
+
+Approved second slice started from PR #552's branch, merged `origin/main` after
+#552 landed, and kept to the save path only:
+
+- Added `Source/Parsek/RecordingSidecarStore.cs`.
+- Moved only save-side path resolution, sidecar epoch bump/rollback, staged
+  authoritative sidecar writes, readable mirror reconciliation, and
+  `FilesDirty` clearing behind the existing `RecordingStore` wrappers.
+- Left `LoadRecordingFiles`, `LoadRecordingFilesFromPathsInternal`, trajectory
+  probe/id/epoch validation, loop migration and degenerate-loop repair,
+  terminal-orbit backfill, endpoint backfill, snapshot fallback/failure policy,
+  and sidecar load-failure marking in `RecordingStore`.
+- Preserved the `RecordingStore` log tag, `SidecarFileCommitBatch` transaction
+  behavior, sidecar epoch mutation order, `GhostSnapshotMode` rollback, and
+  `FilesDirty` mutation order.
+- Added direct xUnit coverage for
+  `RecordingSidecarStore.SaveRecordingFilesToPathsForTesting` while retaining
+  the existing `RecordingStore` wrapper tests.
+
+Validation completed:
+
+```powershell
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
+```
+
+Latest post-main-merge run: focused storage slice passed 235 tests, the
+non-injection gate passed 8,707 tests, and `InjectAllRecordings` passed 3 tests.
+
+Runtime canaries are not required for this save-only mechanical move, but the
+load-path extraction will need the runtime sidecar probe canary before merge.
+
+## Implementation Checkpoint - RecordingSidecarStore Load Path
+
+Approved third slice stacked on PR #554's save-path branch and kept to the load
+path only:
+
+- Moved `LoadRecordingFiles`, `LoadRecordingFilesFromPathsForTesting`, sidecar
+  load-failure marking/clearing, sidecar epoch validation, snapshot sidecar
+  load summary/fallback policy, post-hydration loop repairs, terminal-orbit
+  backfill, and endpoint backfill into `RecordingSidecarStore`.
+- Kept `RecordingStore` wrappers, `SnapshotSidecarLoadState`, and
+  `SnapshotSidecarLoadSummary` stable for existing production and test call
+  sites.
+- Preserved the trajectory load order exactly: probe, supported/id/epoch gates,
+  deserialize, loop migration/degenerate-loop repair, terminal-orbit backfill,
+  endpoint backfill, snapshot sidecars, failure flagging.
+- Left trajectory and snapshot codec dispatch in the existing codec owners.
+- Added direct xUnit coverage for
+  `RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting`, including the
+  snapshot-failure path that must preserve hydrated trajectory points.
+
+Validation completed:
+
+```powershell
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings
+```
+
+Latest post-review run: focused storage plus Bug278 slice passed 240 tests, the
+non-injection gate passed 8,708 tests, and `InjectAllRecordings` passed 3 tests.
+
+The runtime sidecar probe canary passed after this load-path slice; a manual
+save/load or quickload canary is still required before merging the stacked
+storage-sidecar series.
+
+## Implementation Checkpoint - TrajectoryTextSidecarCodec
+
+Approved fourth slice stacked on the load-path branch and kept to the text
+trajectory codec only:
+
+- Moved text ConfigNode trajectory serialization/deserialization,
+  point/orbit/part/flag/segment-event codecs, track-section text
+  serialization, section-authoritative helpers, flat trajectory sync/fallback
+  repair, and text format version probing into
+  `Source/Parsek/TrajectoryTextSidecarCodec.cs`.
+- Kept existing `RecordingStore` internal wrapper signatures stable for
+  production, test, and generator call sites.
+- Left `TrajectorySidecarBinary`, snapshot sidecar codecs, manifest codecs,
+  sidecar epoch ownership, `FilesDirty` mutation, and save/load orchestration
+  outside the text codec.
+- Pre-step generator grep found direct `RecordingStore` wrapper calls in
+  `Source/Parsek.Tests/Generators/RecordingBuilder.cs`,
+  `RecordingStorageFixtures.cs`, and `ScenarioWriter.cs`; those call sites
+  intentionally remain on the facade.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~DeserializeExtractedTests|FullyQualifiedName~SegmentEventSerializationTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~TrackSectionSourceTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~SerializationEdgeCaseTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~Bug419DebrisMonotonicityTests|FullyQualifiedName~RecordingBuilderV6Tests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"
+```
+
+Latest focused run passed 252 tests; the non-injection gate passed 9,051 tests.
+
+## Implementation Checkpoint - RecordingManifestCodec
+
+Approved fifth slice stacked on the text-codec branch and kept to the manifest
+codecs only:
+
+- Moved crew end-state, resource manifest, inventory manifest, and crew manifest
+  ConfigNode serialization/deserialization into
+  `Source/Parsek/RecordingManifestCodec.cs`.
+- Kept existing `RecordingStore` internal wrapper signatures stable for
+  `RecordingTree`, `ParsekScenario`, tests, and generators.
+- Left tree record save/load, sidecar orchestration, trajectory codecs, snapshot
+  codecs, sidecar epoch ownership, and `FilesDirty` mutation outside the
+  manifest codec.
+- Verified the moved manifest block matches the previous `RecordingStore` block
+  exactly.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~RecordingBuilderV6Tests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"
+```
+
+Latest focused run passed 163 tests; the non-injection gate passed 9,051 tests.
+
+## Implementation Checkpoint - RecordingTreeRecordCodec
+
+Approved record-only slice stacked on the tree-record codec proposal branch and
+kept behind `RecordingTree` wrappers:
+
+- Added `Source/Parsek/RecordingTreeRecordCodec.cs`.
+- Moved per-record `.sfs` ConfigNode serialization/deserialization bodies out
+  of `RecordingTree`: `SaveRecordingInto`, `LoadRecordingFrom`,
+  `SaveRecordingResourceAndState`, `LoadRecordingResourceAndState`, and the
+  private playback/linkage helpers.
+- Kept existing `RecordingTree` wrapper signatures stable for production and
+  test call sites.
+- Kept endpoint backfill and the final `LoadRecordingFrom` verbose summary in
+  the `RecordingTree.LoadRecordingFrom` wrapper.
+- Left tree-level save/load ordering, branch point serialization, manifest
+  wrappers, and caller migration outside this slice.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~RecordingFieldExtensionTests|FullyQualifiedName~RecordingTreeTests|FullyQualifiedName~TreeCommitTests|FullyQualifiedName~LegacyMigrationTests|FullyQualifiedName~LoopAnchorTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~RewindLoggingTests|FullyQualifiedName~RewindSpawnSuppressionTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~BackgroundSplitTests|FullyQualifiedName~GhostOnlyRecordingTests|FullyQualifiedName~TerrainCorrectorTests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter FullyQualifiedName!~InjectAllRecordings
+```
+
+Latest focused run passed 370 tests; the non-injection gate passed 9,051 tests.

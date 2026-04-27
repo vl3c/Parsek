@@ -44,11 +44,11 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Done; post-switch auto-record trigger helpers extracted, finalization deferred |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
-| `Source/Parsek/RecordingStore.cs` | 6,834 | Pass2-Done for `SidecarFileCommitBatch`; Pass1-Done for optimization and rewind helpers; remaining sidecar orchestration deferred |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
+| `Source/Parsek/RecordingStore.cs` | 4,350 | Pass2-Done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; tree codec work deferred |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass1-Done; per-frame playback reset helper extracted |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
@@ -59,8 +59,12 @@ locked KSP process/log condition above; the build itself succeeds.
 | `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass1-Deferred; patch-order/reflection/UI mutation split deferred |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass1-Deferred; math/iteration-order split deferred |
 | `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass1-Deferred; optimizer identity/order split deferred |
-| `Source/Parsek/RecordingTree.cs` | 1,615 | Pass1-Deferred; resource/state codec split deferred |
+| `Source/Parsek/RecordingTree.cs` | 971 | Pass2-Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
+| `Source/Parsek/TrajectoryTextSidecarCodec.cs` | 1,563 | Pass2-Done; text trajectory ConfigNode codec extracted behind `RecordingStore` wrappers |
 | `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass1-Deferred; KSC/flight playback sharing deferred |
+
+`RecordingTree.cs` remains listed here for pass-tracking continuity even though
+the record-only extraction drops it below the original largest-file threshold.
 
 ## Growth Since Refactor-3 Inventory
 
@@ -71,7 +75,6 @@ These deltas compare files that also existed in
 |------|------------------|---------------|-------|
 | `LedgerOrchestrator.cs` | 900 | 6,976 | +6,076 |
 | `ParsekFlight.cs` | 8,765 | 14,503 | +5,738 |
-| `RecordingStore.cs` | 2,958 | 6,834 | +3,876 |
 | `GhostPlaybackLogic.cs` | 2,589 | 5,343 | +2,754 |
 | `VesselSpawner.cs` | 1,473 | 4,166 | +2,693 |
 | `GhostPlaybackEngine.cs` | 1,770 | 4,312 | +2,542 |
@@ -79,13 +82,14 @@ These deltas compare files that also existed in
 | `ParsekScenario.cs` | 2,248 | 4,172 | +1,924 |
 | `BackgroundRecorder.cs` | 2,788 | 4,489 | +1,701 |
 | `FlightRecorder.cs` | 5,267 | 6,689 | +1,422 |
+| `RecordingStore.cs` | 2,958 | 4,350 | +1,392 |
 | `GameStateRecorder.cs` | 975 | 2,004 | +1,029 |
 | `KspStatePatcher.cs` | 777 | 1,759 | +982 |
 | `CrewReservationManager.cs` | 686 | 1,447 | +761 |
 | `RecordingOptimizer.cs` | 863 | 1,621 | +758 |
 | `GhostVisualBuilder.cs` | 6,484 | 7,193 | +709 |
 | `ParsekKSC.cs` | 897 | 1,520 | +623 |
-| `RecordingTree.cs` | 1,013 | 1,615 | +602 |
+| `RecordingTree.cs` | 1,013 | 971 | -42 |
 | `VesselGhoster.cs` | 709 | 1,190 | +481 |
 | `GameStateStore.cs` | 709 | 1,138 | +429 |
 | `TrajectoryMath.cs` | 702 | 1,110 | +408 |
@@ -113,6 +117,7 @@ classification before they are assigned to extraction tiers.
 | `Source/Parsek/UI/KerbalsWindowUI.cs` | 841 | Kerbals UI surface |
 | `Source/Parsek/Patches/GhostTrackingStationPatch.cs` | 817 | Tracking Station patch surface |
 | `Source/Parsek/RecordingEndpointResolver.cs` | 816 | Endpoint resolution helper |
+| `Source/Parsek/RecordingTreeRecordCodec.cs` | 815 | New record-level `.sfs` ConfigNode codec extracted from `RecordingTree` |
 | `Source/Parsek/RevertInterceptor.cs` | 794 | Revert interception surface |
 | `Source/Parsek/ParsekTrackingStation.cs` | 778 | Tracking Station controller |
 | `Source/Parsek/EffectiveState.cs` | 744 | Rewind/effective-state logic |
@@ -141,11 +146,11 @@ central enough that parallel edits would make review and rollback worse.
 |------|--------|
 | `ParsekFlight.cs` | 14.5k-line scene controller, +5.7k since refactor-3 |
 | `LedgerOrchestrator.cs` | 7.0k-line GameActions hub, +6.1k since refactor-3 |
-| `RecordingStore.cs` | 6.8k-line storage surface, +3.9k since refactor-3; Pass 2 sidecar commit batch extracted |
 | `FlightRecorder.cs` | 6.7k-line sampling/event surface |
 | `GhostPlaybackLogic.cs` | 5.3k-line playback/visual logic helper |
 | `UI/RecordingsTableUI.cs` | 4.9k-line extracted UI surface with prior coupling risk |
 | `BackgroundRecorder.cs` | 4.5k-line background sampling surface |
+| `RecordingStore.cs` | 4.4k-line storage surface, +1.4k since refactor-3; Pass 2 sidecar commit batch, save/load paths, text trajectory codec, and manifest codec extracted |
 | `GhostPlaybackEngine.cs` | 4.3k-line engine core |
 | `ParsekScenario.cs` | 4.2k-line save/load/lifecycle host |
 | `VesselSpawner.cs` | 4.2k-line spawn/snapshot utility |
@@ -164,7 +169,7 @@ clearly separated by file.
 | `GameActions/KspStatePatcher.cs` | 1,759 | Deferred; state-family patcher proposal needed |
 | `BallisticExtrapolator.cs` | 1,639 | Deferred; math/order sensitive |
 | `RecordingOptimizer.cs` | 1,621 | Deferred; optimizer identity/order sensitive |
-| `RecordingTree.cs` | 1,615 | Deferred; serialization codec proposal needed |
+| `RecordingTree.cs` | 971 | Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 | `ParsekKSC.cs` | 1,520 | Deferred; KSC/flight playback owner proposal needed |
 | `CrewReservationManager.cs` | 1,447 | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal |
 | `EngineFxBuilder.cs` | 1,367 | Deferred; visual/FX builder work grouped with visual runtime validation |
@@ -258,7 +263,7 @@ loops can fool a mechanical scan.
 | `ParsekScenario.cs` | `LoadRecordingMetadata` | 3660 | 244 |
 | `RecordingStore.cs` | `RunOptimizationPass` | 1912 | 216 |
 | `RecordingStore.cs` | `InitiateRewind` | 3464 | 141 |
-| `RecordingStore.cs` | `ReconcileReadableSidecarMirrors` | 6413 | 128 |
+| `RecordingSidecarStore.cs` | `ReconcileReadableSidecarMirrors` | 704 | 119 |
 | `UI/RecordingsTableUI.cs` | `DrawRecordingsTableHeader` | 835 | 136 |
 | `UI/RecordingsTableUI.cs` | `DrawRecordingsWindow` | 1045 | 232 |
 | `UI/RecordingsTableUI.cs` | `DrawRecordingRow` | 1281 | 382 |
@@ -455,19 +460,63 @@ Pass 2 first slice completed:
 
 - Extracted `SidecarFileCommitBatch` into `Source/Parsek/SidecarFileCommitBatch.cs`
   for staged sidecar write/delete commits, rollback, and artifact cleanup.
-  `RecordingStore` still owns save/load orchestration, sidecar epoch ownership
-  and mutation order, `FilesDirty`, readable mirrors, snapshot policy, and codec
-  dispatch.
+  At this checkpoint, `RecordingStore` still owned save/load orchestration,
+  sidecar epoch ownership and mutation order, `FilesDirty`, readable mirrors,
+  snapshot policy, and codec dispatch.
+
+Pass 2 second slice completed:
+
+- Extracted save-path `RecordingSidecarStore` into
+  `Source/Parsek/RecordingSidecarStore.cs` for save-side path resolution,
+  sidecar epoch bump/rollback, staged authoritative sidecar writes, readable
+  mirror reconciliation, and `FilesDirty` clearing. `RecordingStore` keeps the
+  existing save wrappers and still owns grouping, optimization, deletion, and
+  rewind entry points.
+
+Pass 2 third slice completed:
+
+- Extracted load-path `RecordingSidecarStore` orchestration for
+  `LoadRecordingFiles`, test-path loading, sidecar load-failure
+  marking/clearing, sidecar epoch validation, snapshot fallback/failure policy,
+  loop migration/repair, terminal-orbit backfill, and endpoint backfill.
+  `RecordingStore` keeps compatibility wrappers and the stable
+  `SnapshotSidecarLoadState` / `SnapshotSidecarLoadSummary` surface while
+  trajectory and snapshot codec dispatch stay in their existing owners.
+
+Pass 2 fourth slice completed:
+
+- Extracted `TrajectoryTextSidecarCodec` into
+  `Source/Parsek/TrajectoryTextSidecarCodec.cs` for text ConfigNode trajectory
+  serialization/deserialization, point/orbit/part/flag/segment-event codecs,
+  track-section text serialization, section-authoritative helpers, flat
+  trajectory sync/fallback repair, and text format version probing.
+  `RecordingStore` keeps compatibility wrappers for production, tests, and
+  generators while manifest codecs, snapshot codecs, sidecar epoch ownership,
+  and `FilesDirty` mutation remain outside the text codec.
+
+Pass 2 fifth slice completed:
+
+- Extracted `RecordingManifestCodec` into
+  `Source/Parsek/RecordingManifestCodec.cs` for crew end-state, resource
+  manifest, inventory manifest, and crew manifest ConfigNode
+  serialization/deserialization. `RecordingStore` keeps compatibility wrappers
+  for `RecordingTree`, `ParsekScenario`, tests, and generators while tree record
+  save/load, sidecar orchestration, trajectory codecs, snapshot codecs, sidecar
+  epoch ownership, and `FilesDirty` mutation remain outside the manifest codec.
 
 Validation:
 
 - `dotnet build Source/Parsek/Parsek.csproj`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingOptimizerTests|FullyQualifiedName~RecordingStoreTests|FullyQualifiedName~LegacyTreeMigrationTests|FullyQualifiedName~RewindLoggingTests"`
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
+- Pass 2 save-path slice: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"` passed 235 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passed 8,707 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings` passed 3 tests.
+- Pass 2 load-path slice: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~SnapshotSidecarCodecTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~Bug270SidecarEpochTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~LoopIntervalLoadNormalizationTests|FullyQualifiedName~QuickloadResumeTests"` passed 236 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passed 8,708 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~InjectAllRecordings` is currently blocked by a locked `KSP.log` / `Parsek.dll` from a running KSP process.
+- Pass 2 text-codec slice: `dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo` passed; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~DeserializeExtractedTests|FullyQualifiedName~SegmentEventSerializationTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~TrackSectionSourceTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~SerializationEdgeCaseTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~Bug419DebrisMonotonicityTests|FullyQualifiedName~RecordingBuilderV6Tests"` passed 252 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"` passed 9,051 tests.
+- Pass 2 manifest-codec slice: `dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo` passed; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~RecordingBuilderV6Tests"` passed 163 tests; `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"` passed 9,051 tests.
 
-Remaining sidecar orchestration and codec work follows the Pass 2 owner plan
-and remains gated on preserving file ordering, exception handling, sidecar epoch
-ordering, and `FilesDirty` mutation order exactly.
+Remaining tree-record codec work follows the Pass 2 owner plan and remains
+gated on preserving file ordering, exception handling, sidecar epoch ordering,
+and `FilesDirty` mutation order exactly.
 
 Pass 2 storage/sidecar owner proposal:
 `docs/dev/plans/refactor-4-pass2-storage-sidecars.md`. Rewind service
@@ -797,8 +846,9 @@ Pass 2 discussion only: broader optimizer strategy decomposition.
 
 ### `Source/Parsek/RecordingTree.cs`
 
-This serialization/tree owner is already partly extracted, but it still has
-resource/state save-load density.
+This serialization/tree owner now keeps tree-level save/load and branch-point
+serialization while per-record `.sfs` field serialization lives in
+`RecordingTreeRecordCodec`.
 
 Pass 1 same-file candidates:
 
@@ -812,7 +862,9 @@ Pass 1 deferred:
   serialization codec question: field order, defaulting, legacy reads, and
   logging must be proposed together.
 
-Pass 2 discussion only: a recording tree serialization codec.
+Pass 2 completed: record-only `RecordingTreeRecordCodec` extracted behind
+wrappers. Branch point serialization and selective raw-record caller migration
+remain separate follow-ups.
 
 ### `Source/Parsek/ParsekKSC.cs`
 
@@ -910,12 +962,12 @@ semantic, architectural, runtime-visual, math-sensitive, or UI-order-sensitive.
 | `ParsekFlight.cs` | Done for post-switch auto-record; finalization split deferred to Pass 2. |
 | `FlightRecorder.cs` | Done for visual coverage logging; remaining part-event poller work deferred. |
 | `GhostPlaybackLogic.cs` | Done for dictionary population and part events; remaining spawn policy cleanup deferred. |
-| `RecordingStore.cs` | Pass 2 first slice done for `SidecarFileCommitBatch`; save/load orchestration, codecs, grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
+| `RecordingStore.cs` | Pass 2 first through fifth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
 | `GameStateRecorder.cs` | Deferred; resource/milestone/facility handler families need owner map. |
 | `GameActions/KspStatePatcher.cs` | Deferred; patch-order/reflection/UI mutation paths need state-family patcher proposal. |
 | `BallisticExtrapolator.cs` | Deferred; math and iteration-order sensitive. |
 | `RecordingOptimizer.cs` | Deferred; recording identity/order sensitive. |
-| `RecordingTree.cs` | Deferred; remaining shape belongs to serialization codec proposal. |
+| `RecordingTree.cs` | Done for record-only codec extraction; branch point serialization and selective raw-record caller migration deferred. |
 | `ParsekKSC.cs` | Deferred; useful split is KSC/flight playback architecture. |
 | `UI/TimelineWindowUI.cs` | Deferred; timeline filter/action model ownership needed. |
 | `RewindInvoker.cs` | Deferred; scene-load checkpoint sequence should remain visible until service ownership is proposed. |
@@ -956,9 +1008,9 @@ raw scan with a manual map for the high-risk owners:
    deduplication. Initial result: `refactor-4-pass2-storage-sidecars.md`
    recommends separate sidecar commit, sidecar orchestration, trajectory text
    codec, manifest codec, and tree-record codec owners. The sidecar commit
-   batch slice is complete; schema redesign remains out of scope, and binary/text
-   format unification is deferred until the orchestration and manifest codec
-   owners land.
+  batch and save/load-path orchestration slices are complete; schema redesign
+  remains out of scope, and binary/text format unification is deferred until
+  the manifest codec owner lands.
 3. Build a static mutable state map for `GameStateRecorder`,
    `LedgerOrchestrator`, `RecordingStore`, `ParsekScenario`,
    `WatchModeController`, and `GhostPlaybackEngine`.
