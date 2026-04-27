@@ -83,6 +83,17 @@ namespace Parsek.Rendering
                 return;
 
             string recordingId = rec.RecordingId;
+
+            // HR-10: clear any prior entries for this recording before re-fitting
+            // so a recompute (config-hash drift, alg-stamp drift, epoch drift,
+            // ineligibility flip, fit-failure-after-prior-success) cannot leak
+            // stale splines into the new state. Without this clear, an Add-only
+            // PutSmoothingSpline path lets a section that fit previously but
+            // becomes ineligible (or fails the fit) keep its old spline forever.
+            // Idempotent on first run (no entries yet).
+            if (!string.IsNullOrEmpty(recordingId))
+                SectionAnnotationStore.RemoveRecording(recordingId);
+
             int fitOk = 0;
             int fitFailed = 0;
             int skipped = 0;
@@ -286,6 +297,15 @@ namespace Parsek.Rendering
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
                             out string readFailure))
                     {
+                        // HR-10: clear any prior in-memory entries for this recording
+                        // before populating from the freshly-read .pann so a re-load
+                        // (e.g. after a recording was healed and its sidecar rewritten
+                        // with a different per-section eligibility set) cannot leave
+                        // stale splines behind. The on-disk .pann is the authoritative
+                        // source after a successful probe + cache-key match.
+                        if (!string.IsNullOrEmpty(recordingId))
+                            SectionAnnotationStore.RemoveRecording(recordingId);
+
                         for (int i = 0; i < splines.Count; i++)
                         {
                             SectionAnnotationStore.PutSmoothingSpline(

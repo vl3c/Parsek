@@ -608,6 +608,93 @@ namespace Parsek.Tests.Rendering
             Assert.Equal((byte)1, spline.FrameTag);
         }
 
+        // --- P1#3: stale-spline clearing on recompute ---
+
+        private static SmoothingSpline MakeSentinelSpline(int knotCount = 4, byte frameTag = 0)
+        {
+            double[] knots = new double[knotCount];
+            float[] cx = new float[knotCount];
+            float[] cy = new float[knotCount];
+            float[] cz = new float[knotCount];
+            for (int i = 0; i < knotCount; i++)
+            {
+                knots[i] = 9000.0 + i;
+                cx[i] = 999f + i;
+                cy[i] = 999f + i;
+                cz[i] = 999f + i;
+            }
+            return new SmoothingSpline
+            {
+                SplineType = 0,
+                Tension = 0.5f,
+                KnotsUT = knots,
+                ControlsX = cx,
+                ControlsY = cy,
+                ControlsZ = cz,
+                FrameTag = frameTag,
+                IsValid = true,
+            };
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ClearsPriorEntries_OnRecompute()
+        {
+            // What makes it fail: P1#3 — without the recording-bucket clear at
+            // the top of FitAndStorePerSection, a section that was fit
+            // previously but is no longer eligible (or fails the fit this
+            // round) keeps its stale spline forever. The Add-only
+            // PutSmoothingSpline path means the new fit can never erase a
+            // prior section's entry.
+            var rec = MakeRecording("rec-stale-fit",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+
+            // Plant a sentinel spline at a section index the fresh fit will
+            // NOT emit (fresh fit emits only sectionIndex=0 here).
+            SectionAnnotationStore.PutSmoothingSpline("rec-stale-fit", 99, MakeSentinelSpline());
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 99, out _));
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            // Sentinel must be gone after recompute.
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 99, out _));
+            // Real fit result must still be present.
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 0, out var fresh));
+            Assert.True(fresh.IsValid);
+        }
+
+        [Fact]
+        public void LoadOrCompute_ReadPath_ClearsPriorEntries()
+        {
+            // What makes it fail: P1#3 read path — without the clear before
+            // populating from the freshly-read .pann, a sentinel left in the
+            // in-memory store from a prior session (or from a healed
+            // recording's earlier sidecar shape) escapes the cache-key
+            // freshness check and is silently consumed by the renderer.
+            var rec = MakeRecording("rec-stale-read",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            string pannPath = Path.Combine(tempDir, "rec-stale-read.pann");
+
+            // Prime the .pann via a successful compute+write.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            Assert.True(File.Exists(pannPath));
+
+            // Reset in-memory store + plant a sentinel at a section index the
+            // .pann's read will NOT emit.
+            SectionAnnotationStore.ResetForTesting();
+            SectionAnnotationStore.PutSmoothingSpline("rec-stale-read", 99, MakeSentinelSpline());
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 99, out _));
+            logLines.Clear();
+
+            // Re-load: read path should fire (no drift), populate from disk,
+            // and discard the sentinel.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Pipeline-Sidecar]")
+                && l.Contains("Pannotations read OK") && l.Contains("recordingId=rec-stale-read"));
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 99, out _));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 0, out _));
+        }
+
         [Fact]
         public void PannotationsHeader_WritesV2Stamp()
         {
