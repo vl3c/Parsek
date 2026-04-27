@@ -142,4 +142,178 @@ namespace Parsek.Rendering
             }
         }
     }
+
+    /// <summary>
+    /// Discriminator for the three valid <see cref="AnchorCorrectionInterval"/>
+    /// configurations described in design doc §6.4. Stored as an explicit
+    /// field on the interval struct so callers do not need to reason about
+    /// <c>default(AnchorCorrection)</c> sentinels — both <c>UT == 0</c> and a
+    /// zero <c>Epsilon</c> are valid real values.
+    /// </summary>
+    internal enum AnchorIntervalKind : byte
+    {
+        StartOnly = 0,
+        EndOnly   = 1,
+        Both      = 2
+    }
+
+    /// <summary>
+    /// Phase 3 (design doc §6.4 Stage 4 / §8 / §18 Phase 3) interval
+    /// abstraction over the start- and end-side <see cref="AnchorCorrection"/>s
+    /// belonging to a single <c>(recordingId, sectionIndex)</c> segment. The
+    /// renderer queries <see cref="RenderSessionState.LookupForSegmentInterval"/>
+    /// once per ghost-position frame and evaluates ε at the current playback
+    /// UT via <see cref="EvaluateAt"/>.
+    ///
+    /// <para>
+    /// Representation: this struct is an explicit tagged union — the
+    /// <see cref="Kind"/> field selects between the three §6.4 cases, and the
+    /// unused side stores <c>default(AnchorCorrection)</c>. We deliberately
+    /// avoid using a nullable side field as the discriminator because UT=0 and
+    /// Epsilon=zero are both legal real values and would collide with sentinel
+    /// detection. The factory methods (<see cref="StartOnly"/>,
+    /// <see cref="EndOnly"/>, <see cref="Both"/>) are the only construction
+    /// path; the public constructor is for legacy / interop use only.
+    /// </para>
+    ///
+    /// <para>
+    /// HR-7 (design doc §26.1): the interval is keyed by
+    /// <c>(recordingId, sectionIndex)</c> in <see cref="RenderSessionState"/>,
+    /// and the consumer hook always queries with the section that owns the
+    /// current playback UT — so the lerp is naturally bounded to one section
+    /// and CANNOT cross a hard discontinuity.
+    /// </para>
+    /// </summary>
+    internal readonly struct AnchorCorrectionInterval
+    {
+        /// <summary>Which §6.4 case this interval represents.</summary>
+        public readonly AnchorIntervalKind Kind;
+
+        /// <summary>Start-side anchor (valid when <see cref="Kind"/> is StartOnly or Both).</summary>
+        public readonly AnchorCorrection Start;
+
+        /// <summary>End-side anchor (valid when <see cref="Kind"/> is EndOnly or Both).</summary>
+        public readonly AnchorCorrection End;
+
+        /// <summary>
+        /// Both-end ε divergence threshold (design doc §8 / §19.2 Stage 4 row).
+        /// When <c>|ε_end − ε_start|</c> exceeds this, the segment is flagged
+        /// as suspect — the lerp still runs (HR-9: keep the value, surface the
+        /// failure) but a Pipeline-Lerp Warn fires once per session per key.
+        /// </summary>
+        public const double DivergenceWarnThresholdM = 50.0;
+
+        /// <summary>
+        /// Direct constructor. Prefer the <see cref="StartOnly"/> /
+        /// <see cref="EndOnly"/> / <see cref="Both"/> factories — they
+        /// validate and document the chosen kind. Kept internal for completeness.
+        /// </summary>
+        internal AnchorCorrectionInterval(
+            AnchorIntervalKind kind,
+            AnchorCorrection start,
+            AnchorCorrection end)
+        {
+            Kind = kind;
+            Start = start;
+            End = end;
+        }
+
+        /// <summary>
+        /// "Anchor at start only" row of §6.4. <see cref="EvaluateAt"/> returns
+        /// <c>start.Epsilon</c> for every UT (constant ε across the segment).
+        /// </summary>
+        internal static AnchorCorrectionInterval StartOnly(AnchorCorrection start)
+        {
+            return new AnchorCorrectionInterval(AnchorIntervalKind.StartOnly, start, default);
+        }
+
+        /// <summary>
+        /// "Anchor at end only" row of §6.4. <see cref="EvaluateAt"/> returns
+        /// <c>end.Epsilon</c> for every UT. Phase 3 does not produce these in
+        /// production code paths — Phase 6 anchor types (dock, RELATIVE
+        /// boundary, orbital checkpoint, SOI, bubble exit) populate the End
+        /// side; Phase 3 ships only the math + test seam.
+        /// </summary>
+        internal static AnchorCorrectionInterval EndOnly(AnchorCorrection end)
+        {
+            return new AnchorCorrectionInterval(AnchorIntervalKind.EndOnly, default, end);
+        }
+
+        /// <summary>
+        /// "Anchors at both ends" row of §6.4 — the multi-anchor lerp case
+        /// that motivates Phase 3. <see cref="EvaluateAt"/> linearly
+        /// interpolates between <c>start.Epsilon</c> and <c>end.Epsilon</c>
+        /// using the normalized UT position inside <c>[start.UT, end.UT]</c>.
+        /// </summary>
+        internal static AnchorCorrectionInterval Both(AnchorCorrection start, AnchorCorrection end)
+        {
+            return new AnchorCorrectionInterval(AnchorIntervalKind.Both, start, end);
+        }
+
+        /// <summary>
+        /// Evaluates ε at the supplied UT per §6.4. Behaviour:
+        /// <list type="bullet">
+        ///   <item><description><see cref="AnchorIntervalKind.StartOnly"/> →
+        ///   <c>Start.Epsilon</c> (constant).</description></item>
+        ///   <item><description><see cref="AnchorIntervalKind.EndOnly"/> →
+        ///   <c>End.Epsilon</c> (constant).</description></item>
+        ///   <item><description><see cref="AnchorIntervalKind.Both"/> with
+        ///   <c>End.UT &gt; Start.UT</c> → linear lerp,
+        ///   <c>t_norm = clamp((ut − Start.UT) / (End.UT − Start.UT), 0, 1)</c>;
+        ///   the clamp prevents extrapolation past either endpoint (HR-7
+        ///   would otherwise be violated when the consumer queries with a UT
+        ///   outside the section's range during a one-frame race).</description></item>
+        ///   <item><description><see cref="AnchorIntervalKind.Both"/> with
+        ///   degenerate span (<c>End.UT &lt;= Start.UT</c>) → emits a
+        ///   <c>[Pipeline-Lerp]</c> Warn (HR-9: visible failure) and returns
+        ///   <c>Start.Epsilon</c>; the Warn dedup key is the
+        ///   <c>(recordingId, sectionIndex, "degenerate")</c> tuple so
+        ///   per-frame queries do not spam.</description></item>
+        /// </list>
+        /// </summary>
+        public Vector3d EvaluateAt(double ut)
+        {
+            switch (Kind)
+            {
+                case AnchorIntervalKind.StartOnly:
+                    return Start.Epsilon;
+                case AnchorIntervalKind.EndOnly:
+                    return End.Epsilon;
+                case AnchorIntervalKind.Both:
+                {
+                    double span = End.UT - Start.UT;
+                    if (span <= 0.0)
+                    {
+                        // Degenerate-span Warn (HR-9). De-duplicate per
+                        // (recordingId, sectionIndex) so per-frame queries do
+                        // not spam — RenderSessionState owns the dedup set.
+                        RenderSessionState.NotifyDegenerateLerpSpan(
+                            Start.RecordingId, Start.SectionIndex, ut, Start.UT, End.UT);
+                        return Start.Epsilon;
+                    }
+                    double tNorm = (ut - Start.UT) / span;
+                    if (tNorm < 0.0) tNorm = 0.0;
+                    else if (tNorm > 1.0) tNorm = 1.0;
+                    return Start.Epsilon + (End.Epsilon - Start.Epsilon) * tNorm;
+                }
+                default:
+                    return Vector3d.zero;
+            }
+        }
+
+        /// <summary>
+        /// Returns true when this is a <see cref="AnchorIntervalKind.Both"/>
+        /// interval AND the magnitude of <c>End.Epsilon - Start.Epsilon</c>
+        /// exceeds <see cref="DivergenceWarnThresholdM"/>. The caller (the
+        /// renderer) emits the <c>[Pipeline-Lerp]</c> divergence Warn once
+        /// per session per key — see <see cref="RenderSessionState.NotifyLerpDivergenceCheck"/>.
+        /// </summary>
+        public bool HasSignificantDivergence(out double magnitudeM)
+        {
+            magnitudeM = 0.0;
+            if (Kind != AnchorIntervalKind.Both) return false;
+            magnitudeM = (End.Epsilon - Start.Epsilon).magnitude;
+            return magnitudeM > DivergenceWarnThresholdM;
+        }
+    }
 }

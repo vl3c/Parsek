@@ -69,6 +69,22 @@ namespace Parsek.Rendering
             = new Dictionary<AnchorKey, AnchorCorrection>();
         private static string s_currentSessionId;
 
+        // Phase 3 (design doc §6.4 / §8 / §19.2 Stage 4): per-session dedup
+        // sets so the Pipeline-Lerp Warn / Verbose lines fire once per
+        // (recordingId, sectionIndex) instead of per-frame. The keys cover
+        // three distinct events:
+        //   - DegenerateLerpSpans:   Warn   "degenerate-span"
+        //   - DivergentLerpKeys:     Warn   "epsilon-divergence"
+        //   - SingleAnchorLerpKeys:  Verbose"Single-anchor case"
+        // All three are cleared by Clear() and ResetForTesting() so a new
+        // session starts with a fresh emission budget.
+        private static readonly HashSet<AnchorKey> DegenerateLerpSpans
+            = new HashSet<AnchorKey>();
+        private static readonly HashSet<AnchorKey> DivergentLerpKeys
+            = new HashSet<AnchorKey>();
+        private static readonly HashSet<AnchorKey> SingleAnchorLerpKeys
+            = new HashSet<AnchorKey>();
+
         /// <summary>Number of anchors in the current session map.</summary>
         internal static int Count
         {
@@ -99,16 +115,97 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
-        /// Convenience wrapper for the Phase 2 single-anchor case (Stage 4 not
-        /// implemented yet) — returns the start-side correction or null. Phase
-        /// 3 will replace this with an interval-evaluator that lerps between
-        /// start and end ε.
+        /// Convenience wrapper kept for backward compatibility with Phase 2
+        /// callers and tests — returns the start-side correction or null.
+        /// New rendering code should prefer
+        /// <see cref="LookupForSegmentInterval"/> which handles the §6.4
+        /// multi-anchor lerp case.
         /// </summary>
         internal static AnchorCorrection? LookupForSegmentStart(string recordingId, int sectionIndex)
         {
             if (TryLookup(recordingId, sectionIndex, AnchorSide.Start, out AnchorCorrection ac))
                 return ac;
             return null;
+        }
+
+        /// <summary>
+        /// Phase 3 lookup (design doc §6.4 / §8 / §18 Phase 3). Returns the
+        /// <see cref="AnchorCorrectionInterval"/> for a segment by combining
+        /// the start- and end-side anchors stored in the map. Returns null
+        /// when neither side is present (the renderer's gate then falls
+        /// through with no ε correction — HR-9: a missing anchor is normal
+        /// state, not failure).
+        ///
+        /// <para>
+        /// Three result shapes (matching §6.4):
+        /// <list type="bullet">
+        ///   <item><description>Start present, End absent →
+        ///   <see cref="AnchorCorrectionInterval.StartOnly"/>.</description></item>
+        ///   <item><description>Start absent, End present →
+        ///   <see cref="AnchorCorrectionInterval.EndOnly"/>.</description></item>
+        ///   <item><description>Both present →
+        ///   <see cref="AnchorCorrectionInterval.Both"/>.</description></item>
+        ///   <item><description>Neither present → null.</description></item>
+        /// </list>
+        /// </para>
+        ///
+        /// <para>
+        /// Phase 3 production code never produces an End anchor — that work
+        /// belongs to Phase 6 anchor types (dock, RELATIVE boundary, orbital
+        /// checkpoint, SOI, bubble exit). The Phase 3 unit tests use
+        /// <see cref="PutAnchorForTesting"/> to inject end-side anchors and
+        /// prove the lerp math works end-to-end.
+        /// </para>
+        /// </summary>
+        internal static AnchorCorrectionInterval? LookupForSegmentInterval(
+            string recordingId, int sectionIndex)
+        {
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return null;
+
+            bool hasStart;
+            bool hasEnd;
+            AnchorCorrection start;
+            AnchorCorrection end;
+            lock (Lock)
+            {
+                hasStart = Anchors.TryGetValue(
+                    new AnchorKey(recordingId, sectionIndex, AnchorSide.Start), out start);
+                hasEnd = Anchors.TryGetValue(
+                    new AnchorKey(recordingId, sectionIndex, AnchorSide.End), out end);
+            }
+
+            if (hasStart && hasEnd)
+                return AnchorCorrectionInterval.Both(start, end);
+            if (hasStart)
+                return AnchorCorrectionInterval.StartOnly(start);
+            if (hasEnd)
+                return AnchorCorrectionInterval.EndOnly(end);
+            return null;
+        }
+
+        /// <summary>
+        /// Test-only seam (design doc §18 Phase 3 task list — "test seam to
+        /// inject both start AND end anchors"). Phase 3 production code only
+        /// emits start-side LiveSeparation anchors; the lerp math, however,
+        /// requires both sides to exist for the §6.4 "Both" case. Unit tests
+        /// call this to populate either side directly without standing up the
+        /// full <see cref="RebuildFromMarker"/> pipeline. Visibility is
+        /// <c>internal</c> so only <c>Parsek.Tests</c> sees it.
+        /// </summary>
+        /// <remarks>
+        /// Does NOT change <see cref="CurrentSessionId"/> — tests that need a
+        /// session id should call <see cref="SetSessionIdForTesting"/> or
+        /// drive a real <see cref="RebuildFromMarker"/> first. Cleared by
+        /// <see cref="ResetForTesting"/> and <see cref="Clear"/>.
+        /// </remarks>
+        internal static void PutAnchorForTesting(AnchorCorrection ac)
+        {
+            if (string.IsNullOrEmpty(ac.RecordingId)) return;
+            lock (Lock)
+            {
+                Anchors[new AnchorKey(ac.RecordingId, ac.SectionIndex, ac.Side)] = ac;
+            }
         }
 
         /// <summary>
@@ -126,6 +223,13 @@ namespace Parsek.Rendering
                 sessionId = s_currentSessionId;
                 Anchors.Clear();
                 s_currentSessionId = null;
+                // Phase 3: drop the per-session Pipeline-Lerp dedup sets so
+                // the next session emits its single Verbose / Warn lines
+                // afresh (otherwise a long-lived process would surface no
+                // diagnostics for sessions 2..N).
+                DegenerateLerpSpans.Clear();
+                DivergentLerpKeys.Clear();
+                SingleAnchorLerpKeys.Clear();
             }
             ParsekLog.Info("Pipeline-Session",
                 $"Clear: reason={reason ?? "<unspecified>"} previousSessionId={sessionId ?? "<none>"} clearedCount={count}");
@@ -138,6 +242,9 @@ namespace Parsek.Rendering
             {
                 Anchors.Clear();
                 s_currentSessionId = null;
+                DegenerateLerpSpans.Clear();
+                DivergentLerpKeys.Clear();
+                SingleAnchorLerpKeys.Clear();
             }
             SurfaceLookupOverrideForTesting = null;
         }
@@ -687,6 +794,114 @@ namespace Parsek.Rendering
             if (body == null)
                 throw new InvalidOperationException($"CelestialBody '{bodyName}' not resolvable");
             return body.GetWorldSurfacePosition(lat, lon, alt);
+        }
+
+        // -------------------------------------------------------------------
+        //  Phase 3 (design doc §6.4 / §8 / §19.2 Stage 4) Pipeline-Lerp
+        //  notification entry points. The renderer does NOT log per-frame
+        //  for the lerp path; instead the math evaluator + the consumer hook
+        //  call these once per (recordingId, sectionIndex) per session, and
+        //  RenderSessionState owns the dedup set. This keeps L4 (the
+        //  Pipeline-frame-summary VerboseRateLimited line — owned by the
+        //  engine) as the only per-frame surface for lerp counts.
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Called by <see cref="AnchorCorrectionInterval.EvaluateAt"/> when a
+        /// Both-end interval has <c>End.UT &lt;= Start.UT</c>. Emits a
+        /// <c>[Pipeline-Lerp]</c> Warn ONCE per session per
+        /// <c>(recordingId, sectionIndex, End-side)</c>; subsequent calls
+        /// with the same key are dropped silently. HR-9: the Warn is the
+        /// visible-failure surface for the degenerate-span case.
+        /// </summary>
+        internal static void NotifyDegenerateLerpSpan(
+            string recordingId, int sectionIndex, double evalUT, double startUT, double endUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            var key = new AnchorKey(recordingId, sectionIndex, AnchorSide.End);
+            bool first;
+            lock (Lock) { first = DegenerateLerpSpans.Add(key); }
+            if (!first) return;
+            ParsekLog.Warn("Pipeline-Lerp",
+                string.Format(CultureInfo.InvariantCulture,
+                    "degenerate-span recordingId={0} sectionIndex={1} ut={2} startUT={3} endUT={4}",
+                    recordingId, sectionIndex,
+                    evalUT.ToString("F3", CultureInfo.InvariantCulture),
+                    startUT.ToString("F3", CultureInfo.InvariantCulture),
+                    endUT.ToString("F3", CultureInfo.InvariantCulture)));
+        }
+
+        /// <summary>
+        /// Called by the consumer hook once per evaluation when the interval
+        /// is a <see cref="AnchorIntervalKind.Both"/>. Emits a
+        /// <c>[Pipeline-Lerp]</c> Warn ONCE per session per
+        /// <c>(recordingId, sectionIndex)</c> when
+        /// <see cref="AnchorCorrectionInterval.HasSignificantDivergence"/>
+        /// returns true. Per design doc §8 the lerp still proceeds (HR-9: keep
+        /// the value, log the Warn) so the player sees the smoothed result
+        /// but the developer can investigate.
+        /// </summary>
+        internal static void NotifyLerpDivergenceCheck(in AnchorCorrectionInterval interval)
+        {
+            if (interval.Kind != AnchorIntervalKind.Both) return;
+            if (!interval.HasSignificantDivergence(out double magnitudeM)) return;
+            if (string.IsNullOrEmpty(interval.Start.RecordingId)) return;
+
+            var key = new AnchorKey(
+                interval.Start.RecordingId, interval.Start.SectionIndex, AnchorSide.Start);
+            bool first;
+            lock (Lock) { first = DivergentLerpKeys.Add(key); }
+            if (!first) return;
+
+            double segmentLengthS = interval.End.UT - interval.Start.UT;
+            ParsekLog.Warn("Pipeline-Lerp",
+                string.Format(CultureInfo.InvariantCulture,
+                    "epsilon-divergence recordingId={0} sectionIndex={1} divergenceM={2} segmentLengthS={3}",
+                    interval.Start.RecordingId, interval.Start.SectionIndex,
+                    magnitudeM.ToString("F1", CultureInfo.InvariantCulture),
+                    segmentLengthS.ToString("F1", CultureInfo.InvariantCulture)));
+        }
+
+        /// <summary>
+        /// Called by the consumer hook once per evaluation when the interval
+        /// is <see cref="AnchorIntervalKind.StartOnly"/> or
+        /// <see cref="AnchorIntervalKind.EndOnly"/>. Emits a
+        /// <c>[Pipeline-Lerp]</c> Verbose ONCE per session per
+        /// <c>(recordingId, sectionIndex, side)</c>. Per §19.2 Stage 4 the
+        /// "single-anchor → constant ε" line is the diagnostic that proves
+        /// the segment had no end-side anchor available.
+        /// </summary>
+        internal static void NotifySingleAnchorLerpCase(in AnchorCorrectionInterval interval)
+        {
+            string recId;
+            int sectionIdx;
+            AnchorSide side;
+            switch (interval.Kind)
+            {
+                case AnchorIntervalKind.StartOnly:
+                    recId = interval.Start.RecordingId;
+                    sectionIdx = interval.Start.SectionIndex;
+                    side = AnchorSide.Start;
+                    break;
+                case AnchorIntervalKind.EndOnly:
+                    recId = interval.End.RecordingId;
+                    sectionIdx = interval.End.SectionIndex;
+                    side = AnchorSide.End;
+                    break;
+                default:
+                    return;
+            }
+            if (string.IsNullOrEmpty(recId)) return;
+
+            var key = new AnchorKey(recId, sectionIdx, side);
+            bool first;
+            lock (Lock) { first = SingleAnchorLerpKeys.Add(key); }
+            if (!first) return;
+
+            ParsekLog.Verbose("Pipeline-Lerp",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Single-anchor case recordingId={0} sectionIndex={1} side={2}",
+                    recId, sectionIdx, side));
         }
     }
 }

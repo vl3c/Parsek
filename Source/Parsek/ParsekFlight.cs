@@ -420,13 +420,22 @@ namespace Parsek
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
 
-            // Phase 2 anchor correction (design doc §6.3 / §7.1 / §18 Phase 2):
-            // additive world-space ε translation captured at registration so
-            // the LateUpdate FloatingOrigin re-positioning preserves the
-            // correction (otherwise the lerped lat/lon-based recompute would
-            // snap the ghost back to the un-corrected position).
-            public Vector3d anchorEpsilon;
-            public bool hasAnchorEpsilon;
+            // Phase 2 + Phase 3 anchor correction (design doc §6.3 / §6.4 /
+            // §7.1 / §8 / §18 Phase 2-3): the LateUpdate FloatingOrigin
+            // re-positioning recomputes the ghost's world position from
+            // lat/lon/alt and would snap back to the un-corrected geometry
+            // unless we re-add ε on the late path. Phase 3 makes ε
+            // time-varying along a both-end lerp interval (§6.4), so we store
+            // the lookup key + the playback UT and re-evaluate at LateUpdate
+            // time rather than caching a single Vector3d (which would freeze
+            // the lerp progression to its registration-frame value across
+            // every late-frame within the segment). The recording id /
+            // section index pair both being valid is the "has anchor" flag —
+            // an empty recordingId or negative sectionIndex means the
+            // registration-time gate did not produce an anchor and LateUpdate
+            // skips the re-add path.
+            public string anchorRecordingId;
+            public int anchorSectionIndex;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1086,13 +1095,20 @@ namespace Parsek
                         Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                             e.latAfter, e.lonAfter, e.altAfter);
                         Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                        // Phase 2 anchor correction (design doc §6.3 / §18
-                        // Phase 2): re-apply the world-space ε captured at
-                        // initial registration so the FloatingOrigin frame-
-                        // velocity shift cannot snap the ghost back to the
-                        // un-corrected lerped position.
-                        if (e.hasAnchorEpsilon)
-                            pos += e.anchorEpsilon;
+                        // Phase 2 + Phase 3 anchor correction (design doc
+                        // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
+                        // space ε so the FloatingOrigin frame-velocity shift
+                        // cannot snap the ghost back to the un-corrected
+                        // lerped position. Phase 3: the lookup is re-fetched
+                        // each LateUpdate so the lerp interval (§6.4 Both
+                        // case) progresses with the playback UT instead of
+                        // freezing to the value captured at Update time.
+                        if (allowAnchorCorrectionInterval(
+                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                out Vector3d lateEps))
+                        {
+                            pos += lateEps;
+                        }
                         e.ghost.transform.position = pos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         break;
@@ -14917,26 +14933,29 @@ namespace Parsek
                 }
             }
 
-            // Phase 2 anchor correction (design doc §6.3 Stage 3, §6.4 single-
-            // anchor case, §7.1, §18 Phase 2 / HR-15). Additive world-space
-            // ε translation pinned once at session entry; the lookup reads
-            // the cached AnchorCorrection.Epsilon and never touches live
-            // vessel state. Any miss (no recordingId, no section, flag off,
-            // no anchor in the store) is a silent fall-through — re-fly
-            // sessions with no marker yet are normal state, not failure.
-            Vector3d anchorEps = default(Vector3d);
-            bool hasAnchorEps = false;
-            if (allowAnchorCorrection(recordingId, sectionIndex, out Parsek.Rendering.AnchorCorrection ac))
-            {
-                anchorEps = ac.Epsilon;
-                hasAnchorEps = true;
+            // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
+            // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
+            // Additive world-space ε translation pinned once at session entry;
+            // the lookup reads the cached AnchorCorrection.Epsilon values and
+            // never touches live vessel state. Phase 3 evaluates ε at the
+            // current playback UT — a both-end interval lerps linearly per
+            // §6.4, single-side intervals return constant ε. Any miss (no
+            // recordingId, no section, flag off, no anchor in the store) is
+            // a silent fall-through — re-fly sessions with no marker yet are
+            // normal state, not failure.
+            bool hasAnchorEps = allowAnchorCorrectionInterval(
+                recordingId, sectionIndex, targetUT, out Vector3d anchorEps);
+            if (hasAnchorEps)
                 interpolatedPos += anchorEps;
-            }
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
-            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            // Register for LateUpdate re-positioning after FloatingOrigin shift.
+            // Phase 3: store the lookup key (recordingId + sectionIndex) so
+            // LateUpdate can re-evaluate the interval at the same playback UT
+            // — caching the registration-frame ε would freeze the lerp's
+            // progression for every late-frame within the segment.
             ghostPosEntries.Add(new GhostPosEntry
             {
                 ghost = ghost,
@@ -14948,8 +14967,8 @@ namespace Parsek
                 t = t,
                 pointUT = targetUT,
                 interpolatedRot = interpolatedRot,
-                anchorEpsilon = anchorEps,
-                hasAnchorEpsilon = hasAnchorEps,
+                anchorRecordingId = hasAnchorEps ? recordingId : null,
+                anchorSectionIndex = hasAnchorEps ? sectionIndex : -1,
             });
 
             interpResult = new InterpolationResult(
@@ -14987,13 +15006,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Phase 2 anchor-correction gate (design doc §6.3 / §6.4 single-
-        /// anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15). Returns
-        /// <c>true</c> with a populated <paramref name="ac"/> when (a) the
-        /// caller supplied both a recording id and a non-negative section
-        /// index, (b) the <c>useAnchorCorrection</c> rollout flag is on, and
-        /// (c) <see cref="Parsek.Rendering.RenderSessionState"/> holds a
-        /// start-side anchor for the (recordingId, sectionIndex) pair.
+        /// Phase 2 start-side anchor-correction gate (design doc §6.3 /
+        /// §6.4 single-anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15).
+        /// Returns <c>true</c> with a populated <paramref name="ac"/> when
+        /// (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useAnchorCorrection</c> rollout flag is
+        /// on, and (c) <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// holds a start-side anchor for the (recordingId, sectionIndex)
+        /// pair.
         ///
         /// <para>
         /// HR-15 — the lookup reads the cached <see cref="Parsek.Rendering.AnchorCorrection.Epsilon"/>
@@ -15001,6 +15021,15 @@ namespace Parsek
         /// a silent fall-through (HR-9: a missing anchor is a normal state for
         /// non-re-fly sessions and for siblings that have not yet had their
         /// ε computed, not a failure).
+        /// </para>
+        ///
+        /// <para>
+        /// Phase 3 superseded the in-renderer call site with
+        /// <see cref="allowAnchorCorrectionInterval"/> (which returns the
+        /// time-varying lerp result per §6.4). This start-side helper is
+        /// retained for the unit-test surface
+        /// (<c>AnchorCorrectionConsumerHookTests</c>) — production rendering
+        /// no longer calls it directly.
         /// </para>
         /// </summary>
         internal static bool allowAnchorCorrection(string recordingId, int sectionIndex,
@@ -15016,6 +15045,70 @@ namespace Parsek
 
             return Parsek.Rendering.RenderSessionState.TryLookup(
                 recordingId, sectionIndex, Parsek.Rendering.AnchorSide.Start, out ac);
+        }
+
+        /// <summary>
+        /// Phase 3 multi-anchor-lerp gate (design doc §6.4 / §8 / §18 Phase 3
+        /// / §19.2 Stage 4 log table). Returns <c>true</c> with a populated
+        /// <paramref name="epsilon"/> when (a) the caller supplied both a
+        /// recording id and a non-negative section index, (b) the
+        /// <c>useAnchorCorrection</c> rollout flag is on, and (c)
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> holds at least
+        /// one anchor (start or end side) for the (recordingId, sectionIndex)
+        /// pair. The returned ε is evaluated at <paramref name="targetUT"/>
+        /// per §6.4 — constant for one-sided intervals, linear lerp for
+        /// both-end intervals.
+        ///
+        /// <para>
+        /// Side effects on hit: emits one of two <c>[Pipeline-Lerp]</c> log
+        /// lines (single-anchor Verbose, both-end divergence Warn) ONCE per
+        /// session per (recordingId, sectionIndex) — the dedup is owned by
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> so per-frame
+        /// queries here cost only a HashSet lookup. The
+        /// <c>degenerate-span</c> Warn fires from the math evaluator
+        /// (<see cref="Parsek.Rendering.AnchorCorrectionInterval.EvaluateAt"/>)
+        /// when the interval is malformed — keeping per-key dedup in one
+        /// place. HR-7 is naturally enforced because the consumer always
+        /// queries with the section that owns <paramref name="targetUT"/>; a
+        /// lerp cannot cross a hard discontinuity by construction.
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrectionInterval(string recordingId, int sectionIndex,
+            double targetUT, out Vector3d epsilon)
+        {
+            epsilon = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval? maybeInterval =
+                Parsek.Rendering.RenderSessionState.LookupForSegmentInterval(
+                    recordingId, sectionIndex);
+            if (!maybeInterval.HasValue)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval interval = maybeInterval.Value;
+            epsilon = interval.EvaluateAt(targetUT);
+
+            // Per-session-per-key dedup'd diagnostics (§19.2 Stage 4):
+            //   Both-end + divergence > threshold  → Warn  "epsilon-divergence"
+            //   StartOnly / EndOnly                 → Verb  "Single-anchor case"
+            // The Warn for degenerate spans (End.UT <= Start.UT) is emitted
+            // from the evaluator itself so any caller of EvaluateAt picks it
+            // up uniformly.
+            if (interval.Kind == Parsek.Rendering.AnchorIntervalKind.Both)
+            {
+                Parsek.Rendering.RenderSessionState.NotifyLerpDivergenceCheck(in interval);
+            }
+            else
+            {
+                Parsek.Rendering.RenderSessionState.NotifySingleAnchorLerpCase(in interval);
+            }
+
+            return true;
         }
 
         // Keep the old signature for backward compat with tests
