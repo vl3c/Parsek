@@ -759,7 +759,7 @@ This pipeline is a rendering-layer addition. It does not modify any existing dat
 | Recorder                                 | `class FlightRecorder`                                                  | `Source/Parsek/FlightRecorder.cs`      | Section 12 (sample-time alignment) lands here.                                       |
 | Ballistic tail extension                 | `BallisticExtrapolator` + `IncompleteBallisticSceneExitFinalizer`       | `Source/Parsek/BallisticExtrapolator.cs`, `IncompleteBallisticSceneExitFinalizer.cs` | Produces `OrbitSegment`s for incomplete tails — feeds Stage 3 SOI / orbital-checkpoint anchors at scene exit. |
 | Patched-conic snapshot                   | `PatchedConicSnapshot`                                                  | `Source/Parsek/PatchedConicSnapshot.cs` | Snapshots predicted-orbit chain. Already produces analytical anchor points consumed by Section 7.5/7.6. |
-| Sidecar I/O                              | `RecordingStore` (write 5262-5274, read 5408-5411)                      | `Source/Parsek/RecordingStore.cs:57-61` (versions), `:5262-5274` (write), `:5408-5411` (read) | Format constants: `LaunchToLaunchLoopIntervalFormatVersion=4`, `PredictedOrbitSegmentFormatVersion=5`, `RelativeLocalFrameFormatVersion=6`, `RelativeAbsoluteShadowFormatVersion=7=CurrentRecordingFormatVersion`. New annotation fields gated on a new constant. |
+| Sidecar I/O                              | `TrajectorySidecarBinary` (binary `.prec` codec) + `RecordingSidecarStore` (load / commit orchestration) | `Source/Parsek/RecordingStore.cs:57-61` (format constants), `Source/Parsek/TrajectorySidecarBinary.cs:122` (`Write`), `:184` (`Read`), `:646-649` (`absoluteFrames` write), `:677` (`absoluteFrames` read), `Source/Parsek/RecordingSidecarStore.cs:199-235` (load probe / read), `:729` (commit batch staging) | Format constants unchanged: `LaunchToLaunchLoopIntervalFormatVersion=4`, `PredictedOrbitSegmentFormatVersion=5`, `RelativeLocalFrameFormatVersion=6`, `RelativeAbsoluteShadowFormatVersion=7=CurrentRecordingFormatVersion`. The `refactor-4-pass2` series consolidated trajectory sidecar I/O into the binary codec — what the old design draft referenced as `RecordingStore.cs:5262-5274` (write) / `:5408-5411` (read) now lives inside `TrajectorySidecarBinary.cs`. New annotation fields and the new `.pann` sidecar gate on their own constants (Section 17.3.1, 21.1). |
 | Path validation                          | `RecordingPaths.ValidateRecordingId`                                    | `Source/Parsek/RecordingPaths.cs`      | All new sidecar files must route through `Build*RelativePath` helpers.               |
 | Safe-write file I/O                      | `FileIOUtils`                                                           | `Source/Parsek/FileIOUtils.cs`         | Tmp + atomic rename. New cache file writes use this.                                 |
 | Save / load wiring                       | `ParsekScenario` `OnSave`/`OnLoad`                                      | `Source/Parsek/ParsekScenario.cs`      | Pipeline session state is transient — nothing new persists here. Only marker recompute triggers go here. |
@@ -885,7 +885,7 @@ Two pipeline phases require *raw* per-point fields and therefore need a `.prec` 
 
 These bumps follow the exact pattern used today for v3, v5, v6, v7 (see `TrajectorySidecarBinary.cs:38-43`). Each adds a private const, extends `IsSupportedBinaryVersion` (`:341`), and gates the new field's read/write on a version comparison. The existing `.prec` file shape is otherwise untouched — Stages 1-5 and Phase 8 (outlier rejection) require no `.prec` changes.
 
-The `RecordingStore` text-format constants at `RecordingStore.cs:57-61` mirror the binary versions; the text path gets the same additions (per the existing dual-format-write pattern).
+The shared format constants at `RecordingStore.cs:57-61` are the canonical values — `TrajectorySidecarBinary.cs:38-43` declares its own `*BinaryVersion` constants that reference back to them, so a single bump on the `RecordingStore` side propagates automatically. Trajectory data is binary-only after the `refactor-4-pass2` series; the `.prec.txt` mirror produced by `RecordingStore.cs` is a debug-only readable dump and does not need parallel field gating.
 
 #### 17.3.3 What Sidecar Files Exist Per Recording
 
@@ -893,12 +893,15 @@ After all phases ship:
 
 | File                       | Existing / new | Purpose                                                  |
 |----------------------------|----------------|----------------------------------------------------------|
-| `<id>.prec`                | existing       | Canonical trajectory + sections + events. Schema bumped to v8 in Phase 7, v9 in Phase 9 (see 17.3.2). |
-| `<id>.prec.txt`            | existing       | Optional text mirror (debug). Same bumps. |
+| `<id>.prec`                | existing       | Canonical trajectory + sections + events (binary; `TrajectorySidecarBinary.cs`). Schema bumped to v8 in Phase 7, v9 in Phase 9 (see 17.3.2). |
+| `<id>.prec.txt`            | existing       | Optional debug-only readable mirror of `.prec`. Not consumed at load time. |
 | `<id>_vessel.craft`        | existing       | Vessel proto for spawn. Untouched.                       |
+| `<id>_vessel.craft.txt`    | existing       | Optional debug-only readable mirror.                     |
 | `<id>_ghost.craft`         | existing       | Ghost mesh snapshot. Untouched.                          |
-| `<id>.pcrf`                | existing       | Ghost geometry. Untouched.                               |
+| `<id>_ghost.craft.txt`     | existing       | Optional debug-only readable mirror.                     |
 | `<id>.pann`                | **new**        | Pipeline annotations (this design). Optional, regenerable. |
+
+(Note: `<id>.pcrf`, mentioned in earlier drafts of `.claude/CLAUDE.md`, was retired in the `refactor-4-pass2` series and now lives in `RecordingStore.LegacyRecordingFileSuffixes` for cleanup. New code does not write it.)
 
 Older recordings without `.pann` and with `.prec` ≤ v7 remain fully loadable. The pipeline lazy-computes whatever annotations are missing (Section 21.3); per-point raw fields added in v8/v9 read as `NaN` / `0` for older recordings, which the pipeline interprets as "data not captured" and falls back accordingly.
 
@@ -951,7 +954,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 **Modified files:**
 
-- `Source/Parsek/RecordingStore.cs` — wire the new annotation sidecar into the recording load / commit paths. On commit: after `TrajectorySidecarBinary.Write` succeeds, run `FitSmoothingSplinesPerSection`, then `PannotationsSidecarBinary.Write`. On load: after the `.prec` probe + read, run `PannotationsSidecarBinary.TryProbe` and either consume the file or trigger lazy compute. *No `.prec` schema bump in Phase 1* — the canonical recording file is untouched.
+- `Source/Parsek/RecordingSidecarStore.cs` — wire the new annotation sidecar into the recording load / commit paths (this is the orchestrator added in `refactor-4-pass2`). On load: insert the `.pann` probe + lazy-compute call after the `.prec` deserialization succeeds (around `:235`, immediately after `RecordingStore.DeserializeTrajectorySidecar`). On commit: stage a parallel `.pann` write at the existing `SidecarFileCommitBatch.StageWrite` site (`:729`) so it lands alongside the `.prec` write under the same `rec.SidecarEpoch`. *No `.prec` schema bump in Phase 1* — the canonical recording file is untouched.
 - `Source/Parsek/TrajectoryMath.cs` — add `internal static class CatmullRomFit` with `Fit(IList<TrajectoryPoint> samples, double tension) : SmoothingSpline`, `Evaluate(SmoothingSpline spline, double ut) : Vector3d`. Reuse `SanitizeQuaternion` (`:704`) shape for the coefficient defensiveness pattern.
 - `Source/Parsek/ParsekFlight.cs` — at the existing `InterpolateAndPosition` body-fixed branch, swap the linear `BracketPointAtUT` (`TrajectoryMath.cs:674`) call for `SmoothingSpline.Evaluate` when an annotation is present; fall through to the existing path on miss. Single-flag rollout: a new `ParsekSettings.useSmoothingSplines` (default `true`) controls the swap.
 
@@ -1048,7 +1051,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive field `public double recordedGroundClearance` (default `double.NaN` for legacy points; readers fill NaN when the field is absent in older binaries).
 - `Source/Parsek/RecordingStore.cs` — append a new format constant `TerrainGroundClearanceFormatVersion = 8` to the version block at `:57-61`; bump `CurrentRecordingFormatVersion` to it.
-- `Source/Parsek/TrajectorySidecarBinary.cs` — append `TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new field's read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Match the same gating in the text-format path inside `RecordingStore.cs`.
+- `Source/Parsek/TrajectorySidecarBinary.cs` — append `TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new field's read/write inside `WritePointList` (`:358`) / `ReadPointList` on `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Trajectory data is binary-only (post `refactor-4-pass2`); the `.prec.txt` debug mirror is regenerated from the binary representation and inherits the new field automatically — no parallel text-codec changes required.
 - `Source/Parsek/FlightRecorder.cs` — populate `recordedGroundClearance` for every sample in a `SurfaceMobile` section. Use `body.pqsController.GetSurfaceHeight(...)` minus the recorded altitude at recording time (or the equivalent KSP-API distance to surface).
 - `Source/Parsek/ParsekFlight.cs` — `PositionAtPoint` and `InterpolateAndPosition` for `SurfaceMobile` sections use `body.pqsController.GetSurfaceHeight` plus `recordedGroundClearance` instead of stored `altitude` when `recordedGroundClearance` is non-NaN; otherwise fall through to today's altitude path.
 - `Source/Parsek/Rendering/TerrainCacheBuckets.cs` — lat/lon-bucketed cache, evicted at scene transition.
@@ -1081,7 +1084,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive `flags` byte (default 0 for legacy points; bit 0 = `StructuralEventSnapshot`). A new `[Flags] enum TrajectoryPointFlags : byte` documents the bit assignments.
 - `Source/Parsek/RecordingStore.cs` — append `StructuralEventFlagFormatVersion = 9` to the version block at `:57-61`; bump `CurrentRecordingFormatVersion` to it.
-- `Source/Parsek/TrajectorySidecarBinary.cs` — append `StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new `flags` byte read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= StructuralEventFlagBinaryVersion`. Match in the text path.
+- `Source/Parsek/TrajectorySidecarBinary.cs` — append `StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new `flags` byte read/write inside `WritePointList` (`:358`) / `ReadPointList` on `binaryVersion >= StructuralEventFlagBinaryVersion`. No parallel text-codec change (trajectory is binary-only post-refactor; `.prec.txt` is the debug mirror only).
 - `Source/Parsek/FlightRecorder.cs` — at the dock / undock / EVA / `onPartJointBreak` (`PartJoint joint, float breakForce`) handlers, call a new `AppendStructuralEventSnapshot(double eventUT, IEnumerable<Vessel> involved)` that interpolates each vessel's per-tick state to the exact event UT and writes one `TrajectoryPoint` per involved vessel into the corresponding section, with `flags |= TrajectoryPointFlags.StructuralEventSnapshot`. Both vessels' snapshots are taken from the same physics state (Section 12).
 - `Source/Parsek/Rendering/AnchorCandidateBuilder.cs` — prefer `StructuralEventSnapshot`-flagged points over interpolated samples when computing event ε. Recordings without the flag fall through to today's interpolation behaviour.
 - `Source/Parsek.Tests/Generators/RecordingBuilder.cs` — extend with `WithStructuralEventSnapshot(double ut, ...)` so test fixtures can produce v9 recordings.
@@ -1418,7 +1421,7 @@ The pipeline's only persistent additions are sidecar annotation nodes (Section 1
 
 Two version chains are relevant to the pipeline. Keep them distinct in any review or implementation discussion.
 
-**`.prec` (canonical recording, `Source/Parsek/TrajectorySidecarBinary.cs`).** Magic `PRKB`. Constants in `RecordingStore.cs:57-61` (text format) and `TrajectorySidecarBinary.cs:38-43` (binary format). Each existing version is also a binary version; the pipeline appends two more — but only in Phases 7 and 9.
+**`.prec` (canonical recording, `Source/Parsek/TrajectorySidecarBinary.cs`).** Magic `PRKB`. Trajectory data is binary-only post-`refactor-4-pass2`; `.prec.txt` is a debug-only readable mirror, not consumed at load. The shared format version constants live at `RecordingStore.cs:57-61`; `TrajectorySidecarBinary.cs:38-43` declares matching `*BinaryVersion` constants that reference back, so a single bump on the `RecordingStore` side propagates. Each existing version is also a binary version; the pipeline appends two more — but only in Phases 7 and 9.
 
 | Constant                                                        | Value | What it gates                                                                |
 |-----------------------------------------------------------------|-------|------------------------------------------------------------------------------|
