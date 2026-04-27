@@ -10,6 +10,11 @@ All notable changes to Parsek are documented here.
 
 - Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
 
+### Tests
+
+- Fixed five flaky in-game tests that were failing for harness reasons rather than code regressions: the four `Bug613` ghost-retire tests that targeted the overlap-loop path were silently routed through `LoopEnter` because their 2 s loop interval clamped to `LoopTiming.MinCycleDuration` (5 s); the resolved-anchor `DeferredSync` variant could never satisfy its `appearanceCount >= 1` assertion because the harness ghost was a bare `GameObject` with no renderers; and the `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered` canary raced the post-commit `TryTakeCommittedTreeForSpawnedVesselRestore` auto-restore that pulls the just-committed tree back out of `CommittedRecordings` to keep it as the live active tree.
+- Removed two redundant `"WARNING:"` payload prefixes from `TimeJumpManager`'s atmospheric warnings; `ParsekLog.Warn` already emits the `[Parsek][WARN][TimeJump]` prefix, and the live `KSP.log` validation rule `WRN-001` now stays clean across time-jump sessions.
+
 ### Internals
 
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.

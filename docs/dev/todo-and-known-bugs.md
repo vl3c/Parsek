@@ -67,6 +67,77 @@ bodies (Mun, Minmus, etc.) keep the existing `PeR > Radius` semantics. Added
 explicit null guard for `vessel.orbit.referenceBody` and updated the Info log
 line to include `atmoTop` and `bodyHasAtmosphere`.
 
+## 626. Five flaky in-game tests at HEAD were failing for harness reasons, not code regressions ~~done~~
+
+Investigation log: `logs/2026-04-27_1902/parsek-test-results.txt` (5 FAILED in
+FLIGHT). All five turned out to be test-authoring bugs / a timing race against
+production behavior, not real engine regressions.
+
+1. `Bug613_DeferredSyncWithResolvedAnchor_StillActivates` — the harness built
+   the ghost as a bare `new GameObject(...)` with no `MeshRenderer` and no
+   `GhostVisualsRoot` child. `TrackGhostAppearance` gates on
+   `TryGetCombinedVisibleRendererBounds` walking the part-container's child
+   `Renderer`s (with a fallback to the ghost root itself), so a bare
+   `GameObject` could never satisfy the renderer probe and `appearanceCount`
+   could never reach `>= 1`. The retired-anchor counterpart passed only
+   because it asserted `appearanceCount == 0`, which was trivially true with
+   no renderers. Fix: build the ghost via `GameObject.CreatePrimitive(Cube)`
+   (with the auto-added `Collider` destroyed) so the harness has a real
+   enabled `MeshRenderer` for the appearance probe to find.
+
+2. `Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin` /
+   `Bug613_FreshSpawnWithResolvedAnchor_StillFiresRetarget` /
+   `Bug613_ResolvedAnchorFiresOverlapExpiry` — all three called
+   `Bug613LoopRelativeTrajectory` with `loopIntervalSeconds: 2.0` and the
+   trajectory's hard-coded 5 s duration to drive the overlap-loop branch.
+   `ResolveLoopInterval` clamps period upward to `LoopTiming.MinCycleDuration
+   = 5 s` ("`#381` defensive clamp"), and `IsOverlapLoop(5, 5)` is false, so
+   the engine silently took the single-ghost loop path with
+   `PendingSpawnLifecycle.LoopEnter` instead of `OverlapPrimaryEnter`. KSP.log
+   confirms: `[WARN][Loop] ResolveLoopInterval: period 2s below
+   LoopTiming.MinCycleDuration 5s ... clamping defensively (#381)` and the
+   subsequent `lifecycle=LoopEnter cycle=0` line. The retired-side
+   counterparts passed only because they assert `Count == 0`, trivially true
+   when the overlap branch never runs. Fix: parameterized
+   `Bug613LoopRelativeTrajectory.durationSeconds` (default 5 s, kept for
+   single-ghost / pause-window scenarios) and updated the FreshSpawn and
+   OverlapExpiry harnesses to use `loopIntervalSeconds: 5.0,
+   durationSeconds: 10.0` so `IsOverlapLoop(5, 10)` is true and the period
+   stays at the 5 s minimum unclamped. The OverlapExpiry harness also bumps
+   `currentUT` from `6.0` to `11.0` so the older overlap cycle's phase
+   (`11 - 0*5 = 11`) actually exceeds the new `duration = 10` and walks the
+   expire-overlap branch.
+
+3. `RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered`
+   — the canary called `flight.CommitTreeFlight()` and then waited via
+   `WaitForCommittedRecording` for the recording to land in
+   `RecordingStore.CommittedRecordings`. The commit landed, but ~25 ms later
+   `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` immediately
+   pulled the just-committed tree back out of `CommittedRecordings` to keep
+   it as the live active tree (the active vessel still represents the
+   recording, so the auto-restore path took ownership). The test's wait
+   yield-broke during the brief committed window, but Unity's coroutine
+   semantics scheduled the next test-method line on the *next* frame — by
+   then the auto-restore had run and `CommittedRecordings.FirstOrDefault`
+   returned null. Fix: `WaitForCommittedRecording` now also looks up the
+   recording in `flight.ActiveTreeForSerialization?.Recordings` (same
+   `Recording` instance moves between the slots), latches the
+   "count went up" observation so a single tick inside the brief committed
+   window is sufficient, gates on `RewindSaveFileName` populated as the
+   strong "the commit's rewind-save plumbing finished" signal, and accepts
+   an optional `Action<Recording>` callback so the caller captures the
+   reference inside the polling loop instead of racing the auto-restore on
+   the next frame.
+
+4. `TimeJumpManager` (cosmetic, caught by CI's `LiveKspLogValidationTests`):
+   two `ParsekLog.Warn(Tag, ...)` callsites prefixed their payload with the
+   literal string `"WARNING: "`. `ParsekLog.Warn` already emits
+   `[Parsek][WARN][TimeJump]` itself, so the payload prefix duplicated the
+   level token and tripped the live-log rule `WRN-001`. Fix: drop the
+   redundant `"WARNING: "` from both `vessel '{0}' is in atmosphere — orbit
+   propagation is approximate` and the sibling `... — epoch shift is
+   approximate` warning.
+
 ## 625. Recording captured zero crew because stand-ins were just deleted from roster
 
 Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
