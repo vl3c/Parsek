@@ -307,6 +307,7 @@ namespace Parsek
 
             string sessionId = marker.SessionId;
             scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(SessionTag,

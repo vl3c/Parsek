@@ -260,6 +260,7 @@ namespace Parsek
             if (!ReferenceEquals(null, scenario))
             {
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 ParsekLog.Verbose(SessionTag,
                     $"RetryHandler: marker cleared for sess={oldSessionId} target={target}; re-invoking rewind");
@@ -349,6 +350,7 @@ namespace Parsek
                 if (!ReferenceEquals(null, scenario))
                 {
                     scenario.ActiveReFlySessionMarker = null;
+                    Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                     scenario.ActiveMergeJournal = null;
                     scenario.BumpSupersedeStateVersion();
                 }
@@ -390,6 +392,7 @@ namespace Parsek
             if (!ReferenceEquals(null, scenario))
             {
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.ActiveMergeJournal = null;
                 scenario.BumpSupersedeStateVersion();
             }
