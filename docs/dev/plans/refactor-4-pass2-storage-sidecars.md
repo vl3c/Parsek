@@ -1,14 +1,16 @@
 # Refactor-4 Pass 2 - Storage and Sidecar Owner Proposal
 
 **Date:** 2026-04-25.
-**Worktree:** `Parsek-refactor-4-pass2-sidecar-load`, branch
-`refactor-4-pass2-sidecar-load`.
+**Worktree:** latest implementation slice in
+`Parsek-refactor-4-pass2-trajectory-text-codec`, branch
+`refactor-4-pass2-trajectory-text-codec`.
 **Base:** stacked on PR #554's `refactor-4-pass2-sidecar-save` branch; PR #554
 itself is intentionally left unmerged for the later 0.9.1 batch.
 **Status:** Proposal plus implementation checkpoints. The
-`SidecarFileCommitBatch`, save-path `RecordingSidecarStore`, and load-path
-`RecordingSidecarStore` slices are complete; codec and tree-record moves remain
-proposal-only until a separate approval.
+`SidecarFileCommitBatch`, save-path `RecordingSidecarStore`, load-path
+`RecordingSidecarStore`, and `TrajectoryTextSidecarCodec` slices are complete;
+manifest and tree-record codec moves remain proposal-only until a separate
+approval.
 
 ## Guardrails
 
@@ -214,7 +216,7 @@ details, or manifest field serialization.
 4. Extract `TrajectoryTextSidecarCodec`, again behind wrappers. Before this
    step, grep `Source/Parsek.Tests/Generators/` for direct `RecordingStore`
    codec calls so the wrapper surface is known up front. Do not merge it
-   with `TrajectorySidecarBinary`.
+   with `TrajectorySidecarBinary`. Completed as its own slice.
 5. Extract `RecordingManifestCodec` behind wrappers.
 6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
    start it in the same PR as sidecar orchestration.
@@ -224,9 +226,8 @@ PR granularity:
 - PR 1: `SidecarFileCommitBatch` only.
 - PR 2: `RecordingSidecarStore` only, preferably save and load as separate
   commits after an explicit pre-review of the split.
-- PR 3: `TrajectoryTextSidecarCodec` and `RecordingManifestCodec` may share a
-  PR only if manifest movement is small and wrappers keep the call surface
-  stable.
+- PR 3: `TrajectoryTextSidecarCodec` first; `RecordingManifestCodec` can follow
+  separately unless review explicitly approves combining it.
 - PR 4: `RecordingTreeRecordCodec` only.
 
 ## Validation Scope
@@ -365,5 +366,36 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName~
 Latest post-review run: focused storage plus Bug278 slice passed 240 tests, the
 non-injection gate passed 8,708 tests, and `InjectAllRecordings` passed 3 tests.
 
-The runtime sidecar probe canary and a manual save/load or quickload canary are
-still required before merging this load-path slice.
+The runtime sidecar probe canary passed after this load-path slice; a manual
+save/load or quickload canary is still required before merging the stacked
+storage-sidecar series.
+
+## Implementation Checkpoint - TrajectoryTextSidecarCodec
+
+Approved fourth slice stacked on the load-path branch and kept to the text
+trajectory codec only:
+
+- Moved text ConfigNode trajectory serialization/deserialization,
+  point/orbit/part/flag/segment-event codecs, track-section text
+  serialization, section-authoritative helpers, flat trajectory sync/fallback
+  repair, and text format version probing into
+  `Source/Parsek/TrajectoryTextSidecarCodec.cs`.
+- Kept existing `RecordingStore` internal wrapper signatures stable for
+  production, test, and generator call sites.
+- Left `TrajectorySidecarBinary`, snapshot sidecar codecs, manifest codecs,
+  sidecar epoch ownership, `FilesDirty` mutation, and save/load orchestration
+  outside the text codec.
+- Pre-step generator grep found direct `RecordingStore` wrapper calls in
+  `Source/Parsek.Tests/Generators/RecordingBuilder.cs`,
+  `RecordingStorageFixtures.cs`, and `ScenarioWriter.cs`; those call sites
+  intentionally remain on the facade.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~DeserializeExtractedTests|FullyQualifiedName~SegmentEventSerializationTests|FullyQualifiedName~TrackSectionSerializationTests|FullyQualifiedName~TrackSectionSourceTests|FullyQualifiedName~FormatVersionTests|FullyQualifiedName~SerializationEdgeCaseTests|FullyQualifiedName~TrajectorySidecarBinaryTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~Bug419DebrisMonotonicityTests|FullyQualifiedName~RecordingBuilderV6Tests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"
+```
+
+Latest focused run passed 252 tests; the non-injection gate passed 9,051 tests.

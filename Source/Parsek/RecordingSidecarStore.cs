@@ -112,14 +112,12 @@ namespace Parsek
         {
             if (rec == null)
             {
-                if (!RecordingStore.SuppressLogging)
-                    ParsekLog.Warn("RecordingStore", "LoadRecordingFiles called with null recording");
+                RecordingStore.Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
                 return false;
             }
             if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
             {
-                if (!RecordingStore.SuppressLogging)
-                    ParsekLog.Warn("RecordingStore", $"LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
+                RecordingStore.Log($"[Parsek] WARNING: LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
                 return false;
             }
 
@@ -267,11 +265,10 @@ namespace Parsek
             {
                 string bodyBeforePopulate = rec.TerminalOrbitBody;
                 ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
-                if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal)
-                    && !RecordingStore.SuppressLogging)
+                if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
                 {
-                    ParsekLog.Info("RecordingStore", string.Format(CultureInfo.InvariantCulture,
-                        "Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
+                    RecordingStore.Log(string.Format(CultureInfo.InvariantCulture,
+                        "[Parsek] Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
                         rec.RecordingId,
                         rec.TerminalOrbitBody,
                         rec.TerminalOrbitSemiMajorAxis));
@@ -282,10 +279,9 @@ namespace Parsek
             string endpointBodyBeforeBackfill = rec.EndpointBodyName;
             if (RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingStore.LoadRecordingFilesFromPathsInternal")
                 && (rec.EndpointPhase != endpointPhaseBeforeBackfill
-                    || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal))
-                && !RecordingStore.SuppressLogging)
+                    || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
             {
-                ParsekLog.Info("RecordingStore", $"Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
+                RecordingStore.Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
             }
 
             // Load snapshot sidecars only after the trajectory probe passes the
