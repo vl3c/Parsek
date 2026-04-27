@@ -63,6 +63,16 @@ namespace Parsek
         // does not enter and leave watch on the same frame.
         internal const float WatchEnterCutoffMeters = 300_000f;
         internal const float WatchExitCutoffMeters = 305_000f;
+        // Debounce: require this many consecutive frames over the exit cutoff
+        // before actually exiting watch mode. Suppresses single-frame
+        // false-positive trips caused by a stale cached distance computed
+        // across a FloatingOrigin / Krakensbane frame seam during time warp.
+        // Repro: logs/2026-04-27_1902/KSP.log line 208360 — cached 786169m
+        // tripped the cutoff while the rendered ghost transform was ~81km
+        // from the active vessel and a 90 ms-earlier sibling correctly
+        // logged dist=80568m. Mirrors the existing `watchNoTargetFrames`
+        // safety-net pattern for the no-camera-target path.
+        internal const int WatchExitCutoffDebounceFrames = 3;
         // Watch-mode tunables (entry camera defaults, pending-bridge budget) live
         // in ParsekConfig.cs under WatchMode.*. WatchModeLockId / WatchModeLockMask
         // are KSP ControlLocks identifiers and stay local.
@@ -90,6 +100,7 @@ namespace Parsek
         private double lineageProtectionUntilUT = double.NaN;
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
+        private int watchCutoffConsecutiveFrames;      // consecutive frames the cached cutoff has tripped (debounce)
 
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
@@ -410,26 +421,37 @@ namespace Parsek
                 && !ShouldExitWatchForDistance(distanceMeters);
         }
 
-        // Sanity-check predicate for the watch-mode cutoff: returns true when
-        // the cached active-vessel distance trips the cutoff but a freshly
-        // recomputed distance still places the ghost within range, so the
-        // exit should be rejected. Mitigates false positives where the
-        // cached value was computed across a FloatingOrigin / Krakensbane
-        // frame seam during time warp — the ghost's freshly-resolved
-        // body-coord world position and the active vessel's stale
-        // pre-shift transform.position end up in different floating-origin
-        // frames, so Vector3d.Distance picks up a phantom hundreds-of-km
-        // gap that disappears once the next FloatingOrigin shift lands.
-        // Repro: logs/2026-04-27_1902/KSP.log line 208360 — cached 786169m
-        // while ghostWorld and a 90 ms-earlier sibling both sat ~81km from
-        // the active vessel.
-        internal static bool ShouldRejectStaleWatchExit(
-            double cachedDistanceMeters,
-            double freshDistanceMeters)
+        // Pure predicate for the cutoff debounce: returns true when the
+        // watched ghost has been over the exit cutoff for enough consecutive
+        // frames that we should actually exit watch mode. Counter
+        // increments per cutoff-tripped frame and resets to 0 on any
+        // within-range frame, so a single-frame false positive (e.g.
+        // FloatingOrigin / Krakensbane frame-seam staleness during warp)
+        // never reaches threshold. Real cutoff crossings exit after
+        // WatchExitCutoffDebounceFrames frames (~50 ms at 60 fps).
+        internal static bool ShouldExitWatchAfterCutoffDebounce(int consecutiveFrames)
         {
-            return ShouldExitWatchForDistance(cachedDistanceMeters)
-                && IsWithinWatchExitRange(freshDistanceMeters);
+            return consecutiveFrames >= WatchExitCutoffDebounceFrames;
         }
+
+        // Drives the cutoff debounce counter from inside the per-frame
+        // ApplyZoneRenderingImpl path. Caller passes the cached cutoff
+        // signal (true when state.lastDistance >= WatchExitCutoffMeters);
+        // returns true when the counter has reached the debounce threshold
+        // and the actual exit should fire this frame.
+        internal bool RegisterWatchCutoffSampleAndShouldExit(bool cachedCutoffTripped)
+        {
+            if (!cachedCutoffTripped)
+            {
+                watchCutoffConsecutiveFrames = 0;
+                return false;
+            }
+            watchCutoffConsecutiveFrames++;
+            return ShouldExitWatchAfterCutoffDebounce(watchCutoffConsecutiveFrames);
+        }
+
+        internal int WatchCutoffConsecutiveFramesForDiagnostics =>
+            watchCutoffConsecutiveFrames;
 
         private static bool IsFiniteWatchDistance(double distanceMeters)
         {
@@ -1656,6 +1678,7 @@ namespace Parsek
             watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
+            watchCutoffConsecutiveFrames = 0;
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
         }
@@ -1757,6 +1780,7 @@ namespace Parsek
             watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
+            watchCutoffConsecutiveFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
             ClearRememberedWatchCameraStates();

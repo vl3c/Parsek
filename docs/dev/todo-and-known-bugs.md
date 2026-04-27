@@ -34,35 +34,58 @@ snapped back to the active vessel.
 Root cause: cached distance computed across a FloatingOrigin / Krakensbane
 frame seam. `GhostPlaybackEngine.ResolvePlaybackActiveVesselDistance` (line
 2328) and `ResolvePlaybackDistance` (line 2310) both compute
-`Vector3d.Distance(state.ghost.transform.position, activeVesselPos)` once per
-frame and cache into `state.lastDistance` / `state.lastRenderDistance`. During
-time warp, KSP can advance the playback UT by multiple game seconds in a
-single frame and re-position ghosts via fresh body-coord math while the active
-vessel's `transform.position` is still in the pre-shift floating-origin frame.
-For one frame the two values live in different floating-origin frames,
+`Vector3d.Distance(worldPos, activeVesselPos)` once per frame and cache into
+`state.lastDistance` / `state.lastRenderDistance`. During time warp, KSP can
+advance the playback UT by multiple game seconds in a single frame and
+re-position ghosts via fresh body-coord math while the active vessel's
+`transform.position` is still in the pre-shift floating-origin frame. For one
+frame the two values live in different floating-origin frames,
 `Vector3d.Distance` picks up a phantom hundreds-of-km gap, the cutoff trips.
 Same family as the `Krakensbane.GetFrameVelocity()` correction documented in
 `.claude/CLAUDE.md` (KSP API & Code Gotchas).
 
-Fix: sanity-check before exiting (approach 1 in `Source/Parsek/WatchModeController.cs`).
-New pure predicate `WatchModeController.ShouldRejectStaleWatchExit(double cached,
-double fresh)` returns true when `ShouldExitWatchForDistance(cached) &&
-IsWithinWatchExitRange(fresh)`. `ParsekFlight.ApplyZoneRenderingImpl` (around
-the cutoff trigger at line ~14052) now, on cutoff trip, calls a new private
-helper `ResolveFreshActiveVesselDistanceForCutoffSanity(state)` that re-reads
-the live `state.ghost.transform.position` and `FlightGlobals.ActiveVessel.transform.position`
-and recomputes `Vector3d.Distance`. If the predicate says reject, the exit is
-skipped and an `[INFO][Zone] Ghost #N "X" cutoff sanity-check rejected exit:
-cached=...m >= ...m but fresh=...m within range (likely FloatingOrigin/warp
-seam) — staying in watch mode` line is emitted so future regressions are
-diagnosable. Re-read costs one Vector3d distance per cutoff event (rare); no
-per-frame cost. Helper returns NaN when ghost or active vessel is missing,
-which the predicate treats as "do not reject" so the original cached cutoff
-proceeds.
+Fix: 3-frame debounce on `WatchModeController` (approach 2 in spirit — a
+"forced one-frame await" generalised to N frames). New constant
+`WatchExitCutoffDebounceFrames = 3`, new instance method
+`RegisterWatchCutoffSampleAndShouldExit(bool cachedCutoffTripped)` that
+increments a `watchCutoffConsecutiveFrames` counter when the cached value
+trips the cutoff and resets to 0 otherwise; returns true once the counter
+reaches the threshold. Pure predicate
+`ShouldExitWatchAfterCutoffDebounce(int)` exposed for tests. Counter resets
+in both `ResetWatchEntryTransientState` and `ResetWatchState`, mirroring the
+existing `watchNoTargetFrames` safety-net pattern (which also exits after 3
+frames). `ParsekFlight.ApplyZoneRenderingImpl` drives the counter on every
+watched-ghost frame regardless of zone hide/positioning order, so the bug
+where `renderDistance >= Beyond` returned hidden before positioning ran (and
+left a stale ghost transform that could indefinitely re-trigger any
+sanity-check using `state.ghost.transform.position`) is structurally
+impossible. The first cutoff log at the actual exit now ends with
+`after 3-frame debounce — exiting watch mode`, and intermediate frames emit a
+rate-limited `[VERBOSE][Zone] cached cutoff tripped (...) debounce=N/3 —
+staying in watch mode` line so the debounce window is observable from
+`KSP.log`.
 
-Regression coverage: `WatchModeControllerTests.ShouldRejectStaleWatchExit_*`
-(five cases — repro-log scenario, both-beyond-cutoff, cached-within-range,
-fresh-at-or-above-cutoff, non-finite-fresh).
+Why not the original "compare cached vs freshly-read live transforms" sanity
+check (PR #617 first commit, reverted): the sanity check rejected exits when
+`Vector3d.Distance(state.ghost.transform.position,
+FlightGlobals.ActiveVessel.transform.position)` was within range, but
+`state.ghost.transform.position` at the time of `ApplyZoneRenderingImpl` is
+the previous frame's positioning result (positioning runs after zone
+rendering). A real cutoff crossing during warp where last frame's transform
+was still in range but the current frame's body math correctly says
+350000 m would be wrongly rejected. Worse, when `renderDistance` is also
+beyond-zone, the engine returns hidden before positioning runs, so the stale
+transform persists and the rejection repeats every frame. Debounce sidesteps
+both problems because it never reads `state.ghost.transform.position` at
+all — it only counts how many consecutive frames the same cached signal has
+held. Real exits happen ~50 ms late at 60 fps, which is imperceptible.
+
+Regression coverage: `WatchModeControllerTests.ShouldExitWatchAfterCutoffDebounce_*`
+(threshold truth table) plus
+`RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter` (one
+bogus frame followed by within-range frame: counter resets, no exit) and
+`RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold`
+(N consecutive cutoff frames trip the exit at exactly the threshold).
 
 ## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
 

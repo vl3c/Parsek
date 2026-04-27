@@ -55,54 +55,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRejectStaleWatchExit_RepoLogScenario_RejectsExit()
+        public void ShouldExitWatchAfterCutoffDebounce_BelowThreshold_KeepsWatching()
         {
-            // logs/2026-04-27_1902/KSP.log line 208360: cached 786169m
-            // tripped the cutoff while the ghost transform was actually
-            // ~81000m from the active vessel — fresh distance must reject
-            // the exit.
-            Assert.True(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 81_000.0));
+            // 0..N-1 consecutive cutoff frames must not fire the exit so a
+            // single-frame frame-seam glitch does not auto-eject the camera.
+            for (int frames = 0; frames < WatchModeController.WatchExitCutoffDebounceFrames; frames++)
+            {
+                Assert.False(WatchModeController.ShouldExitWatchAfterCutoffDebounce(frames));
+            }
         }
 
         [Fact]
-        public void ShouldRejectStaleWatchExit_FreshDistanceAlsoBeyondCutoff_AllowsExit()
+        public void ShouldExitWatchAfterCutoffDebounce_AtOrAboveThreshold_ExitsWatch()
         {
-            // Both cached and fresh agree the ghost is beyond the cutoff:
-            // the cutoff is real, exit must not be rejected.
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(800_000.0, 800_000.0));
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_000.0));
+            // The debounce fires at exactly the configured frame count and
+            // every frame thereafter — once a real cutoff persists past the
+            // window, exits must not be delayed indefinitely.
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames + 1));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(100));
         }
 
         [Fact]
-        public void ShouldRejectStaleWatchExit_CachedWithinRange_DoesNotReject()
+        public void RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter()
         {
-            // Sanity-check is a no-op when the cached value never tripped
-            // the cutoff in the first place. ApplyZoneRenderingImpl will
-            // not have called the helper, but verify the predicate stays
-            // false to keep the contract sharp.
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(100_000.0, 81_000.0));
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(304_999.0, 81_000.0));
+            // logs/2026-04-27_1902/KSP.log line 208360: a single bogus
+            // frame-seam frame at cached 786169m must not exit watch mode
+            // because the very next frame the cache reports the real
+            // ~81 km again, resetting the debounce counter.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            // First cutoff frame: counter=1, do not exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Within-range frame: counter resets to 0.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(false));
+            Assert.Equal(0, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Another isolated cutoff frame: counter back to 1, still no exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
         }
 
         [Fact]
-        public void ShouldRejectStaleWatchExit_FreshAtOrAboveCutoff_AllowsExit()
+        public void RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold()
         {
-            // Hysteresis: fresh distance equal to or beyond the exit
-            // cutoff means the ghost is genuinely past the band, even if
-            // it is only just past. Don't paper over real exits.
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_000.0));
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_001.0));
-        }
-
-        [Fact]
-        public void ShouldRejectStaleWatchExit_NonFiniteFreshDistance_AllowsExit()
-        {
-            // NaN / infinite fresh distance means we couldn't make a
-            // robust comparison (e.g. ghost or active vessel transform
-            // missing). Fall back to the cached cutoff signal.
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, double.NaN));
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, double.PositiveInfinity));
-            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, -1.0));
+            // Real cutoff crossings must exit after the configured debounce
+            // window. Drives the counter up to the threshold and asserts
+            // the boundary frame triggers the exit.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            for (int frame = 1; frame < WatchModeController.WatchExitCutoffDebounceFrames; frame++)
+            {
+                Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+                Assert.Equal(frame, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            }
+            Assert.True(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(WatchModeController.WatchExitCutoffDebounceFrames,
+                ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
         }
 
         [Fact]

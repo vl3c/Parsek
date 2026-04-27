@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Watch mode no longer auto-exits during time warp when the cached cutoff distance is stale across a FloatingOrigin/Krakensbane frame seam. A sanity check now re-reads the live ghost and active-vessel transforms before exiting, and rejects the exit when the freshly-measured distance is still within range.
+- Watch mode no longer auto-exits during time warp when the cached cutoff distance is stale across a FloatingOrigin/Krakensbane frame seam. A 3-frame debounce now requires the cached distance to stay over the cutoff for several consecutive frames before the camera detaches, suppressing single-frame false positives while keeping real cutoff crossings within ~50 ms.
 
 ---
 
