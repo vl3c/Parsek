@@ -2824,6 +2824,11 @@ namespace Parsek
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            // .pann annotation sidecar (design doc §17.3.1): regenerable cache,
+            // but a stale file left behind after a recording is deleted could
+            // be mis-cached against a future same-id recovery. Belongs in the
+            // delete-path AND in RecordingFileSuffixes for orphan cleanup.
+            DeleteFileIfExists(RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
@@ -2859,7 +2864,8 @@ namespace Parsek
             "_ghost.craft",
             ".prec.txt",
             "_vessel.craft.txt",
-            "_ghost.craft.txt"
+            "_ghost.craft.txt",
+            ".pann",
         };
 
         /// <summary>
