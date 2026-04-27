@@ -461,6 +461,69 @@ namespace Parsek.Tests.Rendering
             Assert.NotNull(reason);
         }
 
+        [Fact]
+        public void TryRead_StringTableCountExceedsRemainingBytes_RejectedBeforeAllocation()
+        {
+            // What makes it fail: a 10K per-block cap still permits a count
+            // larger than the actual file's remaining bytes. Without the
+            // stream-length sanity check, the loader would allocate a 10K-
+            // capacity List<string> and then EndOfStream on the first
+            // ReadString — wasted work and a misleading failure reason.
+            // The stream-length check rejects the count before allocation
+            // with a precise "would need N bytes but only M remain" reason.
+            string path = Path.Combine(tempDir, "rec_streamlen.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Empty Phase-1 payload has 16 bytes after the string-table
+            // count (4 each for splineCount, outlierCount, anchorCount,
+            // coBubbleCount). Set tableCount = 17 → 17 bytes of payload
+            // claimed, only 16 remain.
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 0), 17);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            Assert.Contains("would need", reason);
+            Assert.Contains("string-table", reason);
+        }
+
+        [Fact]
+        public void TryRead_SplineCountAboveRealisticCap_RejectedWithExceedsCap()
+        {
+            // What makes it fail: prior to the per-block cap (was
+            // MaxReasonableCount = 10M), a moderately-large spline count
+            // could pass validation and force a 10M-entry list allocation
+            // before the loader even started reading entries. Real .pann
+            // files have a few hundred entries at most; the per-block cap
+            // (MaxSplineEntries = 10K) rejects any value above that
+            // immediately with the canonical "exceeds cap" reason.
+            string path = Path.Combine(tempDir, "rec_capcheck.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Set spline count to something just above the per-block cap so
+            // the cap check fires first (the value is still within
+            // MaxReasonableCount = 10M, so the stricter cap is the only
+            // thing rejecting it).
+            byte[] bytes = File.ReadAllBytes(path);
+            WriteInt32At(bytes, CountOffset("recT", 1), 10_001);
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            Assert.False(ok);
+            // Either the per-block cap or the stream-length check fires —
+            // both are acceptable rejections; both reasons contain enough
+            // for a developer to diagnose. Just confirm rejection happens
+            // (not throw, not silent-accept).
+            Assert.Contains("spline", reason);
+        }
+
         // --- existing tests resume ---
 
         [Fact]

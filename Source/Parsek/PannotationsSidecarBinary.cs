@@ -60,15 +60,39 @@ namespace Parsek
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PANN");
         private static readonly byte[] CanonicalMagic = Encoding.ASCII.GetBytes("PANC");
 
-        // P2#2: upper bound on every count field read from a .pann file.
-        // A real .pann has at most a few hundred entries per block; a value
-        // above this is malformed and triggers a discard-and-recompute.
-        // Without the bound, an attacker-controlled or randomly-corrupted
+        // P2#2: upper bounds on every count field read from a .pann file.
+        // A real .pann has at most a few hundred entries per block; values
+        // above these caps are malformed and trigger a discard-and-recompute.
+        // Without the bounds, an attacker-controlled or randomly-corrupted
         // file with int.MaxValue could force a multi-GB allocation
         // (ArgumentOutOfRangeException for negative values, OutOfMemory for
         // huge ones) and either crash or lock the process before TryRead
         // returns.
+        //
+        // Per-block caps reflect realistic upper bounds for each block type;
+        // the stream-length check below is the second line of defense — any
+        // count whose payload would exceed the remaining file bytes is
+        // rejected before allocation.
+        internal const int MaxStringTableEntries = 10_000;
+        internal const int MaxSplineEntries = 10_000;
+        internal const int MaxKnotsPerSpline = 100_000;
+        internal const int MaxOutlierFlagsEntries = 10_000;
+        internal const int MaxAnchorCandidateEntries = 10_000;
+        internal const int MaxCoBubbleTraceEntries = 1_000;
+
+        // Hard fallback retained for tests / future blocks that don't yet
+        // have a tighter cap. Realistic blocks should always use one of the
+        // per-block caps above.
         internal const int MaxReasonableCount = 10_000_000;
+
+        // Minimum byte cost per element for the stream-length sanity check.
+        // Each length-prefixed empty string in the BinaryReader format costs
+        // 1 byte (a single LEB128 0). A spline entry's fixed header is 14
+        // bytes (sectionIndex+splineType+tension+knotCount+frameTag) before
+        // the variable arrays.
+        private const int MinBytesPerStringTableEntry = 1;
+        private const int MinBytesPerSplineEntry = 14;
+        private const int BytesPerKnotRow = 20; // 1 double + 3 floats per knot
 
         internal const int PannotationsBinaryVersion = 1;
         // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
@@ -186,33 +210,27 @@ namespace Parsek
                     // String table — unused in Phase 1 but reserved for parity
                     // with .prec layout so future blocks can reference it.
                     int tableCount = reader.ReadInt32();
-                    if (tableCount < 0 || tableCount > MaxReasonableCount)
-                    {
-                        failureReason = $"invalid string-table count: {tableCount}";
+                    if (!ValidateCount(stream, tableCount, MaxStringTableEntries,
+                            MinBytesPerStringTableEntry, "string-table", out failureReason))
                         return false;
-                    }
                     var stringTable = new List<string>(tableCount);
                     for (int i = 0; i < tableCount; i++)
                         stringTable.Add(reader.ReadString());
 
                     // SmoothingSplineList
                     int splineCount = reader.ReadInt32();
-                    if (splineCount < 0 || splineCount > MaxReasonableCount)
-                    {
-                        failureReason = $"invalid spline count: {splineCount}";
+                    if (!ValidateCount(stream, splineCount, MaxSplineEntries,
+                            MinBytesPerSplineEntry, "spline", out failureReason))
                         return false;
-                    }
                     for (int i = 0; i < splineCount; i++)
                     {
                         int sectionIndex = reader.ReadInt32();
                         byte splineType = reader.ReadByte();
                         float tension = reader.ReadSingle();
                         int knotCount = reader.ReadInt32();
-                        if (knotCount < 0 || knotCount > MaxReasonableCount)
-                        {
-                            failureReason = $"invalid knotCount at smoothing-spline entry {i}: {knotCount}";
+                        if (!ValidateCount(stream, knotCount, MaxKnotsPerSpline,
+                                BytesPerKnotRow, $"knotCount[{i}]", out failureReason))
                             return false;
-                        }
 
                         double[] knots = new double[knotCount];
                         for (int k = 0; k < knotCount; k++) knots[k] = reader.ReadDouble();
@@ -239,35 +257,31 @@ namespace Parsek
                     }
 
                     // Reserved blocks — Phase 1 writes count = 0 for each;
-                    // skip silently for forward-tolerance with future blocks.
+                    // tighter caps still apply so a future-version reader
+                    // can't be tricked into a giant allocation by claiming
+                    // a Phase-1 file has populated reserved blocks.
                     int outlierCount = reader.ReadInt32();
-                    if (outlierCount < 0 || outlierCount > MaxReasonableCount)
-                    {
-                        failureReason = $"invalid outlier-flags count: {outlierCount}";
+                    if (!ValidateCount(stream, outlierCount, MaxOutlierFlagsEntries,
+                            1, "outlier-flags", out failureReason))
                         return false;
-                    }
                     if (outlierCount != 0)
                     {
                         failureReason = $"unexpected outlier-flags count {outlierCount} for binary version {probe.BinaryVersion}";
                         return false;
                     }
                     int anchorCount = reader.ReadInt32();
-                    if (anchorCount < 0 || anchorCount > MaxReasonableCount)
-                    {
-                        failureReason = $"invalid anchor-candidate count: {anchorCount}";
+                    if (!ValidateCount(stream, anchorCount, MaxAnchorCandidateEntries,
+                            1, "anchor-candidate", out failureReason))
                         return false;
-                    }
                     if (anchorCount != 0)
                     {
                         failureReason = $"unexpected anchor-candidate count {anchorCount} for binary version {probe.BinaryVersion}";
                         return false;
                     }
                     int coBubbleCount = reader.ReadInt32();
-                    if (coBubbleCount < 0 || coBubbleCount > MaxReasonableCount)
-                    {
-                        failureReason = $"invalid co-bubble-trace count: {coBubbleCount}";
+                    if (!ValidateCount(stream, coBubbleCount, MaxCoBubbleTraceEntries,
+                            1, "co-bubble-trace", out failureReason))
                         return false;
-                    }
                     if (coBubbleCount != 0)
                     {
                         failureReason = $"unexpected co-bubble-trace count {coBubbleCount} for binary version {probe.BinaryVersion}";
@@ -409,6 +423,51 @@ namespace Parsek
         private static bool IsSupportedBinaryVersion(int version)
         {
             return version == PannotationsBinaryVersion;
+        }
+
+        /// <summary>
+        /// Validate a count read from a .pann file: must be non-negative, must
+        /// not exceed the realistic per-block cap, and the count's payload
+        /// must fit within the remaining stream bytes (assuming a minimum
+        /// per-element size). Returns false with a populated failure reason
+        /// when any check fails.
+        /// </summary>
+        /// <remarks>
+        /// The stream-length check is essential: a per-block cap of 10K
+        /// entries × 20 bytes/knot still permits a single corrupt spline
+        /// with knotCount=100K to attempt a 2 MB allocation, but in
+        /// practice the file would be much smaller. Comparing against
+        /// remaining bytes catches the inconsistency before any allocation.
+        /// Use long arithmetic for the multiply so int.MaxValue × N can't
+        /// silently overflow back into a small positive bound.
+        /// </remarks>
+        private static bool ValidateCount(
+            Stream stream,
+            int count,
+            int perBlockCap,
+            int minBytesPerEntry,
+            string fieldName,
+            out string failureReason)
+        {
+            failureReason = null;
+            if (count < 0)
+            {
+                failureReason = $"invalid {fieldName} count: {count} (negative)";
+                return false;
+            }
+            if (count > perBlockCap)
+            {
+                failureReason = $"invalid {fieldName} count: {count} (exceeds cap {perBlockCap})";
+                return false;
+            }
+            long requiredBytes = (long)count * (long)minBytesPerEntry;
+            long remaining = stream.Length - stream.Position;
+            if (requiredBytes > remaining)
+            {
+                failureReason = $"invalid {fieldName} count: {count} would need {requiredBytes} bytes but only {remaining} remain";
+                return false;
+            }
+            return true;
         }
 
         private static void SkipHeader(BinaryReader reader)
