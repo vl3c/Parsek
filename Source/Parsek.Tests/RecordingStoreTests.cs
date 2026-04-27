@@ -1157,6 +1157,11 @@ namespace Parsek.Tests
                 startUT = 17030, endUT = 17060,
                 frames = new List<TrajectoryPoint>()
             });
+            // Meaningful action at the env-class seam so the optimizer's gate accepts the split.
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17030, eventType = PartEventType.EngineIgnited, value = 1f
+            });
 
             tree.Recordings[rec.RecordingId] = rec;
             tree.RootRecordingId = rec.RecordingId;
@@ -1241,6 +1246,11 @@ namespace Parsek.Tests
                 startUT = 17030, endUT = 17060,
                 frames = new List<TrajectoryPoint>()
             });
+            // Meaningful action at the env-class seam so the optimizer's gate accepts the split.
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17030, eventType = PartEventType.EngineIgnited, value = 1f
+            });
 
             tree.Recordings[rec.RecordingId] = rec;
             tree.RootRecordingId = rec.RecordingId;
@@ -1308,6 +1318,11 @@ namespace Parsek.Tests
                     environment = SegmentEnvironment.Atmospheric,
                     startUT = 17030, endUT = 17060,
                     frames = new List<TrajectoryPoint>()
+                });
+                // Meaningful action at the env-class seam so the optimizer's gate accepts the split.
+                rec.PartEvents.Add(new PartEvent
+                {
+                    ut = 17030, eventType = PartEventType.EngineIgnited, value = 1f
                 });
 
                 tree.Recordings[rec.RecordingId] = rec;

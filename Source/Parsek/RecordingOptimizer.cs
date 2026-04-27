@@ -16,6 +16,15 @@ namespace Parsek
         internal const double MaxEvaBoundaryOverlapSeconds = 2.0;
 
         /// <summary>
+        /// PartEvent UT window (seconds, ±) used by <see cref="IsMeaningfulSplitBoundary"/>
+        /// to decide whether a pure Atmospheric ↔ Exo* env-class boundary is gameplay-
+        /// meaningful. Anchored to the split UT (next.startUT — the UT
+        /// <see cref="SplitAtSection"/> cuts at), not prev.endUT.
+        /// See `docs/dev/research/optimizer-meaningful-split-rule.md` §5.
+        /// </summary>
+        internal const double MeaningfulBoundaryWindowSeconds = 5.0;
+
+        /// <summary>
         /// Can two consecutive chain segments be auto-merged?
         /// Returns false if any user-intent signal differs from defaults,
         /// if they have different phases/bodies (except continuous EVA atmo/surface),
@@ -196,6 +205,58 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Boundary predicate for the optimizer split pass. Combines:
+        ///   - the body-change rule (#251 — always meaningful, never gated),
+        ///   - the meaningful-action gate on env-class transitions (see
+        ///     <see cref="IsMeaningfulSplitBoundary"/> and
+        ///     `docs/dev/research/optimizer-meaningful-split-rule.md` §5).
+        ///
+        /// No logging at the per-boundary level — accepted candidates and aggregate
+        /// suppression counts are logged by the caller per-recording (CLAUDE.md
+        /// "Batch counting convention" — an eccentric grazing recording can present
+        /// 100s of suppressed boundaries, exactly the spam this gate is meant to
+        /// avoid).
+        ///
+        /// Only applied to the optimizer path. The non-optimizer
+        /// <see cref="FindSplitCandidates"/> retains the legacy "always split on env
+        /// change" behavior as a test-only regression baseline showing the pre-gate
+        /// boundary set; no production caller invokes it (a grep across `Source/Parsek`
+        /// finds only `RecordingOptimizerTests.cs` consumers). Kept around so the
+        /// pre-gate semantics stay green-bar verifiable in the test suite.
+        /// </summary>
+        /// <param name="reason">
+        /// Set on every call where env or body changed (i.e., the function inspected
+        /// the boundary). Undefined when the function returns false because env class
+        /// is the same and body did not change — that case is "no boundary at all,"
+        /// not a suppression, and the caller skips counting.
+        /// </param>
+        private static bool IsSplittableEnvOrBodyBoundary(
+            Recording rec, int s, out SplitBoundaryReason reason)
+        {
+            var prev = rec.TrackSections[s - 1];
+            var next = rec.TrackSections[s];
+
+            bool envChanged = SplitEnvironmentClass(prev.environment)
+                != SplitEnvironmentClass(next.environment);
+            bool bodyChanged = SectionBodyChanged(prev, next);
+            if (!envChanged && !bodyChanged)
+            {
+                reason = SplitBoundaryReason.NotABoundary;
+                return false;
+            }
+
+            // Body change is always meaningful (#251) — never gated.
+            if (bodyChanged)
+            {
+                reason = SplitBoundaryReason.BodyChange;
+                return true;
+            }
+
+            // Env class changed but body did not — apply meaningful-action gate.
+            return IsMeaningfulSplitBoundary(rec, prev, next, next.startUT, out reason);
+        }
+
+        /// <summary>
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers.
         /// Used by the optimizer split pass where ghosting triggers don't block splitting.
         /// </summary>
@@ -217,20 +278,63 @@ namespace Parsek
                 var rec = committed[i];
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
 
+                // Per-recording counters for the aggregate Verbose summary. Per-boundary
+                // logs would be O(N) for an eccentric grazing recording — exactly what
+                // this gate is supposed to suppress (CLAUDE.md "Batch counting convention").
+                int evaluatedBoundaries = 0;
+                int suppressedPassive = 0;
+                int suppressedCheckpointPair = 0;
+                int splittableButRejected = 0;
+
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Split where coarse environment class changes OR body changes (#251)
-                    bool envChanged = SplitEnvironmentClass(rec.TrackSections[s].environment)
-                        != SplitEnvironmentClass(rec.TrackSections[s - 1].environment);
-                    bool bodyChanged = SectionBodyChanged(rec.TrackSections[s - 1], rec.TrackSections[s]);
-                    if (!envChanged && !bodyChanged)
-                        continue;
+                    SplitBoundaryReason reason;
+                    bool isSplittable = IsSplittableEnvOrBodyBoundary(rec, s, out reason);
 
-                    if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                    if (isSplittable)
                     {
-                        candidates.Add((i, s));
-                        break; // One split per recording per pass (re-scan after split)
+                        if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                        {
+                            // Per-candidate accept log — bounded by `break` and by
+                            // RunOptimizationSplitPass's outer maxSplitsPerPass cap.
+                            ParsekLog.Verbose("Optimizer",
+                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={s} " +
+                                $"splitUT={rec.TrackSections[s].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                                $"prev={rec.TrackSections[s - 1].environment} next={rec.TrackSections[s].environment}");
+                            candidates.Add((i, s));
+                            break; // One split per recording per pass (re-scan after split)
+                        }
+                        // Splittable boundary that CanAutoSplit rejects (e.g. too-short
+                        // halves, EVA atmo↔surface continuous gate). Counted as evaluated
+                        // and as "splittable-but-rejected" so the summary log surfaces
+                        // a recording where every boundary is rejected for the same
+                        // downstream reason.
+                        evaluatedBoundaries++;
+                        splittableButRejected++;
+                        continue;
                     }
+
+                    // NotABoundary → env unchanged + body unchanged. Not a decision to
+                    // count or log; just keep scanning later boundaries.
+                    if (reason == SplitBoundaryReason.NotABoundary) continue;
+
+                    // Suppression cases (env or body changed but the gate said no).
+                    evaluatedBoundaries++;
+                    if (reason == SplitBoundaryReason.SuppressedCheckpointPair)
+                        suppressedCheckpointPair++;
+                    else
+                        suppressedPassive++;
+                }
+
+                if (suppressedPassive > 0 || suppressedCheckpointPair > 0
+                    || splittableButRejected > 0)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"Split suppressed: rec={rec.RecordingId} " +
+                        $"evaluated={evaluatedBoundaries} " +
+                        $"passiveCrossings={suppressedPassive} " +
+                        $"checkpointPairs={suppressedCheckpointPair} " +
+                        $"splittableButRejected={splittableButRejected}");
                 }
             }
 
@@ -853,6 +957,151 @@ namespace Parsek
 
                 trackSections[i] = section;
             }
+        }
+
+        /// <summary>
+        /// Returns true if a PartEvent represents a gameplay action that justifies an
+        /// optimizer split at a pure Atmospheric ↔ Exo* env-class boundary. See
+        /// `docs/dev/research/optimizer-meaningful-split-rule.md` §5 for the rationale
+        /// and the full list. RCS events are included even though
+        /// <see cref="EnvironmentDetector.Classify"/> only inspects
+        /// <see cref="ModuleEngines"/> thrust — an RCS-only deorbit kick still
+        /// constitutes "the player did something" at the crossing.
+        /// </summary>
+        internal static bool IsMeaningfulPartEventForSplit(PartEvent evt)
+        {
+            switch (evt.eventType)
+            {
+                case PartEventType.EngineShutdown:
+                case PartEventType.RCSStopped:
+                case PartEventType.Decoupled:
+                case PartEventType.Destroyed:
+                case PartEventType.ShroudJettisoned:
+                case PartEventType.FairingJettisoned:
+                case PartEventType.ParachuteSemiDeployed:
+                case PartEventType.ParachuteDeployed:
+                case PartEventType.ParachuteCut:
+                case PartEventType.ParachuteDestroyed:
+                case PartEventType.GearDeployed:
+                case PartEventType.GearRetracted:
+                case PartEventType.ThermalAnimationHot:
+                case PartEventType.ThermalAnimationMedium:
+                    return true;
+
+                // Activation/throttle events only count when they signal active power
+                // application (positive value); zero-power events are inert and should
+                // not unblock an otherwise-passive crossing. Mirrors
+                // IsInertPartEventForTailTrim, which also gates these four on value > 0.
+                case PartEventType.EngineIgnited:
+                case PartEventType.EngineThrottle:
+                case PartEventType.RCSActivated:
+                case PartEventType.RCSThrottle:
+                    return evt.value > 0f;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Returns true if any PartEvent in <paramref name="rec"/> within ±<paramref name="windowSeconds"/>
+        /// of <paramref name="splitUT"/> is a meaningful action (per
+        /// <see cref="IsMeaningfulPartEventForSplit"/>). Linear scan — PartEvents are
+        /// always-sorted invariant is helpful but not required here.
+        /// </summary>
+        internal static bool HasMeaningfulPartEventNearUT(
+            Recording rec, double splitUT, double windowSeconds)
+        {
+            if (rec?.PartEvents == null || rec.PartEvents.Count == 0) return false;
+            for (int i = 0; i < rec.PartEvents.Count; i++)
+            {
+                var evt = rec.PartEvents[i];
+                if (System.Math.Abs(evt.ut - splitUT) > windowSeconds) continue;
+                if (IsMeaningfulPartEventForSplit(evt)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Result of <see cref="IsMeaningfulSplitBoundary"/> for diagnostic logging.
+        /// Captures both the decision and which discriminator fired. The
+        /// <see cref="NotABoundary"/> value is used by
+        /// <see cref="IsSplittableEnvOrBodyBoundary"/> when env class is unchanged AND
+        /// body is unchanged (the loop saw no boundary at all — distinct from a
+        /// suppressed passive crossing). Explicit value 0 keeps `default()` mapping
+        /// to "no boundary," which the caller treats as "skip without counting."
+        /// </summary>
+        internal enum SplitBoundaryReason
+        {
+            NotABoundary = 0,            // env unchanged AND body unchanged
+            BodyChange,                  // #251 — always-meaningful SOI traversal
+            SurfaceInvolved,             // class 2 (Surface) on either side
+            ExoPropulsiveAtCrossing,     // S3 — engine-on at the crossing
+            MeaningfulPartEventNearUT,   // S1 — PartEvent in MeaningfulSet within window
+            SuppressedPassiveCrossing,   // pure Atmo↔ExoBallistic OR Approach↔Exo with no nearby action
+            SuppressedCheckpointPair     // S4 defensive — both sides OrbitalCheckpoint
+        }
+
+        /// <summary>
+        /// The meaningful-action gate for env-class boundaries. Returns true when the
+        /// crossing is gameplay-meaningful and the optimizer should split. Out-parameter
+        /// <paramref name="reason"/> records which discriminator fired for logging.
+        /// `splitUT` must be `next.startUT` — the same UT
+        /// <see cref="SplitAtSection"/> cuts at. See
+        /// `docs/dev/research/optimizer-meaningful-split-rule.md` §5.
+        /// </summary>
+        internal static bool IsMeaningfulSplitBoundary(
+            Recording rec, TrackSection prev, TrackSection next, double splitUT,
+            out SplitBoundaryReason reason)
+        {
+            int prevClass = SplitEnvironmentClass(prev.environment);
+            int nextClass = SplitEnvironmentClass(next.environment);
+
+            // Surface (class 2) involvement: always meaningful — gated upstream by
+            // Vessel.Situations + debounce, never by altitude alone. Surface↔Approach,
+            // Surface↔Atmo, Surface↔Exo all land here.
+            if (prevClass == 2 || nextClass == 2)
+            {
+                reason = SplitBoundaryReason.SurfaceInvolved;
+                return true;
+            }
+
+            // Approach↔Exo (airless-body altitude boundary) goes through the same gate
+            // as Atmo↔Exo: an eccentric airless orbit grazing periapsis below the
+            // approach altitude is structurally identical to the atmo case, and would
+            // otherwise produce N splits per N periapsis passes. ExoPropulsive +
+            // PartEvent checks below handle real powered-descent / take-off boundaries
+            // (research note §8 Q3 — extended from the v1 always-meaningful default).
+
+            // S3: thrust-on at the crossing (ExoPropulsive on either side) — the env
+            // detector only assigns ExoPropulsive when ModuleEngines thrust is positive,
+            // so this directly encodes "engine was firing at the boundary".
+            if (prev.environment == SegmentEnvironment.ExoPropulsive
+                || next.environment == SegmentEnvironment.ExoPropulsive)
+            {
+                reason = SplitBoundaryReason.ExoPropulsiveAtCrossing;
+                return true;
+            }
+
+            // S4 defensive: two adjacent OrbitalCheckpoint sections with differing env
+            // class shouldn't arise from the recorder pathway today (on-rails coasts are a
+            // single section), but if they ever do the crossing is geometric.
+            if (prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && next.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                reason = SplitBoundaryReason.SuppressedCheckpointPair;
+                return false;
+            }
+
+            // S1: meaningful PartEvent within ±W of splitUT.
+            if (HasMeaningfulPartEventNearUT(rec, splitUT, MeaningfulBoundaryWindowSeconds))
+            {
+                reason = SplitBoundaryReason.MeaningfulPartEventNearUT;
+                return true;
+            }
+
+            reason = SplitBoundaryReason.SuppressedPassiveCrossing;
+            return false;
         }
 
         internal static int SplitEnvironmentClass(SegmentEnvironment env)

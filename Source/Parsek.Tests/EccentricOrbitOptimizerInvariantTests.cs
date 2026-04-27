@@ -178,6 +178,16 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint>()
             });
 
+            // Sanity counterfactual to the Pe-grazing suppression: a real Atmo↔Exo
+            // boundary with a meaningful action at the seam still produces a split.
+            // Without this, the new optimizer gate would suppress the crossing as
+            // passive — which is correct for the eccentric case but defeats this
+            // sanity check's purpose. See `optimizer-meaningful-split-rule.md` §5.
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 200.0, eventType = PartEventType.EngineIgnited, value = 1f
+            });
+
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
                 new List<Recording> { rec });
 
