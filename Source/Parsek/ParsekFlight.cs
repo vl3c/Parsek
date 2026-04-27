@@ -14047,9 +14047,32 @@ namespace Parsek
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
             // the fixed watch cutoff distance. The cutoff applies uniformly to all ghosts.
             bool forceWatchedFullFidelity = false;
+            bool cutoffTriggered =
+                isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+            if (cutoffTriggered)
+            {
+                // Sanity-check before exiting: time warp can leave state.lastDistance
+                // stale across a FloatingOrigin / Krakensbane seam — the freshly
+                // resolved ghost world position and the active vessel transform
+                // end up in different floating-origin frames for a single frame,
+                // and Vector3d.Distance picks up a phantom hundreds-of-km gap.
+                // Re-read the live transforms now and reject the exit if the
+                // ghost is observably within range. Only paid on cutoff trip.
+                double sanityFreshDistance = ResolveFreshActiveVesselDistanceForCutoffSanity(state);
+                if (WatchModeController.ShouldRejectStaleWatchExit(activeVesselDistance, sanityFreshDistance))
+                {
+                    ParsekLog.Info("Zone",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" cutoff sanity-check rejected exit: " +
+                        $"cached={activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m " +
+                        $"but fresh={sanityFreshDistance.ToString("F0", CultureInfo.InvariantCulture)}m within range " +
+                        $"(likely FloatingOrigin/warp seam) — staying in watch mode");
+                    cutoffTriggered = false;
+                }
+            }
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                if (isWatchedGhost && WatchModeController.ShouldExitWatchForDistance(activeVesselDistance))
+                if (cutoffTriggered)
                 {
                     // Append ghost-world + active-section + anchor context so a
                     // "ghost flew off into space" cutoff is diagnosable from
@@ -14179,6 +14202,23 @@ namespace Parsek
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             return state == null || !state.deferVisibilityUntilPlaybackSync;
+        }
+
+        // Re-read the ghost and active-vessel transforms to recompute the
+        // active-vessel distance one-shot when the cached state.lastDistance
+        // trips the cutoff. NaN means we cannot make a robust call — caller
+        // must fall back to the cached value (i.e. proceed with exit). Only
+        // called on cutoff trip, so this is not on the per-frame hot path.
+        private static double ResolveFreshActiveVesselDistanceForCutoffSanity(
+            GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null) return double.NaN;
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null) return double.NaN;
+            Vector3d ghostPos = state.ghost.transform.position;
+            Vector3d activePos = activeVessel.transform.position;
+            if (!IsFiniteVector3d(ghostPos) || !IsFiniteVector3d(activePos)) return double.NaN;
+            return Vector3d.Distance(ghostPos, activePos);
         }
 
         /// <summary>

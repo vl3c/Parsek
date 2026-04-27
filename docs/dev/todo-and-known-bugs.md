@@ -11,6 +11,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~626. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
+
+Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),
+~4-8x time warp.
+
+```
+[Zone] Ghost #0 "Kerbal X" exceeded ghost camera cutoff
+(786169m from active vessel >= 305000m; render=772527m) — exiting watch mode |
+ghostWorld=(-76794.73,-408.21,-26272.88) section=Absolute sectionUT=[124.0,226.8]
+```
+
+The new `ghostWorld=` field (added by PR #614 for diagnostics) shows the ghost
+sat at floating-origin position (-76794, -408, -26272), magnitude ~81 km. Cross-
+check: ghost #7 spawned 90 ms earlier at world=(-76197.99,-400.66,-25809.32)
+and its appearance log correctly reported `dist=80568m` (~80 km). Both ghosts
+were ~80 km from the active vessel, well inside the 305 km cutoff — but
+`state.lastDistance` for ghost #0 read 786169 m and `renderDistance` read
+772527 m, both ~10× the real distance. Watch mode auto-exited and the camera
+snapped back to the active vessel.
+
+Root cause: cached distance computed across a FloatingOrigin / Krakensbane
+frame seam. `GhostPlaybackEngine.ResolvePlaybackActiveVesselDistance` (line
+2328) and `ResolvePlaybackDistance` (line 2310) both compute
+`Vector3d.Distance(state.ghost.transform.position, activeVesselPos)` once per
+frame and cache into `state.lastDistance` / `state.lastRenderDistance`. During
+time warp, KSP can advance the playback UT by multiple game seconds in a
+single frame and re-position ghosts via fresh body-coord math while the active
+vessel's `transform.position` is still in the pre-shift floating-origin frame.
+For one frame the two values live in different floating-origin frames,
+`Vector3d.Distance` picks up a phantom hundreds-of-km gap, the cutoff trips.
+Same family as the `Krakensbane.GetFrameVelocity()` correction documented in
+`.claude/CLAUDE.md` (KSP API & Code Gotchas).
+
+Fix: sanity-check before exiting (approach 1 in `Source/Parsek/WatchModeController.cs`).
+New pure predicate `WatchModeController.ShouldRejectStaleWatchExit(double cached,
+double fresh)` returns true when `ShouldExitWatchForDistance(cached) &&
+IsWithinWatchExitRange(fresh)`. `ParsekFlight.ApplyZoneRenderingImpl` (around
+the cutoff trigger at line ~14052) now, on cutoff trip, calls a new private
+helper `ResolveFreshActiveVesselDistanceForCutoffSanity(state)` that re-reads
+the live `state.ghost.transform.position` and `FlightGlobals.ActiveVessel.transform.position`
+and recomputes `Vector3d.Distance`. If the predicate says reject, the exit is
+skipped and an `[INFO][Zone] Ghost #N "X" cutoff sanity-check rejected exit:
+cached=...m >= ...m but fresh=...m within range (likely FloatingOrigin/warp
+seam) — staying in watch mode` line is emitted so future regressions are
+diagnosable. Re-read costs one Vector3d distance per cutoff event (rare); no
+per-frame cost. Helper returns NaN when ghost or active vessel is missing,
+which the predicate treats as "do not reject" so the original cached cutoff
+proceeds.
+
+Regression coverage: `WatchModeControllerTests.ShouldRejectStaleWatchExit_*`
+(five cases — repro-log scenario, both-beyond-cutoff, cached-within-range,
+fresh-at-or-above-cutoff, non-finite-fresh).
+
 ## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
 
 Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.

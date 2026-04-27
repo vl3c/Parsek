@@ -410,6 +410,27 @@ namespace Parsek
                 && !ShouldExitWatchForDistance(distanceMeters);
         }
 
+        // Sanity-check predicate for the watch-mode cutoff: returns true when
+        // the cached active-vessel distance trips the cutoff but a freshly
+        // recomputed distance still places the ghost within range, so the
+        // exit should be rejected. Mitigates false positives where the
+        // cached value was computed across a FloatingOrigin / Krakensbane
+        // frame seam during time warp — the ghost's freshly-resolved
+        // body-coord world position and the active vessel's stale
+        // pre-shift transform.position end up in different floating-origin
+        // frames, so Vector3d.Distance picks up a phantom hundreds-of-km
+        // gap that disappears once the next FloatingOrigin shift lands.
+        // Repro: logs/2026-04-27_1902/KSP.log line 208360 — cached 786169m
+        // while ghostWorld and a 90 ms-earlier sibling both sat ~81km from
+        // the active vessel.
+        internal static bool ShouldRejectStaleWatchExit(
+            double cachedDistanceMeters,
+            double freshDistanceMeters)
+        {
+            return ShouldExitWatchForDistance(cachedDistanceMeters)
+                && IsWithinWatchExitRange(freshDistanceMeters);
+        }
+
         private static bool IsFiniteWatchDistance(double distanceMeters)
         {
             return !double.IsNaN(distanceMeters)

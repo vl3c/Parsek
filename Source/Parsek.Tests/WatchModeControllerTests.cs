@@ -55,6 +55,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRejectStaleWatchExit_RepoLogScenario_RejectsExit()
+        {
+            // logs/2026-04-27_1902/KSP.log line 208360: cached 786169m
+            // tripped the cutoff while the ghost transform was actually
+            // ~81000m from the active vessel — fresh distance must reject
+            // the exit.
+            Assert.True(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 81_000.0));
+        }
+
+        [Fact]
+        public void ShouldRejectStaleWatchExit_FreshDistanceAlsoBeyondCutoff_AllowsExit()
+        {
+            // Both cached and fresh agree the ghost is beyond the cutoff:
+            // the cutoff is real, exit must not be rejected.
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(800_000.0, 800_000.0));
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_000.0));
+        }
+
+        [Fact]
+        public void ShouldRejectStaleWatchExit_CachedWithinRange_DoesNotReject()
+        {
+            // Sanity-check is a no-op when the cached value never tripped
+            // the cutoff in the first place. ApplyZoneRenderingImpl will
+            // not have called the helper, but verify the predicate stays
+            // false to keep the contract sharp.
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(100_000.0, 81_000.0));
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(304_999.0, 81_000.0));
+        }
+
+        [Fact]
+        public void ShouldRejectStaleWatchExit_FreshAtOrAboveCutoff_AllowsExit()
+        {
+            // Hysteresis: fresh distance equal to or beyond the exit
+            // cutoff means the ghost is genuinely past the band, even if
+            // it is only just past. Don't paper over real exits.
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_000.0));
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, 305_001.0));
+        }
+
+        [Fact]
+        public void ShouldRejectStaleWatchExit_NonFiniteFreshDistance_AllowsExit()
+        {
+            // NaN / infinite fresh distance means we couldn't make a
+            // robust comparison (e.g. ghost or active vessel transform
+            // missing). Fall back to the cached cutoff signal.
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, double.NaN));
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, double.PositiveInfinity));
+            Assert.False(WatchModeController.ShouldRejectStaleWatchExit(786_169.0, -1.0));
+        }
+
+        [Fact]
         public void PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState()
         {
             var state = new GhostPlaybackState

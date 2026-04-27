@@ -50,6 +50,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Watch mode no longer auto-exits during time warp when the cached cutoff distance is stale across a FloatingOrigin/Krakensbane frame seam. A sanity check now re-reads the live ghost and active-vessel transforms before exiting, and rejects the exit when the freshly-measured distance is still within range.
 - Watching a ghost whose Relative-frame section is anchored to a vessel now in a totally different physical location (e.g. previously re-flown booster sitting in stable orbit while the player flies a fresh launch from the pad) no longer mis-positions the ghost hundreds of km away and trips the watch-mode camera cutoff. The relative-anchor resolver compares the live anchor's current pose to the recorded anchor's pose at the playback UT and, when they disagree by more than 250 m, prefers the recorded pose so the ghost stays on its recorded ground-relative trajectory.
 - Re-Fly merge now supersedes destroyed sibling recordings that share the in-place origin's vessel across chain boundaries, so a destroyed run no longer lingers in the mission list and as a ghost after re-flying.
 - Re-Fly ghosts whose relative-frame anchor matches the re-flown vessel — not just direct parents but any sibling chain too — now play back at their recorded ground-relative positions instead of locking onto the player's live pose, eliminating the upper-stage ghost map jumps and below-ground renders.
