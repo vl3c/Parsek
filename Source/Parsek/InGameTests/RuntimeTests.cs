@@ -13589,6 +13589,135 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        /// <summary>
+        /// Phase 4 inertial-frame round-trip in-game test (design doc §6.2,
+        /// §18 Phase 4 done-condition, §26.1 HR-3 / HR-9). Builds a synthetic
+        /// 30-minute LKO ExoBallistic recording, fits the spline through
+        /// SmoothingPipeline (Phase 4 path lifts to inertial), then walks the
+        /// consumer-side dispatch the way ParsekFlight.InterpolateAndPosition
+        /// does: evaluate spline at UT, dispatch on FrameTag, lower back to
+        /// world via FrameTransform.LowerFromInertialToWorld at the playback
+        /// UT. Probe is comparing the round-tripped world position against a
+        /// direct Kerbin.GetWorldSurfacePosition lookup of the raw recorded
+        /// sample at every minute across the 30-minute window — Phase 4
+        /// removes the body-rotation skew that the Phase 1 body-fixed path
+        /// would have shown after even a few minutes.
+        ///
+        /// What makes it fail: a regression in the lift / lower sign or the
+        /// consumer dispatch picks the wrong branch. With FrameTag = 1 but
+        /// the consumer still hitting GetWorldSurfacePosition, the rendered
+        /// position drifts from the canonical body-fixed point at a rate of
+        /// ~24 m/sec (orbital ground-track velocity at 80 km), so the test's
+        /// 1 m budget breaks within seconds.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Frame", Scene = GameScenes.FLIGHT,
+            Description = "Inertial-fitted spline round-trips to body-fixed world position across a 30-min coast")]
+        public IEnumerator Pipeline_Inertial_OrbitalCoast_NoDrift()
+        {
+            const string recordingId = "in-game-pipeline-inertial-coast";
+            const int sectionIndex = 0;
+            const double startUT = 1000.0;
+            const double dutPerSample = 1.0;
+            const int sampleCount = 1800; // 30 minutes at 1 sample / sec
+            const double tolMeters = 1.0;
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+
+            // Build samples that look like an LKO orbit at 80 km — a long
+            // coast where the body's rotation phase is the main source of
+            // along-track drift the inertial fit is supposed to remove.
+            var frames = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double phase = i * 0.13;
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.5 + i * 0.0005, // gradual lat rise
+                    longitude = 1.0 + i * 0.005, // gradual lon advance
+                    altitude = 80000 + System.Math.Sin(phase) * 1.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = 7,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (sampleCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                        recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                    && spline.IsValid,
+                "Phase 4: fit failed to produce a valid spline");
+            InGameAssert.AreEqual((byte)1, spline.FrameTag,
+                "Phase 4: ExoBallistic spline must have FrameTag=1 (inertial-longitude)");
+
+            // Walk the consumer-side dispatch every minute. Compare the
+            // round-tripped world position against the raw body-fixed lookup
+            // of the same UT's recorded sample.
+            double maxResidual = 0.0;
+            int probeIdx = 0;
+            for (int i = 0; i < sampleCount; i += 60)
+            {
+                double probeUT = frames[i].ut;
+                Vector3d evaluated = TrajectoryMath.CatmullRomFit.Evaluate(spline, probeUT);
+
+                Vector3d roundTripWorld;
+                switch (spline.FrameTag)
+                {
+                    case 0:
+                        roundTripWorld = kerbin.GetWorldSurfacePosition(evaluated.x, evaluated.y, evaluated.z);
+                        break;
+                    case 1:
+                        roundTripWorld = TrajectoryMath.FrameTransform.LowerFromInertialToWorld(
+                            evaluated.x, evaluated.y, evaluated.z, kerbin, probeUT);
+                        break;
+                    default:
+                        roundTripWorld = new Vector3d(double.NaN, double.NaN, double.NaN);
+                        break;
+                }
+
+                Vector3d directWorld = kerbin.GetWorldSurfacePosition(
+                    frames[i].latitude, frames[i].longitude, frames[i].altitude);
+                double residual = Vector3d.Distance(directWorld, roundTripWorld);
+                if (residual > maxResidual) maxResidual = residual;
+                InGameAssert.IsTrue(residual < tolMeters,
+                    "Probe i=" + i + " UT=" + probeUT.ToString("F1", CultureInfo.InvariantCulture)
+                        + " residual=" + residual.ToString("F3", CultureInfo.InvariantCulture)
+                        + "m exceeds " + tolMeters + "m budget — inertial lift / lower drift");
+                probeIdx++;
+                if (probeIdx % 5 == 0) yield return null;
+            }
+
+            ParsekLog.Info("Pipeline-Frame",
+                "Pipeline_Inertial_OrbitalCoast_NoDrift: maxResidual="
+                    + maxResidual.ToString("F3", CultureInfo.InvariantCulture) + "m"
+                    + " sampleCount=" + sampleCount + " probes=" + probeIdx);
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            yield break;
+        }
+
         #endregion
 
         #region Pipeline-Anchor (Phase 2)

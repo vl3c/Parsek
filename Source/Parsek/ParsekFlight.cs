@@ -14926,8 +14926,35 @@ namespace Parsek
                 Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
                 if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
                 {
-                    Vector3d splineWorld = bodyBefore.GetWorldSurfacePosition(
-                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z);
+                    // Phase 4 frame-aware dispatch (design doc §6.2 Stage 2,
+                    // §18 Phase 4, §26.1 HR-9). FrameTag pins the coordinate
+                    // contract of the spline's controls — body-fixed (0) hands
+                    // straight to GetWorldSurfacePosition; inertial-longitude
+                    // (1) re-lowers via FrameTransform.LowerFromInertialToWorld
+                    // at the playback UT so the body's rotation between
+                    // recording and playback is correctly cancelled out.
+                    Vector3d splineWorld;
+                    switch (spline.FrameTag)
+                    {
+                        case 0:
+                            splineWorld = bodyBefore.GetWorldSurfacePosition(
+                                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z);
+                            break;
+                        case 1:
+                            splineWorld = TrajectoryMath.FrameTransform.LowerFromInertialToWorld(
+                                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                                bodyBefore, targetUT);
+                            break;
+                        default:
+                            // HR-9: visible failure for an unrecognised tag.
+                            // Drops the spline result by emitting NaN; the
+                            // outer guard below falls back to the legacy lerp.
+                            ParsekLog.VerboseRateLimited("Pipeline-Smoothing", "unknown-frame-tag",
+                                $"unknown frameTag={spline.FrameTag} recordingId={recordingId} sectionIndex={sectionIndex}",
+                                5.0);
+                            splineWorld = new Vector3d(double.NaN, double.NaN, double.NaN);
+                            break;
+                    }
                     if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
                         interpolatedPos = splineWorld;
                 }
