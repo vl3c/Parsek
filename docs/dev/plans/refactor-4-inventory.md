@@ -107,7 +107,7 @@ classification before they are assigned to extraction tiers.
 | `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | New large UI surface |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | New ballistic/extrapolation logic |
 | `Source/Parsek/UI/TimelineWindowUI.cs` | 1,255 | New timeline UI surface |
-| `Source/Parsek/RewindInvoker.cs` | 1,218 | New rewind-to-staging surface |
+| `Source/Parsek/RewindInvoker.cs` | 1,218 | New rewind-to-separation surface |
 | `Source/Parsek/TrajectorySidecarBinary.cs` | 1,124 | Binary storage/serialization surface |
 | `Source/Parsek/Diagnostics/DiagnosticsComputation.cs` | 1,054 | Diagnostics computation surface |
 | `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs` | 934 | Finalization/extrapolation bridge |
@@ -640,7 +640,7 @@ observability collector owners.
 ### `Source/Parsek/ParsekScenario.cs`
 
 This ScenarioModule is the persistence and lifecycle hub for game state,
-rewind-to-staging state, active tree restore, external file loading, recording
+rewind-to-separation state, active tree restore, external file loading, recording
 metadata, deferred coroutines, and vessel lifecycle events.
 
 Pass 1 completed:
@@ -659,7 +659,7 @@ Validation:
 - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings`
 
 Pass 2 discussion only: scenario persistence codec, load coordinator, and
-rewind staging persistence owner.
+rewind separation persistence owner.
 
 ### `Source/Parsek/VesselSpawner.cs`
 
