@@ -420,20 +420,24 @@ namespace Parsek
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
 
-            // Phase 2 + Phase 3 anchor correction (design doc §6.3 / §6.4 /
-            // §7.1 / §8 / §18 Phase 2-3): the LateUpdate FloatingOrigin
-            // re-positioning recomputes the ghost's world position from
-            // lat/lon/alt and would snap back to the un-corrected geometry
-            // unless we re-add ε on the late path. Phase 3 makes ε
-            // time-varying along a both-end lerp interval (§6.4), so we store
-            // the lookup key + the playback UT and re-evaluate at LateUpdate
-            // time rather than caching a single Vector3d (which would freeze
-            // the lerp progression to its registration-frame value across
-            // every late-frame within the segment). The recording id /
-            // section index pair both being valid is the "has anchor" flag —
-            // an empty recordingId or negative sectionIndex means the
-            // registration-time gate did not produce an anchor and LateUpdate
-            // skips the re-add path.
+            // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
+            // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
+            // The LateUpdate FloatingOrigin re-positioning recomputes the
+            // ghost's world position from lat/lon/alt. Without re-evaluation
+            // here, two regressions return:
+            //   1. Phase 2+3 anchor ε would snap back to the un-corrected
+            //      lerp position (LateUpdate must re-add ε every late frame).
+            //      Phase 3 makes ε time-varying along a both-end lerp interval
+            //      (§6.4), so caching a single Vector3d at registration time
+            //      would freeze the lerp progression for every late-frame
+            //      within the segment.
+            //   2. Phase 1+4 spline positioning would be discarded — the raw
+            //      latBefore/After lerp would overwrite the spline-positioned
+            //      transform every LateUpdate. The same lookup key drives the
+            //      spline re-eval and the anchor re-add, so both are stored
+            //      together. An empty recordingId or negative sectionIndex
+            //      means the registration-time guards (no recording context
+            //      passed in, or both gates closed) skipped both paths.
             public string anchorRecordingId;
             public int anchorSectionIndex;
         }
@@ -1090,11 +1094,29 @@ namespace Parsek
                     case GhostPosMode.PointInterp:
                     {
                         if (e.bodyBefore == null || e.bodyAfter == null) break;
-                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                            e.latAfter, e.lonAfter, e.altAfter);
-                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+
+                        // Phase 1 + Phase 4 spline re-evaluation (design doc
+                        // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
+                        // re-eval, the raw lat/lon/alt bracket lerp on the
+                        // fallback path would overwrite the spline-positioned
+                        // transform on every LateUpdate — Phase 1's smoothing
+                        // would only survive a single Update frame before
+                        // FloatingOrigin re-positioning snapped it back.
+                        // Frame-tag dispatch matches the Update path: tag 0 →
+                        // body-fixed surface lookup, tag 1 → inertial re-lower
+                        // at the playback UT, unknown → NaN (silent fallthrough
+                        // here; the Warn fires from the Update path's
+                        // unknownFrameTagWarned dedup so LateUpdate doesn't
+                        // double-emit).
+                        Vector3d pos;
+                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        {
+                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                                e.latBefore, e.lonBefore, e.altBefore);
+                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                                e.latAfter, e.lonAfter, e.altAfter);
+                            pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        }
                         // Phase 2 + Phase 3 anchor correction (design doc
                         // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
                         // space ε so the FloatingOrigin frame-velocity shift
@@ -1103,6 +1125,8 @@ namespace Parsek
                         // each LateUpdate so the lerp interval (§6.4 Both
                         // case) progresses with the playback UT instead of
                         // freezing to the value captured at Update time.
+                        // The ε is additive on top of either the spline-
+                        // positioned or the raw-lerp position above.
                         if (allowAnchorCorrectionInterval(
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
                                 out Vector3d lateEps))
@@ -14968,10 +14992,15 @@ namespace Parsek
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift.
-            // Phase 3: store the lookup key (recordingId + sectionIndex) so
-            // LateUpdate can re-evaluate the interval at the same playback UT
-            // — caching the registration-frame ε would freeze the lerp's
-            // progression for every late-frame within the segment.
+            // Phase 3 / Phase 4: store the lookup key (recordingId + sectionIndex)
+            // so LateUpdate can re-evaluate BOTH the spline (Phase 1+4) and the
+            // anchor interval (Phase 2+3) at the same playback UT. Storing the
+            // key only when an anchor exists (the prior contract) discarded the
+            // spline result on every LateUpdate — the raw lerp on lines below
+            // would overwrite the spline-positioned transform. The key is
+            // always-stored when (recordingId, sectionIndex) is valid; the gates
+            // (settings flag, store presence) are re-checked at LateUpdate.
+            bool hasLookupKey = !string.IsNullOrEmpty(recordingId) && sectionIndex >= 0;
             ghostPosEntries.Add(new GhostPosEntry
             {
                 ghost = ghost,
@@ -14983,8 +15012,8 @@ namespace Parsek
                 t = t,
                 pointUT = targetUT,
                 interpolatedRot = interpolatedRot,
-                anchorRecordingId = hasAnchorEps ? recordingId : null,
-                anchorSectionIndex = hasAnchorEps ? sectionIndex : -1,
+                anchorRecordingId = hasLookupKey ? recordingId : null,
+                anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
             });
 
             interpResult = new InterpolationResult(
@@ -15124,6 +15153,91 @@ namespace Parsek
                 Parsek.Rendering.RenderSessionState.NotifySingleAnchorLerpCase(in interval);
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 1 + Phase 4 LateUpdate spline re-evaluation helper (design
+        /// doc §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Instance shim that
+        /// supplies the per-session <see cref="unknownFrameTagWarned"/> dedup
+        /// set; the gate-then-dispatch logic itself lives in
+        /// <see cref="TryComputeLateUpdateSplineWorldPositionPure"/> so xUnit
+        /// can exercise every branch without driving Unity's LateUpdate.
+        ///
+        /// <para>
+        /// Without re-evaluating the spline here, the LateUpdate PointInterp
+        /// branch would overwrite the spline-positioned <c>transform.position</c>
+        /// with the raw <c>(latBefore..latAfter)</c> bracket lerp on every
+        /// late frame, discarding Phase 1's smoothing and Phase 4's frame
+        /// transformation in the steady state.
+        /// </para>
+        /// </summary>
+        private bool TryComputeLateUpdateSplineWorldPosition(in GhostPosEntry e, out Vector3d worldPos)
+        {
+            return TryComputeLateUpdateSplineWorldPositionPure(
+                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT, e.bodyBefore,
+                unknownFrameTagWarned, out worldPos);
+        }
+
+        /// <summary>
+        /// Pure-static core of <see cref="TryComputeLateUpdateSplineWorldPosition"/>.
+        /// Returns <c>true</c> with a populated <paramref name="worldPos"/>
+        /// when (a) the lookup key is valid (non-empty recordingId + non-
+        /// negative sectionIndex), (b) the <c>useSmoothingSplines</c> rollout
+        /// flag is on, (c) <see cref="Parsek.Rendering.SectionAnnotationStore"/>
+        /// holds a valid spline for the pair, (d) the body reference is non-
+        /// null, and (e) the spline's FrameTag dispatches to a finite world
+        /// position. Any miss falls through silently — the caller uses the
+        /// legacy raw-lerp bracket. Unknown FrameTag values also return false;
+        /// the Warn fires through <paramref name="unknownFrameTagWarnedKeys"/>
+        /// so the Update path's prior Add suppresses a LateUpdate double-emit.
+        ///
+        /// <para>
+        /// Tested via <c>LateUpdateSplineDispatchTests</c> — every gate's
+        /// failure branch and both successful FrameTag paths are exercised
+        /// without standing up a real <see cref="GhostPosEntry"/> or Unity's
+        /// LateUpdate (which xUnit cannot drive).
+        /// </para>
+        /// </summary>
+        internal static bool TryComputeLateUpdateSplineWorldPositionPure(
+            string recordingId, int sectionIndex, double pointUT, CelestialBody body,
+            HashSet<string> unknownFrameTagWarnedKeys, out Vector3d worldPos)
+        {
+            worldPos = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                || !spline.IsValid)
+                return false;
+
+            // ReferenceEquals to bypass Unity's overloaded `==`, which would
+            // treat a TestBodyRegistry-built uninitialised CelestialBody as
+            // null. Production callers route through FlightGlobals.Bodies; the
+            // test suite delivers genuine CLR objects whose Unity-cached pointer
+            // is zero. Same pattern as SmoothingPipeline.FitAndStorePerSection.
+            if (object.ReferenceEquals(body, null))
+                return false;
+
+            Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, pointUT);
+            if (double.IsNaN(splineLatLonAlt.x) || double.IsNaN(splineLatLonAlt.y) || double.IsNaN(splineLatLonAlt.z))
+                return false;
+
+            Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                spline.FrameTag,
+                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                body, pointUT,
+                recordingId, sectionIndex,
+                unknownFrameTagWarnedKeys);
+            if (double.IsNaN(splineWorld.x) || double.IsNaN(splineWorld.y) || double.IsNaN(splineWorld.z))
+                return false;
+
+            worldPos = splineWorld;
             return true;
         }
 
