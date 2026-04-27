@@ -11,6 +11,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~629. Multi-stage crash showed only one half in Unfinished Flights (effective-leaf finalize)~~
+
+Repro: `logs/2026-04-27_2157_stage-separation-bugs/KSP.log`. LU stack
+launched (recording `34757abf...`, vessel `Kerbal X`, pid 2708531065). Stage
+separation at BP `bc780859...` carved off the L probe as a new child recording
+`b4b0470e...` with a DIFFERENT pid (334653631). Both halves crashed; only
+`b4b0470e` was promoted to `CommittedProvisional`. The original `34757abf`
+stayed in the default state with `TerminalStateValue=null` and disappeared
+from the Unfinished Flights list. Smoking gun: `[Flight] FinalizeTreeRecordings:
+rec='34757abf...' ... terminal=none ... leaf=False` despite `FinalizerCache`
+having `terminal=Destroyed` available.
+
+Root cause: `FinalizeIndividualRecording` decided "is leaf?" with the strict
+`bool isLeaf = rec.ChildBranchPointId == null;` predicate. A recording whose
+BP child has a different PID is still the effective continuation of its own
+PID (the U side of the LU split), but the strict check treated it as a non-
+leaf and skipped the entire terminal-state determination block. The codebase
+already had `GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree)` for this
+exact case (added in #224 for breakup-continuous recordings), but
+`FinalizeIndividualRecording` was never updated to consult it.
+
+Fix: `FinalizeIndividualRecording` now takes an optional `RecordingTree
+treeContext = null` parameter and computes `isLeaf` as `rec.ChildBranchPointId
+== null || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext)`.
+`FinalizeTreeRecordingsAfterFlush` threads its `tree` argument through, and
+`FinalizePendingLimboTreeForRevert` passes the limbo `tree` so the lookup
+works even when the tree isn't yet in `RecordingStore.CommittedTrees`. All
+existing leaf-gated blocks (snapshot re-capture, terminal orbit refresh, no-
+playback-data warning) inherit the broader definition because the intent
+everywhere is "this recording's vessel has reached its terminal state".
+
 ## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
 
 Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),
