@@ -648,18 +648,45 @@ namespace Parsek.Rendering
                 if (SectionAnnotationStore.TryGetSmoothingSpline(rSib.RecordingId, sibSectionIdx, out SmoothingSpline spline)
                     && spline.IsValid)
                 {
-                    Vector3d posLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, bp.UT);
-                    if (!TryLookupSurfacePosition(
-                            surfaceLookup, ghostFirst.bodyName, posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
-                            out pSmoothedWorld))
+                    if (spline.FrameTag != 0)
                     {
+                        // P1 review fix: Phase 2/3 anchor builder operates in
+                        // body-fixed world space — the surfaceLookup seam is
+                        // GetWorldSurfacePosition, which interprets longitude as
+                        // body-fixed. Phase 4 inertial splines (FrameTag=1) emit
+                        // inertial-longitude controls; passing them straight to
+                        // surfaceLookup would offset ε by the body's rotation
+                        // phase between recordedUT and bp.UT. A frame-aware
+                        // dispatch via FrameTransform.LowerFromInertialToWorld
+                        // would require composing the existing surfaceLookup
+                        // seam with a rotation-phase resolver — out of scope
+                        // for the seam shape this overload exposes. Skip and
+                        // use the raw boundary sample as P_smoothed_world. The
+                        // sub-mm precision loss for inertial-section anchors
+                        // is acceptable; Phase 6 may revisit if EXO_* anchors
+                        // become a precision concern. (HR-9: visible failure,
+                        // HR-15: still no live state read, recordedOffset still
+                        // common-mode clean.)
                         ParsekLog.Verbose("Pipeline-Anchor",
-                            $"RebuildFromMarker: smoothed-body-resolve-failed sibId={sibId} sectionIdx={sibSectionIdx}");
+                            $"RebuildFromMarker: skipping inertial spline for anchor (FrameTag={spline.FrameTag}) " +
+                            $"sibId={sibId} sectionIdx={sibSectionIdx} -- using raw boundary sample");
                         pSmoothedWorld = ghost_abs_world;
                     }
                     else
                     {
-                        splineHit = true;
+                        Vector3d posLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, bp.UT);
+                        if (!TryLookupSurfacePosition(
+                                surfaceLookup, ghostFirst.bodyName, posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
+                                out pSmoothedWorld))
+                        {
+                            ParsekLog.Verbose("Pipeline-Anchor",
+                                $"RebuildFromMarker: smoothed-body-resolve-failed sibId={sibId} sectionIdx={sibSectionIdx}");
+                            pSmoothedWorld = ghost_abs_world;
+                        }
+                        else
+                        {
+                            splineHit = true;
+                        }
                     }
                 }
                 else

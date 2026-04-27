@@ -536,5 +536,165 @@ namespace Parsek.Tests.Rendering
             Assert.Contains(logLines, l =>
                 l.Contains("[Pipeline-Anchor]") && l.Contains("section-relative-skip"));
         }
+
+        // ----- 13. P1#2 review fix: inertial-spline anchor ----------------
+
+        private static SmoothingSpline MakeAnchorTestSpline(
+            byte frameTag, double ut, Vector3d wildlyOffsetLatLonAlt)
+        {
+            // 4 knots, all evaluating to the same wildly-offset (lat, lon, alt).
+            // If the anchor builder uses this spline (instead of skipping it),
+            // P_smoothed_world becomes (lat, lon, alt) — way off the raw
+            // boundary sample — and ε flips by the same amount.
+            int kc = 4;
+            double[] knots = new double[kc];
+            float[] cx = new float[kc];
+            float[] cy = new float[kc];
+            float[] cz = new float[kc];
+            for (int i = 0; i < kc; i++)
+            {
+                knots[i] = ut - 1.0 + i;
+                cx[i] = (float)wildlyOffsetLatLonAlt.x;
+                cy[i] = (float)wildlyOffsetLatLonAlt.y;
+                cz[i] = (float)wildlyOffsetLatLonAlt.z;
+            }
+            return new SmoothingSpline
+            {
+                SplineType = 0,
+                Tension = 0.5f,
+                KnotsUT = knots,
+                ControlsX = cx,
+                ControlsY = cy,
+                ControlsZ = cz,
+                FrameTag = frameTag,
+                IsValid = true,
+            };
+        }
+
+        [Fact]
+        public void RebuildFromMarker_InertialSpline_FallsBackToRawSample()
+        {
+            // What makes it fail: P1#2 — without the FrameTag != 0 skip, the
+            // anchor builder hands an inertial-longitude (lat, lon, alt) to
+            // surfaceLookup (which is GetWorldSurfacePosition — body-fixed).
+            // ε then carries the body's rotation-phase offset between
+            // recording and playback. Skipping inertial splines makes
+            // P_smoothed_world fall back to the raw boundary sample, so
+            // ε == live_world_at_spawn + recordedOffset - ghost_abs_world.
+            var rLive = MakeRecording("live-rec", "Kerbin", 0, 100, 50, (0.0, 0.0, 70.0));
+            var rSib  = MakeRecording("sib-rec",  "Kerbin", 0, 100, 50, (1.0, 2.0, 70.0));
+            var (tree, bp) = MakeTreeWithSplit("t-inertial", 50.0, rLive, rSib);
+
+            // Plant a Phase 4 inertial spline (FrameTag=1) at the sibling's
+            // section index 0. Make its evaluated value wildly different from
+            // the raw boundary sample so a "spline used as if body-fixed"
+            // bug is unmissable.
+            SectionAnnotationStore.PutSmoothingSpline(
+                rSib.RecordingId, 0,
+                MakeAnchorTestSpline(frameTag: 1, ut: 50.0,
+                    wildlyOffsetLatLonAlt: new Vector3d(7777, 8888, 9999)));
+
+            Vector3d liveAtSpawn = new Vector3d(100.0, 200.0, 300.0);
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-inertial",
+                    TreeId = tree.Id,
+                    OriginChildRecordingId = rLive.RecordingId
+                },
+                new List<Recording> { rLive, rSib },
+                TreeLookupFor(tree, bp),
+                _ => liveAtSpawn);
+
+            Assert.True(RenderSessionState.TryLookup(
+                rSib.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
+
+            // Expected (skip path):
+            //   recordedOffset = (1,2,70) - (0,0,70) = (1,2,0)
+            //   target         = (100,200,300) + (1,2,0) = (101,202,300)
+            //   pSmoothedWorld = ghost_abs_world = (1,2,70)   <- raw fallback
+            //   ε              = (100,200,230)
+            // If the inertial spline had been (incorrectly) consumed,
+            //   pSmoothedWorld would be (7777,8888,9999) and ε ≈ (-7676,-8686,-9699).
+            Assert.Equal(100.0, ac.Epsilon.x, 6);
+            Assert.Equal(200.0, ac.Epsilon.y, 6);
+            Assert.Equal(230.0, ac.Epsilon.z, 6);
+        }
+
+        [Fact]
+        public void RebuildFromMarker_InertialSpline_LogsSkip()
+        {
+            // What makes it fail: P1#2 visibility — HR-9 demands a visible
+            // skip line so the operator can see which anchors degraded to
+            // raw fallback when they expected sub-mm spline precision.
+            var rLive = MakeRecording("live-rec", "Kerbin", 0, 100, 50, (0.0, 0.0, 70.0));
+            var rSib  = MakeRecording("sib-rec",  "Kerbin", 0, 100, 50, (1.0, 2.0, 70.0));
+            var (tree, bp) = MakeTreeWithSplit("t-inertial-log", 50.0, rLive, rSib);
+
+            SectionAnnotationStore.PutSmoothingSpline(
+                rSib.RecordingId, 0,
+                MakeAnchorTestSpline(frameTag: 1, ut: 50.0,
+                    wildlyOffsetLatLonAlt: new Vector3d(0, 0, 70)));
+
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-inertial-log",
+                    TreeId = tree.Id,
+                    OriginChildRecordingId = rLive.RecordingId
+                },
+                new List<Recording> { rLive, rSib },
+                TreeLookupFor(tree, bp),
+                _ => Vector3d.zero);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Anchor]")
+                && l.Contains("skipping inertial spline for anchor")
+                && l.Contains("FrameTag=1")
+                && l.Contains("sibId=" + rSib.RecordingId));
+
+            // Sanity: ε source still LiveSeparation — the skip is silent at
+            // the AnchorCorrection record level.
+            Assert.True(RenderSessionState.TryLookup(rSib.RecordingId, 0, AnchorSide.Start, out var ac));
+            Assert.Equal(AnchorSource.LiveSeparation, ac.Source);
+        }
+
+        [Fact]
+        public void RebuildFromMarker_BodyFixedSpline_StillUsesSplineEvaluation()
+        {
+            // What makes it fail: an over-broad skip (e.g. spline.FrameTag != 0
+            // matched FrameTag == 0 too) would regress the Phase 1 splineHit
+            // path — every anchor would fall back to the raw boundary sample
+            // even when a body-fixed spline is present. The Pipeline-Anchor
+            // L18 Info line must still report splineHit=true when FrameTag = 0.
+            var rLive = MakeRecording("live-rec", "Kerbin", 0, 100, 50, (0.0, 0.0, 70.0));
+            var rSib  = MakeRecording("sib-rec",  "Kerbin", 0, 100, 50, (1.0, 2.0, 70.0));
+            var (tree, bp) = MakeTreeWithSplit("t-bodyfixed", 50.0, rLive, rSib);
+
+            // Body-fixed spline (FrameTag=0) at the same lat/lon/alt as the
+            // raw boundary sample so ε is unchanged numerically — the
+            // observable distinction is splineHit=true in the L18 log.
+            SectionAnnotationStore.PutSmoothingSpline(
+                rSib.RecordingId, 0,
+                MakeAnchorTestSpline(frameTag: 0, ut: 50.0,
+                    wildlyOffsetLatLonAlt: new Vector3d(1.0, 2.0, 70.0)));
+
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-bodyfixed",
+                    TreeId = tree.Id,
+                    OriginChildRecordingId = rLive.RecordingId
+                },
+                new List<Recording> { rLive, rSib },
+                TreeLookupFor(tree, bp),
+                _ => Vector3d.zero);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Anchor]") && l.Contains("Anchor ε computed")
+                && l.Contains("splineHit=true"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Pipeline-Anchor]") && l.Contains("skipping inertial spline"));
+        }
     }
 }
