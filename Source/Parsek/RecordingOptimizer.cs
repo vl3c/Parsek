@@ -210,13 +210,26 @@ namespace Parsek
         ///   - the meaningful-action gate on env-class transitions (see
         ///     <see cref="IsMeaningfulSplitBoundary"/> and
         ///     `docs/dev/research/optimizer-meaningful-split-rule.md` §5).
-        /// Logs a single Verbose line per evaluated boundary explaining the decision.
+        ///
+        /// No logging at the per-boundary level — accepted candidates and aggregate
+        /// suppression counts are logged by the caller per-recording (CLAUDE.md
+        /// "Batch counting convention" — an eccentric grazing recording can present
+        /// 100s of suppressed boundaries, exactly the spam this gate is meant to
+        /// avoid).
+        ///
         /// Only applied to the optimizer path. The non-optimizer
         /// <see cref="FindSplitCandidates"/> retains the legacy "always split on env
         /// change" behavior — its callers (test fixtures, ghost chain walker) need a
         /// pre-meaningful-gate view of the boundary set.
         /// </summary>
-        private static bool IsSplittableEnvOrBodyBoundary(Recording rec, int s)
+        /// <param name="reason">
+        /// Set on every call where env or body changed (i.e., the function inspected
+        /// the boundary). Undefined when the function returns false because env class
+        /// is the same and body did not change — that case is "no boundary at all,"
+        /// not a suppression, and the caller skips counting.
+        /// </param>
+        private static bool IsSplittableEnvOrBodyBoundary(
+            Recording rec, int s, out SplitBoundaryReason reason)
         {
             var prev = rec.TrackSections[s - 1];
             var next = rec.TrackSections[s];
@@ -224,29 +237,21 @@ namespace Parsek
             bool envChanged = SplitEnvironmentClass(prev.environment)
                 != SplitEnvironmentClass(next.environment);
             bool bodyChanged = SectionBodyChanged(prev, next);
-            if (!envChanged && !bodyChanged) return false;
+            if (!envChanged && !bodyChanged)
+            {
+                reason = SplitBoundaryReason.NotABoundary;
+                return false;
+            }
 
             // Body change is always meaningful (#251) — never gated.
             if (bodyChanged)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"Split candidate (BodyChange): rec={rec.RecordingId} sec={s} " +
-                    $"splitUT={next.startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                    $"prev={prev.environment} next={next.environment}");
+                reason = SplitBoundaryReason.BodyChange;
                 return true;
             }
 
             // Env class changed but body did not — apply meaningful-action gate.
-            double splitUT = next.startUT;
-            SplitBoundaryReason reason;
-            bool meaningful = IsMeaningfulSplitBoundary(rec, prev, next, splitUT, out reason);
-
-            string verb = meaningful ? "Split candidate" : "Split suppressed";
-            ParsekLog.Verbose("Optimizer",
-                $"{verb} ({reason}): rec={rec.RecordingId} sec={s} " +
-                $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"prev={prev.environment} next={next.environment}");
-            return meaningful;
+            return IsMeaningfulSplitBoundary(rec, prev, next, next.startUT, out reason);
         }
 
         /// <summary>
@@ -271,15 +276,57 @@ namespace Parsek
                 var rec = committed[i];
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
 
+                // Per-recording counters for the aggregate Verbose summary. Per-boundary
+                // logs would be O(N) for an eccentric grazing recording — exactly what
+                // this gate is supposed to suppress (CLAUDE.md "Batch counting convention").
+                int evaluatedBoundaries = 0;
+                int suppressedPassive = 0;
+                int suppressedCheckpointPair = 0;
+
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    if (!IsSplittableEnvOrBodyBoundary(rec, s)) continue;
+                    SplitBoundaryReason reason;
+                    bool isSplittable = IsSplittableEnvOrBodyBoundary(rec, s, out reason);
 
-                    if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                    if (isSplittable)
                     {
-                        candidates.Add((i, s));
-                        break; // One split per recording per pass (re-scan after split)
+                        if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                        {
+                            // Per-candidate accept log — bounded by `break` and by
+                            // RunOptimizationSplitPass's outer maxSplitsPerPass cap.
+                            ParsekLog.Verbose("Optimizer",
+                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={s} " +
+                                $"splitUT={rec.TrackSections[s].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                                $"prev={rec.TrackSections[s - 1].environment} next={rec.TrackSections[s].environment}");
+                            candidates.Add((i, s));
+                            break; // One split per recording per pass (re-scan after split)
+                        }
+                        // Splittable boundary that CanAutoSplit rejects (e.g. too-short
+                        // halves) — counted as evaluated but not split. Falls through
+                        // to keep scanning later boundaries.
+                        evaluatedBoundaries++;
+                        continue;
                     }
+
+                    // NotABoundary → env unchanged + body unchanged. Not a decision to
+                    // count or log; just keep scanning later boundaries.
+                    if (reason == SplitBoundaryReason.NotABoundary) continue;
+
+                    // Suppression cases (env or body changed but the gate said no).
+                    evaluatedBoundaries++;
+                    if (reason == SplitBoundaryReason.SuppressedCheckpointPair)
+                        suppressedCheckpointPair++;
+                    else
+                        suppressedPassive++;
+                }
+
+                if (suppressedPassive > 0 || suppressedCheckpointPair > 0)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"Split suppressed: rec={rec.RecordingId} " +
+                        $"evaluated={evaluatedBoundaries} " +
+                        $"passiveCrossings={suppressedPassive} " +
+                        $"checkpointPairs={suppressedCheckpointPair}");
                 }
             }
 
@@ -967,11 +1014,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Result of <see cref="ClassifySplitBoundary"/> for diagnostic logging.
-        /// Captures both the decision and which discriminator fired.
+        /// Result of <see cref="IsMeaningfulSplitBoundary"/> for diagnostic logging.
+        /// Captures both the decision and which discriminator fired. The
+        /// <see cref="NotABoundary"/> value is used by
+        /// <see cref="IsSplittableEnvOrBodyBoundary"/> when env class is unchanged AND
+        /// body is unchanged (the loop saw no boundary at all — distinct from a
+        /// suppressed passive crossing). Explicit value 0 keeps `default()` mapping
+        /// to "no boundary," which the caller treats as "skip without counting."
         /// </summary>
         internal enum SplitBoundaryReason
         {
+            NotABoundary = 0,            // env unchanged AND body unchanged
             BodyChange,                  // #251 — always-meaningful SOI traversal
             SurfaceOrApproach,           // class 2 or class 3 boundary
             ExoPropulsiveAtCrossing,     // S3 — engine-on at the crossing
