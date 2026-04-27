@@ -51,7 +51,7 @@ schema redesigns are too risky to hide inside structural cleanup.
 **Revisit when:** Duplication is proven to be purely mechanical, or a separate
 storage redesign is explicitly scoped.
 
-## D5. Rewind-to-staging v2 semantic follow-ups
+## D5. Rewind-to-separation v2 semantic follow-ups
 
 **What:** `docs/dev/todo-and-known-bugs.md` lists carryover work such as
 index-to-recording-id refactor, cross-tree effective-id guards, and wider
@@ -60,7 +60,7 @@ tombstone scope.
 **Why deferred:** These are behavior/semantic follow-ups, not generic
 refactor-4 cleanup.
 
-**Revisit when:** A dedicated rewind-to-staging follow-up is opened, or Pass 2
+**Revisit when:** A dedicated rewind-to-separation follow-up is opened, or Pass 2
 finds a behavior-neutral preparatory extraction that directly lowers the risk of
 that future work.
 

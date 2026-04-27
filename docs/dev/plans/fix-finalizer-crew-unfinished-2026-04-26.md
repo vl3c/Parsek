@@ -322,7 +322,7 @@ Two viable directions for a future plan:
     `RewindPointAuthor` to write the quicksave to
     `Parsek/RewindPoints/<id>.sfs` *before* `LoadGame`, attach to the right
     BranchPoint, and let the existing reaper / sweep handle lifecycle. Risk:
-    larger blast radius — must not regress the v0.9 Rewind-to-Staging flow,
+    larger blast radius — must not regress the v0.9 Rewind-to-Separation flow,
     needs end-to-end manual testing.
 
 Filing a separate plan for this. Track via the TODO doc.

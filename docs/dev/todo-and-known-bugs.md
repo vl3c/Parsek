@@ -174,9 +174,9 @@ asserts only 2 emits total.
 
 ---
 
-## Rewind to Staging — v0.9 carryover follow-ups
+## Rewind to Separation — v0.9 carryover follow-ups
 
-The feature itself shipped on `feat/rewind-staging` across the v0.9 cycle (design: `docs/parsek-rewind-to-staging-design.md`; pre-implementation spec archived at `docs/dev/done/parsek-rewind-staging-design.md`; roadmap + CHANGELOG under v0.9.0). Items 1-18 of the post-merge follow-up cascade are archived in `done/todo-and-known-bugs-v4.md`.
+The feature itself shipped on `feat/rewind-staging` across the v0.9 cycle (design: `docs/parsek-rewind-to-separation-design.md`; pre-implementation spec archived at `docs/dev/done/parsek-rewind-separation-design.md`; roadmap + CHANGELOG under v0.9.0). Items 1-18 of the post-merge follow-up cascade are archived in `done/todo-and-known-bugs-v4.md`.
 
 Items below were landed on PR #514 (`bug/extrapolator-destroyed-on-subsurface`) on top of v4's archive sweep and will move to the next archive when that PR merges.
 
@@ -1077,7 +1077,7 @@ physically meaningful distance. This is downstream of item 617's retire path;
 fixing 617 should make it rarer, but the formatter should still be defensive.
 
 **Phantom orbiting cleanup is late:** after the re-fly merge, a phantom
-orbiting `Kerbal X` survived into the next rewind staging save. `KSP.log:19138`
+orbiting `Kerbal X` survived into the next rewind separation save. `KSP.log:19138`
 strips one `Kerbal X` by name, and `KSP.log:19217` strips an orphaned orbiting
 `Kerbal X` from `flightState`. That cleanup path works as a later quickload /
 rewind defense, but merge-time cleanup should not rely on a subsequent rewind

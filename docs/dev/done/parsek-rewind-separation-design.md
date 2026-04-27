@@ -1,4 +1,4 @@
-# Parsek - Rewind-to-Staging Design
+# Parsek - Rewind-to-Separation Design
 
 *Design specification for Rewind Points on multi-controllable split events (staging, undocking, EVA) and the Unfinished Flights group that lets the player go back to a past split and control a sibling vessel they did not originally fly. Enables "fly the booster back" gameplay: launch AB, stage, fly B to orbit, merge, then rewind to the staging moment and fly A down as a self-landing booster.*
 
