@@ -7,10 +7,9 @@ namespace Parsek.Rendering
     /// <c>.pann</c> binary format so write / read can iterate in order.
     ///
     /// <para>
-    /// In Phase 1 the spline holds body-fixed lat / lon / alt control values
-    /// (degrees, degrees, metres) for ABSOLUTE-frame body-fixed segments.
-    /// <see cref="FrameTag"/> reserves byte 0 for body-fixed; Phase 4 will
-    /// introduce the inertial variant under tag 1.
+    /// Spline controls hold per-section lat / lon / alt values. The exact
+    /// frame those values are in is pinned by <see cref="FrameTag"/> — see
+    /// the field's documentation for the per-tag contract (design doc §6.2).
     /// </para>
     /// </summary>
     internal struct SmoothingSpline
@@ -24,16 +23,22 @@ namespace Parsek.Rendering
         /// <summary>Knot UTs in monotonically increasing order.</summary>
         public double[] KnotsUT;
 
-        /// <summary>X-axis controls (latitude in degrees for body-fixed Phase 1).</summary>
+        /// <summary>X-axis controls (latitude in degrees, both frames).</summary>
         public float[] ControlsX;
 
-        /// <summary>Y-axis controls (longitude in degrees for body-fixed Phase 1).</summary>
+        /// <summary>Y-axis controls (longitude in degrees, frame depends on <see cref="FrameTag"/>).</summary>
         public float[] ControlsY;
 
-        /// <summary>Z-axis controls (altitude in metres for body-fixed Phase 1).</summary>
+        /// <summary>Z-axis controls (altitude in metres, both frames).</summary>
         public float[] ControlsZ;
 
-        /// <summary>0 = body-fixed (Phase 1 always); 1 = inertial (reserved, Phase 4).</summary>
+        /// <summary>
+        /// Coordinate frame for ControlsX/Y/Z values:
+        ///   0 = body-fixed (latitude deg / longitude deg / altitude m). Used for Atmospheric, Surface*.
+        ///   1 = inertial-longitude (latitude deg / inertialLongitude deg / altitude m). Used for ExoPropulsive, ExoBallistic.
+        ///       inertialLongitude = bodyFixedLongitude + RotationAngleAtUT(body, recordingUT) [wrapped to (-180,180]]
+        ///       Re-lower at playback UT via TrajectoryMath.FrameTransform.LowerFromInertialToWorld.
+        /// </summary>
         public byte FrameTag;
 
         /// <summary>True when the spline is populated and safe to evaluate.</summary>
