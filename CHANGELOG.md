@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.1
+
+### Bug Fixes
+
+- Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
+
+---
+
 ## 0.9.0
 
 ### Features
