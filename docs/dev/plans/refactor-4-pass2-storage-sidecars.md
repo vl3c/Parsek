@@ -2,15 +2,15 @@
 
 **Date:** 2026-04-25.
 **Worktree:** latest implementation slice in
-`Parsek-refactor-4-pass2-trajectory-text-codec`, branch
-`refactor-4-pass2-trajectory-text-codec`.
+`Parsek-refactor-4-pass2-manifest-codec`, branch
+`refactor-4-pass2-manifest-codec`.
 **Base:** stacked on PR #554's `refactor-4-pass2-sidecar-save` branch; PR #554
 itself is intentionally left unmerged for the later 0.9.1 batch.
 **Status:** Proposal plus implementation checkpoints. The
 `SidecarFileCommitBatch`, save-path `RecordingSidecarStore`, load-path
-`RecordingSidecarStore`, and `TrajectoryTextSidecarCodec` slices are complete;
-manifest and tree-record codec moves remain proposal-only until a separate
-approval.
+`RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and
+`RecordingManifestCodec` slices are complete; tree-record codec moves remain
+proposal-only until a separate approval.
 
 ## Guardrails
 
@@ -217,7 +217,7 @@ details, or manifest field serialization.
    step, grep `Source/Parsek.Tests/Generators/` for direct `RecordingStore`
    codec calls so the wrapper surface is known up front. Do not merge it
    with `TrajectorySidecarBinary`. Completed as its own slice.
-5. Extract `RecordingManifestCodec` behind wrappers.
+5. Extract `RecordingManifestCodec` behind wrappers. Completed as its own slice.
 6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
    start it in the same PR as sidecar orchestration.
 
@@ -226,8 +226,8 @@ PR granularity:
 - PR 1: `SidecarFileCommitBatch` only.
 - PR 2: `RecordingSidecarStore` only, preferably save and load as separate
   commits after an explicit pre-review of the split.
-- PR 3: `TrajectoryTextSidecarCodec` first; `RecordingManifestCodec` can follow
-  separately unless review explicitly approves combining it.
+- PR 3: `TrajectoryTextSidecarCodec` first; `RecordingManifestCodec` followed
+  separately.
 - PR 4: `RecordingTreeRecordCodec` only.
 
 ## Validation Scope
@@ -399,3 +399,29 @@ dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo
 ```
 
 Latest focused run passed 252 tests; the non-injection gate passed 9,051 tests.
+
+## Implementation Checkpoint - RecordingManifestCodec
+
+Approved fifth slice stacked on the text-codec branch and kept to the manifest
+codecs only:
+
+- Moved crew end-state, resource manifest, inventory manifest, and crew manifest
+  ConfigNode serialization/deserialization into
+  `Source/Parsek/RecordingManifestCodec.cs`.
+- Kept existing `RecordingStore` internal wrapper signatures stable for
+  `RecordingTree`, `ParsekScenario`, tests, and generators.
+- Left tree record save/load, sidecar orchestration, trajectory codecs, snapshot
+  codecs, sidecar epoch ownership, and `FilesDirty` mutation outside the
+  manifest codec.
+- Verified the moved manifest block matches the previous `RecordingStore` block
+  exactly.
+
+Validation completed:
+
+```powershell
+dotnet build Source/Parsek/Parsek.csproj -c Debug -m:1 -v minimal --nologo
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName~CrewManifestSerializationTests|FullyQualifiedName~InventoryManifestSerializationTests|FullyQualifiedName~ResourceManifestSerializationTests|FullyQualifiedName~KerbalEndStateTests|FullyQualifiedName~RecordingStorageRoundTripTests|FullyQualifiedName~RecordingBuilderV6Tests"
+dotnet test Source/Parsek.Tests/Parsek.Tests.csproj -c Debug -v minimal --nologo --filter "FullyQualifiedName!~InjectAllRecordings"
+```
+
+Latest focused run passed 163 tests; the non-injection gate passed 9,051 tests.
