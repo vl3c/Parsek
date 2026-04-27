@@ -160,7 +160,7 @@ namespace Parsek.Tests
 
             var exp = LedgerOrchestrator.ClassifyAction(action);
 
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(1, exp.LegCount);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);

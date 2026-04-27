@@ -392,7 +392,7 @@ namespace Parsek.Tests
 
             var exp = LedgerOrchestrator.ClassifyAction(a);
 
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.True(exp.FundsLeg.IsPresent);
             Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
             Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
@@ -412,7 +412,7 @@ namespace Parsek.Tests
                 UT = 100.0
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
             Assert.Equal(0, exp.LegCount);
 
             // Reconcile with an empty event stream -- must stay silent.
@@ -435,7 +435,7 @@ namespace Parsek.Tests
                 UT = 500.0
             };
             var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(LedgerOrchestrator.KscReconcileClass.NoResourceImpact, exp.Class);
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact, exp.Class);
         }
 
         [Fact]
