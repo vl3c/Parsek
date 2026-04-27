@@ -701,15 +701,24 @@ namespace Parsek.Tests
 
         // The runtime `old==new` self-skip defense in
         // `SupersedeCommit.AppendRelations` was removed when the placeholder-
-        // and-redirect cascade was retired (item 11). The new design makes
-        // self-supersede impossible at the source: `RewindInvoker.AtomicMarkerWrite`
-        // detects in-place continuation up front and points the marker at the
-        // origin id directly without creating a placeholder; the
-        // `MergeDialog.TryCommitReFlySupersede` in-place-continuation guard
-        // (asserted in `TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes`
-        // above) is the sole path for that case. The matching invariant on
-        // the AtomicMarkerWrite side is asserted in
-        // `AtomicMarkerWriteTests.AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder`.
+        // and-redirect cascade was retired (item 11), but PR #590 re-introduced
+        // it to support the in-place-continuation `AppendRelations` call path:
+        // when `marker.OriginChildRecordingId == provisional.RecordingId`, the
+        // session-suppressed-subtree closure includes the origin itself, and a
+        // row where `old == new` would form a 1-node `EffectiveRecordingId`
+        // cycle. The 4-arg overload added an `extraSelfSkipRecordingIds`
+        // parameter for the optimizer-split case where the in-place provisional
+        // has been split into chain HEAD + TIP (and the three-segment variant
+        // where HEAD/MIDDLE/TIP are all part of the new flight): the caller
+        // passes the TIP as `provisional` so `ValidateSupersedeTarget` sees a
+        // non-null terminal payload, and names the other chain members in
+        // `extraSelfSkipRecordingIds` so none of them ends up with a row
+        // pointing at another member. The runtime self-skip guard is exercised
+        // by `TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly`;
+        // the extra-self-skip set is exercised by
+        // `TryCommitReFlySupersede_InPlaceContinuation_OptimizerSplit_ResolvesChainTipAndWritesSiblingRows`
+        // and
+        // `TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember`.
 
         // ---------- Supersede-target invariant (item 10) -------------------
 
@@ -802,10 +811,14 @@ namespace Parsek.Tests
             head.ChainId = "chain_a";
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
             var tip = Rec("rec_tip", "tree_1");
             tip.ChainId = "chain_a";
             tip.ChainBranch = 0;
             tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
             tip.TerminalStateValue = TerminalState.Destroyed;
 
             var bp_split = Bp("bp_split", BranchPointType.EVA,
@@ -829,6 +842,1167 @@ namespace Parsek.Tests
                 r => r.OldRecordingId == "rec_head" && r.NewRecordingId == "rec_provisional");
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_tip" && r.NewRecordingId == "rec_provisional");
+        }
+
+        // ---------- In-place continuation supersede append (bug fix) ------
+        // Bug fix (in-place-supersede): when the merge is an "in-place
+        // continuation" (provisional.RecordingId == origin), the prior code
+        // skipped AppendRelations entirely, so chain siblings / parent
+        // recordings inside the suppressed subtree never got supersede rows
+        // and stayed visible after merge. The fix calls AppendRelations on
+        // the in-place path too, relying on the restored old==new self-skip
+        // inside AppendRelations to filter the trivial self-link.
+
+        /// <summary>
+        /// In-place continuation with sibling chain segments: AppendRelations
+        /// must write rows for the siblings (including a destroyed-final-state
+        /// segment) while skipping the trivial self-link for the origin. The
+        /// MergeState flip + marker clear behaviour is unchanged.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_AppendsSupersedeRowsForSiblings()
+        {
+            // Build a chain-shaped suppressed subtree:
+            //   parentBP --> head (ChainId=A, branch=0, idx=0; in-place target)
+            //                 |
+            //                 + sibling tip (ChainId=A, branch=0, idx=1; terminal=Destroyed,
+            //                                represents the optimizer-split TIP carrying
+            //                                terminal payload + Points)
+            //   bp_parent --child--> rec_other_sib (separate parent BP child;
+            //                                       prior-attempt sibling whose
+            //                                       supersede row IS the one we
+            //                                       care about — the playtest's
+            //                                       "Kerbal X Probe" pattern)
+            // The marker points at the head (origin == provisional == head).
+            // ResolveChainTerminalRecording walks to the tip, AppendRelations
+            // validates against the tip's terminal, and the prior-attempt
+            // sibling gets a row pointing at the tip while both head and tip
+            // self-links are filtered.
+            const string kBpId = "bp_parent_for_inplace";
+            const string kBpChild = "bp_child_under_head";
+            var head = Rec("rec_head", "tree_1",
+                parentBranchPointId: kBpId,
+                childBranchPointId: kBpChild,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_a";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
+            // Head has Points (it's still half a trajectory) but no terminal
+            // — that's the post-optimizer-split state SplitAtSection leaves.
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // Tip carries the terminal payload + non-empty Points (must
+            // satisfy ValidateSupersedeTarget once it becomes the resolved
+            // supersede target).
+            var tip = Rec("rec_tip", "tree_1",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_a";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
+            tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            // Prior-attempt sibling under bp_child_under_head — the row we
+            // need written for the original Bug 2 fix to actually land.
+            var otherSibling = Rec("rec_other_sib", "tree_1",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            otherSibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(otherSibling, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_head" },
+                    },
+                    new BranchPoint
+                    {
+                        Id = kBpChild,
+                        Type = BranchPointType.Breakup,
+                        UT = 1.0,
+                        ParentRecordingIds = new List<string> { "rec_head" },
+                        ChildRecordingIds = new List<string> { "rec_other_sib" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            tree.AddOrReplaceRecording(otherSibling);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // origin == provisional == "rec_head"
+            var marker = Marker(originId: "rec_head", provisionalId: "rec_head");
+            var scenario = InstallScenario(marker);
+
+            // Stub the quicksave file delete so the reaper inside the in-place
+            // path doesn't try to touch disk.
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Bug 2 assertion: prior-attempt sibling got a supersede row
+            // pointing at the resolved chain tip. Without the in-place
+            // AppendRelations fix the row would be missing entirely; without
+            // the chain-tip resolve fix the row would not be written because
+            // the head's null-terminal would fail ValidateSupersedeTarget.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_other_sib" && r.NewRecordingId == "rec_tip");
+            // Neither HEAD nor TIP gets a row (both halves of the in-place
+            // chain are part of the new flight).
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_tip");
+
+            // Marker cleared, MergeState flipped to Immutable on the head
+            // (in-place force-Immutable rule), tip stays default Immutable.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+
+            // Log assertions: in-place append summary log fires; chain-tip
+            // resolve diagnostic fires; tip self-link skip + head extra-skip
+            // both fire; summary reports both skip counts.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 1 relation"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolved chain tip for supersede target")
+                && l.Contains("head=rec_head")
+                && l.Contains("tip=rec_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_tip")
+                && l.Contains("new=rec_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_head")
+                && l.Contains("new=rec_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 1 supersede relations")
+                && l.Contains("skippedSelfLink=1")
+                && l.Contains("skippedExtraSelfLink=1"));
+        }
+
+        /// <summary>
+        /// In-place continuation where the closure is exactly the origin (no
+        /// chain siblings or BP descendants): AppendRelations finds only the
+        /// origin self-link, skips it via the old==new guard, and the
+        /// supersede list stays empty. The merge still completes; this case
+        /// matches the existing
+        /// <c>TryCommitReFlySupersede_InPlaceContinuation_SkipsMergeAndFinalizes</c>
+        /// fixture but locks in the new "self-link skipped" log evidence
+        /// emitted by the restored guard.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly()
+        {
+            var origin = Rec("rec_origin", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: null);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+
+            // The lone-origin closure means the only candidate is the
+            // self-link, which is skipped: list stays empty.
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_origin")
+                && l.Contains("new=rec_origin"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 0 relation"));
+        }
+
+        /// <summary>
+        /// AppendRelations self-link guard: when the subtree closure contains
+        /// the provisional's own id (which happens whenever
+        /// origin == provisional, i.e. in-place continuation), the row is
+        /// skipped instead of producing a 1-node cycle in EffectiveRecordingId.
+        /// Other ids in the closure still get rows. Direct
+        /// AppendRelations call so this test is independent of the
+        /// MergeDialog wiring above.
+        /// </summary>
+        [Fact]
+        public void AppendRelations_SelfLinkSkipped_OtherSubtreeIdsStillWriteRows()
+        {
+            // Closure: head (origin == provisional) + tip (chain sibling).
+            const string kBpId = "bp_self_test";
+            var head = Rec("rec_self_head", "tree_self",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            head.ChainId = "chain_self";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var tip = Rec("rec_self_tip", "tree_self",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_self";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_self");
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_self");
+            var tree = new RecordingTree
+            {
+                Id = "tree_self",
+                TreeName = "tree_self",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_self_head" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_self_head", provisionalId: "rec_self_head",
+                treeId: "tree_self");
+            var scenario = InstallScenario(marker);
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+            var subtree = SupersedeCommit.AppendRelations(marker, head, scenario);
+
+            // Closure includes both head and tip; head is filtered as
+            // self-link, tip becomes a row.
+            Assert.Contains("rec_self_head", subtree);
+            Assert.Contains("rec_self_tip", subtree);
+            int countAfter = scenario.RecordingSupersedes.Count;
+            Assert.Equal(countBefore + 1, countAfter);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_self_tip" && r.NewRecordingId == "rec_self_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_self_head" && r.NewRecordingId == "rec_self_head");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_self_head")
+                && l.Contains("new=rec_self_head"));
+        }
+
+        // ---------- Optimizer-split chain-tip resolve (review follow-up) --
+        // Bug fix (review follow-up to in-place-supersede): MergeCommit runs
+        // RecordingStore.RunOptimizationPass() BEFORE TryCommitReFlySupersede.
+        // If the in-place provisional crossed an env boundary, the optimizer's
+        // SplitAtSection moves VesselSnapshot + TerminalStateValue from the
+        // HEAD to a fresh TIP recording (RecordingOptimizer.cs lines 513-514
+        // and 536-537). The HEAD then has TerminalStateValue == null, which
+        // fails ValidateSupersedeTarget's null-terminal clause inside
+        // AppendRelations: throws in DEBUG, returns empty in RELEASE — and
+        // the sibling supersede rows the in-place fix needs are NOT written.
+        // The fix uses EffectiveState.ResolveChainTerminalRecording to find
+        // the TIP, passes it to AppendRelations as the validated target,
+        // and adds the HEAD's id to extraSelfSkipRecordingIds so neither
+        // the HEAD self-link nor the TIP self-link write a row (both halves
+        // of the in-place chain are part of the new flight).
+
+        /// <summary>
+        /// In-place continuation where MergeCommit's optimizer pass has split
+        /// the head into HEAD + TIP. The HEAD has no terminal; the TIP has
+        /// the Destroyed terminal. Sibling rec_old_sib is the prior attempt's
+        /// sibling that DOES need a supersede row. Without the chain-tip
+        /// resolve fix, AppendRelations would refuse on HEAD's null terminal
+        /// and rec_old_sib would stay visible after merge.
+        ///
+        /// <para>
+        /// Mirrors a scenario that actually composes through the live
+        /// MergeDialog wiring (the rewritten
+        /// <c>TryCommitReFlySupersede_InPlaceContinuation_AppendsSupersedeRowsForSiblings</c>
+        /// covers the same shape via a slightly different fixture); keep
+        /// both because the second variant catches different combinations of
+        /// closure + chain ordering and also pins the supersede ID match
+        /// when the marker / tree wiring lives under separate keys.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_OptimizerSplit_ResolvesChainTipAndWritesSiblingRows()
+        {
+            // Tree shape:
+            //   bp_parent --child--> rec_origin (HEAD, in-place provisional, ChainId=chain_inplace, idx=0,
+            //                                    no terminal post-split, no snapshot post-split)
+            //                                    |
+            //                                    + chain sibling: rec_origin_tip (chain_inplace idx=1,
+            //                                                                     Destroyed terminal,
+            //                                                                     has Points)
+            //   bp_parent --child--> rec_old_sib (prior attempt's sibling, NotCommitted-or-Immutable,
+            //                                     Destroyed, separate ChainId or none)
+            //
+            // Marker points at HEAD = rec_origin. Closure walks via the
+            // bp_parent BranchPoint AND chain expansion.
+            const string kBpParent = "bp_parent_split";
+            const string kBpChild = "bp_child_for_origin";
+            // HEAD: no terminal, no snapshot — what the optimizer left after
+            // moving them to the TIP.
+            var head = Rec("rec_origin", "tree_split",
+                parentBranchPointId: kBpParent,
+                childBranchPointId: kBpChild,
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            head.ChainId = "chain_inplace";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // TIP: terminal + snapshot live here post-split. Same chain,
+            // same tree, idx=1.
+            var tip = Rec("rec_origin_tip", "tree_split",
+                parentBranchPointId: null,
+                childBranchPointId: null,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_inplace";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
+            tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            // Old sibling from the prior attempt — sibling under bp_child_for_origin
+            // so it appears in the closure's BP-walk descendants.
+            var oldSibling = Rec("rec_old_sib", "tree_split",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            oldSibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_origin" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_old_sib" });
+
+            InstallTree("tree_split",
+                new List<Recording> { head, tip, oldSibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            // Marker: in-place continuation (origin == provisional == HEAD).
+            var marker = Marker(originId: "rec_origin", provisionalId: "rec_origin",
+                treeId: "tree_split");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // 1) AppendRelations did NOT throw / did NOT silently return empty:
+            //    the prior-attempt sibling rec_old_sib has a row pointing at
+            //    the TIP id (the resolved chain target).
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_old_sib" && r.NewRecordingId == "rec_origin_tip");
+
+            // 2) Neither HEAD nor TIP gets a supersede row. Both halves of
+            //    the in-place chain are part of the new flight; superseding
+            //    either would collapse ERS via EffectiveRecordingId redirect.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin_tip");
+
+            // 3) Marker cleared, MergeState forced to Immutable on the head
+            //    (this is the in-place behaviour; the tip stays at its
+            //    default Immutable from the optimizer).
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+
+            // 4) The chain-tip-resolve diagnostic log line fires with both
+            //    HEAD and TIP ids so future "why did the supersede target
+            //    flip" questions can be answered from KSP.log alone.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolved chain tip for supersede target")
+                && l.Contains("head=rec_origin")
+                && l.Contains("tip=rec_origin_tip")
+                && l.Contains("chainIndex=1")
+                && l.Contains("tipTerminal=Destroyed"));
+
+            // 5) AppendRelations summary now reports skippedExtraSelfLink>=1
+            //    because the HEAD id was passed via extraSelfSkipRecordingIds.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 1 supersede relations")
+                && l.Contains("skippedExtraSelfLink=1"));
+
+            // 6) Verbose extra-self-skip line names HEAD id and points at TIP.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_origin")
+                && l.Contains("new=rec_origin_tip"));
+        }
+
+        /// <summary>
+        /// Direct AppendRelations test: when the caller passes the resolved
+        /// chain TIP and adds the HEAD id to extraSelfSkipRecordingIds, the
+        /// HEAD's closure entry is filtered, the TIP's self-link is also
+        /// filtered (old==new guard), and only the unrelated sibling gets a
+        /// row. Independent of the dialog wiring above.
+        /// </summary>
+        [Fact]
+        public void AppendRelations_ExtraSelfSkip_FiltersHeadWhileTipIsTheTarget()
+        {
+            const string kBpParent = "bp_p_es";
+            const string kBpChild = "bp_c_es";
+            var head = Rec("rec_es_head", "tree_es",
+                parentBranchPointId: kBpParent,
+                childBranchPointId: kBpChild,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_es";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            var tip = Rec("rec_es_tip", "tree_es",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Landed);
+            tip.ChainId = "chain_es";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var sibling = Rec("rec_es_sib", "tree_es",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            sibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_es_head" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_es_head" },
+                children: new List<string> { "rec_es_sib" });
+
+            InstallTree("tree_es",
+                new List<Recording> { head, tip, sibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            // Marker points at HEAD (in-place continuation; origin == provisional == head).
+            var marker = Marker(originId: "rec_es_head", provisionalId: "rec_es_head",
+                treeId: "tree_es");
+            var scenario = InstallScenario(marker);
+
+            // Caller (= MergeDialog in production) passes TIP as provisional
+            // + HEAD id in extraSelfSkipRecordingIds.
+            int countBefore = scenario.RecordingSupersedes.Count;
+            var subtree = SupersedeCommit.AppendRelations(marker, tip, scenario,
+                extraSelfSkipRecordingIds: new[] { "rec_es_head" });
+
+            // Closure contains all three: head, tip, sibling.
+            Assert.Contains("rec_es_head", subtree);
+            Assert.Contains("rec_es_tip", subtree);
+            Assert.Contains("rec_es_sib", subtree);
+
+            // Exactly one row written: the sibling pointing at the tip.
+            int countAfter = scenario.RecordingSupersedes.Count;
+            Assert.Equal(countBefore + 1, countAfter);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_es_sib" && r.NewRecordingId == "rec_es_tip");
+            // Head NOT redirected to tip.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_es_head");
+            // Tip NOT a self-link row.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_es_tip");
+
+            // Logs: tip self-link skip + head extra-self-link skip both fire.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_es_tip")
+                && l.Contains("new=rec_es_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_es_head")
+                && l.Contains("new=rec_es_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 1 supersede relations")
+                && l.Contains("skippedSelfLink=1")
+                && l.Contains("skippedExtraSelfLink=1"));
+        }
+
+        /// <summary>
+        /// 3-arg AppendRelations overload (the existing entry point used by
+        /// CommitSupersede + MergeJournalOrchestrator) is unchanged: passes
+        /// extraSelfSkipRecordingIds=null and behaves exactly like before.
+        /// Pin this so the journaled merge path is not silently affected.
+        /// </summary>
+        [Fact]
+        public void AppendRelations_LegacyThreeArgOverload_NoExtraSkip_BehavesAsBefore()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            int countBefore = scenario.RecordingSupersedes.Count;
+            // 3-arg call site (no extra skip).
+            SupersedeCommit.AppendRelations(
+                scenario.ActiveReFlySessionMarker, provisional, scenario);
+            int countAfter = scenario.RecordingSupersedes.Count;
+
+            // Two rows written (origin + inside, both pointing at the
+            // provisional). No extra-self-skip count > 0.
+            Assert.Equal(countBefore + 2, countAfter);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_inside" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 2 supersede relations")
+                && l.Contains("skippedExtraSelfLink=0"));
+        }
+
+        // ---------- Multi-segment chain skip set (review follow-up #2) ----
+        // Reviewer flagged that the prior fix only added the HEAD id to
+        // extraSelfSkipRecordingIds. For a 3+-segment in-place chain
+        // (HEAD -> MIDDLE -> TIP), AppendRelations would write a row
+        // old=MIDDLE new=TIP and silently collapse MIDDLE in ERS via
+        // EffectiveRecordingId redirect, even though MIDDLE is part of the
+        // SAME new in-place flight. The fix builds the skip set from the
+        // full chain membership (TreeId + ChainId + ChainBranch matches
+        // from RecordingStore.CommittedRecordings — the same scope
+        // EffectiveState.ComputeSessionSuppressedSubtreeInternal +
+        // EnqueueChainSiblings use) so no in-place chain segment ends up
+        // with a row pointing at another member.
+
+        /// <summary>
+        /// HEAD -> MIDDLE -> TIP in-place chain (three segments) plus a
+        /// prior-attempt sibling under a child BP. The prior-attempt sibling
+        /// must still get a supersede row pointing at the resolved tip;
+        /// none of HEAD/MIDDLE/TIP must end up with a row pointing at
+        /// another chain member.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ThreeSegmentChain_NoMemberSupersededByAnotherMember()
+        {
+            const string kBpParent = "bp_p_3seg";
+            const string kBpChild = "bp_c_3seg";
+            // HEAD: in-place provisional, no terminal post-split, has Points,
+            // chainIndex=0.
+            var head = Rec("rec_3seg_head", "tree_3seg",
+                parentBranchPointId: kBpParent,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_3seg";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // STALE OLD EXO: same chain identity from the original flight,
+            // but no CreatingSessionId. This is the fresh-log regression:
+            // it must be superseded by the new tip, not protected as part
+            // of the in-place replacement flight.
+            var staleOldExo = Rec("rec_3seg_stale_old_exo", "tree_3seg",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleOldExo.ChainId = "chain_3seg";
+            staleOldExo.ChainBranch = 0;
+            staleOldExo.ChainIndex = 1;
+            staleOldExo.Points.Add(new TrajectoryPoint { ut = 1.2 });
+            staleOldExo.Points.Add(new TrajectoryPoint { ut = 1.5 });
+
+            // MIDDLE: new session-owned chain segment, chainIndex=2,
+            // also no terminal, has Points.
+            var middle = Rec("rec_3seg_middle", "tree_3seg",
+                state: MergeState.Immutable,
+                terminal: null);
+            middle.ChainId = "chain_3seg";
+            middle.ChainBranch = 0;
+            middle.ChainIndex = 2;
+            middle.CreatingSessionId = "sess_1";
+            middle.ProvisionalForRpId = "rp_1";
+            middle.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            middle.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            // TIP: chainIndex=3, carries the terminal payload + Points.
+            // ChildBranchPointId moves to the TIP after the optimizer cascade
+            // (RecordingStore.cs:2018-2019), so the BP-walk runs from here.
+            var tip = Rec("rec_3seg_tip", "tree_3seg",
+                childBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            tip.ChainId = "chain_3seg";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 3;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            // Prior-attempt sibling under bp_child — the row we need written
+            // for the original Bug 2 fix to actually land. NOT a chain member
+            // (different ChainId) so it must NOT be in the chain skip set.
+            var oldSibling = Rec("rec_3seg_old_sib", "tree_3seg",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            oldSibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_3seg_head" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_3seg_tip" },
+                children: new List<string> { "rec_3seg_old_sib" });
+
+            InstallTree("tree_3seg",
+                new List<Recording> { head, staleOldExo, middle, tip, oldSibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            var marker = Marker(originId: "rec_3seg_head", provisionalId: "rec_3seg_head",
+                treeId: "tree_3seg");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // 1) Prior-attempt sibling gets a row pointing at the TIP.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_old_sib" && r.NewRecordingId == "rec_3seg_tip");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_stale_old_exo" && r.NewRecordingId == "rec_3seg_tip");
+
+            // 2) NO row from any chain member to any other chain member.
+            //    This is the regression: with the previous skip-set-of-just-HEAD
+            //    code, MIDDLE -> TIP would be written and silently collapse
+            //    MIDDLE in ERS.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_middle");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_3seg_tip");
+
+            // 3) Marker cleared, MergeState forced to Immutable on the head.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+
+            // 4) chain-skip-set: log line audits the membership decision.
+            //    Members are unordered in HashSet<string> enumeration, so
+            //    assert presence by substring matches rather than exact order.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=chain_3seg")
+                && l.Contains("chainBranch=0")
+                && l.Contains("treeId=tree_3seg")
+                && l.Contains("rec_3seg_head")
+                && l.Contains("rec_3seg_middle")
+                && l.Contains("rec_3seg_tip")
+                && !l.Contains("rec_3seg_stale_old_exo")
+                && l.Contains("size=3"));
+
+            // 5) AppendRelations summary: 2 rows written, 1 self-link
+            //    skipped (the TIP), 2 extra-self-link skips (HEAD + MIDDLE).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Added 2 supersede relations")
+                && l.Contains("skippedSelfLink=1")
+                && l.Contains("skippedExtraSelfLink=2"));
+
+            // 6) Per-skip Verbose lines fire for HEAD and MIDDLE (extra-self)
+            //    and for TIP (self-link guard).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_3seg_head")
+                && l.Contains("new=rec_3seg_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip extra-self-link")
+                && l.Contains("old=rec_3seg_middle")
+                && l.Contains("new=rec_3seg_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip self-link")
+                && l.Contains("old=rec_3seg_tip")
+                && l.Contains("new=rec_3seg_tip"));
+
+            // 7) MergeDialog summary log says "full chain (3 member(s))" so
+            //    the count is auditable from the high-level summary too.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation supersede append")
+                && l.Contains("wrote 2 relation")
+                && l.Contains("full chain (3 member(s))"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_UntaggedOptimizerSplit_UsesContiguousTip()
+        {
+            var head = Rec("rec_untag_head", "tree_untag",
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_untag";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var staleOldTail = Rec("rec_untag_stale_old_tail", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleOldTail.ChainId = "chain_untag";
+            staleOldTail.ChainBranch = 0;
+            staleOldTail.ChainIndex = 1;
+            staleOldTail.Points.Add(new TrajectoryPoint { ut = 0.4 });
+            staleOldTail.Points.Add(new TrajectoryPoint { ut = 0.6 });
+
+            var middle = Rec("rec_untag_middle", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: null);
+            middle.ChainId = "chain_untag";
+            middle.ChainBranch = 0;
+            middle.ChainIndex = 2;
+            middle.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            middle.Points.Add(new TrajectoryPoint { ut = 2.0 });
+
+            var tip = Rec("rec_untag_tip", "tree_untag",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Orbiting);
+            tip.ChainId = "chain_untag";
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 3;
+            tip.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            InstallTree("tree_untag",
+                new List<Recording> { head, staleOldTail, middle, tip },
+                new List<BranchPoint>());
+
+            // Match the captured failure mode: the flat committed list contains
+            // optimizer split children, but the committed tree lookup still
+            // resolves the in-place head to itself. The continuity fallback must
+            // use the flat list to find the real post-optimizer tip.
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_stale_old_tail");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_middle");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_untag_tip");
+
+            var marker = Marker(originId: "rec_untag_head", provisionalId: "rec_untag_head",
+                treeId: "tree_untag");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_stale_old_tail"
+                    && r.NewRecordingId == "rec_untag_tip");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_middle");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_untag_tip");
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("contiguous split bounds")
+                && l.Contains("head=rec_untag_head")
+                && l.Contains("tip=rec_untag_tip")
+                && l.Contains("rec_untag_middle")
+                && !l.Contains("rec_untag_stale_old_tail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("rec_untag_head")
+                && l.Contains("rec_untag_middle")
+                && l.Contains("rec_untag_tip")
+                && !l.Contains("rec_untag_stale_old_tail")
+                && l.Contains("size=3"));
+        }
+
+        [Fact]
+        public void ResolveSessionOwnedChainTerminalRecording_IgnoresHigherIndexStaleTail()
+        {
+            var head = Rec("rec_target_head", "tree_target",
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_target";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_target";
+
+            var sessionTip = Rec("rec_target_session_tip", "tree_target",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            sessionTip.ChainId = "chain_target";
+            sessionTip.ChainBranch = 0;
+            sessionTip.ChainIndex = 2;
+            sessionTip.CreatingSessionId = "sess_target";
+
+            var staleHigherTail = Rec("rec_target_stale_tail", "tree_target",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            staleHigherTail.ChainId = "chain_target";
+            staleHigherTail.ChainBranch = 0;
+            staleHigherTail.ChainIndex = 9;
+
+            InstallTree("tree_target",
+                new List<Recording> { head, sessionTip, staleHigherTail },
+                new List<BranchPoint>());
+
+            Recording resolved = MergeDialog.ResolveSessionOwnedChainTerminalRecording(
+                head, "sess_target");
+
+            Assert.Same(sessionTip, resolved);
+        }
+
+        /// <summary>
+        /// Same ChainId, DIFFERENT ChainBranch: a prior-attempt sibling that
+        /// happens to share ChainId with the in-place chain but lives on a
+        /// different ChainBranch is NOT a current chain member. It must
+        /// still get a supersede row when it sits in the closure (e.g. a
+        /// child of the parent BP of the in-place head). The chain-skip-set
+        /// predicate matches EnqueueChainSiblings' TreeId+ChainId+ChainBranch
+        /// triple, so different ChainBranch ids are correctly excluded from
+        /// the skip set.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_SameChainIdDifferentBranch_StillSuperseded()
+        {
+            const string kBpParent = "bp_p_diffbr";
+            const string kBpChild = "bp_c_diffbr";
+            var head = Rec("rec_diffbr_head", "tree_diffbr",
+                parentBranchPointId: kBpParent,
+                childBranchPointId: kBpChild,
+                state: MergeState.NotCommitted,
+                terminal: null);
+            head.ChainId = "chain_shared";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.CreatingSessionId = "sess_1";
+            head.ProvisionalForRpId = "rp_1";
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            var tip = Rec("rec_diffbr_tip", "tree_diffbr",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Landed);
+            tip.ChainId = "chain_shared";
+            tip.ChainBranch = 0; // same branch as head -> in chain skip set
+            tip.ChainIndex = 1;
+            tip.CreatingSessionId = "sess_1";
+            tip.ProvisionalForRpId = "rp_1";
+            tip.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            // Prior-attempt sibling: same tree, same ChainId, but DIFFERENT
+            // ChainBranch. Lives under bp_child as a BP descendant so it
+            // enters the closure via the BP walk, not chain expansion.
+            // Closure walk WILL include it but the chain-skip-set predicate
+            // will NOT (mismatched ChainBranch).
+            var sibling = Rec("rec_diffbr_old_sib", "tree_diffbr",
+                parentBranchPointId: kBpChild,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Destroyed);
+            sibling.ChainId = "chain_shared";
+            sibling.ChainBranch = 99; // distinct branch
+            sibling.ChainIndex = 0;
+            sibling.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var bpParent = Bp(kBpParent, BranchPointType.Breakup,
+                parents: new List<string>(),
+                children: new List<string> { "rec_diffbr_head" });
+            var bpChild = Bp(kBpChild, BranchPointType.Breakup,
+                parents: new List<string> { "rec_diffbr_head" },
+                children: new List<string> { "rec_diffbr_old_sib" });
+
+            InstallTree("tree_diffbr",
+                new List<Recording> { head, tip, sibling },
+                new List<BranchPoint> { bpParent, bpChild });
+
+            var marker = Marker(originId: "rec_diffbr_head", provisionalId: "rec_diffbr_head",
+                treeId: "tree_diffbr");
+            var scenario = InstallScenario(marker);
+
+            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            // Prior-attempt sibling on the OTHER chain branch IS superseded.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_old_sib" && r.NewRecordingId == "rec_diffbr_tip");
+            // Neither chain member of the in-place flight is superseded.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_head");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_diffbr_tip");
+
+            // Skip set has size 2 (head + tip only). The same-ChainId-but-
+            // different-ChainBranch sibling is NOT in the set.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=chain_shared")
+                && l.Contains("chainBranch=0")
+                && l.Contains("size=2"));
+        }
+
+        /// <summary>
+        /// Lone-origin in-place (no chain split, no ChainId set): the
+        /// chain-skip-set degenerates to a single-element set with just the
+        /// provisional's own RecordingId. AppendRelations' old==new
+        /// self-link guard catches the trivial origin entry, and the empty
+        /// closure produces no rows. Pin the new chain-skip-set log line so
+        /// the lone-origin case is auditable too. Mirrors
+        /// <c>InPlaceContinuation_LoneOrigin_FiltersSelfLinkOnly</c>'s
+        /// fixture but adds the new log assertion.
+        /// </summary>
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_NoChain_ChainSkipSetLogsSizeOne()
+        {
+            var origin = Rec("rec_no_chain_origin", "tree_nc",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: null);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            // ChainId left null -> degenerate fallback path in the chain-skip-set logic.
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_nc");
+            var tree = new RecordingTree
+            {
+                Id = "tree_nc",
+                TreeName = "tree_nc",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_no_chain_origin",
+                provisionalId: "rec_no_chain_origin", treeId: "tree_nc");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+
+            // No supersede rows (lone origin: only candidate is self-link).
+            Assert.Empty(scenario.RecordingSupersedes);
+
+            // chain-skip-set log fires with size=1 and chainId=<none>.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("chain-skip-set:")
+                && l.Contains("chainId=<none>")
+                && l.Contains("rec_no_chain_origin")
+                && l.Contains("size=1"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_NoSplitNullTerminal_RepairsFromSceneExitSituation()
+        {
+            var origin = Rec("rec_scene_exit_origin", "tree_scene_exit",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            origin.SceneExitSituation = 2; // Vessel.Situations.SPLASHED
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_scene_exit");
+            var tree = new RecordingTree
+            {
+                Id = "tree_scene_exit",
+                TreeName = "tree_scene_exit",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_scene_exit_origin",
+                provisionalId: "rec_scene_exit_origin",
+                treeId: "tree_scene_exit",
+                sessionId: "sess_scene_exit");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            Assert.Equal(TerminalState.Splashed, origin.TerminalStateValue);
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") &&
+                l.Contains("repaired null terminal") &&
+                l.Contains("rec_scene_exit_origin") &&
+                l.Contains("terminal=Splashed"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ContiguousHoleStaysOnHeadAndRepairs()
+        {
+            var head = Rec("rec_hole_head", "tree_hole",
+                state: MergeState.NotCommitted,
+                terminal: null,
+                supersedeTargetId: null);
+            head.ChainId = "chain_hole";
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            head.SceneExitSituation = (int)Vessel.Situations.FLYING;
+            head.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            head.Points.Add(new TrajectoryPoint { ut = 1.0 });
+
+            var middleAfterHole = Rec("rec_hole_middle", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: null);
+            middleAfterHole.ChainId = "chain_hole";
+            middleAfterHole.ChainBranch = 0;
+            middleAfterHole.ChainIndex = 2;
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            middleAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+
+            var tipAfterHole = Rec("rec_hole_tip", "tree_hole",
+                state: MergeState.Immutable,
+                terminal: TerminalState.Orbiting);
+            tipAfterHole.ChainId = "chain_hole";
+            tipAfterHole.ChainBranch = 0;
+            tipAfterHole.ChainIndex = 3;
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 3.0 });
+            tipAfterHole.Points.Add(new TrajectoryPoint { ut = 4.0 });
+
+            InstallTree("tree_hole",
+                new List<Recording> { head, middleAfterHole, tipAfterHole },
+                new List<BranchPoint>());
+
+            // Simulate a flat-list optimizer artifact where later same-chain records
+            // exist, but the committed tree still resolves the in-place origin to
+            // itself. The contiguous walk must not jump the 1s hole from HEAD to MIDDLE.
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_middle");
+            RecordingStore.CommittedTrees[0].Recordings.Remove("rec_hole_tip");
+
+            List<Recording> members = MergeDialog.ResolveContiguousInPlaceChainMembers(head);
+            Assert.Single(members);
+            Assert.Same(head, members[0]);
+
+            var marker = Marker(originId: "rec_hole_head",
+                provisionalId: "rec_hole_head",
+                treeId: "tree_hole",
+                sessionId: "sess_hole");
+            var scenario = InstallScenario(marker);
+
+            var result = MergeDialog.TryCommitReFlySupersede();
+
+            Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            Assert.Equal(TerminalState.SubOrbital, head.TerminalStateValue);
+            Assert.Equal(2, scenario.RecordingSupersedes.Count);
+            Assert.All(scenario.RecordingSupersedes, r =>
+                Assert.Equal("rec_hole_head", r.NewRecordingId));
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_middle");
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_hole_tip");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolver audit")
+                && l.Contains("sessionOwnedSize=0")
+                && l.Contains("contiguousSize=1")
+                && l.Contains("contiguousTip=rec_hole_head"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("repaired null terminal")
+                && l.Contains("rec_hole_head")
+                && l.Contains("terminal=SubOrbital"));
         }
 
         [Fact]

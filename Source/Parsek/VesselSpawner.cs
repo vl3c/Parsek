@@ -546,6 +546,13 @@ namespace Parsek
             ProtoVessel pv = null;
             try
             {
+                if (!TryValidateSnapshotHasParts(vesselNode, out string partRejectionReason)
+                    || !TryValidateFiniteMaterializationMetadata(vesselNode, out partRejectionReason))
+                {
+                    LogMaterializationSnapshotRejected("RespawnVessel", partRejectionReason);
+                    return 0;
+                }
+
                 ParsekLog.Verbose("Spawner",
                     $"RespawnVessel: excludeCrew={(excludeCrew != null ? excludeCrew.Count.ToString() : "null")}");
 
@@ -555,7 +562,11 @@ namespace Parsek
                 // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
-                RescueReservedMissingCrewInSnapshot(spawnNode);
+                // #615 P1 review (fourth pass): collect rescued names; the
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
+                // when the new vessel's persistentId is known.
+                var rescuedNames = new List<string>();
+                RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
 
                 // Remove dead/missing crew from snapshot to avoid resurrecting them
                 RemoveDeadCrewFromSnapshot(spawnNode);
@@ -584,6 +595,13 @@ namespace Parsek
                 }
                 EnsureSpawnReadiness(spawnNode);
 
+                if (!TryValidateSnapshotHasParts(spawnNode, out string materializationRejectionReason)
+                    || !TryValidateFiniteMaterializationMetadata(spawnNode, out materializationRejectionReason))
+                {
+                    LogMaterializationSnapshotRejected("SpawnAtPosition", materializationRejectionReason);
+                    return 0;
+                }
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -604,6 +622,21 @@ namespace Parsek
                 ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                // #615 P1 review (fourth pass): now that pv.vesselRef has a
+                // persistentId, mark each rescued kerbal with the new vessel's
+                // pid so the ApplyToRoster guard can scope the rescue marker
+                // to the actual vessel the kerbal was placed onto.
+                ulong respawnedVesselPid = pv.vesselRef.persistentId;
+                for (int rn = 0; rn < rescuedNames.Count; rn++)
+                {
+                    CrewReservationManager.MarkRescuePlaced(
+                        rescuedNames[rn], respawnedVesselPid);
+                }
+                if (rescuedNames.Count > 0)
+                    ParsekLog.Info("Spawner",
+                        $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
+                        $"(vesselPid={respawnedVesselPid}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
                 return pv.vesselRef.persistentId;
@@ -973,7 +1006,11 @@ namespace Parsek
                 // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
                 // and the snapshot is loadable by ProtoVessel.Load.
-                RescueReservedMissingCrewInSnapshot(spawnNode);
+                // #615 P1 review (fourth pass): collect rescued names; the
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
+                // when the new vessel's persistentId is known.
+                var rescuedNames = new List<string>();
+                RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
                 RemoveDeadCrewFromSnapshot(spawnNode);
                 EnsureCrewExistInRoster(spawnNode);
                 if (excludeCrew != null && excludeCrew.Count > 0)
@@ -992,6 +1029,13 @@ namespace Parsek
                     ParsekLog.Info("Spawner", "SpawnAtPosition: preserving vessel identity (chain-tip spawn)");
                 }
                 EnsureSpawnReadiness(spawnNode);
+
+                if (!TryValidateSnapshotHasParts(spawnNode, out string materializationRejectionReason)
+                    || !TryValidateFiniteMaterializationMetadata(spawnNode, out materializationRejectionReason))
+                {
+                    LogMaterializationSnapshotRejected("SpawnAtPosition", materializationRejectionReason);
+                    return 0;
+                }
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
@@ -1013,6 +1057,21 @@ namespace Parsek
                 ApplyPostSpawnStabilization(pv.vesselRef, sit);
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                // #615 P1 review (fourth pass): now that pv.vesselRef has a
+                // persistentId, mark each rescued kerbal with the new vessel's
+                // pid so the ApplyToRoster guard can scope the rescue marker
+                // to the actual vessel the kerbal was placed onto.
+                ulong spawnedAtPositionVesselPid = pv.vesselRef.persistentId;
+                for (int rn = 0; rn < rescuedNames.Count; rn++)
+                {
+                    CrewReservationManager.MarkRescuePlaced(
+                        rescuedNames[rn], spawnedAtPositionVesselPid);
+                }
+                if (rescuedNames.Count > 0)
+                    ParsekLog.Info("Spawner",
+                        $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
+                        $"(vesselPid={spawnedAtPositionVesselPid}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m)");
@@ -1123,7 +1182,7 @@ namespace Parsek
                     excludeCrew,
                     preserveIdentity: preserveIdentity,
                     allowExistingSourceDuplicate: allowExistingSourceDuplicate);
-                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                rec.VesselSpawned = rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
                 return;
@@ -1156,7 +1215,7 @@ namespace Parsek
                     excludeCrew,
                     preserveIdentity: preserveIdentity,
                     allowExistingSourceDuplicate: allowExistingSourceDuplicate);
-                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                rec.VesselSpawned = rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
                 return;
@@ -1267,9 +1326,19 @@ namespace Parsek
                 ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
                     rec,
                     spawnUT,
-                    $"{logContext} SpawnAtPosition");
+                    $"{logContext} SpawnAtPosition",
+                    out string materializationRejectionReason);
                 if (validatedSpawnSnapshot == null)
                 {
+                    if (!string.IsNullOrEmpty(materializationRejectionReason))
+                    {
+                        AbandonSpawnForInvalidMaterialization(
+                            rec,
+                            logContext,
+                            materializationRejectionReason);
+                        return;
+                    }
+
                     LogSpawnFailure(rec, index, maxSpawnAttempts);
                     return;
                 }
@@ -1328,8 +1397,8 @@ namespace Parsek
                 excludeCrew,
                 preserveIdentity: preserveIdentity,
                 allowExistingSourceDuplicate: allowExistingSourceDuplicate);
-            rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
-            if (rec.VesselSpawned)
+            rec.VesselSpawned = rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0;
+            if (rec.SpawnedVesselPersistentId != 0)
             {
                 string lat = rec.VesselSnapshot.GetValue("lat") ?? "?";
                 string lon = rec.VesselSnapshot.GetValue("lon") ?? "?";
@@ -1339,6 +1408,10 @@ namespace Parsek
                     $"Vessel spawn for #{index} ({rec.VesselName}) pid={rec.SpawnedVesselPersistentId} " +
                     $"sit={sit} lat={lat} lon={lon} alt={alt}");
                 ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+            }
+            else if (rec.SpawnAbandoned)
+            {
+                return;
             }
             else
             {
@@ -2683,6 +2756,23 @@ namespace Parsek
         /// </summary>
         public static void RescueReservedMissingCrewInSnapshot(ConfigNode snapshot)
         {
+            RescueReservedMissingCrewInSnapshot(snapshot, null);
+        }
+
+        /// <summary>
+        /// Pid-scoping overload (#615 P1 review fourth pass). Collects the
+        /// names actually flipped from Missing -> Available into
+        /// <paramref name="rescuedNames"/> so the caller can call
+        /// <see cref="CrewReservationManager.MarkRescuePlaced(string, ulong)"/>
+        /// for each name once <c>ProtoVessel.Load</c> has assigned the new
+        /// vessel's persistentId. The marker MUST be pid-scoped: a stale
+        /// name-only marker from a long-past rescue would suppress a later
+        /// unrelated fresh reservation for the same kerbal who happens to be
+        /// on the active player vessel.
+        /// </summary>
+        public static void RescueReservedMissingCrewInSnapshot(
+            ConfigNode snapshot, List<string> rescuedNames)
+        {
             if (snapshot == null) return;
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
@@ -2710,15 +2800,22 @@ namespace Parsek
                         if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing) continue;
                         pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                         rescued++;
+                        // #615 P1 review (fourth pass): the rescue-placed
+                        // marker is now pid-scoped — the caller marks each
+                        // rescued name with the spawned vessel's pid AFTER
+                        // ProtoVessel.Load assigns one. Collect rescued names
+                        // here so the caller can wire them to the new pid.
+                        if (rescuedNames != null)
+                            rescuedNames.Add(name);
                         ParsekLog.Info("Spawner",
-                            $"Rescued reserved+Missing crew '{name}' → Available before snapshot load (#608/#609)");
+                            $"Rescued reserved+Missing crew '{name}' -> Available before snapshot load (#608/#609; pending pid mark)");
                     }
                 }
             }
 
             if (rescued > 0)
                 ParsekLog.Info("Spawner",
-                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) → Available (#608/#609)");
+                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) -> Available (#608/#609; rescuedNames={(rescuedNames != null ? rescuedNames.Count.ToString() : "null")})");
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
@@ -3309,7 +3406,21 @@ namespace Parsek
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(Recording rec, double currentUT, string logContext)
         {
+            return BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT,
+                logContext,
+                out _);
+        }
+
+        internal static ConfigNode BuildValidatedRespawnSnapshot(
+            Recording rec,
+            double currentUT,
+            string logContext,
+            out string materializationRejectionReason)
+        {
             string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
+            materializationRejectionReason = null;
             if (rec?.VesselSnapshot == null)
             {
                 ParsekLog.Error("Spawner",
@@ -3317,7 +3428,12 @@ namespace Parsek
                 return null;
             }
 
-            return BuildValidatedRespawnSnapshot(rec.VesselSnapshot, rec, currentUT, logContext);
+            return BuildValidatedRespawnSnapshot(
+                rec.VesselSnapshot,
+                rec,
+                currentUT,
+                logContext,
+                out materializationRejectionReason);
         }
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(
@@ -3326,7 +3442,23 @@ namespace Parsek
             double currentUT,
             string logContext)
         {
+            return BuildValidatedRespawnSnapshot(
+                sourceSnapshot,
+                rec,
+                currentUT,
+                logContext,
+                out _);
+        }
+
+        internal static ConfigNode BuildValidatedRespawnSnapshot(
+            ConfigNode sourceSnapshot,
+            Recording rec,
+            double currentUT,
+            string logContext,
+            out string materializationRejectionReason)
+        {
             string resolvedContext = DescribeSpawnValidationContext(rec, logContext);
+            materializationRejectionReason = null;
             if (sourceSnapshot == null)
             {
                 ParsekLog.Error("Spawner",
@@ -3337,10 +3469,165 @@ namespace Parsek
             ConfigNode snapshot = sourceSnapshot.CreateCopy();
             CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
 
-            if (!TryRepairSnapshotBodyProvenance(snapshot, rec, currentUT, resolvedContext))
+            if (!TryValidateSnapshotHasParts(snapshot, out materializationRejectionReason))
+            {
+                LogMaterializationSnapshotRejected(resolvedContext, materializationRejectionReason);
                 return null;
+            }
+
+            if (!TryRepairSnapshotBodyProvenance(
+                    snapshot,
+                    rec,
+                    currentUT,
+                    resolvedContext,
+                    out materializationRejectionReason))
+            {
+                LogMaterializationSnapshotRejected(resolvedContext, materializationRejectionReason);
+                return null;
+            }
+
+            if (!TryValidateFiniteMaterializationMetadata(snapshot, out materializationRejectionReason))
+            {
+                LogMaterializationSnapshotRejected(resolvedContext, materializationRejectionReason);
+                return null;
+            }
 
             return snapshot;
+        }
+
+        private static void LogMaterializationSnapshotRejected(string logContext, string reason)
+        {
+            ParsekLog.Warn("Spawner",
+                $"Spawn validation rejected materialization for {logContext}: {reason} - " +
+                "keeping ghost-only/abandon instead of loading corrupt ProtoVessel (#620)");
+        }
+
+        internal static void AbandonSpawnForInvalidMaterialization(
+            Recording rec,
+            string logContext,
+            string reason)
+        {
+            if (rec == null)
+                return;
+
+            rec.SpawnedVesselPersistentId = 0;
+            rec.VesselSpawned = true;
+            rec.SpawnAbandoned = true;
+            ParsekLog.Warn("Spawner",
+                $"Spawn ABANDONED for {DescribeSpawnValidationContext(rec, logContext)}: {reason} - " +
+                "recording remains ghost-only instead of retrying corrupt materialization (#620)");
+        }
+
+        private static bool TryValidateSnapshotHasParts(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            ConfigNode[] partNodes = snapshot?.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0)
+            {
+                reason = "snapshot contains no PART subnodes";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryValidateFiniteMaterializationMetadata(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            if (!TryGetFiniteRequiredSnapshotDouble(snapshot, "lat", "surface", out reason)
+                || !TryGetFiniteRequiredSnapshotDouble(snapshot, "lon", "surface", out reason)
+                || !TryGetFiniteRequiredSnapshotDouble(snapshot, "alt", "surface", out reason))
+            {
+                return false;
+            }
+
+            if (snapshot != null && snapshot.HasValue("hgt")
+                && !TryGetFiniteRequiredSnapshotDouble(snapshot, "hgt", "surface", out reason))
+            {
+                return false;
+            }
+
+            if (!TryValidateFiniteTextVector(snapshot, "nrm", "surface", out reason)
+                || !TryValidateFiniteTextVector(snapshot, "rot", "surface", out reason)
+                || !TryValidateFiniteTextVector(snapshot, "CoM", "surface", out reason))
+            {
+                return false;
+            }
+
+            return TryValidateFiniteOrbitMetadata(snapshot, out reason);
+        }
+
+        private static bool TryValidateFiniteOrbitMetadata(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            if (orbitNode == null)
+            {
+                reason = "snapshot is missing ORBIT metadata";
+                return false;
+            }
+
+            string[] orbitKeys = { "SMA", "ECC", "INC", "LPE", "LAN", "MNA", "EPH" };
+            for (int i = 0; i < orbitKeys.Length; i++)
+            {
+                if (!TryGetFiniteRequiredSnapshotDouble(orbitNode, orbitKeys[i], "orbit", out reason))
+                    return false;
+            }
+
+            string rawRef = orbitNode.GetValue("REF");
+            if (!int.TryParse(rawRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int refIndex)
+                || refIndex < 0)
+            {
+                reason = $"orbit metadata 'REF' is missing, invalid, or negative (value='{rawRef ?? "(null)"}')";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetFiniteRequiredSnapshotDouble(
+            ConfigNode node,
+            string key,
+            string metadataKind,
+            out string reason)
+        {
+            reason = null;
+            if (!TryGetSnapshotDouble(node, key, out double value) || !IsFinite(value))
+            {
+                reason = $"{metadataKind} metadata '{key}' is missing or non-finite";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryValidateFiniteTextVector(
+            ConfigNode node,
+            string key,
+            string metadataKind,
+            out string reason)
+        {
+            reason = null;
+            if (node == null || !node.HasValue(key))
+                return true;
+
+            string raw = node.GetValue(key);
+            if (ContainsNonFiniteToken(raw))
+            {
+                reason = $"{metadataKind} metadata '{key}' contains non-finite values";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ContainsNonFiniteToken(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return false;
+
+            return raw.IndexOf("NaN", StringComparison.OrdinalIgnoreCase) >= 0
+                || raw.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         internal static uint RespawnValidatedRecording(
@@ -3372,11 +3659,25 @@ namespace Parsek
                 }
             }
 
-            ConfigNode snapshot = BuildValidatedRespawnSnapshot(rec, currentUT, logContext);
+            ConfigNode snapshot = BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT,
+                logContext,
+                out string materializationRejectionReason);
             if (snapshot == null)
             {
-                ParsekLog.Error("Spawner",
-                    $"RespawnValidatedRecording: refusing spawn for {DescribeSpawnValidationContext(rec, logContext)}");
+                if (!string.IsNullOrEmpty(materializationRejectionReason))
+                {
+                    AbandonSpawnForInvalidMaterialization(
+                        rec,
+                        logContext,
+                        materializationRejectionReason);
+                }
+                else
+                {
+                    ParsekLog.Error("Spawner",
+                        $"RespawnValidatedRecording: refusing spawn for {DescribeSpawnValidationContext(rec, logContext)}");
+                }
                 return 0;
             }
 
@@ -3387,14 +3688,20 @@ namespace Parsek
             ConfigNode snapshot,
             Recording rec,
             double currentUT,
-            string logContext)
+            string logContext,
+            out string rejectionReason)
         {
+            rejectionReason = null;
             if (snapshot == null || rec == null)
+            {
+                rejectionReason = "snapshot or recording is null";
                 return false;
+            }
 
-            bool hasSnapshotPos = TryGetSnapshotDouble(snapshot, "lat", out _)
-                && TryGetSnapshotDouble(snapshot, "lon", out _)
-                && TryGetSnapshotDouble(snapshot, "alt", out _);
+            bool hasSnapshotPos =
+                TryGetFiniteRequiredSnapshotDouble(snapshot, "lat", "surface", out _)
+                && TryGetFiniteRequiredSnapshotDouble(snapshot, "lon", "surface", out _)
+                && TryGetFiniteRequiredSnapshotDouble(snapshot, "alt", "surface", out _);
             bool hasSnapshotBody = TryGetSnapshotReferenceBodyName(snapshot, out string snapshotBodyName);
             bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
                 rec,
@@ -3402,6 +3709,11 @@ namespace Parsek
                 out double endpointLat,
                 out double endpointLon,
                 out double endpointAlt);
+            if (hasEndpointCoords
+                && (!IsFinite(endpointLat) || !IsFinite(endpointLon) || !IsFinite(endpointAlt)))
+            {
+                hasEndpointCoords = false;
+            }
             string endpointBodyName = endpointBodyNameFromCoords;
             bool hasEndpointBody = hasEndpointCoords;
             if (!hasEndpointBody)
@@ -3412,12 +3724,14 @@ namespace Parsek
             bool? bodyMismatch = hasEndpointBody && hasSnapshotBody
                 ? (bool?)!string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal)
                 : null;
+            bool hasFiniteOrbit = TryValidateFiniteOrbitMetadata(snapshot, out _);
             bool needsSurfaceOrbitRepair = landedLike
                 && !HasCanonicalSurfaceOrbitSignature(snapshot);
             bool needsRepair = !hasSnapshotPos
                 || !hasSnapshotBody
                 || bodyMismatch == true
-                || needsSurfaceOrbitRepair;
+                || needsSurfaceOrbitRepair
+                || !hasFiniteOrbit;
 
             if (!needsRepair)
                 return true;
@@ -3425,18 +3739,21 @@ namespace Parsek
             string repairBodyName = hasEndpointBody ? endpointBodyName : snapshotBodyName;
             if (string.IsNullOrEmpty(repairBodyName))
             {
+                rejectionReason =
+                    $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) and no repair body is available";
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
-                    $"snapshot provenance is malformed (hasPos={hasSnapshotPos}, hasBody={hasSnapshotBody}) " +
-                    $"and no repair body is available");
+                    rejectionReason);
                 return false;
             }
 
             if (!TryResolveBodyByName(repairBodyName, out CelestialBody body))
             {
+                rejectionReason =
+                    $"repair body '{repairBodyName}' was resolved but is not loaded";
                 ParsekLog.Error("Spawner",
                     $"Spawn validation failed for {logContext}: " +
-                    $"repair body '{repairBodyName}' was resolved but is not loaded");
+                    rejectionReason);
                 return false;
             }
 
@@ -3450,11 +3767,13 @@ namespace Parsek
 
                 if (!useEndpointCoords && !useSnapshotCoords)
                 {
-                    ParsekLog.Error("Spawner",
-                        $"Spawn validation failed for {logContext}: " +
+                    rejectionReason =
                         "surface snapshot repair needs usable coordinates " +
                         $"(endpointCoords={hasEndpointCoords}, snapshotPos={hasSnapshotPos}, " +
-                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"})");
+                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"})";
+                    ParsekLog.Error("Spawner",
+                        $"Spawn validation failed for {logContext}: " +
+                        rejectionReason);
                     return false;
                 }
 
@@ -3521,10 +3840,12 @@ namespace Parsek
                 }
             }
 
+            rejectionReason =
+                "snapshot provenance is malformed and endpoint data cannot reconstruct a usable orbit/body " +
+                $"(endpointBody={endpointBodyName}, endpointCoords={hasEndpointCoords}, landedLike={landedLike})";
             ParsekLog.Error("Spawner",
                 $"Spawn validation failed for {logContext}: " +
-                $"snapshot provenance is malformed and endpoint data cannot reconstruct a usable orbit/body " +
-                $"(endpointBody={endpointBodyName}, endpointCoords={hasEndpointCoords}, landedLike={landedLike})");
+                rejectionReason);
             return false;
         }
 
@@ -4120,6 +4441,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(vesselName) || string.Equals(logContext, vesselName, StringComparison.Ordinal))
                 return logContext;
             return $"{logContext} ({vesselName})";
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !(double.IsNaN(value) || double.IsInfinity(value));
         }
 
         private static bool IsFinite(Vector3d value)

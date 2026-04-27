@@ -117,6 +117,10 @@ namespace Parsek
         [NonSerialized] internal int ContinuationBoundaryIndex = -1;
         [NonSerialized] internal ConfigNode PreContinuationVesselSnapshot;
         [NonSerialized] internal ConfigNode PreContinuationGhostSnapshot;
+        [NonSerialized] internal string PreReFlyAnchorSessionId;
+        [NonSerialized] internal List<TrajectoryPoint> PreReFlyAnchorPoints;
+        [NonSerialized] internal List<OrbitSegment> PreReFlyAnchorOrbitSegments;
+        [NonSerialized] internal List<TrackSection> PreReFlyAnchorTrackSections;
 
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
@@ -652,6 +656,58 @@ namespace Parsek
             return clone;
         }
 
+        internal void CapturePreReFlyAnchorTrajectory(string sessionId)
+        {
+            PreReFlyAnchorSessionId = sessionId;
+            PreReFlyAnchorPoints = Points != null
+                ? new List<TrajectoryPoint>(Points)
+                : new List<TrajectoryPoint>();
+            PreReFlyAnchorOrbitSegments = OrbitSegments != null
+                ? new List<OrbitSegment>(OrbitSegments)
+                : new List<OrbitSegment>();
+            PreReFlyAnchorTrackSections = TrackSections != null
+                ? DeepCopyTrackSections(TrackSections)
+                : new List<TrackSection>();
+        }
+
+        internal bool HasPreReFlyAnchorTrajectory(string sessionId)
+        {
+            if (string.IsNullOrEmpty(sessionId))
+                return false;
+            if (!string.Equals(PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal))
+                return false;
+            return (PreReFlyAnchorPoints != null && PreReFlyAnchorPoints.Count > 0)
+                || (PreReFlyAnchorTrackSections != null && PreReFlyAnchorTrackSections.Count > 0)
+                || (PreReFlyAnchorOrbitSegments != null && PreReFlyAnchorOrbitSegments.Count > 0);
+        }
+
+        internal Recording BuildPreReFlyAnchorTrajectoryRecording(string sessionId)
+        {
+            if (!HasPreReFlyAnchorTrajectory(sessionId))
+                return null;
+
+            return new Recording
+            {
+                RecordingId = RecordingId,
+                RecordingFormatVersion = RecordingFormatVersion,
+                Points = PreReFlyAnchorPoints != null
+                    ? new List<TrajectoryPoint>(PreReFlyAnchorPoints)
+                    : new List<TrajectoryPoint>(),
+                OrbitSegments = PreReFlyAnchorOrbitSegments != null
+                    ? new List<OrbitSegment>(PreReFlyAnchorOrbitSegments)
+                    : new List<OrbitSegment>(),
+                TrackSections = PreReFlyAnchorTrackSections != null
+                    ? DeepCopyTrackSections(PreReFlyAnchorTrackSections)
+                    : new List<TrackSection>(),
+                VesselPersistentId = VesselPersistentId,
+                VesselName = VesselName,
+                TreeId = TreeId,
+                ChainId = ChainId,
+                ChainIndex = ChainIndex,
+                ChainBranch = ChainBranch,
+            };
+        }
+
         /// <summary>
         /// Deep copies a list of TrackSection structs, creating new list instances for
         /// the mutable frames and checkpoints fields. Prevents shared references between
@@ -665,6 +721,7 @@ namespace Parsek
                 var s = source[i];
                 var copy = s;
                 copy.frames = s.frames != null ? new List<TrajectoryPoint>(s.frames) : null;
+                copy.absoluteFrames = s.absoluteFrames != null ? new List<TrajectoryPoint>(s.absoluteFrames) : null;
                 copy.checkpoints = s.checkpoints != null ? new List<OrbitSegment>(s.checkpoints) : null;
                 result.Add(copy);
             }

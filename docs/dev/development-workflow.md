@@ -405,8 +405,8 @@ Once a phase passes review, the orchestrator:
 |-----------|----------|
 | First task in a new area (sets the pattern) | Full cycle: plan → implement → review → fix |
 | Tasks that change serialization format | Full cycle with extra review attention on round-trip |
-| Well-defined task following existing pattern | Shortcut: implement → review (skip separate plan) |
-| Bug fix with obvious cause | Shortcut: implement directly, review only if multi-file |
+| Well-defined task following existing pattern | Shortcut: implement → final review (skip separate plan) |
+| Low-risk small single-file fix, docs-only change, test-only change, or obvious bug fix with focused validation | Shortcut: implement directly, self-review, report validation |
 | Design doc says "needs investigation" | Research agent first, then full cycle |
 
 ### When to Intervene vs. Let Agents Work
@@ -510,7 +510,7 @@ git worktree remove ../Parsek-<branch-name>
 
 **Reusing agent context across stages.** The same agent that wrote code should NOT review it - it has the author's blind spots baked in. Clean-context review agents catch issues that the author would rationalize away. This is the single biggest quality lever in the workflow.
 
-**Skipping review for "simple" changes.** Even simple changes benefit from a clean-context read. A review agent that finds nothing wrong costs little. A review agent that catches a serialization bug saves hours of debugging in KSP.
+**Skipping review for risky changes.** Small single-file fixes, docs-only changes, test-only changes, and obvious bug fixes with focused validation can use self-review. Behavioral, multi-file, serialization, runtime-only, or release-critical changes still need a clean-context final review.
 
 **Skipping the post-change checklist.** Serialization bugs and test gaps are the most common regressions. The checklist exists because these were missed before.
 
