@@ -47,7 +47,7 @@ The Unfinished Flights entry for the origin split stays visible.
   `RecordingStore.cs:514` (no new API surface required).
 - Log line: `[ReFlySession] End reason=discardReFly ...`.
 - Unit test rewrite (see §Test plan) + in-game test updates.
-- Docs: `parsek-rewind-to-staging-design.md` §2.3/§6.14/§6.17/§A.4;
+- Docs: `parsek-rewind-to-separation-design.md` §2.3/§6.14/§6.17/§A.4;
   `user-guide.md`; `CHANGELOG.md`.
 
 ### Not in scope
@@ -322,7 +322,7 @@ remove the lines for the deleted stock seams.
 - `Source/Parsek/InGameTests/ReFlyRevertDialogTest.cs` /
   `ReFlyRevertDialogPrelaunchTest.cs` — reflect new destinations
   (SPACECENTER / EDITOR+facility) + origin-RP preservation assertions.
-- `docs/parsek-rewind-to-staging-design.md` §2.3, §6.14, §6.17, §A.4
+- `docs/parsek-rewind-to-separation-design.md` §2.3, §6.14, §6.17, §A.4
   per the Documentation updates section below.
 - `docs/user-guide.md` (line 72): rewrite the "Revert during re-fly"
   bullet.
@@ -437,7 +437,7 @@ emitted (catches any stale code path).
 
 ## Documentation updates
 
-- `docs/parsek-rewind-to-staging-design.md` §6.14 second bullet rewrite:
+- `docs/parsek-rewind-to-separation-design.md` §6.14 second bullet rewrite:
 
   > "**Discard Re-fly** -- `DiscardReFlyHandler`: remove the provisional
   > re-fly recording from `CommittedRecordings`, promote the origin

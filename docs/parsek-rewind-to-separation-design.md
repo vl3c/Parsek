@@ -1,11 +1,11 @@
-# Parsek — Rewind to Staging
+# Parsek — Rewind to Separation
 
 *Post-implementation design specification for the mid-mission rewind system that shipped in v0.9.0. Covers Rewind Points captured at multi-controllable split events (staging, undocking, EVA), the Unfinished Flights virtual group, the append-only supersede relation, narrow kerbal-death tombstone scope, the journaled staged commit, and the load-time sweep that keeps half-finished state bounded.*
 
-*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with Rewind-to-Staging. It assumes familiarity with the recording DAG, BranchPoint model, controller identity, ghost chains, and the additive-only invariant (see `parsek-flight-recorder-design.md`) and with the ledger model, immutable ActionId, reservations, and career-state replay (see `parsek-game-actions-and-resources-recorder-design.md`).*
+*Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with Rewind-to-Separation. It assumes familiarity with the recording DAG, BranchPoint model, controller identity, ghost chains, and the additive-only invariant (see `parsek-flight-recorder-design.md`) and with the ledger model, immutable ActionId, reservations, and career-state replay (see `parsek-game-actions-and-resources-recorder-design.md`).*
 
 **Status:** shipped in v0.9.0.
-**Pre-implementation spec:** `docs/dev/done/parsek-rewind-staging-design.md` (archived as-is alongside the v0.9 rollout). This document supersedes it as the source of truth for what actually shipped.
+**Pre-implementation spec:** `docs/dev/done/parsek-rewind-separation-design.md` (archived as-is alongside the v0.9 rollout). This document supersedes it as the source of truth for what actually shipped.
 **Related docs:** `parsek-flight-recorder-design.md`, `parsek-recording-finalization-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`.
 
 ---
@@ -14,7 +14,7 @@
 
 A Parsek career is a committed timeline of missions. The player flies, commits, the ghost plays back, and the next mission begins on top. Before v0.9 the timeline had a sharp edge: once a multi-controllable split happened — a stage decoupled with a probe core on each side, a lander undocked from a station, a kerbal popped out on EVA — whichever half the player did not personally fly was recorded in the background and, if things went badly, committed as a crashed or destroyed sibling. There was no in-game path back to re-fly that half. The successful side was locked in with the failed side, and the only "fix" was to discard the entire tree and re-fly the whole mission.
 
-Rewind to Staging is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends in **destruction or loss** — a crashed booster, a destroyed lander, a kerbal who fell without a parachute — the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
+Rewind to Separation is the narrow feature that unsticks that edge. At every split that produces two or more controllable entities, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends in **destruction or loss** — a crashed booster, a destroyed lander, a kerbal who fell without a parachute — the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
 
 **Stable-end splits are explicitly not in scope.** An orbital EVA where the kerbal boards back safely, a station docking, a stage separation where both halves continue to orbit intact — none of these need a Rewind button. The sibling reached a stable terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Boarded`); there is nothing to "re-fly" because nothing went wrong. `EffectiveState.IsUnfinishedFlight` gates strictly on `TerminalKind.Crashed` for exactly this reason (see §5 and §7.31).
 
@@ -53,10 +53,10 @@ What this feature is **not** for: stable orbital splits, safe returns, or routin
 
 ### 1.4 Relationship to prior features
 
-Rewind to Staging is layered on top of, not inside, the existing subsystems:
+Rewind to Separation is layered on top of, not inside, the existing subsystems:
 
-- **Flight recorder:** the recording DAG, segment boundary rule, controller identity, ghost chains, background recording, terminal kinds. Rewind to Staging does not change any of these. It adds new persistent state — Rewind Points, supersede relations, tombstones, a session marker, a journal — stored alongside the existing recording tree in `ParsekScenario`.
-- **Recording finalization:** Rewind-to-Staging assumes each sibling recording has a trustworthy terminal state and endpoint. The finalization reliability contract in `parsek-recording-finalization-design.md` is the upstream dependency that prevents Unfinished Flights from depending on stale last-sample inference when KSP unloads, deletes, or destroys a vessel before scene exit.
+- **Flight recorder:** the recording DAG, segment boundary rule, controller identity, ghost chains, background recording, terminal kinds. Rewind to Separation does not change any of these. It adds new persistent state — Rewind Points, supersede relations, tombstones, a session marker, a journal — stored alongside the existing recording tree in `ParsekScenario`.
+- **Recording finalization:** Rewind-to-Separation assumes each sibling recording has a trustworthy terminal state and endpoint. The finalization reliability contract in `parsek-recording-finalization-design.md` is the upstream dependency that prevents Unfinished Flights from depending on stale last-sample inference when KSP unloads, deletes, or destroys a vessel before scene exit.
 - **Timeline / ledger:** the immutable `ActionId`, the recalculation engine, the resource modules. The feature adds `GameAction.ActionId` as a hard precondition (legacy migration generates a deterministic hash on first load) and introduces `LedgerTombstone` as an append-only retirement filter, but the recalculation walk itself is unchanged — `LedgerOrchestrator.Recalculate*` now feeds from `EffectiveState.ComputeELS()` (the tombstone-filtered view) instead of raw `Ledger.Actions`.
 - **Game actions & resources:** contracts, milestones, facilities, strategies, tech, science, funds, kerbals. v1 tombstones only kerbal deaths (plus bundled rep). Everything else sticks. This is the central design decision; see §2 and §10.
 
@@ -98,7 +98,7 @@ Every decision point in §6 and every RP / marker / journal / sweep / reap state
 
 ## 3. Terminology
 
-This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) is the general concept; **Recording** (capitalized, code-font) is the class (`Source/Parsek/Recording.cs`). "Session" always means a Rewind-to-Staging re-fly session unless qualified.
+This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) is the general concept; **Recording** (capitalized, code-font) is the class (`Source/Parsek/Recording.cs`). "Session" always means a Rewind-to-Separation re-fly session unless qualified.
 
 - **Split event** — a `BranchPoint` whose type is `JointBreak`, `Undock`, or `EVA` (see `parsek-flight-recorder-design.md`). The common case is staging (joint break on the decoupler), but lander undocks and EVAs are the same shape.
 - **Controllable entity** — a vessel with at least one `ModuleCommand` part, or an EVA kerbal. The classifier `SegmentBoundaryLogic.IsMultiControllableSplit` gates RP creation on `count >= 2`.
@@ -885,7 +885,7 @@ Runs from `ParsekScenario.OnLoad` AFTER `MergeJournalOrchestrator.RunFinisher` a
 
 File: `Source/Parsek/TreeDiscardPurge.cs`.
 
-Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Staging artifact tied to the tree:
+Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Separation artifact tied to the tree:
 
 - Remove every RP whose `BranchPointId` is in the tree; delete each RP's quicksave file on disk.
 - Remove every `RecordingSupersedeRelation` with either endpoint in the tree.
@@ -1088,7 +1088,7 @@ They cannot. `Immutable` seals the slot. To retry, the player must Full-Revert, 
 - `GameAction.ActionId` legacy migration: deterministic hash `act_<hash>` generated from `UT + Type + RecordingId + Sequence` (`GameAction.cs:541`). Idempotent — the same action always yields the same id. One-shot `[LegacyMigration] Info` log line.
 - `Recording.SupersedeTargetId` — never set on pre-v0.9 saves. Non-empty values on `Immutable` / `CommittedProvisional` recordings (should only happen on a corrupt or hand-edited save) log Warn and are treated as cleared (`LoadTimeSweep.ClearStraySupersedeTargets`, `LoadTimeSweep.cs:326`).
 - `BranchPoint.RewindPointId` — absent on pre-v0.9 saves. No `IsUnfinishedFlight` predicate matches on pre-feature BG-crashed siblings because the predicate requires a non-null parent `RewindPointId`. The player's existing crashed siblings are NOT retroactively made Unfinished Flights.
-- Pre-v0.9 recordings have no cargo/crew manifest changes; Rewind to Staging does not read or write those fields.
+- Pre-v0.9 recordings have no cargo/crew manifest changes; Rewind to Separation does not read or write those fields.
 
 ### 9.2 Post-v0.9 saves on v0.8.x
 
@@ -1163,13 +1163,13 @@ v1 auto-picks `CommittedProvisional` for crash outcomes per `TerminalKindClassif
 
 ### 10.9 SpawnGhost_PrimesFreshGhostToCurrentPlaybackUT
 
-A pre-existing Unity-gated test skip unrelated to Rewind to Staging, but exercised heavily by the feature's in-game tests. Carried forward as an open follow-up from earlier phases.
+A pre-existing Unity-gated test skip unrelated to Rewind to Separation, but exercised heavily by the feature's in-game tests. Carried forward as an open follow-up from earlier phases.
 
 ---
 
 ## 11. Diagnostic Logging
 
-Every decision point in §6 emits a log line. The tag catalog below enumerates what appears in `KSP.log` for a Rewind-to-Staging session. **All tags are verified against the shipped source** in the files named in §1.1. The pre-impl spec's candidate tags `Reap`, `Strip`, and `Tombstone` did NOT ship as distinct tag names — their log lines fold into `[Rewind]` and `[LedgerSwap]` respectively. `RewindSave`, `ERS`, and `ELS` DID ship as distinct tags and are cataloged below.
+Every decision point in §6 emits a log line. The tag catalog below enumerates what appears in `KSP.log` for a Rewind-to-Separation session. **All tags are verified against the shipped source** in the files named in §1.1. The pre-impl spec's candidate tags `Reap`, `Strip`, and `Tombstone` did NOT ship as distinct tag names — their log lines fold into `[Rewind]` and `[LedgerSwap]` respectively. `RewindSave`, `ERS`, and `ELS` DID ship as distinct tags and are cataloged below.
 
 ### 11.1 `[Rewind]`
 
@@ -1449,5 +1449,5 @@ Alternative: if the scenario state drifted (e.g. the provisional was corrupted o
 
 ---
 
-*End of Rewind to Staging design doc.*
+*End of Rewind to Separation design doc.*
 

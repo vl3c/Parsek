@@ -247,12 +247,12 @@ follow-up is validation/tuning work against larger corpora rather than another p
 - defer trajectory thinning, compression, or lazy loading until the snapshot bucket is re-measured
   and still justifies more work
 
-### v0.9 — Rewind to Staging
+### v0.9 — Rewind to Separation
 
 Phase 12 shipped: re-fly unfinished missions after multi-controllable splits (staging, undock, EVA
-with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-staging-design.md`](parsek-rewind-to-staging-design.md).
+with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md).
 The pre-implementation spec that drove v0.9 is archived at
-[`docs/dev/done/parsek-rewind-staging-design.md`](dev/done/parsek-rewind-staging-design.md).
+[`docs/dev/done/parsek-rewind-separation-design.md`](dev/done/parsek-rewind-separation-design.md).
 
 - **Rewind Points at split time** — every multi-controllable split writes a KSP quicksave to
   `saves/<save>/Parsek/RewindPoints/<rpId>.sfs` plus a persistent-id-to-slot map captured at save
@@ -385,7 +385,7 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
     ▼
-Phase 12: Rewind to Staging (v0.9 ✓)
+Phase 12: Rewind to Separation (v0.9 ✓)
     │  Rewind Points at multi-controllable splits, Unfinished Flights
     │  group, append-only supersede, narrow v1 scope. Independent of
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
@@ -457,5 +457,5 @@ Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show fu
 - **Racing modes or lap timing**
 - **AI playback or autopilot**
 - **Real-time multiplayer synchronization** — Parsek's multiplayer model is async (Phases 13–14). No shared physics simulation, no lockstep networking.
-- **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Staging" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
+- **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Separation" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
 - **Timeline branching or alternate histories**

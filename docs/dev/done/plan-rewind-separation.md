@@ -1,4 +1,4 @@
-# Rewind to Staging - Resume Plan
+# Rewind to Separation - Resume Plan
 
 **One-page handoff document for picking this feature back up after the v0.8.2 release.** Tells you exactly where everything is and what happens next.
 
@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-- **Design doc done**, reviewed 4 times, no blocking issues. Lives at `docs/parsek-rewind-staging-design.md` on branch `design/rewind-staging` (7 commits, v0.1 -> v0.5.2). Pushed to GitHub; no PR yet.
+- **Design doc done**, reviewed 4 times, no blocking issues. Lives at `docs/parsek-rewind-separation-design.md` on branch `design/rewind-staging` (7 commits, v0.1 -> v0.5.2). Pushed to GitHub; no PR yet.
 - **Two open docs PRs** (#341, #342) — small README/roadmap updates that advertise the feature. Mergeable any time.
 - **No code yet.** Step 4 of the workflow (Explore + Plan + Implement + Review) hasn't started.
 - **Resume point:** dispatch Explore agents against `Source/Parsek/` against the design doc, then a Plan agent, then 13 sequenced implementation phases.
@@ -34,7 +34,7 @@ Local worktrees (optional cleanup later):
 
 A "Rewind Point" written at every split that produces 2+ controllable vessels (staging, undock, EVA). Unmerged siblings (BG-crashed while the player flew the other half) appear in a new "Unfinished Flights" group. Invoking one loads the quicksave, strips sibling vessels to ghosts, and lets the player fly the sibling that was abandoned. On merge, the new recording commits additively with a `RecordingSupersede(old, new)` relation record; the old BG-crash stays on disk, filtered out of user-facing lookups. v1 tombstones only `KerbalDeath` ledger events; contract/milestone/facility/strategy/tech state stays sticky (KSP won't re-emit retired events).
 
-Full details in `docs/parsek-rewind-staging-design.md` §1.1 (scope), §3 (ERS/ELS model), §6.6 (merge semantics), §7 (48 edge cases).
+Full details in `docs/parsek-rewind-separation-design.md` §1.1 (scope), §3 (ERS/ELS model), §6.6 (merge semantics), §7 (48 edge cases).
 
 ---
 
