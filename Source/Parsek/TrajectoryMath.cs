@@ -892,6 +892,52 @@ namespace Parsek
             return new Quaternion(q.x / mag, q.y / mag, q.z / mag, q.w / mag);
         }
 
+        /// <summary>
+        /// Pure-math quaternion slerp equivalent to Quaternion.Slerp without Unity native calls.
+        /// </summary>
+        internal static Quaternion PureSlerp(Quaternion from, Quaternion to, float t)
+        {
+            if (t < 0f) t = 0f;
+            else if (t > 1f) t = 1f;
+
+            from = PureNormalize(SanitizeQuaternion(from));
+            to = PureNormalize(SanitizeQuaternion(to));
+
+            float dot =
+                from.x * to.x +
+                from.y * to.y +
+                from.z * to.z +
+                from.w * to.w;
+            if (dot < 0f)
+            {
+                to = new Quaternion(-to.x, -to.y, -to.z, -to.w);
+                dot = -dot;
+            }
+
+            if (dot > 0.9995f)
+            {
+                return PureNormalize(new Quaternion(
+                    from.x + (to.x - from.x) * t,
+                    from.y + (to.y - from.y) * t,
+                    from.z + (to.z - from.z) * t,
+                    from.w + (to.w - from.w) * t));
+            }
+
+            if (dot > 1f) dot = 1f;
+            double theta0 = System.Math.Acos(dot);
+            double theta = theta0 * t;
+            double sinTheta = System.Math.Sin(theta);
+            double sinTheta0 = System.Math.Sin(theta0);
+
+            double s0 = System.Math.Cos(theta) - dot * sinTheta / sinTheta0;
+            double s1 = sinTheta / sinTheta0;
+            return PureNormalize(new Quaternion(
+                (float)(from.x * s0 + to.x * s1),
+                (float)(from.y * s0 + to.y * s1),
+                (float)(from.z * s0 + to.z * s1),
+                (float)(from.w * s0 + to.w * s1)));
+        }
+
         /// <summary>Pure-math AngleAxis rotation.</summary>
         internal static Quaternion PureAngleAxis(float angleDeg, Vector3 axis)
         {

@@ -701,6 +701,14 @@ namespace Parsek
                     if (tree.BackgroundMap.ContainsKey(v.persistentId))
                         continue;
 
+                    if (!ParsekFlight.ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
+                    {
+                        ParsekLog.Verbose("BgRecorder",
+                            $"Background split scan: ignoring unrelated new vessel pid={v.persistentId} " +
+                            $"name='{v.vesselName ?? "<unnamed>"}' type={v.vesselType} reason={rejectReason}");
+                        continue;
+                    }
+
                     bool hasController = ParsekFlight.IsTrackableVessel(v);
                     newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
                 }

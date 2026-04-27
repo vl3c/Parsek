@@ -824,6 +824,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lat", "1.0");
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
 
             var rec = new Recording
             {
@@ -843,6 +844,199 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildValidatedRespawnSnapshot_NoPartSubnodes_RejectsBeforeMaterialization()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "0");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "No Parts",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test",
+                out string rejectionReason);
+
+            Assert.Null(validated);
+            Assert.Contains("no PART", rejectionReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("rejected materialization")
+                && l.Contains("no PART")
+                && l.Contains("No Parts"));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_NonFiniteSurfaceVector_RejectsBeforeMaterialization()
+        {
+            TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12));
+            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            snapshot.AddValue("rot", "NaN,0,0,1");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "0");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "NaN Rotation",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test",
+                out string rejectionReason);
+
+            Assert.Null(validated);
+            Assert.Contains("rot", rejectionReason);
+            Assert.Contains("non-finite", rejectionReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("rejected materialization")
+                && l.Contains("rot")
+                && l.Contains("NaN Rotation"));
+        }
+
+        [Fact]
+        public void BuildValidatedRespawnSnapshot_UnrepairableOrbit_PropagatesAbandonReason()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "-1");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "Unrepairable Orbit",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 123.0,
+                logContext: "spawn-test",
+                out string rejectionReason);
+
+            Assert.Null(validated);
+            Assert.Contains("no repair body", rejectionReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("rejected materialization")
+                && l.Contains("Unrepairable Orbit")
+                && l.Contains("no repair body"));
+        }
+
+        [Fact]
+        public void RespawnValidatedRecording_UnrepairableOrbit_AbandonsInsteadOfRetrying()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+            var orbitNode = new ConfigNode("ORBIT");
+            orbitNode.AddValue("SMA", "700000");
+            orbitNode.AddValue("ECC", "0.01");
+            orbitNode.AddValue("INC", "0.0");
+            orbitNode.AddValue("LPE", "0.0");
+            orbitNode.AddValue("LAN", "0.0");
+            orbitNode.AddValue("MNA", "0.0");
+            orbitNode.AddValue("EPH", "100.0");
+            orbitNode.AddValue("REF", "-1");
+            snapshot.AddNode(orbitNode);
+
+            var rec = new Recording
+            {
+                VesselName = "Retry Guard",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            uint pid = VesselSpawner.RespawnValidatedRecording(
+                rec,
+                "spawn-test",
+                currentUT: 123.0);
+
+            Assert.Equal(0u, pid);
+            Assert.True(rec.VesselSpawned);
+            Assert.True(rec.SpawnAbandoned);
+            Assert.Contains(logLines, l =>
+                l.Contains("Spawn ABANDONED")
+                && l.Contains("Retry Guard")
+                && l.Contains("no repair body"));
+        }
+
+        [Fact]
+        public void AbandonSpawnForInvalidMaterialization_MarksGhostOnlyAndRetrySafe()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Bad Terminal",
+                SpawnedVesselPersistentId = 1234,
+                VesselSpawned = false,
+                SpawnAbandoned = false
+            };
+
+            VesselSpawner.AbandonSpawnForInvalidMaterialization(
+                rec,
+                "spawn-test",
+                "snapshot contains no PART subnodes");
+
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.True(rec.VesselSpawned);
+            Assert.True(rec.SpawnAbandoned);
+            Assert.Contains(logLines, l =>
+                l.Contains("Spawn ABANDONED")
+                && l.Contains("Bad Terminal")
+                && l.Contains("no PART"));
+        }
+
+        [Fact]
         public void BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
@@ -855,6 +1049,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lat", "1.0");
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
             var orbitNode = new ConfigNode("ORBIT");
             orbitNode.AddValue("REF", "0");
             snapshot.AddNode(orbitNode);
@@ -891,6 +1086,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lat", "1.0");
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
             var orbitNode = new ConfigNode("ORBIT");
             orbitNode.AddValue("SMA", "700000");
             orbitNode.AddValue("ECC", "0.01");
@@ -958,6 +1154,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lat", "1.0");
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
             var orbitNode = new ConfigNode("ORBIT");
             orbitNode.AddValue("SMA", "700000");
             orbitNode.AddValue("ECC", "0.01");

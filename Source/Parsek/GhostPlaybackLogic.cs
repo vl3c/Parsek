@@ -4489,7 +4489,11 @@ namespace Parsek
         internal static bool ShouldForceWatchedFullFidelity(
             bool isWatchedGhost, double ghostDistanceMeters, float cutoffKm)
         {
-            return isWatchedGhost && !ShouldExitWatchForCutoff(ghostDistanceMeters, cutoffKm);
+            return isWatchedGhost
+                && !double.IsNaN(ghostDistanceMeters)
+                && !double.IsInfinity(ghostDistanceMeters)
+                && ghostDistanceMeters >= 0.0
+                && !ShouldExitWatchForCutoff(ghostDistanceMeters, cutoffKm);
         }
 
         /// <summary>

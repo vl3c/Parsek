@@ -25,6 +25,11 @@ namespace Parsek
     // reads here through ComputeERS().
     internal class ParsekPlaybackPolicy
     {
+        // Deferred ghost creation in the 2026-04-26 watch-auto-follow repro took
+        // about 7.7s (KSP.log:27274); keep the retry hold comfortably above that
+        // so partial ghost builds can finish before the camera gives up.
+        private const float DeferredWatchTransferHoldSeconds = 30f;
+
         private readonly GhostPlaybackEngine engine;
         private readonly ParsekFlight host;
         internal Func<bool> IsWarpActiveOverrideForTesting;
@@ -325,9 +330,19 @@ namespace Parsek
                         int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
                         if (nextTarget >= 0)
                         {
-                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
-                            ParsekLog.Info("Policy",
-                                $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
+                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain watch transfer deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
                         }
                         else
                         {
@@ -335,7 +350,7 @@ namespace Parsek
                             // so UpdateWatchCamera retries FindNextWatchTarget every frame.
                             // Without this, the camera stays stuck on the stale ghost position
                             // indefinitely (no retry mechanism, no hold timer).
-                            float holdSeconds = 30f;
+                            float holdSeconds = DeferredWatchTransferHoldSeconds;
                             host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
                             ParsekLog.Info("Policy",
                                 $"Mid-chain watch hold started for #{evt.Index}: " +
@@ -432,12 +447,22 @@ namespace Parsek
                         int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
                         if (nextTarget >= 0)
                         {
-                            ParsekLog.Info("Policy",
-                                $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
-                                $"(vessel={committed[nextTarget].VesselName})");
-                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
-                            engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
-                                reason: "auto-followed to next stage");
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
+                                    $"(vessel={committed[nextTarget].VesselName})");
+                                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
+                                    reason: "auto-followed to next stage");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
+                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
                             return;
                         }
                     }
@@ -1115,13 +1140,20 @@ namespace Parsek
 
                         if (source == TrackingStationGhostSource.StateVectorSoiGap)
                         {
-                            GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                            if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(
                                 idx,
                                 traj,
                                 soiGapPoint,
                                 currentUT,
                                 allowOrbitalCheckpointStateVector: true,
-                                stateVectorUpdateReason: "soi-gap-state-vector-fallback");
+                                stateVectorUpdateReason: "soi-gap-state-vector-fallback"))
+                            {
+                                GhostMapPresence.RemoveGhostVesselForRecording(
+                                    idx,
+                                    GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                                if (toReDefer == null) toReDefer = new List<int>();
+                                toReDefer.Add(idx);
+                            }
                             continue;
                         }
 
@@ -1175,7 +1207,14 @@ namespace Parsek
                         }
                     }
 
-                    GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT);
+                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT))
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(
+                            idx,
+                            GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                    }
                 }
 
                 if (toReDefer != null)

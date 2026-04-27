@@ -685,9 +685,17 @@ namespace Parsek
                 spawnSnapshot,
                 tipRecording,
                 spawnUT,
-                logContext);
+                logContext,
+                out string materializationRejectionReason);
             if (validatedSpawnSnapshot == null)
+            {
+                if (!string.IsNullOrEmpty(materializationRejectionReason))
+                    VesselSpawner.AbandonSpawnForInvalidMaterialization(
+                        tipRecording,
+                        logContext,
+                        materializationRejectionReason);
                 return 0;
+            }
 
             // The snapshot has already been route-specifically overridden and validated above,
             // so the fallback only needs raw materialization here rather than another wrapper.

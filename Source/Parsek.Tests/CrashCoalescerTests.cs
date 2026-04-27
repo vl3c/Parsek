@@ -875,15 +875,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkipDeadOnArrivalControlledChild_DeadButHasSnapshot_ReturnsFalse()
+        public void ShouldSkipDeadOnArrivalControlledChild_DeadButHasSnapshot_ReturnsTrue()
         {
-            // Regression: a dead vessel WITH a pre-captured snapshot still
-            // produces a useful child recording (ghost visuals, start
-            // manifests, terminal-orbit prediction). The skip must NOT fire
-            // — it would silently drop legitimate records of pre-captured
-            // splits whose vessel happened to die during the coalescer
-            // window.
-            Assert.False(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
+            // Regression: 2026-04-26_1332 Re-Fly merge created a single-point
+            // "Unknown" recording from a controlled child whose live vessel
+            // was already gone. A pre-captured snapshot is not enough to make
+            // that dead-on-arrival child a useful controllable recording.
+            Assert.True(ParsekFlight.ShouldSkipDeadOnArrivalControlledChild(
                 childVesselIsAlive: false, hasPreCapturedSnapshot: true));
         }
 

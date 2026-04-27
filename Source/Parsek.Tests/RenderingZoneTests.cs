@@ -249,6 +249,21 @@ namespace Parsek.Tests
             Assert.Contains("Beyond->Visual", line);
         }
 
+        [Fact]
+        public void LogZoneTransition_UnresolvedDistance_LogsUnresolved()
+        {
+            RenderingZoneManager.LogZoneTransition(
+                "ghost-relative",
+                RenderingZone.Physics,
+                RenderingZone.Beyond,
+                double.MaxValue);
+
+            Assert.Single(logLines);
+            string line = logLines[0];
+            Assert.Contains("dist=unresolved", line);
+            Assert.DoesNotContain("179769313486232", line);
+        }
+
         #endregion
 
         #region LogLoopedGhostSpawnDecision
