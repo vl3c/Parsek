@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - Watch mode no longer auto-exits during time warp when the cached cutoff distance is stale across a FloatingOrigin/Krakensbane frame seam. A 3-frame debounce now requires the cached distance to stay over the cutoff for several consecutive frames before the camera detaches, suppressing single-frame false positives while keeping real cutoff crossings within ~50 ms.
 - Watching ghost A, switching to ghost B, then switching back to A no longer drops the camera at a surprising side angle. Explicit W->W switches now re-apply the captured (pitch, hdg) directly relative to the destination ghost's transform, instead of preserving a world-space camera direction that goes stale while the source ghost continues rotating; chain auto-transfers between segments still preserve the world direction because that handoff happens within a single frame.
+- Launch row now keeps its Rewind-to-launch ("R") button even when a sibling chain segment (the destroyed continuation under a staging BranchPoint) qualifies as an Unfinished Flight. Pre-fix the row dropped both R and Rewind-to-Staging, leaving the player no way to rewind the mission to the pad; the suppression check now only applies to the row that is itself the unfinished flight.
 
 ### Tests
 

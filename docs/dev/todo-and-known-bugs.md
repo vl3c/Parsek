@@ -11,6 +11,50 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~629. Launch row dropped its Rewind-to-launch ("R") button when a sibling chain segment was an Unfinished Flight~~
+
+Repro: launched `Kerbal X` (launch 2 in the session), separated stages, the
+booster continuation crashed. Back at KSC the launch row showed neither R nor
+Rewind-to-Staging — the player had no rewind action on the launch. Launch 1's
+launch row in the same session DID show R because its tree was never split
+into chain segments by the optimizer (no clean atmo→exo boundary before the
+crash).
+
+Tree shape from logs:
+
+```
+HEAD chainIndex=0  rec_5ca2cac9  Kerbal X            (owns rewindSave parsek_rw_ab2e3b)
+TIP  chainIndex=1  rec_6bb1973f  Kerbal X (cont.)    terminal=Destroyed, parentBP=bp_LU
+```
+
+Root cause: `RecordingsTableUI.ShouldShowLegacyRewindButton` suppressed the R
+button when `EffectiveState.IsChainMemberOfUnfinishedFlight(rec)` returned
+true. That predicate scans every member of the chain — so the HEAD (the
+launch row) tripped the suppression because the destroyed TIP qualified as an
+Unfinished Flight, even though the HEAD itself has no `ParentBranchPointId`
+and would never draw the Rewind-to-Staging button.
+
+Fix: Replaced the chain-wide check with `EffectiveState.IsUnfinishedFlight(rec)`
+so the R button is suppressed only on the row that is itself an unfinished
+flight (which gets Rewind-to-Staging instead via
+`DrawUnfinishedFlightRewindButton`). The chain HEAD keeps R-to-launch even
+when a sibling TIP is the unfinished flight; the chain TIP still draws
+Rewind-to-Staging and the legacy R is correctly hidden there. Updated the
+helper's doc comment and the call-site comment in `DrawTreeMainRowRewindCell`
+to spell out the new semantics. Added regression tests in
+`RewindTreeLookupTests`:
+
+- `ShouldShowLegacyRewindButton_ChainHeadWithUnfinishedTip_ReturnsTrue`
+  (asserts both `head→true` and `tip→false` for the bug's exact tree shape).
+- `ShouldShowLegacyRewindButton_StandaloneCrashedRecording_StillReturnsTrue`
+  (inverse-regression: a plain crashed standalone with its own save still
+  gets R).
+
+The pre-existing `ShouldShowLegacyRewindButton_ChainMemberOfUnfinishedFlight_ReturnsFalse`
+still passes — its head carries `ParentBranchPointId` AND has a destroyed
+chain tip, so `IsUnfinishedFlight(head)` returns true and R is correctly
+suppressed.
+
 ## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
 
 Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),
