@@ -181,6 +181,12 @@ This is useful, but it should wait until manifest ownership is settled because
 bridge tree metadata, manifest codecs, rewind metadata, UI grouping tags, and
 legacy merge-state migration.
 
+Re-evaluation is now tracked in
+`docs/dev/plans/refactor-4-pass2-tree-record-codec.md`. That proposal keeps the
+first implementation slice record-only, leaves branch point serialization out of
+scope, and keeps `RecordingTree` wrappers stable until a separate review
+approves caller migration.
+
 ## RecordingStore Target State
 
 After the proposed owners land, `RecordingStore` should still own recording
@@ -219,7 +225,9 @@ details, or manifest field serialization.
    with `TrajectorySidecarBinary`. Completed as its own slice.
 5. Extract `RecordingManifestCodec` behind wrappers. Completed as its own slice.
 6. Re-evaluate `RecordingTreeRecordCodec` after the first five steps. Do not
-   start it in the same PR as sidecar orchestration.
+   start it in the same PR as sidecar orchestration. Proposal-only re-evaluation
+   is now in `refactor-4-pass2-tree-record-codec.md`; code movement waits for
+   review.
 
 PR granularity:
 
