@@ -882,6 +882,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComposeSearchTreesForReFlySuppression_SameInputs_ReturnsStableComposedView()
+        {
+            var committed = new List<RecordingTree>
+            {
+                new RecordingTree { Id = "tree-committed" },
+            };
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var first = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+            var second = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.Equal(first.Count, second.Count);
+            Assert.Equal(2, second.Count);
+            Assert.Same(committed[0], second[0]);
+            Assert.Same(pending, second[1]);
+        }
+
+        [Fact]
+        public void ComposeSearchTreesForReFlySuppression_SameListMutated_InvalidatesCachedView()
+        {
+            var original = new RecordingTree { Id = "tree-original" };
+            var replacement = new RecordingTree { Id = "tree-replacement" };
+            var committed = new List<RecordingTree> { original };
+            var pending = new RecordingTree { Id = "tree-pending" };
+
+            var first = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+            committed[0] = replacement;
+
+            var second = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                committed, pending);
+
+            Assert.NotSame(first, second);
+            Assert.Equal(2, second.Count);
+            Assert.Same(replacement, second[0]);
+            Assert.Same(pending, second[1]);
+        }
+
+        [Fact]
         public void Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree()
         {
             // #611 P1 review follow-up: the user-visible bug is the
@@ -1101,6 +1142,75 @@ namespace Parsek.Tests
             Assert.Contains(
                 "reason=refly-relative-anchor=active relationship=parent sess=sess_demo retryLater=true",
                 line);
+        }
+
+        // -----------------------------------------------------------------
+        // PR #613 review P2: the v7 absolute-shadow branch is the same
+        // RELATIVE section's sibling positioning source. Suppression must
+        // fire on both "relative" and "absolute-shadow"; treating only
+        // "relative" leaks parent-chain v7 doubled ProtoVessels into the
+        // scene during active Re-Fly.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Suppresses_WhenBranchIsAbsoluteShadow_ParentChainVictim()
+        {
+            // Same scenario as the canonical positive test, but the resolver
+            // returned the v7 absolute-shadow branch (the section's anchor PID
+            // matched the active Re-Fly target so the wrapper substituted the
+            // shadow point in lieu of multiplying anchor-local offsets by the
+            // player's live pose). The suppression decision must STILL fire,
+            // because the underlying section is RELATIVE — it's only the
+            // positioning source that changed.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "absolute-shadow",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.True(suppressed);
+            Assert.StartsWith("refly-relative-anchor=active relationship=parent", reason);
+        }
+
+        [Fact]
+        public void NotSuppressed_WhenBranchIsAbsolute_RealAbsoluteSection()
+        {
+            // Negative pin: a true Absolute (non-shadow) section must NOT be
+            // suppressed. The "absolute" string is the regular Absolute
+            // branch label; only "absolute-shadow" piggy-backs on the
+            // RELATIVE-section suppression rule.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "absolute",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.False(suppressed);
+            Assert.Equal("not-suppressed-not-relative-frame", reason);
         }
     }
 }

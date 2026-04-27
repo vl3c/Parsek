@@ -445,5 +445,93 @@ namespace Parsek.Tests
             Assert.Equal("orbital-checkpoint", ocBranch);
             Assert.Equal("no-section", nsBranch);
         }
+
+        // -----------------------------------------------------------------
+        // ABSOLUTE-SHADOW branch — v7+ Relative section with a parallel
+        // absoluteFrames entry passed in by the caller (KSP-side wrapper
+        // detects "anchor PID == active Re-Fly target PID" and supplies the
+        // shadow entry). Pure helper must use the SHADOW point's surface
+        // lat/lon/alt, NOT the relative offsets in the original point — this
+        // is the difference between the upper-stage ghost playing back at
+        // its recorded orbital position vs. snapping to the player's live
+        // probe pose with hundreds of metres of offset.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AbsoluteShadow_UsesShadowSurfaceLookup_ReturnsLookupResult()
+        {
+            // The original Relative-frame point has anchor-local XYZ in its
+            // lat/lon/alt fields (metres, not body-fixed coords) — feeding
+            // those to GetWorldSurfacePosition would silently place the
+            // ghost roughly at the body surface but at meaningless coords.
+            // The shadow point carries the recorded body-fixed lat/lon/alt
+            // and the helper must dispatch through the surface lookup with
+            // the SHADOW values, not the original point.
+            var relativeOffsetPoint = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = 12.5,    // metres along anchor x — would be misread
+                longitude = 76.8,   // metres along anchor y — would be misread
+                altitude = -3.4,    // metres along anchor z — would be misread
+            };
+            var shadowPoint = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = -0.097,
+                longitude = -74.557,
+                altitude = 76140.0,  // recorded orbital altitude in metres
+            };
+            Vector3d shadowSurfaceWorld = new Vector3d(101480, 76140, 60072);
+            Vector3d wrongRelativeWorld = new Vector3d(-48, 1, -48);
+
+            Func<double, double, double, Vector3d> lookup = (lat, lon, alt) =>
+                lat == shadowPoint.latitude && lon == shadowPoint.longitude && alt == shadowPoint.altitude
+                    ? shadowSurfaceWorld
+                    : wrongRelativeWorld;
+
+            var result = GhostMapPresence.ResolveStateVectorWorldPositionPure(
+                relativeOffsetPoint,
+                RelativeSection(50, 150, 2450432355u),
+                7,
+                lookup,
+                anchorFound: true,
+                anchorWorldPos: new Vector3d(5, 0, 5),
+                anchorWorldRot: Quaternion.identity,
+                anchorVesselId: 2450432355u,
+                allowOrbitalCheckpointStateVector: false,
+                absoluteShadowPoint: shadowPoint);
+
+            Assert.True(result.Resolved);
+            Assert.Equal("absolute-shadow", result.Branch);
+            // Vector3d uses Unity's approximate == operator; assert components
+            // individually so a 1ulp drift doesn't fail an otherwise correct
+            // test.
+            Assert.Equal(shadowSurfaceWorld.x, result.WorldPos.x);
+            Assert.Equal(shadowSurfaceWorld.y, result.WorldPos.y);
+            Assert.Equal(shadowSurfaceWorld.z, result.WorldPos.z);
+            Assert.Equal(2450432355u, result.AnchorPid);
+        }
+
+        [Fact]
+        public void AbsoluteShadow_NullShadow_FallsThroughToRelativeBranch()
+        {
+            // No shadow → behaviour unchanged: use the live anchor + relative
+            // offsets. Negative test that protects unrelated callers.
+            var point = new TrajectoryPoint { ut = 100, latitude = 1, longitude = 2, altitude = 3 };
+
+            var result = GhostMapPresence.ResolveStateVectorWorldPositionPure(
+                point,
+                RelativeSection(50, 150, 42u),
+                7,
+                SurfaceLookupReturning(new Vector3d(99, 99, 99)),
+                anchorFound: true,
+                anchorWorldPos: new Vector3d(0, 0, 0),
+                anchorWorldRot: Quaternion.identity,
+                anchorVesselId: 42u,
+                absoluteShadowPoint: null);
+
+            Assert.True(result.Resolved);
+            Assert.Equal("relative", result.Branch);
+        }
     }
 }
