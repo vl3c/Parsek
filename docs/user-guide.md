@@ -61,7 +61,7 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 
 If **Auto-merge recordings** is enabled in Settings, the merge happens silently without a dialog.
 
-### Rewind to Staging (v0.9+)
+### Rewind to Separation (v0.9+)
 
 When a vessel stages, undocks, or EVAs into two or more controllable pieces, Parsek automatically captures a **Rewind Point** (a quicksave plus a per-slot vessel map) so you can replay the split. This is the booster-recovery feature in spirit: launch an AB stack, stage, take B to orbit and commit — and later come back to fly A down as a self-landing booster.
 
@@ -72,7 +72,7 @@ When a vessel stages, undocks, or EVAs into two or more controllable pieces, Par
 - **Revert during re-fly** — pressing stock Revert-to-Launch or Revert-to-VAB/SPH while a session is active shows the same three-option dialog: Retry from Rewind Point (re-loads the split moment in FLIGHT either way), Discard Re-fly (throws away the current attempt and returns you to the scene you clicked at the split UT; the tree's other re-fly state is preserved and the Unfinished Flights entry remains), or Continue Flying.
 - **Disk usage** — Settings > Diagnostics shows live Rewind Point disk usage (total size + file count). Rewind Points self-reap when the split has been fully resolved.
 
-See `docs/parsek-rewind-to-staging-design.md` for the full feature design.
+See `docs/parsek-rewind-to-separation-design.md` for the full feature design.
 
 ### Timeline Playback
 

@@ -16,12 +16,12 @@ The four top-of-queue correctness fixes (#431, #432, #433, #434) shipped in the 
 
 ---
 
-## Rewind to Staging — v0.9 shipped
+## Rewind to Separation — v0.9 shipped
 
 The feature shipped on `feat/rewind-staging` across v0.9's development cycle. See:
 
-- Design doc: `docs/parsek-rewind-to-staging-design.md` (post-implementation, final).
-- Pre-implementation spec (archived): `docs/dev/done/parsek-rewind-staging-design.md`.
+- Design doc: `docs/parsek-rewind-to-separation-design.md` (post-implementation, final).
+- Pre-implementation spec (archived): `docs/dev/done/parsek-rewind-separation-design.md`.
 - Roadmap entry: `docs/roadmap.md` → Completed → v0.9.
 - CHANGELOG: `CHANGELOG.md` → v0.9.0 features + Internals block.
 

@@ -4806,21 +4806,6 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"Binary sidecar check: verified {checkedCount} current-format recording(s), {skippedRoots} tree root(s) skipped");
         }
-
-        private static bool IsCompatibleCurrentBinarySidecarVersion(
-            int recordingFormatVersion,
-            int sidecarFormatVersion)
-        {
-            if (recordingFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-            {
-                // v4 is a metadata-only loop-interval semantic bump; legacy v3 sidecar bytes
-                // remain compatible and are intentionally not demoted on load (#411).
-                return sidecarFormatVersion == 3
-                    || sidecarFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
-            }
-
-            return sidecarFormatVersion == recordingFormatVersion;
-        }
     }
 
     /// <summary>

@@ -4089,47 +4089,9 @@ namespace Parsek
             RecordingSidecarStore.MarkSidecarLoadFailure(rec, reason);
         }
 
-        private static string FormatSidecarContext(Recording rec)
-        {
-            return FormatSidecarContext(
-                rec,
-                rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
-        }
-
-        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "id={0} saveFolder='{1}' epoch={2} ghostSnapshotMode={3}",
-                rec == null || string.IsNullOrEmpty(rec.RecordingId) ? "<null>" : rec.RecordingId,
-                SafeSaveFolderForSidecarLog(),
-                rec != null ? rec.SidecarEpoch : 0,
-                ghostSnapshotMode);
-        }
-
         private static string FormatPathForSidecarLog(string path)
         {
             return string.IsNullOrEmpty(path) ? "<null>" : path;
-        }
-
-        private static string FormatExceptionForSidecarLog(Exception ex)
-        {
-            if (ex == null)
-                return "<none>";
-
-            return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
-        }
-
-        private static string SafeSaveFolderForSidecarLog()
-        {
-            try
-            {
-                return string.IsNullOrEmpty(HighLogic.SaveFolder) ? "<null>" : HighLogic.SaveFolder;
-            }
-            catch (Exception ex)
-            {
-                return "<error:" + ex.GetType().Name + ">";
-            }
         }
 
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
