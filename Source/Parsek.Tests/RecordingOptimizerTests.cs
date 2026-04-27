@@ -1634,7 +1634,64 @@ namespace Parsek.Tests
                 new List<Recording> { rec }));
         }
 
-        // 18. Gap larger than the window: prev.endUT = next.startUT - (W + 2), event placed
+        // 18a. Approach ↔ ExoBallistic with no PartEvents → empty.
+        // The eccentric airless-body grazing case: a Mun orbit whose periapsis dips
+        // below the approach altitude (timeWarpAltitudeLimits[4], ~30 km) used to
+        // produce N splits per N periapsis passes; now the same gate as Atmo↔Exo
+        // suppresses passive crossings.
+        [Fact]
+        public void MeaningfulGate_ApproachToExoBallistic_NoEvents_ReturnsEmpty()
+        {
+            var fwd = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Approach, SegmentEnvironment.ExoBallistic);
+            var rev = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach);
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { fwd }));
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rev }));
+        }
+
+        // 18b. Approach → ExoPropulsive (S3 short-circuit on airless body) → split,
+        // even without nearby PartEvents. Take-off ascent past the approach altitude
+        // with engines firing.
+        [Fact]
+        public void MeaningfulGate_ApproachToExoPropulsive_S3ShortCircuit_Splits()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Approach, SegmentEnvironment.ExoPropulsive);
+
+            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec }));
+        }
+
+        // 18c. ExoBallistic → Approach with EngineIgnited near boundary → split.
+        // Powered descent crossing the approach altitude.
+        [Fact]
+        public void MeaningfulGate_ExoBallisticToApproach_EngineIgnited_Splits()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17029, eventType = PartEventType.EngineIgnited, value = 1f
+            });
+
+            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec }));
+        }
+
+        // 18d. Approach ↔ Surface boundary still always-meaningful (Surface bucket).
+        [Fact]
+        public void MeaningfulGate_ApproachToSurface_AlwaysSplits()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceStationary);
+
+            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec }));
+        }
+
+        // 19. Gap larger than the window: prev.endUT = next.startUT - (W + 2), event placed
         // exactly at prev.endUT, no event at splitUT → empty. Guards the splitUT-vs-prev.endUT
         // discriminator: a prev.endUT-anchored gate would (incorrectly) split here.
         [Fact]
@@ -4043,12 +4100,18 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint>()
             });
 
-            // Atmo↔Exo seam at 17100 needs a meaningful event under the optimizer's
-            // split gate. Other seams (Exo↔Approach, Approach↔Surface) involve
-            // class-3/class-2 and are always-meaningful.
+            // Atmo↔Exo seam at 17100 and Exo↔Approach seam at 17500 both fall under
+            // the optimizer's gate (Atmo↔Exo and Approach↔Exo are noise-cluster pairs
+            // unless gated by a meaningful action). Approach↔Surface at 17600 stays
+            // always-meaningful via the Surface bucket and needs no event.
             main.PartEvents.Add(new PartEvent
             {
                 ut = 17100, eventType = PartEventType.EngineIgnited, value = 1f,
+                partName = "synthetic-boundary", partPersistentId = 100000
+            });
+            main.PartEvents.Add(new PartEvent
+            {
+                ut = 17500, eventType = PartEventType.EngineIgnited, value = 1f,
                 partName = "synthetic-boundary", partPersistentId = 100000
             });
 

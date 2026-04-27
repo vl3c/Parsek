@@ -1026,10 +1026,10 @@ namespace Parsek
         {
             NotABoundary = 0,            // env unchanged AND body unchanged
             BodyChange,                  // #251 — always-meaningful SOI traversal
-            SurfaceOrApproach,           // class 2 or class 3 boundary
+            SurfaceInvolved,             // class 2 (Surface) on either side
             ExoPropulsiveAtCrossing,     // S3 — engine-on at the crossing
             MeaningfulPartEventNearUT,   // S1 — PartEvent in MeaningfulSet within window
-            SuppressedPassiveCrossing,   // pure Atmo↔ExoBallistic with no nearby action
+            SuppressedPassiveCrossing,   // pure Atmo↔ExoBallistic OR Approach↔Exo with no nearby action
             SuppressedCheckpointPair     // S4 defensive — both sides OrbitalCheckpoint
         }
 
@@ -1048,14 +1048,21 @@ namespace Parsek
             int prevClass = SplitEnvironmentClass(prev.environment);
             int nextClass = SplitEnvironmentClass(next.environment);
 
-            // Surface (class 2) or Approach (class 3) involvement: always meaningful.
-            // Surface boundaries are gated upstream by Vessel.Situations + debounce; Approach
-            // boundaries are rare-flyby noise but the cost of splitting is mild.
-            if (prevClass == 2 || nextClass == 2 || prevClass == 3 || nextClass == 3)
+            // Surface (class 2) involvement: always meaningful — gated upstream by
+            // Vessel.Situations + debounce, never by altitude alone. Surface↔Approach,
+            // Surface↔Atmo, Surface↔Exo all land here.
+            if (prevClass == 2 || nextClass == 2)
             {
-                reason = SplitBoundaryReason.SurfaceOrApproach;
+                reason = SplitBoundaryReason.SurfaceInvolved;
                 return true;
             }
+
+            // Approach↔Exo (airless-body altitude boundary) goes through the same gate
+            // as Atmo↔Exo: an eccentric airless orbit grazing periapsis below the
+            // approach altitude is structurally identical to the atmo case, and would
+            // otherwise produce N splits per N periapsis passes. ExoPropulsive +
+            // PartEvent checks below handle real powered-descent / take-off boundaries
+            // (research note §8 Q3 — extended from the v1 always-meaningful default).
 
             // S3: thrust-on at the crossing (ExoPropulsive on either side) — the env
             // detector only assigns ExoPropulsive when ModuleEngines thrust is positive,

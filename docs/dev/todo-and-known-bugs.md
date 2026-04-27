@@ -24,9 +24,11 @@ in-bubble passes, and the no-payload boundary section produced by
 `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
 
 Fix: gated `FindSplitCandidatesForOptimizer` behind a meaningful-action check
-on pure Atmospheric↔Exo* boundaries. The seam is split only when one of:
+on pure Atmospheric↔Exo* AND Approach↔Exo boundaries (the same structural
+gate covers airless-body altitude crossings — the eccentric-Mun grazing case
+is identical to the atmo case). The seam is split only when one of:
   - body changes (#251 — always-meaningful SOI traversal),
-  - either side is `Surface*` or `Approach` (state-flag-gated upstream),
+  - either side is `Surface*` (state-flag-gated upstream),
   - either side is `ExoPropulsive` (S3 short-circuit — engine was firing),
   - a meaningful `PartEvent` (engine, RCS, decoupling, parachute, gear,
     thermal animation) lands within ±5 s of `next.startUT`.
