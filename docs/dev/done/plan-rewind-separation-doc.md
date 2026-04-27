@@ -1,18 +1,18 @@
-# Plan — Post-Implementation Design Doc for Rewind to Staging
+# Plan — Post-Implementation Design Doc for Rewind to Separation
 
-Drafted as the spec the Write agent will consume. The existing pre-implementation spec at `docs/parsek-rewind-staging-design.md` (v0.5.2, 1085 lines, written before code existed) is retained as-is for historical reference; the new doc is an independent file that describes what actually shipped.
+Drafted as the spec the Write agent will consume. The existing pre-implementation spec at `docs/parsek-rewind-separation-design.md` (v0.5.2, 1085 lines, written before code existed) is retained as-is for historical reference; the new doc is an independent file that describes what actually shipped.
 
 ## Deliverable
 
-**New file:** `docs/parsek-rewind-staging.md` (no `-design` suffix to distinguish from the pre-impl spec).
+**New file:** `docs/parsek-rewind-separation.md` (no `-design` suffix to distinguish from the pre-impl spec).
 
 **Target length:** 1400–1800 lines. Pre-impl spec is 1085; this doc removes the per-phase sequencing and adds scenarios + philosophy, so net similar.
 
 **Ancillary updates in the same commit:**
-- `docs/user-guide.md` — add a short (~25-line) "Rewind to Staging" section aimed at players.
-- `docs/roadmap.md` — move Phase 12 "Rewind to Staging (v0.9, in design)" from active/planned into Completed under v0.9, with a one-line summary. Cross-reference the new design doc.
+- `docs/user-guide.md` — add a short (~25-line) "Rewind to Separation" section aimed at players.
+- `docs/roadmap.md` — move Phase 12 "Rewind to Separation (v0.9, in design)" from active/planned into Completed under v0.9, with a one-line summary. Cross-reference the new design doc.
 - `docs/parsek-architecture.md` — add one-line entries for the new subsystems (`RewindInvoker`, `MergeJournalOrchestrator`, `EffectiveState`, `LoadTimeSweep`) under the subsystem design docs index so new devs can navigate into the new doc.
-- `docs/dev/todo-and-known-bugs.md` — strike the "Rewind to Staging (v0.9)" section entirely (all Phase 1-14 entries are shipped). Move any leftover follow-ups (ERS/ELS index-refactor TODOs, wider tombstone scope) into a "v0.9 follow-ups" or "Rewind to Staging follow-ups" block with explicit descriptions, or delete if they duplicate the Known Limitations section of the new design doc.
+- `docs/dev/todo-and-known-bugs.md` — strike the "Rewind to Separation (v0.9)" section entirely (all Phase 1-14 entries are shipped). Move any leftover follow-ups (ERS/ELS index-refactor TODOs, wider tombstone scope) into a "v0.9 follow-ups" or "Rewind to Separation follow-ups" block with explicit descriptions, or delete if they duplicate the Known Limitations section of the new design doc.
 - `CHANGELOG.md` — no change (v0.9.0 release-note block already written by Phase 14).
 
 Commit on `docs/rewind-final-design` branch in the `Parsek-rewind-doc/` worktree. Not pushed.
@@ -91,7 +91,7 @@ The doc follows the house-style template surfaced by the peer design docs. Peer 
     - Cross-tree supersedes — explicit halt in `EffectiveRecordingId` walk; v1 doesn't produce them.
     - End-to-end automated in-game RunInvoke test — stubbed due to scene-reload not being drivable under xUnit.
     - Background split RP capture relies on cached PID payload; a joint-break during high warp on a truly unloaded vessel still may not trigger (brief inline note).
-12. **Diagnostic Logging** — full log-tag catalog. **The Write agent must derive the catalog via `grep -r "ParsekLog\.\(Info\|Warn\|Verbose\)" Source/Parsek/ --include="*.cs"` filtered to Rewind-to-Staging source files (RewindInvoker, RewindPointAuthor, RewindInvokeContext, ReconciliationBundle, PostLoadStripper, SupersedeCommit, TombstoneEligibility, TombstoneAttributionHelper, TerminalKindClassifier, MergeJournalOrchestrator, RewindPointReaper, TreeDiscardPurge, ReFlyRevertDialog, RevertInterceptor, LoadTimeSweep, MarkerValidator, SessionSuppressionState, UnfinishedFlightsGroup, EffectiveState, RewindPointDiskUsage, modified parts of MergeDialog.cs, ParsekScenario.cs, RecordingStore.cs, CrewReservationManager.cs).** The candidate list of tags expected (verified from shipped code): `Rewind`, `RewindUI`, `ReFlySession`, `Supersede`, `LedgerSwap`, `MergeJournal`, `LoadSweep`, `UnfinishedFlights`, `CrewReservations`, `Merger`, `RevertInterceptor`. Do NOT invent tags that don't appear in the grep output (the pre-impl spec's candidate tags like `RewindSave`, `Reap`, `Strip`, `Tombstone`, `ERS`, `ELS` did not ship as separate tag names — they're sub-categories under the bracketed tags above). For each surveyed tag: example line + which decision points fire it. Helps debuggers reconstruct a session from `KSP.log`.
+12. **Diagnostic Logging** — full log-tag catalog. **The Write agent must derive the catalog via `grep -r "ParsekLog\.\(Info\|Warn\|Verbose\)" Source/Parsek/ --include="*.cs"` filtered to Rewind-to-Separation source files (RewindInvoker, RewindPointAuthor, RewindInvokeContext, ReconciliationBundle, PostLoadStripper, SupersedeCommit, TombstoneEligibility, TombstoneAttributionHelper, TerminalKindClassifier, MergeJournalOrchestrator, RewindPointReaper, TreeDiscardPurge, ReFlyRevertDialog, RevertInterceptor, LoadTimeSweep, MarkerValidator, SessionSuppressionState, UnfinishedFlightsGroup, EffectiveState, RewindPointDiskUsage, modified parts of MergeDialog.cs, ParsekScenario.cs, RecordingStore.cs, CrewReservationManager.cs).** The candidate list of tags expected (verified from shipped code): `Rewind`, `RewindUI`, `ReFlySession`, `Supersede`, `LedgerSwap`, `MergeJournal`, `LoadSweep`, `UnfinishedFlights`, `CrewReservations`, `Merger`, `RevertInterceptor`. Do NOT invent tags that don't appear in the grep output (the pre-impl spec's candidate tags like `RewindSave`, `Reap`, `Strip`, `Tombstone`, `ERS`, `ELS` did not ship as separate tag names — they're sub-categories under the bracketed tags above). For each surveyed tag: example line + which decision points fire it. Helps debuggers reconstruct a session from `KSP.log`.
 Followed by:
 
 - **Appendix A — Gameplay Scenarios** — 4-6 concrete play sessions walking through Happy path (staging → crash one side → re-fly → merge landed), EVA re-fly, Docking merge, Revert-during-re-fly (3-option dialog), Crash-quit-resume mid-re-fly (session marker survives, post-load pipeline resumes). Each scenario: 5-10 bullet steps describing what the player sees. Matches the scenario-simulation style from `development-workflow.md` Step 2 and the appendix in `parsek-logistics-routes-design.md:933`.
@@ -123,12 +123,12 @@ Do NOT include design rationale, code references, or implementation details in t
 
 ## Roadmap update (`docs/roadmap.md`)
 
-Move the existing "Phase 12: Rewind to Staging (v0.9, in design)" entry into Completed under v0.9 with a one-line summary: "Rewind to Staging — re-fly unfinished missions after multi-controllable splits (design doc: `docs/parsek-rewind-staging.md`)." Keep the pre-existing structure (whatever Completed/In-Progress columns already exist).
+Move the existing "Phase 12: Rewind to Separation (v0.9, in design)" entry into Completed under v0.9 with a one-line summary: "Rewind to Separation — re-fly unfinished missions after multi-controllable splits (design doc: `docs/parsek-rewind-separation.md`)." Keep the pre-existing structure (whatever Completed/In-Progress columns already exist).
 
 ## Architecture index update (`docs/parsek-architecture.md`)
 
 Add entries under the subsystem design docs index:
-- "Rewind to Staging — `docs/parsek-rewind-staging.md`" (primary doc)
+- "Rewind to Separation — `docs/parsek-rewind-separation.md`" (primary doc)
 - List the subsystems introduced: `RewindInvoker`, `MergeJournalOrchestrator`, `EffectiveState`, `LoadTimeSweep`, `TreeDiscardPurge`, `RewindPointReaper`, `RevertInterceptor`, `SessionSuppressionState`, `UnfinishedFlightsGroup`
 
 ## What NOT to put in the doc
@@ -142,7 +142,7 @@ Those belong in PR description or git history, not in the published design doc. 
 
 ## Source material the Write agent must consult
 
-- The pre-impl doc `docs/parsek-rewind-staging-design.md` (as a structural reference, NOT a source of truth for what shipped)
+- The pre-impl doc `docs/parsek-rewind-separation-design.md` (as a structural reference, NOT a source of truth for what shipped)
 - Peer design docs (`parsek-flight-recorder-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`) for tone/structure
 - The shipped code in `Source/Parsek/` — every data-model and behavior claim must be verifiable by reading a named file (Write agent is expected to read/grep them directly rather than rely on this plan's summaries)
 - `CHANGELOG.md` v0.9.0 block for the user-facing one-liner
@@ -155,7 +155,7 @@ The Write agent should NOT rely on a summary embedded in this plan; instead, it 
 1. Explore/Audit: done.
 2. **Plan review (opus)** — an opus agent reviews THIS plan against the peer docs and audit, flags gaps / bad structure / missing sections.
 3. Fix plan based on review (orchestrator).
-4. **Write (opus)** — an opus agent drafts `docs/parsek-rewind-staging.md`, `docs/user-guide.md` section, `docs/roadmap.md` + `docs/parsek-architecture.md` updates in the `Parsek-rewind-doc/` worktree on branch `docs/rewind-final-design`.
+4. **Write (opus)** — an opus agent drafts `docs/parsek-rewind-separation.md`, `docs/user-guide.md` section, `docs/roadmap.md` + `docs/parsek-architecture.md` updates in the `Parsek-rewind-doc/` worktree on branch `docs/rewind-final-design`.
 5. **Final review (opus)** — another opus agent reads the finished doc cold + the shipped code, verifies every data-model and behavior claim, reports issues.
 6. Fix (orchestrator or fix agent) if the review found issues.
 7. Commit in logical units on `docs/rewind-final-design`. Merge to `feat/rewind-staging` after the merge-from-main agent completes.

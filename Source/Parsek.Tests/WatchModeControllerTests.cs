@@ -599,6 +599,118 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MakeWatchCameraStateTargetRelative_ClearsBasisFields_KeepsPitchHeadingDistanceMode()
+        {
+            // Bug: explicit user W->W switches let many frames pass between
+            // capture and apply (the user clicks Watch on a different ghost
+            // while the source ghost has continued rotating). The captured
+            // world-orbit-direction would decompose into a visually surprising
+            // local angle on the destination ghost's rotated basis. The fix
+            // routes W->W switches through this helper so the captured (pitch,
+            // hdg) survive intact and re-apply directly relative to the new
+            // target's transform. Chain transfers (TransferWatchToNextSegment)
+            // intentionally bypass this helper to keep their world-direction
+            // path — they auto-handoff in a single frame with no drift window.
+            var captured = new WatchCameraTransitionState
+            {
+                Distance = 142f,
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = true,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized
+            };
+
+            WatchCameraTransitionState result =
+                WatchModeController.MakeWatchCameraStateTargetRelative(captured);
+
+            Assert.False(result.HasTargetRotation);
+            Assert.Equal(Quaternion.identity, result.TargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
+            Assert.Equal(Vector3.zero, result.WorldOrbitDirection);
+            Assert.Equal(142f, result.Distance);
+            Assert.Equal(-31.5f, result.Pitch);
+            Assert.Equal(-166.5f, result.Heading);
+            Assert.Equal(WatchCameraMode.Free, result.Mode);
+            Assert.True(result.UserModeOverride);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_TargetRelativeStateIgnoresNewTargetRotation()
+        {
+            // After MakeWatchCameraStateTargetRelative strips the basis fields,
+            // CompensateTransferredWatchAngles must return the captured (pitch,
+            // hdg) verbatim regardless of the destination target's rotation.
+            // Simulates the W->W switch apply path: source ghost #10 yawed
+            // 90° while the user was watching ghost #0; on return the captured
+            // pitch=-31.5, hdg=-166.5 should re-apply to the rotated #10
+            // target unchanged.
+            var captured = new WatchCameraTransitionState
+            {
+                Distance = 142f,
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                Mode = WatchCameraMode.Free,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized
+            };
+
+            WatchCameraTransitionState targetRelative =
+                WatchModeController.MakeWatchCameraStateTargetRelative(captured);
+
+            Quaternion driftedDestinationRotation =
+                new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                targetRelative,
+                driftedDestinationRotation);
+
+            Assert.Equal(-31.5f, newPitch);
+            Assert.Equal(-166.5f, newHeading);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_RawWorldDirectionStateStillProjectsForChainTransfers()
+        {
+            // Regression guard for chain transfers (TransferWatchToNextSegment):
+            // those still pass HasWorldOrbitDirection=true through to the
+            // apply path so the camera continues to point in the same world
+            // direction across the within-frame auto-handoff. If the W->W fix
+            // accidentally generalized to chain transfers, this assertion
+            // (preserved-direction within 0.999 cosine of the captured world
+            // vector) would fail because the camera would re-apply the raw
+            // captured (pitch, hdg) in the new target's basis instead.
+            Vector3 worldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized;
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = worldOrbitDirection
+            };
+
+            Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                state,
+                newTargetRotation);
+
+            Vector3 resolvedWorldDirection = WatchModeController.RotateVectorByQuaternion(
+                newTargetRotation,
+                OrbitDirectionFromAngles(newPitch, newHeading));
+
+            Assert.True(
+                Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
+                $"Chain-transfer path should still preserve world orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+        }
+
+        [Fact]
         public void TryResolveRetargetedWatchAngles_WithCapturedState_ReappliesCompensatedAngles()
         {
             Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);

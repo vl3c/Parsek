@@ -4806,21 +4806,6 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"Binary sidecar check: verified {checkedCount} current-format recording(s), {skippedRoots} tree root(s) skipped");
         }
-
-        private static bool IsCompatibleCurrentBinarySidecarVersion(
-            int recordingFormatVersion,
-            int sidecarFormatVersion)
-        {
-            if (recordingFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-            {
-                // v4 is a metadata-only loop-interval semantic bump; legacy v3 sidecar bytes
-                // remain compatible and are intentionally not demoted on load (#411).
-                return sidecarFormatVersion == 3
-                    || sidecarFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
-            }
-
-            return sidecarFormatVersion == recordingFormatVersion;
-        }
     }
 
     /// <summary>
@@ -6395,17 +6380,45 @@ namespace Parsek.InGameTests
         }
 
         private static IEnumerator WaitForCommittedRecording(
-            string recordingId, int committedBefore, float timeoutSeconds)
+            string recordingId, int committedBefore, float timeoutSeconds,
+            System.Action<Recording> onResolved = null)
         {
+            // CommitTreeFlight commits the recording (count goes up by 1,
+            // populates RewindSaveFileName on the rewind owner) and then,
+            // because the live active vessel still represents the just-
+            // committed recording, ParsekFlight's auto-restore path
+            // (TryTakeCommittedTreeForSpawnedVesselRestore) immediately pulls
+            // the tree back out of CommittedRecordings to keep it as the live
+            // active tree. The Recording instance is unchanged — it just
+            // moves between the committed slot and the active-tree slot, and
+            // RewindSaveFileName stays populated. Look up via either slot and
+            // latch the count-incremented observation so a single tick inside
+            // the brief committed window is sufficient.
             float deadline = Time.time + timeoutSeconds;
+            bool sawCountIncrease = false;
+            Recording resolved = null;
             while (Time.time < deadline)
             {
-                bool committed = RecordingStore.CommittedRecordings.Any(
+                if (RecordingStore.CommittedRecordings.Count > committedBefore)
+                    sawCountIncrease = true;
+
+                Recording candidate = RecordingStore.CommittedRecordings.FirstOrDefault(
                     r => r != null && r.RecordingId == recordingId);
-                bool countIncreased = RecordingStore.CommittedRecordings.Count > committedBefore;
-                bool stillRecording = ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording;
-                if (committed && countIncreased && !stillRecording)
+                if (candidate == null)
+                {
+                    var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
+                    if (activeTree?.Recordings != null)
+                        activeTree.Recordings.TryGetValue(recordingId, out candidate);
+                }
+
+                if (sawCountIncrease
+                    && candidate != null
+                    && !string.IsNullOrEmpty(candidate.RewindSaveFileName))
+                {
+                    resolved = candidate;
+                    onResolved?.Invoke(resolved);
                     yield break;
+                }
 
                 yield return null;
             }
@@ -6414,7 +6427,9 @@ namespace Parsek.InGameTests
                 $"WaitForCommittedRecording timed out after {timeoutSeconds:F0}s " +
                 $"(recordingId={recordingId ?? "null"}, committedBefore={committedBefore}, " +
                 $"committedNow={RecordingStore.CommittedRecordings.Count}, " +
-                $"isRecording={ParsekFlight.Instance?.IsRecording == true})");
+                $"sawCountIncrease={sawCountIncrease}, " +
+                $"isRecording={ParsekFlight.Instance?.IsRecording == true}, " +
+                $"activeTreeRec={resolved?.RecordingId ?? "null"})");
         }
 
         private static IEnumerator WaitForCapturedLogLine(
@@ -8520,10 +8535,14 @@ namespace Parsek.InGameTests
                 // committed launch recording (with RewindSaveFileName copied to the root)
                 // before InitiateRewind can resolve a rewind owner.
                 flight.CommitTreeFlight();
-                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f);
+                // Capture the Recording inside the wait so the lookup is not
+                // racing the post-commit auto-restore that pulls the tree
+                // back out of CommittedRecordings (the same Recording
+                // instance moves to the active-tree slot — see WaitForCommittedRecording).
+                Recording committedRecording = null;
+                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f,
+                    rec => committedRecording = rec);
 
-                Recording committedRecording = RecordingStore.CommittedRecordings.FirstOrDefault(
-                    r => r != null && r.RecordingId == activeRecId);
                 InGameAssert.IsNotNull(committedRecording,
                     "Committing the live rewind canary tree should land the recording in the timeline");
                 InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
@@ -12563,10 +12582,25 @@ namespace Parsek.InGameTests
             engine.ResolvePlaybackActiveVesselDistanceOverride =
                 (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
 
-            ghost = new GameObject(
-                positionerSetsRetireFlag
-                    ? "ParsekTestGhost_Bug613Retired"
-                    : "ParsekTestGhost_Bug613Resolved");
+            // Use a primitive cube so the ghost has a real MeshRenderer.
+            // TrackGhostAppearance gates on TryGetCombinedVisibleRendererBounds
+            // walking the part container's child Renderers (with a fallback to
+            // the ghost root itself when no GhostVisualsRoot child exists), so
+            // a bare `new GameObject(...)` could never satisfy the renderer
+            // probe and appearanceCount could never increment — the resolved-
+            // anchor variant of this scenario then failed on `appearanceCount
+            // >= 1` even though the engine gate it was meant to pin worked
+            // correctly. The retired-anchor variant is unaffected because the
+            // engine's retire branch skips TrackGhostAppearance entirely.
+            // Drop the auto-added Collider so this test does not interact with
+            // KSP's physics scene.
+            ghost = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            ghost.name = positionerSetsRetireFlag
+                ? "ParsekTestGhost_Bug613Retired"
+                : "ParsekTestGhost_Bug613Resolved";
+            var ghostCollider = ghost.GetComponent<Collider>();
+            if (ghostCollider != null)
+                UnityEngine.Object.Destroy(ghostCollider);
             runner.TrackForCleanup(ghost);
             // Start ACTIVE so a successful retire actually has to flip
             // SetActive from true -> false (matches the production scene
@@ -12678,13 +12712,32 @@ namespace Parsek.InGameTests
             engine.OnOverlapCameraAction += e => overlapEvents.Add(e);
             engine.OnGhostCreated += e => createdEvents.Add(e);
 
+            // Overlap variant: duration=10s + interval=5s -> IsOverlapLoop(5,10)
+            // is true AND 5 >= LoopTiming.MinCycleDuration so ResolveLoopInterval
+            // does not clamp the period upward. lastCycle = floor(2.5/5) = 0;
+            // primaryState=null => primaryCycleChanged=true => fresh spawn with
+            // PendingSpawnLifecycle.OverlapPrimaryEnter.
+            //
+            // Loop variant: duration=10s + interval=10s -> IsOverlapLoop(10,10)
+            // is false so the engine takes the single-ghost loop path. cycle=0,
+            // first-spawn lifecycle = PendingSpawnLifecycle.LoopEnter.
+            //
+            // Earlier (interval=2.0 / duration=5) clamped to interval=5 and
+            // IsOverlapLoop(5,5)=false, so the overlap variant silently fell
+            // back to LoopEnter and the OverlapPrimaryEnter assertions never
+            // exercised the code path they were written to pin.
+            double overlapLoopInterval = 5.0;
+            double overlapDuration = 10.0;
+            double loopInterval = overlapPrimary ? overlapLoopInterval : 10.0;
+            double trajDuration = overlapPrimary ? overlapDuration : 10.0;
             var traj = new Bug613LoopRelativeTrajectory(
                 bodyName: activeVessel.mainBody.name,
                 latitude: activeVessel.latitude,
                 longitude: activeVessel.longitude,
                 altitude: System.Math.Max(0.0, activeVessel.altitude),
                 terminalDestroyed: false,
-                loopIntervalSeconds: overlapPrimary ? 2.0 : 10.0);
+                loopIntervalSeconds: loopInterval,
+                durationSeconds: trajDuration);
             var flags = new[]
             {
                 new TrajectoryPlaybackFlags
@@ -12705,7 +12758,7 @@ namespace Parsek.InGameTests
                 protectedLoopCycleIndex = -1,
                 externalGhostCount = 0,
                 mapViewEnabled = false,
-                autoLoopIntervalSeconds = overlapPrimary ? 2.0 : 10.0,
+                autoLoopIntervalSeconds = loopInterval,
             };
 
             var localLog = new List<string>();
@@ -13201,9 +13254,23 @@ namespace Parsek.InGameTests
             primaryGhost.SetActive(true);
             ovGhost.SetActive(true);
 
-            // Primary state at current cycle (cycleIndex=2), overlap state
-            // at older cycle (cycleIndex=0) whose phase exceeds duration so
-            // UpdateExpireAndPositionOverlaps walks the expired-cycle branch.
+            // Overlap-loop trajectory: duration=10s, interval=5s ->
+            // IsOverlapLoop(5,10)=true AND 5 >= LoopTiming.MinCycleDuration so
+            // ResolveLoopInterval does not clamp. lastCycle = floor(11/5) = 2.
+            //
+            // Primary state must already be at cycleIndex=lastCycle so
+            // primaryCycleChanged stays false (we want the overlap-expiry
+            // branch, not the cycle-change demote/respawn branch).
+            //
+            // Overlap state (cycleIndex=0) has phase = 11 - 0*5 = 11s, which
+            // exceeds duration=10s, so UpdateExpireAndPositionOverlaps walks
+            // its expire branch and emits OnOverlapCameraAction +
+            // OnOverlapExpired.
+            //
+            // Earlier (interval=2.0 / duration=5) clamped to interval=5 and
+            // IsOverlapLoop(5,5)=false, so the overlap branch never ran and
+            // the resolved-anchor assertion (cameraEvents.Count >= 1) failed
+            // while the retired-anchor assertion (== 0) passed trivially.
             var primaryState = new GhostPlaybackState
             {
                 vesselName = "Bug613TestOverlapPrimary",
@@ -13227,18 +13294,14 @@ namespace Parsek.InGameTests
             engine.OnOverlapCameraAction += e => cameraEvents.Add(e);
             engine.OnOverlapExpired += e => expiredEvents.Add(e);
 
-            // Overlap-loop trajectory: duration=5s, interval=2s, so cycle 0's
-            // phase at currentUT=4.0s is 4.0 (less than duration, doesn't
-            // expire); push currentUT past 5s to expire cycle 0.
-            // Phase formula: phase = currentUT - (scheduleStartUT + cycle * cycleDuration)
-            // Set currentUT high enough to push the older cycle past duration.
             var traj = new Bug613LoopRelativeTrajectory(
                 bodyName: activeVessel.mainBody.name,
                 latitude: activeVessel.latitude,
                 longitude: activeVessel.longitude,
                 altitude: System.Math.Max(0.0, activeVessel.altitude),
                 terminalDestroyed: true,
-                loopIntervalSeconds: 2.0);
+                loopIntervalSeconds: 5.0,
+                durationSeconds: 10.0);
             var flags = new[]
             {
                 new TrajectoryPlaybackFlags
@@ -13251,7 +13314,7 @@ namespace Parsek.InGameTests
 
             var ctx = new FrameContext
             {
-                currentUT = 6.0, // > duration(5) for cycle 0 -> expires
+                currentUT = 11.0, // cycle 0 phase=11 > duration=10 -> expires; lastCycle=2
                 warpRate = 1f,
                 warpRateIndex = 0,
                 activeVesselPos = Vector3d.zero,
@@ -13259,7 +13322,7 @@ namespace Parsek.InGameTests
                 protectedLoopCycleIndex = -1,
                 externalGhostCount = 0,
                 mapViewEnabled = false,
-                autoLoopIntervalSeconds = 2.0,
+                autoLoopIntervalSeconds = 5.0,
             };
 
             var localLog = new List<string>();
@@ -13587,13 +13650,21 @@ namespace Parsek.InGameTests
     {
         private readonly bool _terminalDestroyed;
         private readonly double _loopIntervalSeconds;
+        private readonly double _durationSeconds;
 
+        // durationSeconds drives EndUT and the trajectory's two sample points so
+        // overlap-mode harnesses can request a recording long enough to satisfy
+        // both LoopTiming.MinCycleDuration (5s) AND interval < duration (the
+        // gate IsOverlapLoop checks). Defaults to 5s so existing single-ghost
+        // loop / pause-window harnesses keep their original behavior.
         internal Bug613LoopRelativeTrajectory(
             string bodyName, double latitude, double longitude, double altitude,
-            bool terminalDestroyed, double loopIntervalSeconds = 5.0)
+            bool terminalDestroyed, double loopIntervalSeconds = 5.0,
+            double durationSeconds = 5.0)
         {
             _terminalDestroyed = terminalDestroyed;
             _loopIntervalSeconds = loopIntervalSeconds;
+            _durationSeconds = durationSeconds;
             Points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint
@@ -13605,7 +13676,7 @@ namespace Parsek.InGameTests
                 },
                 new TrajectoryPoint
                 {
-                    ut = 5,
+                    ut = durationSeconds,
                     latitude = latitude, longitude = longitude + 0.001, altitude = altitude + 10.0,
                     rotation = Quaternion.identity, velocity = Vector3.zero,
                     bodyName = bodyName,
@@ -13617,7 +13688,7 @@ namespace Parsek.InGameTests
                 {
                     environment = SegmentEnvironment.ExoBallistic,
                     referenceFrame = ReferenceFrame.Relative,
-                    startUT = 0, endUT = 5,
+                    startUT = 0, endUT = durationSeconds,
                     anchorVesselId = 3151978247u,
                     frames = new List<TrajectoryPoint>(Points),
                     sampleRateHz = 1,
@@ -13633,7 +13704,7 @@ namespace Parsek.InGameTests
         public bool HasOrbitSegments => false;
         public List<TrackSection> TrackSections { get; }
         public double StartUT => 0;
-        public double EndUT => 5;
+        public double EndUT => _durationSeconds;
         public int RecordingFormatVersion => 6;
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
         public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
