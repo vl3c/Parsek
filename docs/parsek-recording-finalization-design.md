@@ -2,7 +2,7 @@
 
 *Design specification for sealing active and background recordings when the live KSP vessel ends before Parsek can run the normal scene-exit finalizer. This document is the contract for future implementation PRs; it does not describe shipped behavior yet.*
 
-*Related docs: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md), [`parsek-rewind-to-staging-design.md`](parsek-rewind-to-staging-design.md), [`dev/plans/incomplete-ballistic-extrapolation.md`](dev/plans/incomplete-ballistic-extrapolation.md), [`dev/plans/recording-finalization-reliability.md`](dev/plans/recording-finalization-reliability.md).*
+*Related docs: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md), [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md), [`dev/plans/incomplete-ballistic-extrapolation.md`](dev/plans/incomplete-ballistic-extrapolation.md), [`dev/plans/recording-finalization-reliability.md`](dev/plans/recording-finalization-reliability.md).*
 
 ---
 
@@ -10,7 +10,7 @@
 
 Parsek can synthesize a predicted tail for some incomplete recordings when the player exits the flight scene while the live vessel still exists. That is not enough for mission-tree correctness. A recording can end because the player switches focus, a background sibling leaves the physics bubble, KSP deletes an unfocused atmospheric vessel, the active vessel crashes before scene exit, or `FlightGlobals` is unavailable during teardown. In those cases Parsek may commit only the last sampled point, infer a weak terminal state from stale data, or mark the vessel destroyed without the synthetic trajectory that explains how it got there.
 
-This is foundational for Rewind to Staging. The Unfinished Flights classifier needs trustworthy terminal state and end-time data to decide whether a sibling really ended badly and whether a rewind point should stay actionable. A terminal state that depends on which KSP object happened to survive until scene exit is not a durable gameplay contract.
+This is foundational for Rewind to Separation. The Unfinished Flights classifier needs trustworthy terminal state and end-time data to decide whether a sibling really ended badly and whether a rewind point should stay actionable. A terminal state that depends on which KSP object happened to survive until scene exit is not a durable gameplay contract.
 
 ## Current Implementation Audit
 
@@ -133,7 +133,7 @@ Expected Parsek behavior:
 - The recording owner changes from active to background, but the cache follows the recording id.
 - When the background vessel actually ends or becomes unreachable, Parsek consumes that recording's cache.
 
-### Rewind to Staging Dependency
+### Rewind to Separation Dependency
 
 A staged booster ended in the background and the player wants to re-fly it. The UI must know whether the booster is genuinely crashed/destroyed, still orbiting, safely landed, or unfinalized.
 
@@ -302,7 +302,7 @@ Focus switching is not itself a consumer unless the switch path actually ends th
 - Committed recordings remain immutable after commit. Cache application happens before commit or as part of the existing finalization path.
 - Background recording remains an in-flight, physics-bubble system. This design does not add cross-scene background simulation.
 - Parsek does not simulate full atmospheric drag for unloaded vessels. It mirrors stock KSP's practical outcome for unfocused atmospheric deletion/destruction.
-- Rewind to Staging UI and supersede semantics do not change here. They consume better terminal data after implementation.
+- Rewind to Separation UI and supersede semantics do not change here. They consume better terminal data after implementation.
 - ERS/ELS access rules do not change. The cache is pre-commit finalization state and must not introduce new raw `RecordingStore.CommittedRecordings` or `Ledger.Actions` readers outside the existing grep-audit allowlist.
 
 ## Backward Compatibility

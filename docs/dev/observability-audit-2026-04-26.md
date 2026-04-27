@@ -80,7 +80,7 @@ timing logs, but they do not wrap the full phase in a top-level catch that logs
 Parsek-specific context before the exception leaves the method.
 
 Impact: failures in tree persistence, sidecar loading, game-state persistence,
-rewind staging, merge finishing, or pending tree restore can appear as a raw
+rewind separation, merge finishing, or pending tree restore can appear as a raw
 Unity/KSP exception without the save folder, counts, active tree state, rewind
 state, or pending marker state.
 

@@ -3,7 +3,7 @@
 **Branch:** `doc-recording-finalization-design`
 **Worktree:** `C:/Users/vlad3/Documents/Code/Parsek/Parsek-doc-recording-finalization`
 **Design doc:** `docs/parsek-recording-finalization-design.md`
-**Related:** `docs/dev/done/plans/incomplete-ballistic-extrapolation.md`, `docs/parsek-rewind-to-staging-design.md`
+**Related:** `docs/dev/done/plans/incomplete-ballistic-extrapolation.md`, `docs/parsek-rewind-to-separation-design.md`
 
 ## Goal
 
@@ -16,7 +16,7 @@ This is not a TODO bucket. It is the phase plan for separate implementation work
 - No save-format change for the cache.
 - No cross-scene background simulation.
 - No full atmospheric drag simulation for unloaded vessels.
-- No Rewind-to-Staging UI changes in this plan.
+- No Rewind-to-Separation UI changes in this plan.
 - No committed-recording mutation after commit.
 
 ## Current Source Map
@@ -28,7 +28,7 @@ This is not a TODO bucket. It is the phase plan for separate implementation work
 - `Source/Parsek/BackgroundRecorder.cs` - background loaded/on-rails sampling, background destroy/unload/TTL paths.
 - `Source/Parsek/ParsekFlight.cs` - tree finalization, scene exit, post-destruction merge, vessel event routing.
 - `Source/Parsek/Recording.cs` / `RecordingStore.cs` - existing persisted recording fields and sidecar dirty/persistence behavior.
-- `Source/Parsek/TerminalKindClassifier.cs` - Rewind-to-Staging terminal-kind consumer.
+- `Source/Parsek/TerminalKindClassifier.cs` - Rewind-to-Separation terminal-kind consumer.
 
 ## Phase 0 - Documentation PR
 
@@ -38,7 +38,7 @@ Tasks:
 
 1. Add `docs/parsek-recording-finalization-design.md`.
 2. Add this implementation plan under `docs/dev/plans/`.
-3. Cross-reference the new design from the flight-recorder, Rewind-to-Staging, architecture, and old incomplete-ballistic docs.
+3. Cross-reference the new design from the flight-recorder, Rewind-to-Separation, architecture, and old incomplete-ballistic docs.
 4. Add a changelog documentation note.
 
 Validation:
@@ -257,7 +257,7 @@ Each implementation PR must be reviewed against:
 - Are all non-obvious branches logged?
 - Are background sidecar writes still durable after cache application?
 - Does every new helper with logic have xUnit coverage?
-- Is Rewind-to-Staging terminal classification made more reliable without changing its UI semantics?
+- Is Rewind-to-Separation terminal classification made more reliable without changing its UI semantics?
 
 ## Risks
 

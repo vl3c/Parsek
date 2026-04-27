@@ -148,7 +148,7 @@ Add as item 23 in the v0.9 follow-ups list (pattern matching items 19-22):
 
 > 23. **Re-fly merge supersede only covered the chain head, leaving a chain-tip orphan after env-split crashes.** ~~done~~ — `EffectiveState.ComputeSessionSuppressedSubtreeInternal` (`Source/Parsek/EffectiveState.cs:523`) walked the suppressed-subtree closure forward via `ChildBranchPointId` only. Merge-time `RecordingOptimizer.SplitAtSection` splits a single live recording at env boundaries (atmo↔exo) into a `ChainId`-linked HEAD + TIP where the HEAD keeps the parent-branch-point link to the RewindPoint but ends with `ChildBranchPointId = null`, while the TIP carries the `Destroyed` terminal and the BP-link. After re-fly merge, only the HEAD got a supersede row pointing at the new provisional; the TIP stayed visible with the original "kerbal destroyed in atmo" outcome alongside the new "kerbal lived" re-fly. Fixed by adding an `EnqueueChainSiblings` helper invoked on every dequeued member: for each recording added to the closure, every committed recording sharing both `ChainId` and `ChainBranch` is also added (and re-enqueued so its own `ChildBranchPointId` walk runs). The contract matches `EffectiveState.IsChainMemberOfUnfinishedFlight` and `ResolveChainTerminalRecording` (same `ChainId`+`ChainBranch` predicate); different `ChainBranch` values remain independent. `SupersedeCommit.AppendRelations` and `CommitTombstones` automatically extend with the closure — the journal still computes the set once per merge run. Tests `ChainExpansion_HeadOrigin_IncludesTip`, `ChainExpansion_TipOrigin_IncludesHead`, `ChainExpansion_DifferentChainBranch_Excluded`, `ChainExpansion_ThreeSegments_AllIncluded`, and `ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded` in `SessionSuppressedSubtreeTests.cs`; `AppendRelations_ChainHeadOrigin_WritesSupersedeRowPerSegment` and `CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin` in `SupersedeCommitTests.cs`. No retroactive migration: pre-existing affected saves keep the orphan TIP and require a manual `Discard`.
 
-#### `docs/parsek-rewind-to-staging-design.md`
+#### `docs/parsek-rewind-to-separation-design.md`
 
 Update §3.3 (Session-suppressed subtree definition) with one bullet noting that the closure includes chain siblings sharing both `ChainId` and `ChainBranch`. Add: "Each member also expands to its chain siblings (same `ChainId` and `ChainBranch`) so a `RecordingOptimizer.SplitAtSection` env split between HEAD and TIP is suppressed atomically." Update §6.6 step 3 likewise if it describes the closure shape.
 
@@ -191,4 +191,4 @@ The grep-audit gate (`scripts/grep-audit-ers-els.ps1`) does not need an exemptio
 - `Source/Parsek.Tests/SupersedeCommitTests.cs`
 - `CHANGELOG.md`
 - `docs/dev/todo-and-known-bugs.md`
-- `docs/parsek-rewind-to-staging-design.md` (§3.3 / §6.6)
+- `docs/parsek-rewind-to-separation-design.md` (§3.3 / §6.6)
