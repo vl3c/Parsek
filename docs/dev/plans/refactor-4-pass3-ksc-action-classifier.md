@@ -213,19 +213,24 @@ must be re-reviewed before implementation.
 ## Rollback And PR Granularity
 
 - PR A: this proposal only.
-- PR B: classifier-only extraction behind `LedgerOrchestrator.ClassifyAction`.
-- PR C: optional DTO/enum cleanup and caller/test migration, only after
-  PR B is accepted and separately approved.
+- Planned PR B: classifier-only extraction behind
+  `LedgerOrchestrator.ClassifyAction`.
+- Planned PR C: optional DTO/enum cleanup and caller/test migration.
+- Actual PR #621 landing shape: PR B and PR C are folded together. See the
+  implementation checkpoints below for the exact completed slices.
 
-Rollback for PR B should be source-only: delete
-`KscActionExpectationClassifier.cs` and restore the classifier body inside
-`LedgerOrchestrator.ClassifyAction`. Because no schemas, persisted fields,
-ledger mutation paths, or caller names change, no save migration or cleanup is
-needed.
+Rollback for the combined PR #621 shape is still source-only, but it must revert
+both completed slices: delete `KscActionExpectationClassifier.cs`, restore the
+classifier body and the four `Ksc*` DTO/enum types inside
+`LedgerOrchestrator`, and revert the direct test callers, production XML doc
+references, and `EarningsReconciliationTests` reflection helper back to
+`LedgerOrchestrator.Ksc*` / `typeof(LedgerOrchestrator)`. Because no schemas,
+persisted fields, ledger mutation paths, or runtime state contracts change, no
+save migration or cleanup is needed.
 
-Do not combine PR B with any reconciliation extraction. If a behavior drift is
-found, revert the classifier move rather than patching reconciliation policy in
-the same PR.
+Do not combine the PR #621 classifier/DTO migration with any reconciliation
+extraction. If a behavior drift is found, revert the classifier move rather
+than patching reconciliation policy in the same PR.
 
 ## What Remains In LedgerOrchestrator
 
