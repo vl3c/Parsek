@@ -219,8 +219,10 @@ namespace Parsek
         ///
         /// Only applied to the optimizer path. The non-optimizer
         /// <see cref="FindSplitCandidates"/> retains the legacy "always split on env
-        /// change" behavior — its callers (test fixtures, ghost chain walker) need a
-        /// pre-meaningful-gate view of the boundary set.
+        /// change" behavior as a test-only regression baseline showing the pre-gate
+        /// boundary set; no production caller invokes it (a grep across `Source/Parsek`
+        /// finds only `RecordingOptimizerTests.cs` consumers). Kept around so the
+        /// pre-gate semantics stay green-bar verifiable in the test suite.
         /// </summary>
         /// <param name="reason">
         /// Set on every call where env or body changed (i.e., the function inspected
@@ -282,6 +284,7 @@ namespace Parsek
                 int evaluatedBoundaries = 0;
                 int suppressedPassive = 0;
                 int suppressedCheckpointPair = 0;
+                int splittableButRejected = 0;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
@@ -302,9 +305,12 @@ namespace Parsek
                             break; // One split per recording per pass (re-scan after split)
                         }
                         // Splittable boundary that CanAutoSplit rejects (e.g. too-short
-                        // halves) — counted as evaluated but not split. Falls through
-                        // to keep scanning later boundaries.
+                        // halves, EVA atmo↔surface continuous gate). Counted as evaluated
+                        // and as "splittable-but-rejected" so the summary log surfaces
+                        // a recording where every boundary is rejected for the same
+                        // downstream reason.
                         evaluatedBoundaries++;
+                        splittableButRejected++;
                         continue;
                     }
 
@@ -320,13 +326,15 @@ namespace Parsek
                         suppressedPassive++;
                 }
 
-                if (suppressedPassive > 0 || suppressedCheckpointPair > 0)
+                if (suppressedPassive > 0 || suppressedCheckpointPair > 0
+                    || splittableButRejected > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
                         $"Split suppressed: rec={rec.RecordingId} " +
                         $"evaluated={evaluatedBoundaries} " +
                         $"passiveCrossings={suppressedPassive} " +
-                        $"checkpointPairs={suppressedCheckpointPair}");
+                        $"checkpointPairs={suppressedCheckpointPair} " +
+                        $"splittableButRejected={splittableButRejected}");
                 }
             }
 
@@ -964,9 +972,7 @@ namespace Parsek
         {
             switch (evt.eventType)
             {
-                case PartEventType.EngineIgnited:
                 case PartEventType.EngineShutdown:
-                case PartEventType.RCSActivated:
                 case PartEventType.RCSStopped:
                 case PartEventType.Decoupled:
                 case PartEventType.Destroyed:
@@ -982,10 +988,13 @@ namespace Parsek
                 case PartEventType.ThermalAnimationMedium:
                     return true;
 
-                // Throttle events only count when they signal active power application
-                // (positive value); zero-throttle events are inert and should not unblock
-                // an otherwise-passive crossing. Mirrors IsInertPartEventForTailTrim.
+                // Activation/throttle events only count when they signal active power
+                // application (positive value); zero-power events are inert and should
+                // not unblock an otherwise-passive crossing. Mirrors
+                // IsInertPartEventForTailTrim, which also gates these four on value > 0.
+                case PartEventType.EngineIgnited:
                 case PartEventType.EngineThrottle:
+                case PartEventType.RCSActivated:
                 case PartEventType.RCSThrottle:
                     return evt.value > 0f;
 

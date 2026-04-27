@@ -1219,8 +1219,10 @@ namespace Parsek.Tests
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
             // Place events near the boundary (within MeaningfulBoundaryWindowSeconds = 5s)
             // so the optimizer's meaningful-action gate accepts the env-class split.
-            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17028 });
-            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.RCSActivated, ut = 17029 });
+            // value > 0 required: activation events with value == 0 are inert and would
+            // not unblock the gate (mirrors IsInertPartEventForTailTrim).
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17028, value = 1f });
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.RCSActivated, ut = 17029, value = 1f });
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
@@ -1578,22 +1580,51 @@ namespace Parsek.Tests
                 new List<Recording> { rec }));
         }
 
-        // 16. RCS-only deorbit kick: RCSActivated + positive RCSThrottle within window → split.
+        // 16a. RCS-only deorbit kick (RCSActivated, value > 0) within window → split.
         [Fact]
-        public void MeaningfulGate_RcsOnly_WithinWindow_Splits()
+        public void MeaningfulGate_RcsActivatedPositive_WithinWindow_Splits()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
             rec.PartEvents.Add(new PartEvent
             {
-                ut = 17029, eventType = PartEventType.RCSActivated
+                ut = 17029, eventType = PartEventType.RCSActivated, value = 1f
             });
+
+            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec }));
+        }
+
+        // 16b. Positive RCS throttle change within window → split. Distinct from 16a:
+        // RCSThrottle fires on power *changes* during a continuous burn, so a recording
+        // can have RCSThrottle without a corresponding RCSActivated in-window.
+        [Fact]
+        public void MeaningfulGate_RcsThrottlePositive_WithinWindow_Splits()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
             rec.PartEvents.Add(new PartEvent
             {
                 ut = 17029.5, eventType = PartEventType.RCSThrottle, value = 0.4f
             });
 
             Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec }));
+        }
+
+        // 16c. RCSActivated with value == 0 (e.g. seed event from in-flight save resume)
+        // is inert and does NOT unblock the gate. Mirrors IsInertPartEventForTailTrim.
+        [Fact]
+        public void MeaningfulGate_RcsActivatedZero_IsInert_DoesNotSplit()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17029, eventType = PartEventType.RCSActivated, value = 0f
+            });
+
+            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
                 new List<Recording> { rec }));
         }
 
@@ -1632,6 +1663,50 @@ namespace Parsek.Tests
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
                 new List<Recording> { rec }));
+        }
+
+        // 14b. Multiple oscillations, meaningful event on a LATER crossing — split fires
+        // at the meaningful crossing, not before. Pins the loop's continue-after-suppress
+        // path: a `false` from IsSplittableEnvOrBodyBoundary must keep scanning later
+        // boundaries rather than abandon the recording.
+        [Fact]
+        public void MeaningfulGate_MultipleOscillations_EventOnLaterCrossing_SplitsAtThatBoundary()
+        {
+            var rec = new Recording { RecordingId = "rec_late_meaningful" };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
+
+            var envs = new[]
+            {
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+            };
+            for (int i = 0; i < envs.Length; i++)
+            {
+                rec.TrackSections.Add(new TrackSection
+                {
+                    environment = envs[i],
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 17000 + i * 60,
+                    endUT = 17000 + (i + 1) * 60,
+                    frames = new List<TrajectoryPoint>()
+                });
+            }
+
+            // Boundaries are at sectionIndex {1, 2, 3, 4, 5} → splitUT {17060, 17120,
+            // 17180, 17240, 17300}. Place a meaningful event near the *third* boundary
+            // (17180). Boundaries 1 and 2 must be suppressed and the loop must keep
+            // scanning until it finds boundary 3.
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17180, eventType = PartEventType.EngineIgnited, value = 1f
+            });
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec });
+            Assert.Single(candidates);
+            Assert.Equal((0, 3), candidates[0]);
         }
 
         // 18a. Approach ↔ ExoBallistic with no PartEvents → empty.
@@ -1760,6 +1835,94 @@ namespace Parsek.Tests
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
                 new List<Recording> { overlap }));
+        }
+
+        // 20. Log assertion: aggregate suppression summary fires once per recording
+        // when ≥1 boundary was suppressed, with a counter for each reason. Pins the
+        // counter increment paths so a typo (suppressedPassive++ → suppressedCheckpointPair++)
+        // is caught (per CLAUDE.md "Testing Requirements" — log assertions verify
+        // that code paths executed and logged the expected data).
+        [Fact]
+        public void MeaningfulGate_AggregateSuppressionLog_CountsPassiveCrossings()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var rec = new Recording { RecordingId = "rec_log_passive" };
+                rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+                rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
+
+                // 6 sections → 5 boundaries, all passive Atmo↔ExoBallistic. Each is
+                // suppressed: passiveCrossings=5, evaluated=5.
+                var envs = new[]
+                {
+                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
+                };
+                for (int i = 0; i < envs.Length; i++)
+                {
+                    rec.TrackSections.Add(new TrackSection
+                    {
+                        environment = envs[i],
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 17000 + i * 60,
+                        endUT = 17000 + (i + 1) * 60,
+                        frames = new List<TrajectoryPoint>()
+                    });
+                }
+
+                RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec });
+
+                // Exactly one summary line per recording per pass.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Optimizer]")
+                    && l.Contains("Split suppressed: rec=rec_log_passive")
+                    && l.Contains("evaluated=5")
+                    && l.Contains("passiveCrossings=5")
+                    && l.Contains("checkpointPairs=0")
+                    && l.Contains("splittableButRejected=0"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        // 21. Log assertion: per-acceptance log fires with the discriminator that fired.
+        [Fact]
+        public void MeaningfulGate_AcceptanceLog_EmitsDiscriminator()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+                rec.RecordingId = "rec_log_accept";
+                rec.PartEvents.Add(new PartEvent
+                {
+                    ut = 17030, eventType = PartEventType.Decoupled
+                });
+
+                RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec });
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Optimizer]")
+                    && l.Contains("Split candidate (MeaningfulPartEventNearUT)")
+                    && l.Contains("rec=rec_log_accept"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
         }
 
         #endregion
