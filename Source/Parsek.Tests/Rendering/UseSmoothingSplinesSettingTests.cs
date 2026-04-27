@@ -1,0 +1,92 @@
+using System;
+using System.Collections.Generic;
+using Parsek;
+using Xunit;
+
+namespace Parsek.Tests.Rendering
+{
+    /// <summary>
+    /// Tests for the Phase 1 <c>useSmoothingSplines</c> rollout flag (design
+    /// doc §18 Phase 1, §19.2 Stage 1 row "Settings flag flip"). Default,
+    /// persistence round-trip, and Pipeline-Smoothing log line on flip.
+    /// Touches static state (<see cref="ParsekLog.TestSinkForTesting"/> /
+    /// <see cref="ParsekSettingsPersistence"/>) so runs in the
+    /// <c>Sequential</c> collection.
+    /// </summary>
+    [Collection("Sequential")]
+    public class UseSmoothingSplinesSettingTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public UseSmoothingSplinesSettingTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekSettingsPersistence.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekSettingsPersistence.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_DefaultsTrue()
+        {
+            // What makes it fail: a default of false would leave Phase 1's
+            // smoothing pipeline gated off for fresh installs, masking
+            // regressions and making the rollout invisible.
+            var settings = new ParsekSettings();
+            Assert.True(settings.useSmoothingSplines);
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_PersistsAcrossLoad()
+        {
+            // What makes it fail: if the flag is not in
+            // ParsekSettingsPersistence, KSP's GameParameters reset on every
+            // save load would silently revert the user's preference.
+            ParsekSettingsPersistence.SetStoredUseSmoothingSplinesForTesting(false);
+            Assert.False(ParsekSettingsPersistence.GetStoredUseSmoothingSplines().Value);
+
+            ParsekSettingsPersistence.ResetForTesting();
+            Assert.Null(ParsekSettingsPersistence.GetStoredUseSmoothingSplines());
+
+            // Set again, verify the round trip survives a fresh setter.
+            ParsekSettingsPersistence.SetStoredUseSmoothingSplinesForTesting(false);
+            Assert.False(ParsekSettingsPersistence.GetStoredUseSmoothingSplines().Value);
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_FlipLogsInfo()
+        {
+            // What makes it fail: the rollout-gate flip must produce exactly
+            // one Pipeline-Smoothing Info line per design doc §19.2 Stage 1
+            // row. A silent flip leaves the log unable to attribute a
+            // visual artifact to the moment the gate changed.
+            ParsekSettings.NotifyUseSmoothingSplinesChanged(false, true);
+
+            // bool.ToString() yields "False" / "True" — match case-insensitively
+            // so the log format can use either casing without breaking the test.
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-Smoothing]")
+                && l.IndexOf("false->true", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_NoLogWhenUnchanged()
+        {
+            // What makes it fail: emitting the line on a no-op flip would
+            // spam the log on every settings-window save (the UI typically
+            // calls Notify on assign regardless of whether the value
+            // changed).
+            ParsekSettings.NotifyUseSmoothingSplinesChanged(true, true);
+
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[Pipeline-Smoothing]") && l.Contains("useSmoothingSplines:"));
+        }
+    }
+}

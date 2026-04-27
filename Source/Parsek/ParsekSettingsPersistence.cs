@@ -40,11 +40,13 @@ namespace Parsek
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
+        private const string UseSmoothingSplinesKey = "useSmoothingSplines";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
+        private static bool? storedUseSmoothingSplines;
         private static bool loaded;
 
         /// <summary>
@@ -130,10 +132,22 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
+                string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
+                if (!string.IsNullOrEmpty(useSplinesStr)
+                    && bool.TryParse(useSplinesStr, out bool useSplines))
+                {
+                    storedUseSmoothingSplines = useSplines;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseSmoothingSplinesKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -169,6 +183,16 @@ namespace Parsek
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
             }
 
+            if (storedUseSmoothingSplines.HasValue
+                && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
+            {
+                bool prev = settings.useSmoothingSplines;
+                settings.useSmoothingSplines = storedUseSmoothingSplines.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useSmoothingSplines {prev} -> {storedUseSmoothingSplines.Value} from persistent store");
+                ParsekSettings.NotifyUseSmoothingSplinesChanged(prev, storedUseSmoothingSplines.Value);
+            }
+
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
             // now is ParsekSettings.Current authoritative enough for
             // EffectiveShowGhostsInTrackingStation to trust it and resync the
@@ -192,6 +216,13 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
+            Save();
+        }
+
+        internal static void RecordUseSmoothingSplines(bool value)
+        {
+            LoadIfNeeded();
+            storedUseSmoothingSplines = value;
             Save();
         }
 
@@ -291,11 +322,14 @@ namespace Parsek
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
+                if (storedUseSmoothingSplines.HasValue)
+                    root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -313,6 +347,7 @@ namespace Parsek
         {
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
+            storedUseSmoothingSplines = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -338,6 +373,8 @@ namespace Parsek
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
 
+        internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
+
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -351,6 +388,12 @@ namespace Parsek
         internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
         {
             storedShowGhostsInTrackingStation = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseSmoothingSplinesForTesting(bool? value)
+        {
+            storedUseSmoothingSplines = value;
             loaded = true;
         }
     }

@@ -63,6 +63,18 @@ namespace Parsek
         public bool showGhostsInTrackingStation = true;
 
         /// <summary>
+        /// Phase 1 of the ghost trajectory rendering pipeline (design doc
+        /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, ABSOLUTE-frame
+        /// body-fixed ghost playback evaluates a Catmull-Rom smoothing
+        /// spline instead of the legacy <c>BracketPointAtUT</c>. Default
+        /// true; the flag exists so Phase 1 can ship behind a single rollout
+        /// gate and so tests can exercise the legacy fall-through.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use smoothing splines",
+            toolTip = "When on (Phase 1), absolute-frame ghost playback uses Catmull-Rom splines instead of bracketed nearest-sample lookup")]
+        public bool useSmoothingSplines = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -305,5 +317,19 @@ namespace Parsek
             => (actual - preset) / range;
 
         private static double Square(double value) => value * value;
+
+        /// <summary>
+        /// Emits a single Pipeline-Smoothing log line when
+        /// <see cref="useSmoothingSplines"/> flips. Phase 1 spec (design doc
+        /// §19.2 Stage 1 row "Settings flag flip") requires Info-level
+        /// visibility for the toggle so a developer can see the rollout-gate
+        /// state in KSP.log. UI / settings code should call this at the
+        /// assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseSmoothingSplinesChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Smoothing", $"useSmoothingSplines: {oldValue}->{newValue}");
+        }
     }
 }
