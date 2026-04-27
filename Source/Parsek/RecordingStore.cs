@@ -5854,65 +5854,21 @@ namespace Parsek
 
         #region Recording File I/O
 
+        // Compatibility wrappers during the sidecar owner split. Delete after
+        // call sites can move to RecordingSidecarStore directly.
         internal static void ClearSidecarLoadFailure(Recording rec)
         {
-            if (rec == null)
-                return;
-
-            rec.SidecarLoadFailed = false;
-            rec.SidecarLoadFailureReason = null;
+            RecordingSidecarStore.ClearSidecarLoadFailure(rec);
         }
 
         internal static void MarkSidecarLoadFailure(Recording rec, string reason)
         {
-            if (rec == null)
-                return;
-
-            rec.SidecarLoadFailed = true;
-            rec.SidecarLoadFailureReason = reason;
-        }
-
-        private static string FormatSidecarContext(Recording rec)
-        {
-            return FormatSidecarContext(
-                rec,
-                rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
-        }
-
-        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "id={0} saveFolder='{1}' epoch={2} ghostSnapshotMode={3}",
-                rec == null || string.IsNullOrEmpty(rec.RecordingId) ? "<null>" : rec.RecordingId,
-                SafeSaveFolderForSidecarLog(),
-                rec != null ? rec.SidecarEpoch : 0,
-                ghostSnapshotMode);
+            RecordingSidecarStore.MarkSidecarLoadFailure(rec, reason);
         }
 
         private static string FormatPathForSidecarLog(string path)
         {
             return string.IsNullOrEmpty(path) ? "<null>" : path;
-        }
-
-        private static string FormatExceptionForSidecarLog(Exception ex)
-        {
-            if (ex == null)
-                return "<none>";
-
-            return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
-        }
-
-        private static string SafeSaveFolderForSidecarLog()
-        {
-            try
-            {
-                return string.IsNullOrEmpty(HighLogic.SaveFolder) ? "<null>" : HighLogic.SaveFolder;
-            }
-            catch (Exception ex)
-            {
-                return "<error:" + ex.GetType().Name + ">";
-            }
         }
 
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
@@ -5928,45 +5884,7 @@ namespace Parsek
 
         internal static bool LoadRecordingFiles(Recording rec)
         {
-            if (rec == null)
-            {
-                Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
-                return false;
-            }
-            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
-            {
-                Log($"[Parsek] WARNING: LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
-                return false;
-            }
-
-            ClearSidecarLoadFailure(rec);
-            string precPath = null;
-            string vesselPath = null;
-            string ghostPath = null;
-            try
-            {
-                precPath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-                vesselPath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-                ghostPath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
-            }
-            catch (Exception ex)
-            {
-                MarkSidecarLoadFailure(rec, "exception:" + ex.GetType().Name);
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles failed {FormatSidecarContext(rec)} fileKind=trajectory+snapshots " +
-                        $"trajectoryPath='{FormatPathForSidecarLog(precPath)}' " +
-                        $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
-                        $"ghostPath='{FormatPathForSidecarLog(ghostPath)}' " +
-                        $"ex={FormatExceptionForSidecarLog(ex)}");
-                }
-                return false;
-            }
+            return RecordingSidecarStore.LoadRecordingFiles(rec);
         }
 
         /// <summary>
@@ -5979,17 +5897,7 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
         {
-            if (rec.SidecarEpoch <= 0)
-                return false;  // old save without epoch — skip validation
-
-            if (fileEpoch == rec.SidecarEpoch)
-                return false;  // epochs match — sidecar is valid
-
-            ParsekLog.Warn("RecordingStore",
-                $"Sidecar epoch mismatch {FormatSidecarContext(rec)}: " +
-                $".sfs expects epoch {rec.SidecarEpoch}, .prec has epoch {fileEpoch} — " +
-                $"sidecar is stale (bug #270), skipping sidecar load (trajectory + snapshots)");
-            return true;
+            return RecordingSidecarStore.ShouldSkipStaleSidecar(rec, fileEpoch);
         }
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
@@ -6165,13 +6073,12 @@ namespace Parsek
         internal static bool LoadRecordingFilesFromPathsForTesting(
             Recording rec, string precPath, string vesselPath, string ghostPath)
         {
-            if (rec == null)
-                throw new ArgumentNullException(nameof(rec));
-
-            ClearSidecarLoadFailure(rec);
-            return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
+            return RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
+                rec, precPath, vesselPath, ghostPath);
         }
 
+        // Kept on RecordingStore while wrappers remain the public test surface.
+        // Move with the load owner after codec/call-site ownership settles.
         internal enum SnapshotSidecarLoadState
         {
             Missing = 0,
@@ -6252,160 +6159,9 @@ namespace Parsek
             SnapshotSidecarCodec.Write(path, node);
         }
 
-        private static bool LoadRecordingFilesFromPathsInternal(
-            Recording rec, string precPath, string vesselPath, string ghostPath)
-        {
-            // Load .prec trajectory file
-            // ConfigNode.Save writes the node's contents (values + children),
-            // and ConfigNode.Load returns a node containing those contents directly.
-            if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
-            {
-                MarkSidecarLoadFailure(rec, "trajectory-missing");
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: missing trajectory sidecar {FormatSidecarContext(rec)} " +
-                        $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}'");
-                }
-                return false;
-            }
-
-            TrajectorySidecarProbe probe;
-            if (!TryProbeTrajectorySidecar(precPath, out probe))
-            {
-                MarkSidecarLoadFailure(rec, "trajectory-invalid");
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: invalid trajectory sidecar {FormatSidecarContext(rec)} " +
-                        $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}'");
-                }
-                return false;
-            }
-            if (!probe.Supported)
-            {
-                MarkSidecarLoadFailure(rec, "trajectory-unsupported");
-                ParsekLog.Warn("RecordingStore",
-                    $"LoadRecordingFiles: unsupported trajectory sidecar {FormatSidecarContext(rec)} " +
-                    $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}' " +
-                    $"encoding={probe.Encoding} version={probe.FormatVersion}");
-                return false;
-            }
-
-            // Validate recordingId inside file matches
-            string fileId = probe.RecordingId;
-            if (fileId != null && fileId != rec.RecordingId)
-            {
-                MarkSidecarLoadFailure(rec, "trajectory-id-mismatch");
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: trajectory recording id mismatch {FormatSidecarContext(rec)} " +
-                        $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}' fileId='{fileId}'");
-                }
-                return false;
-            }
-
-            // Bug #270: validate sidecar epoch
-            if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
-            {
-                MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
-                return false;
-            }
-
-            DeserializeTrajectorySidecar(precPath, probe, rec);
-
-            // #412: Run legacy-loop migration and degenerate-interval normalization as soon
-            // as trajectory points are hydrated, BEFORE snapshot loading. A snapshot-sidecar
-            // failure below returns early while leaving Points populated; ParsekScenario.OnLoad
-            // still commits the recording, and ParsekKSC treats any enabled recording with
-            // >= 2 points as playback-eligible, so waiting until after snapshot success would
-            // let a degenerate LoopIntervalSeconds=0 slip past the auto-repair. Both
-            // normalizers only touch loop fields + trajectory bounds, so they're safe to run
-            // here regardless of snapshot outcome.
-            MigrateLegacyLoopIntervalAfterHydration(rec);
-            NormalizeDegenerateLoopInterval(rec);
-
-            // #288/#475: eagerly populate TerminalOrbit from the last endpoint-aligned
-            // orbit segment when the cache is empty or obviously stale. Without this,
-            // GhostMap and spawn consumers can miss or mis-frame orbital end states.
-            if (ParsekFlight.ShouldPopulateTerminalOrbitFromLastSegment(rec))
-            {
-                string bodyBeforePopulate = rec.TerminalOrbitBody;
-                ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
-                if (!string.Equals(rec.TerminalOrbitBody, bodyBeforePopulate, StringComparison.Ordinal))
-                {
-                    Log(string.Format(CultureInfo.InvariantCulture,
-                        "[Parsek] Eager-populated TerminalOrbit for {0} from last orbit segment (body={1}, sma={2:F0})",
-                        rec.RecordingId,
-                        rec.TerminalOrbitBody,
-                        rec.TerminalOrbitSemiMajorAxis));
-                }
-            }
-
-            RecordingEndpointPhase endpointPhaseBeforeBackfill = rec.EndpointPhase;
-            string endpointBodyBeforeBackfill = rec.EndpointBodyName;
-            if (RecordingEndpointResolver.BackfillEndpointDecision(rec, "RecordingStore.LoadRecordingFilesFromPathsInternal")
-                && (rec.EndpointPhase != endpointPhaseBeforeBackfill
-                    || !string.Equals(rec.EndpointBodyName, endpointBodyBeforeBackfill, StringComparison.Ordinal)))
-            {
-                Log($"[Parsek] Backfilled endpoint decision for {rec.RecordingId} (phase={rec.EndpointPhase}, body={rec.EndpointBodyName ?? "(none)"})");
-            }
-
-            // Load snapshot sidecars only after the trajectory probe passes the
-            // recording-id and sidecar-epoch safety gates.
-            SnapshotSidecarLoadSummary snapshotSummary = LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
-            if (!string.IsNullOrEmpty(snapshotSummary.FailureReason))
-            {
-                MarkSidecarLoadFailure(rec, snapshotSummary.FailureReason);
-                return false;
-            }
-
-            if (!SuppressLogging)
-            {
-                ParsekLog.Verbose("RecordingStore",
-                    $"LoadRecordingFiles: id={rec.RecordingId} ghostSnapshotMode={rec.GhostSnapshotMode} " +
-                    $"hasVesselSnapshot={rec.VesselSnapshot != null} hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
-            }
-
-            return true;
-        }
-
-        private static void MigrateLegacyLoopIntervalAfterHydration(Recording rec)
-        {
-            if (rec == null
-                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
-                return;
-
-            double effectiveLoopDuration;
-            double migratedLoopIntervalSeconds;
-            if (!GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                    rec, rec.LoopIntervalSeconds,
-                    out migratedLoopIntervalSeconds, out effectiveLoopDuration))
-                return;
-
-            double legacyLoopIntervalSeconds = rec.LoopIntervalSeconds;
-            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
-            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
-            NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
-            ParsekLog.Warn("Loop",
-                $"RecordingStore: migrated recording '{rec.VesselName}' from legacy " +
-                $"gap loopIntervalSeconds={legacyLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
-                $"using hydrated effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
-                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
-        }
-
         internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
         {
-            if (rec == null
-                || rec.RecordingFormatVersion >= LaunchToLaunchLoopIntervalFormatVersion)
-                return;
-
-            // Legacy loop-interval migration only repairs the loop-timing semantic bump.
-            // Do not silently reinterpret older RELATIVE sections as the newer v6
-            // anchor-local contract just because the loop interval was normalized.
-            rec.RecordingFormatVersion = LaunchToLaunchLoopIntervalFormatVersion;
+            RecordingSidecarStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
         }
 
         /// <summary>
@@ -6426,60 +6182,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
         {
-            // Equality: the ordinary case (sidecar was rewritten at the in-memory version).
-            if (probeFormatVersion == recordingFormatVersion)
-                return true;
-
-            // The single explicit metadata-only exception: v3 sidecar + v4 recording from the
-            // legacy-loop migration. v3 (sparse-point binary) and v4 (launch-to-launch loop
-            // interval semantic) share an identical binary layout, so an unrewritten v3
-            // sidecar is correct on disk for a v4-promoted in-memory recording.
-            int metadataOnlyProbeVersion = LaunchToLaunchLoopIntervalFormatVersion - 1;
-            if (probeFormatVersion == metadataOnlyProbeVersion
-                && recordingFormatVersion == LaunchToLaunchLoopIntervalFormatVersion)
-                return true;
-
-            return false;
-        }
-
-        /// <summary>
-        /// #412: Normalize recordings whose <c>LoopIntervalSeconds</c> is below
-        /// <see cref="LoopTiming.MinCycleDuration"/> while <c>LoopPlayback</c> is on.
-        /// Such recordings otherwise hit <c>ResolveLoopInterval</c>'s defensive clamp on every
-        /// frame. Sources include old synthetic-fixture saves (pre-#412 the RecordingBuilder
-        /// persisted <c>loopIntervalSeconds=0</c>) and any hand-edited save file. Auto-repair
-        /// to the effective loop duration (seamless loop at the recording's own length), falling
-        /// back to <see cref="LoopTiming.DefaultLoopIntervalSeconds"/> when the
-        /// trajectory can't supply a valid duration. <see cref="LoopTimeUnit.Auto"/> is left
-        /// alone since the resolver pulls the value from the global slider instead.
-        /// </summary>
-        internal static void NormalizeDegenerateLoopInterval(Recording rec)
-        {
-            if (rec == null || !rec.LoopPlayback) return;
-            if (rec.LoopTimeUnit == LoopTimeUnit.Auto) return;
-            if (rec.LoopIntervalSeconds >= LoopTiming.MinCycleDuration) return;
-
-            double originalInterval = rec.LoopIntervalSeconds;
-            double effectiveLoopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
-            bool durationUsable = !double.IsNaN(effectiveLoopDuration)
-                && !double.IsInfinity(effectiveLoopDuration)
-                && effectiveLoopDuration >= LoopTiming.MinCycleDuration;
-            double resolved = durationUsable
-                ? effectiveLoopDuration
-                : LoopTiming.DefaultLoopIntervalSeconds;
-
-            rec.LoopIntervalSeconds = resolved;
-            if (!SuppressLogging)
-            {
-                var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Warn("Loop",
-                    $"NormalizeDegenerateLoopInterval: recording '{rec.VesselName}' had " +
-                    $"loopIntervalSeconds={originalInterval.ToString("R", ic)} " +
-                    $"(below MinCycleDuration={LoopTiming.MinCycleDuration.ToString("R", ic)}s); " +
-                    $"normalizing to {resolved.ToString("R", ic)}s " +
-                    $"(effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s, " +
-                    $"durationUsable={durationUsable}) — #412 auto-repair.");
-            }
+            return RecordingSidecarStore.IsAcceptableSidecarVersionLag(probeFormatVersion, recordingFormatVersion);
         }
 
         /// <summary>
@@ -6502,158 +6205,10 @@ namespace Parsek
         {
             return RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec);
         }
+
         internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
         {
-            if (rec == null)
-                throw new ArgumentNullException(nameof(rec));
-
-            var summary = default(SnapshotSidecarLoadSummary);
-            rec.VesselSnapshot = null;
-            rec.GhostVisualSnapshot = null;
-
-            bool vesselFileExists = !string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath);
-            bool ghostFileExists = !string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath);
-
-            summary.VesselState = TryLoadSnapshotSidecarIfPresent(
-                vesselPath, rec, "vessel", out ConfigNode vesselNode);
-            summary.GhostState = SnapshotSidecarLoadState.Missing;
-            ConfigNode ghostNode = null;
-            GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
-
-            if (summary.VesselState == SnapshotSidecarLoadState.Loaded)
-                rec.VesselSnapshot = vesselNode;
-
-            if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel)
-            {
-                summary.GhostState = TryLoadSnapshotSidecarIfPresent(
-                    ghostPath, rec, "ghost", out ghostNode);
-                if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
-                    rec.GhostVisualSnapshot = ghostNode;
-            }
-
-            if (ghostSnapshotMode == GhostSnapshotMode.AliasVessel)
-            {
-                if (rec.VesselSnapshot != null)
-                {
-                    rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-                }
-                else
-                {
-                    summary.GhostState = TryLoadSnapshotSidecarIfPresent(
-                        ghostPath, rec, "ghost", out ghostNode);
-                    if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
-                    {
-                        rec.GhostVisualSnapshot = ghostNode;
-                        rec.VesselSnapshot = ghostNode.CreateCopy();
-                        if (!SuppressLogging)
-                        {
-                            ParsekLog.Warn("RecordingStore",
-                                $"LoadRecordingFiles: missing vessel snapshot, recovered from ghost sidecar " +
-                                $"{FormatSidecarContext(rec)} fileKind=ghost " +
-                                $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
-                                $"ghostPath='{FormatPathForSidecarLog(ghostPath)}'");
-                        }
-                    }
-                    else if (!vesselFileExists && !ghostFileExists && !SuppressLogging)
-                    {
-                        ParsekLog.Warn("RecordingStore",
-                            $"LoadRecordingFiles: no snapshot sidecar found " +
-                            $"{FormatSidecarContext(rec)} fileKind=vessel+ghost " +
-                            $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
-                            $"ghostPath='{FormatPathForSidecarLog(ghostPath)}'");
-                    }
-                }
-            }
-
-            // Backward compat and resilience: only a genuinely missing ghost sidecar may
-            // fall back to vessel visuals. Invalid/unsupported ghost files must surface as
-            // hydration failures so salvage can preserve the distinct snapshot.
-            if (summary.GhostState == SnapshotSidecarLoadState.Missing
-                && rec.GhostVisualSnapshot == null
-                && rec.VesselSnapshot != null)
-            {
-                rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-
-                if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
-                    ghostSnapshotMode = GhostSnapshotMode.AliasVessel;
-                else if (ghostSnapshotMode == GhostSnapshotMode.Separate && !SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: missing ghost snapshot, fell back to vessel snapshot " +
-                        $"{FormatSidecarContext(rec)} fileKind=ghost " +
-                        $"vesselPath='{FormatPathForSidecarLog(vesselPath)}' " +
-                        $"ghostPath='{FormatPathForSidecarLog(ghostPath)}'");
-                }
-            }
-
-            if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
-                ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
-
-            rec.GhostSnapshotMode = ghostSnapshotMode;
-            summary.FailureReason = DetermineSnapshotLoadFailureReason(summary, rec);
-            return summary;
-        }
-
-        private static SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
-            string path, Recording rec, string label, out ConfigNode node)
-        {
-            node = null;
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                return SnapshotSidecarLoadState.Missing;
-
-            SnapshotSidecarProbe probe;
-            bool loadOk = TryLoadSnapshotSidecar(path, out node, out probe);
-            if (loadOk && probe.Supported && node != null)
-                return SnapshotSidecarLoadState.Loaded;
-
-            SnapshotSidecarLoadState state = probe.Success && !probe.Supported
-                ? SnapshotSidecarLoadState.Unsupported
-                : SnapshotSidecarLoadState.Invalid;
-
-            if (!SuppressLogging)
-            {
-                string context = FormatSidecarContext(rec);
-                if (state == SnapshotSidecarLoadState.Unsupported)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: unsupported {label} snapshot sidecar {context} " +
-                        $"fileKind={label} path='{FormatPathForSidecarLog(path)}' " +
-                        SnapshotSidecarCodec.DescribeProbe(probe));
-                }
-                else
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"LoadRecordingFiles: invalid {label} snapshot sidecar {context} " +
-                        $"fileKind={label} path='{FormatPathForSidecarLog(path)}' " +
-                        SnapshotSidecarCodec.DescribeProbe(probe));
-                }
-            }
-
-            return state;
-        }
-
-        private static string DetermineSnapshotLoadFailureReason(SnapshotSidecarLoadSummary summary, Recording rec)
-        {
-            if (rec == null)
-                return null;
-
-            if (rec.VesselSnapshot == null)
-            {
-                if (summary.VesselState == SnapshotSidecarLoadState.Invalid)
-                    return "snapshot-vessel-invalid";
-                if (summary.VesselState == SnapshotSidecarLoadState.Unsupported)
-                    return "snapshot-vessel-unsupported";
-            }
-
-            if (rec.GhostVisualSnapshot == null)
-            {
-                if (summary.GhostState == SnapshotSidecarLoadState.Invalid)
-                    return "snapshot-ghost-invalid";
-                if (summary.GhostState == SnapshotSidecarLoadState.Unsupported)
-                    return "snapshot-ghost-unsupported";
-            }
-
-            return null;
+            return RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
         }
 
         #endregion
