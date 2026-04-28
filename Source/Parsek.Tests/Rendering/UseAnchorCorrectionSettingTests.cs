@@ -92,5 +92,33 @@ namespace Parsek.Tests.Rendering
             Assert.DoesNotContain(logLines,
                 l => l.Contains("[Pipeline-Anchor]") && l.Contains("useAnchorCorrection:"));
         }
+
+        [Fact]
+        public void UseAnchorCorrection_DirectAssignThroughProperty_LogsInfo()
+        {
+            // What makes it fail: when KSP's settings UI flips the flag, the
+            // public property is the only entry point — production code never
+            // calls NotifyUseAnchorCorrectionChanged directly. The property
+            // setter must emit the Info line on a real change so the
+            // Pipeline-Anchor flip Info lands in KSP.log.
+            var settings = new ParsekSettings();
+            settings.useAnchorCorrection = false;
+
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-Anchor]")
+                && l.IndexOf("true->false", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
+        public void UseAnchorCorrection_DirectAssignSameValue_NoLog()
+        {
+            // What makes it fail: emitting on every property assignment would
+            // spam the log on every settings-window save. Same-value assigns
+            // must be silent.
+            var settings = new ParsekSettings();
+            settings.useAnchorCorrection = true; // already true by default
+
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[Pipeline-Anchor]") && l.Contains("useAnchorCorrection:"));
+        }
     }
 }

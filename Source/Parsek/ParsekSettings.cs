@@ -72,7 +72,18 @@ namespace Parsek
         /// </summary>
         [GameParameters.CustomParameterUI("Use smoothing splines",
             toolTip = "When on (Phase 1), absolute-frame ghost playback uses Catmull-Rom splines instead of bracketed nearest-sample lookup")]
-        public bool useSmoothingSplines = true;
+        public bool useSmoothingSplines
+        {
+            get { return _useSmoothingSplines; }
+            set
+            {
+                if (_useSmoothingSplines == value) return;
+                bool prev = _useSmoothingSplines;
+                _useSmoothingSplines = value;
+                NotifyUseSmoothingSplinesChanged(prev, value);
+            }
+        }
+        private bool _useSmoothingSplines = true;
 
         /// <summary>
         /// Phase 2 of the ghost trajectory rendering pipeline (design doc
@@ -85,7 +96,18 @@ namespace Parsek
         /// </summary>
         [GameParameters.CustomParameterUI("Use anchor correction",
             toolTip = "When on (Phase 2), ghost siblings during a re-fly are rigid-translated by the recorded separation offset so they spawn aligned with the live vessel")]
-        public bool useAnchorCorrection = true;
+        public bool useAnchorCorrection
+        {
+            get { return _useAnchorCorrection; }
+            set
+            {
+                if (_useAnchorCorrection == value) return;
+                bool prev = _useAnchorCorrection;
+                _useAnchorCorrection = value;
+                NotifyUseAnchorCorrectionChanged(prev, value);
+            }
+        }
+        private bool _useAnchorCorrection = true;
 
         /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).

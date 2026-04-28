@@ -201,20 +201,21 @@ namespace Parsek
                 && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
             {
                 bool prev = settings.useSmoothingSplines;
+                // Property setter emits Notify on change; explicit Notify call
+                // removed (would double-fire the Pipeline-Smoothing flip Info).
                 settings.useSmoothingSplines = storedUseSmoothingSplines.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useSmoothingSplines {prev} -> {storedUseSmoothingSplines.Value} from persistent store");
-                ParsekSettings.NotifyUseSmoothingSplinesChanged(prev, storedUseSmoothingSplines.Value);
             }
 
             if (storedUseAnchorCorrection.HasValue
                 && storedUseAnchorCorrection.Value != settings.useAnchorCorrection)
             {
                 bool prev = settings.useAnchorCorrection;
+                // Property setter emits Notify on change.
                 settings.useAnchorCorrection = storedUseAnchorCorrection.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useAnchorCorrection {prev} -> {storedUseAnchorCorrection.Value} from persistent store");
-                ParsekSettings.NotifyUseAnchorCorrectionChanged(prev, storedUseAnchorCorrection.Value);
             }
 
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only

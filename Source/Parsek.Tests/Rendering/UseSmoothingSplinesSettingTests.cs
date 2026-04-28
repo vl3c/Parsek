@@ -88,5 +88,34 @@ namespace Parsek.Tests.Rendering
             Assert.DoesNotContain(logLines,
                 l => l.Contains("[Pipeline-Smoothing]") && l.Contains("useSmoothingSplines:"));
         }
+
+        [Fact]
+        public void UseSmoothingSplines_DirectAssignThroughProperty_LogsInfo()
+        {
+            // What makes it fail: when KSP's settings UI flips the flag, the
+            // public field/property is the only entry point — production code
+            // never calls NotifyUseSmoothingSplinesChanged directly. The
+            // property setter must emit the Info line on a real change so
+            // Pipeline-Smoothing flip Info lands in KSP.log without an
+            // explicit Notify caller.
+            var settings = new ParsekSettings();
+            settings.useSmoothingSplines = false;
+
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-Smoothing]")
+                && l.IndexOf("true->false", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_DirectAssignSameValue_NoLog()
+        {
+            // What makes it fail: emitting on every property assignment would
+            // spam the log on every settings-window save. Same-value assigns
+            // must be silent.
+            var settings = new ParsekSettings();
+            settings.useSmoothingSplines = true; // already true by default
+
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[Pipeline-Smoothing]") && l.Contains("useSmoothingSplines:"));
+        }
     }
 }
