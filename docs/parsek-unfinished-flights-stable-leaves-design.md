@@ -66,7 +66,7 @@ The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus,
 
 ### 2.4 Predicate must not drift between call sites
 
-The predicate is shared between three call sites — Site A (original tree commit), Site B-1 (re-fly merge classifier flip), Site B-2 (in-place merge override removal). All three route through the same `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` entry point. A drift would mean the predicate's verdict changes depending on which path produced the row, which the player would experience as "rows that disappear immediately after merge." A shared-classifier identity test guards against drift.
+The predicate is shared between two call sites — Site A (original tree commit) and Site B-1 (re-fly merge classifier flip). Both route through the same `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` entry point. A drift would mean the predicate's verdict changes depending on which path produced the row, which the player would experience as "rows that disappear immediately after merge." A shared-classifier identity test guards against drift. Site B-2 is a separate concern — it consumes Site B-1's verdict and decides what to do with it on the in-place merge path; see §6.3.
 
 ### 2.5 Layering: classifier owns the helpers, UI consumes
 
@@ -410,11 +410,11 @@ The following helpers move from `UI/RecordingsTableUI.cs` into this file (or `Ef
 - `IsUnfinishedFlightCandidateShape(Recording rec)`
 - `IsVisibleUnfinishedFlight(Recording rec, out string reason)`
 
-`RecordingsTableUI` becomes a consumer of the moved helpers. Other consumers (the new Site A / Site B-1 / Site B-2 paths in §6.3, and the Seal handler in §6.6) call them from non-UI namespaces.
+`RecordingsTableUI` becomes a consumer of the moved helpers. Other consumers (Site A and Site B-1 predicate-call paths in §6.3, plus the Seal handler in §6.6) call them from non-UI namespaces. Site B-2 reads Site B-1's verdict downstream and does not call the predicate directly; it lives in `MergeDialog` and consumes the marker + the just-classified provisional state.
 
-### 6.3 MergeState promotion at THREE sites
+### 6.3 MergeState promotion: Site A + Site B-1 (predicate-evaluation), Site B-2 (in-place handling)
 
-The predicate must be applied at three call sites. All three route through `UnfinishedFlightClassifier.Qualifies` to prevent drift.
+The predicate must be applied at two call sites — Site A and Site B-1. Both route through `UnfinishedFlightClassifier.Qualifies` to prevent drift. Site B-2 is a separate concern that consumes Site B-1's verdict on the in-place merge path; it does not evaluate the predicate independently.
 
 **Site A: original tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` ([RecordingStore.cs:715-770](../Source/Parsek/RecordingStore.cs)) extends from the v0.9 Crashed-only check to the broader predicate:
 
@@ -814,7 +814,7 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 - **Over-inclusion.** The simple terminal-state classifier surfaces some cases where the player meaningfully flew or didn't intend to leave a vessel and it ended Orbiting/SubOrbital (Mun-transfer-and-park, briefly-nudged-probe, deep-space probe carried by transfer stage and undocked there). The Seal button is the design's answer. **Do not re-introduce voluntary-action heuristics** — that path was explicitly rejected in R1-R3.
 
-- **Predicate drift between Site A, Site B-1, Site B-2.** All three must route through `UnfinishedFlightClassifier.Qualifies` with the same `(rec, slot, rp)` triple. A drift would mean rows that disappear immediately after a merge that should have kept them visible. Shared-classifier identity test in §11 guards against this.
+- **Predicate drift between Site A and Site B-1.** Both predicate-evaluation call sites must route through `UnfinishedFlightClassifier.Qualifies` with the same `(rec, slot, rp)` triple. A drift would mean rows that disappear immediately after a merge that should have kept them visible. Shared-classifier identity test in §13 guards against this. (Site B-2 is downstream of Site B-1's verdict and does not evaluate the predicate directly; the relevant Site B-2 risk is the in-place duplicate-row invariant below.)
 
 - **Reversal of v0.9 §7.31 stance.** v0.9 said "stable-end splits explicitly not in scope." v1 says some non-focus stable-end splits ARE in scope (Orbiting/SubOrbital non-focus, EVA-stranded). Focus-continuation stable terminals continue to NOT get a row, preserving the "your mission's upper stage didn't suddenly become unfinished" intuition. The CHANGELOG must be precise about what changed and what didn't.
 
@@ -988,12 +988,15 @@ Predicate gates (`UnfinishedFlightClassifierTests`):
 - Per-RP leaf gate: chainTip.ChildBranchPointId == null → proceed; chainTip.ChildBranchPointId == matchingRP.BranchPointId (breakup-survivor) → proceed; chainTip.ChildBranchPointId == otherBp.Id → rejected. **Fails if:** breakup-survivor regression returns or downstream-BP recordings start appearing as UF.
 - Slot-closed gate: `slot.Sealed == false` → proceed; `slot.Sealed == true` → rejected. **Fails if:** Sealed slots persist as UF rows.
 
-Site A / Site B-1 / Site B-2 promotion:
+Site A / Site B-1 predicate-evaluation tests:
 
 - Site A: stable-leaf non-focus controllable → CP; stable-leaf focus controllable → Immutable; stable-leaf debris → Immutable; crashed-leaf focus → CP (active-parent crash regression guard); crashed-leaf non-focus → CP. **Fails if:** the broader predicate misclassifies any case.
 - Site B-1: re-fly ending Orbiting + non-focus → CP; re-fly ending Orbiting + focus → Immutable; re-fly ending Crashed → CP (regression); re-fly ending EVA-stranded Landed → CP. **Fails if:** chain extension on stable terminals breaks.
-- Site B-2 (B2-A baseline): in-place re-fly ending Orbiting/SubOrbital/EVA-stranded → Immutable (preserves v0.9 behavior; row drops from UF post-merge; chain extension via in-place blocked). Negative variant on the assertion only if §11.3 picks B2-B (fresh-provisional, asserts CP) or B2-C (asserts slot.Sealed == true and MergeState == CP). **Fails if:** the chosen Site B-2 option regresses.
-- Shared-classifier identity test: assert that Site A, Site B-1, and Site B-2 paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value. **Fails if:** any of the three sites starts using a different classifier or skipping a gate.
+- Shared-classifier identity test: assert that Site A and Site B-1 paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value. **Fails if:** either predicate-call site starts using a different classifier or skipping a gate.
+
+Site B-2 in-place handling test (consumes Site B-1's verdict, does not re-evaluate the predicate):
+
+- Site B-2 (B2-A baseline): in-place re-fly ending Orbiting/SubOrbital/EVA-stranded → Immutable (preserves v0.9 behavior; row drops from UF post-merge; chain extension via in-place blocked). If §11.3 picks B2-B (fresh-provisional): assert CP and chain-extensible. If §11.3 picks B2-C (auto-Seal): assert `slot.Sealed == true` and MergeState == CP. **Fails if:** the chosen Site B-2 option regresses, OR the in-place path produces a duplicate / un-reapable UF row.
 
 Seal handler:
 
