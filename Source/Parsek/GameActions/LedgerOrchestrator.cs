@@ -1821,10 +1821,15 @@ namespace Parsek
             KerbalLoadRepairDiagnostics.EmitAndReset();
         }
 
+        /// <summary>
+        /// Migration for old saves: converts existing GameStateStore events from committed
+        /// recordings into GameActions and adds them to the ledger.
+        /// </summary>
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
             LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
         }
+
         /// <summary>
         /// Migration: ensures all committed recordings have KerbalAssignment actions
         /// in the ledger. Old saves predating the feature have recordings but no kerbal
@@ -2193,35 +2198,55 @@ namespace Parsek
         {
             return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
         }
+
+        /// <summary>
+        /// One-shot save recovery migration for legacy saves with missing funds,
+        /// contract, or science ledger rows.
+        /// </summary>
         internal static int TryRecoverBrokenLedgerOnLoad()
         {
             return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad();
         }
 
+        /// <summary>Pure: event types the migration can synthesize actions for.</summary>
         internal static bool IsRecoverableEventType(GameStateEventType t)
         {
             return LedgerLoadMigration.IsRecoverableEventType(t);
         }
 
+        /// <summary>
+        /// Pure: checks whether the ledger already has an action matching the given
+        /// event. Used by the save recovery migration to avoid duplicates.
+        /// </summary>
         internal static bool LedgerHasMatchingAction(GameStateEvent evt)
         {
             return LedgerLoadMigration.LedgerHasMatchingAction(evt);
         }
 
+        /// <summary>
+        /// Pure: checks whether the ledger already has enough ScienceEarning credit
+        /// for the given subject.
+        /// </summary>
         internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
         {
             return LedgerLoadMigration.LedgerHasMatchingScienceEarning(subjectId, minScience);
         }
 
+        /// <summary>
+        /// Pure: returns the total ScienceAwarded already present in the ledger for a
+        /// given subject.
+        /// </summary>
         internal static float GetLedgerScienceEarningTotal(string subjectId)
         {
             return LedgerLoadMigration.GetLedgerScienceEarningTotal(subjectId);
         }
 
+        /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
         internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
         {
             return LedgerLoadMigration.MapEventTypeToActionType(t);
         }
+
         /// <summary>
         /// Called when a KSC spending action occurs outside of a flight recording session.
         /// Converts the event directly to a GameAction and adds to the ledger, then recalculates.

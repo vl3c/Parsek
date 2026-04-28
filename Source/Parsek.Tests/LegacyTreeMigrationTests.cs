@@ -47,7 +47,6 @@ namespace Parsek.Tests
 
             RecordingStore.SuppressLogging = true;
             GameStateStore.SuppressLogging = true;
-            KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
@@ -58,7 +57,6 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
-            KspStatePatcher.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = false;
@@ -1103,58 +1101,66 @@ namespace Parsek.Tests
         [Fact]
         public void OnKspLoad_OldSaveEventMigrationFlag_CountsOnlyForSameLoad()
         {
-            var firstTree = MakeTree(
-                "tree-load-flag-first",
-                "rec-load-flag-first",
-                100.0,
-                200.0,
-                deltaFunds: 34400.0);
-            RegisterTree(firstTree);
-
-            var oldSaveEvent = new GameStateEvent
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
+            try
             {
-                ut = 150.0,
-                eventType = GameStateEventType.ContractCompleted,
-                key = "contract-old-save",
-                detail = "fundsReward=1000;repReward=0;sciReward=0"
-            };
-            GameStateStore.AddEvent(ref oldSaveEvent);
+                var firstTree = MakeTree(
+                    "tree-load-flag-first",
+                    "rec-load-flag-first",
+                    100.0,
+                    200.0,
+                    deltaFunds: 34400.0);
+                RegisterTree(firstTree);
 
-            LedgerOrchestrator.OnKspLoad(
-                new HashSet<string> { "rec-load-flag-first" },
-                maxUT: 1000.0);
+                var oldSaveEvent = new GameStateEvent
+                {
+                    ut = 150.0,
+                    eventType = GameStateEventType.ContractCompleted,
+                    key = "contract-old-save",
+                    detail = "fundsReward=1000;repReward=0;sciReward=0"
+                };
+                GameStateStore.AddEvent(ref oldSaveEvent);
 
-            Assert.Contains(Ledger.Actions, a =>
-                a.Type == GameActionType.ContractComplete
-                && a.RecordingId == null
-                && a.ContractId == "contract-old-save");
-            Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.FundsEarning
-                && a.FundsSource == FundsEarningSource.LegacyMigration
-                && a.RecordingId == "rec-load-flag-first");
-            AssertTreeRecordingsFullyApplied(firstTree);
-            Assert.True(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+                LedgerOrchestrator.OnKspLoad(
+                    new HashSet<string> { "rec-load-flag-first" },
+                    maxUT: 1000.0);
 
-            var secondTree = MakeTree(
-                "tree-load-flag-second",
-                "rec-load-flag-second",
-                100.0,
-                200.0,
-                deltaFunds: 1200.0);
-            RegisterTree(secondTree);
+                Assert.Contains(Ledger.Actions, a =>
+                    a.Type == GameActionType.ContractComplete
+                    && a.RecordingId == null
+                    && a.ContractId == "contract-old-save");
+                Assert.DoesNotContain(Ledger.Actions, a =>
+                    a.Type == GameActionType.FundsEarning
+                    && a.FundsSource == FundsEarningSource.LegacyMigration
+                    && a.RecordingId == "rec-load-flag-first");
+                AssertTreeRecordingsFullyApplied(firstTree);
+                Assert.True(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
 
-            LedgerOrchestrator.OnKspLoad(
-                new HashSet<string> { "rec-load-flag-first", "rec-load-flag-second" },
-                maxUT: 1000.0);
+                var secondTree = MakeTree(
+                    "tree-load-flag-second",
+                    "rec-load-flag-second",
+                    100.0,
+                    200.0,
+                    deltaFunds: 1200.0);
+                RegisterTree(secondTree);
 
-            var synth = Ledger.Actions.SingleOrDefault(a =>
-                a.Type == GameActionType.FundsEarning
-                && a.FundsSource == FundsEarningSource.LegacyMigration
-                && a.RecordingId == "rec-load-flag-second");
-            Assert.NotNull(synth);
-            Assert.Equal(1200f, synth.FundsAwarded, precision: 0);
-            AssertTreeRecordingsFullyApplied(secondTree);
-            Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+                LedgerOrchestrator.OnKspLoad(
+                    new HashSet<string> { "rec-load-flag-first", "rec-load-flag-second" },
+                    maxUT: 1000.0);
+
+                var synth = Ledger.Actions.SingleOrDefault(a =>
+                    a.Type == GameActionType.FundsEarning
+                    && a.FundsSource == FundsEarningSource.LegacyMigration
+                    && a.RecordingId == "rec-load-flag-second");
+                Assert.NotNull(synth);
+                Assert.Equal(1200f, synth.FundsAwarded, precision: 0);
+                AssertTreeRecordingsFullyApplied(secondTree);
+                Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+            }
+            finally
+            {
+                KspStatePatcher.ResetForTesting();
+            }
         }
 
         /// <summary>
