@@ -15,6 +15,7 @@ Source/Parsek/ParsekScenario.cs
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
+Source/Parsek/GameActions/LedgerLoadMigration.cs
 Source/Parsek/KerbalsModule.cs
 
 # --- Internal game-state-event suppression check ---
