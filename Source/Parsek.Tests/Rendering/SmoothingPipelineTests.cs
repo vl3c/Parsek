@@ -423,7 +423,7 @@ namespace Parsek.Tests.Rendering
             Assert.True(probe.Supported);
             Assert.Equal("rec-commit", probe.RecordingId);
             Assert.Equal(rec.SidecarEpoch, probe.SourceSidecarEpoch);
-            Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probe, out var splines, out _));
+            Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probe, out var splines, out _, out _));
             Assert.Single(splines);
             Assert.Equal(0, splines[0].Key);
             Assert.True(splines[0].Value.IsValid);
@@ -728,13 +728,15 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void PannotationsHeader_WritesV2Stamp()
+        public void PannotationsHeader_WritesCurrentAlgorithmStamp()
         {
             // What makes it fail: a forgotten bump of AlgorithmStampVersion
-            // would leave new .pann files with stamp 1, so a future Phase 5
-            // that bumps to 3 would not be able to invalidate them. This is
-            // the constant-side regression; the drift-test above is the
-            // behaviour-side regression.
+            // would leave new .pann files with a stale stamp, so a future
+            // phase that bumps further would not be able to invalidate
+            // them via alg-stamp-drift. Phase 6 bumped 2 -> 3 to invalidate
+            // existing files that lack the AnchorCandidatesList payload.
+            // Pin to the constant so a future bump updates the value here
+            // and the test still passes.
             var rec = MakeRecording("rec-v2write",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
             string pannPath = Path.Combine(tempDir, "rec-v2write.pann");
@@ -743,7 +745,7 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probe));
             Assert.True(probe.Success);
-            Assert.Equal(2, probe.AlgorithmStampVersion);
+            Assert.Equal(PannotationsSidecarBinary.AlgorithmStampVersion, probe.AlgorithmStampVersion);
         }
     }
 }

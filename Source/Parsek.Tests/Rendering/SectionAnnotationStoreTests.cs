@@ -138,5 +138,65 @@ namespace Parsek.Tests.Rendering
             SectionAnnotationStore.RemoveRecording("never-stored");
             Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("never-stored"));
         }
+
+        // -------------------------------------------------------------------
+        //  Phase 6 candidate map round-trip (design doc §17.3.1)
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void PutGet_AnchorCandidates_RoundTrip()
+        {
+            // What makes it fail: the candidate dict has the same Put/Get
+            // contract as the spline dict. A storage bug would lose Side
+            // or UT on round-trip and feed wrong inputs to the propagator.
+            var c0 = new AnchorCandidate(50.0, AnchorSource.RelativeBoundary, AnchorSide.End);
+            var c1 = new AnchorCandidate(75.0, AnchorSource.OrbitalCheckpoint, AnchorSide.Start);
+            SectionAnnotationStore.PutAnchorCandidates("recA", 0, new[] { c0, c1 });
+
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates("recA", 0, out var arr));
+            Assert.Equal(2, arr.Length);
+            Assert.Equal(c0, arr[0]);
+            Assert.Equal(c1, arr[1]);
+        }
+
+        [Fact]
+        public void Get_AnchorCandidates_Missing_ReturnsFalse()
+        {
+            Assert.False(SectionAnnotationStore.TryGetAnchorCandidates("missing", 0, out _));
+        }
+
+        [Fact]
+        public void RemoveRecording_ClearsBothSplineAndCandidateMaps()
+        {
+            // What makes it fail: Phase 6 added a parallel map; if Remove
+            // forgets to clear it, the candidate set would leak across
+            // recompute cycles even after the splines were correctly
+            // dropped.
+            SectionAnnotationStore.PutSmoothingSpline("recA", 0, MakeSpline(0.0, 1.0, 1f));
+            SectionAnnotationStore.PutAnchorCandidates("recA", 0, new[]
+            {
+                new AnchorCandidate(10.0, AnchorSource.Loop, AnchorSide.Start),
+            });
+
+            SectionAnnotationStore.RemoveRecording("recA");
+
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("recA", 0, out _));
+            Assert.False(SectionAnnotationStore.TryGetAnchorCandidates("recA", 0, out _));
+        }
+
+        [Fact]
+        public void Clear_ClearsBothSplineAndCandidateMaps()
+        {
+            SectionAnnotationStore.PutSmoothingSpline("recA", 0, MakeSpline(0.0, 1.0, 1f));
+            SectionAnnotationStore.PutAnchorCandidates("recA", 0, new[]
+            {
+                new AnchorCandidate(10.0, AnchorSource.Loop, AnchorSide.Start),
+            });
+
+            SectionAnnotationStore.Clear();
+
+            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("recA"));
+            Assert.Equal(0, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording("recA"));
+        }
     }
 }

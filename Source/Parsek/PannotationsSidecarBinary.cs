@@ -94,13 +94,27 @@ namespace Parsek
         private const int MinBytesPerSplineEntry = 14;
         private const int BytesPerKnotRow = 20; // 1 double + 3 floats per knot
 
+        // Phase 6 anchor-candidate per-section minimum: int sectionIndex (4) +
+        // int utCount (4) + at least one UT double (8) + one type byte (1) = 17.
+        // ValidateCount uses min-bytes-per-entry to gate stream-length sanity;
+        // the per-section header alone is 8 bytes, so we use 9 (header + the
+        // smallest possible utCount=1 emission). This matches the §17.3.1
+        // schema exactly.
+        private const int MinBytesPerAnchorCandidateEntry = 9;
+
         internal const int PannotationsBinaryVersion = 1;
         // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
         // fitted in inertial-longitude space (FrameTag = 1) instead of body-
         // fixed. The .pann binary schema is unchanged — frameTag was already
         // serialized — but the algorithm output for the same input differs,
         // so HR-10 invalidates v1 .pann files via alg-stamp-drift.
-        internal const int AlgorithmStampVersion = 2;
+        // Bumped to 3 in Phase 6: AnchorCandidatesList block transitions from
+        // always-empty to populated by AnchorCandidateBuilder. Existing
+        // AlgorithmStampVersion=2 .pann files lack the candidate payload and
+        // would force a runtime fallback for every consumer; the bump triggers
+        // the existing alg-stamp-drift path so stale files are discarded and
+        // recomputed on first load (HR-10).
+        internal const int AlgorithmStampVersion = 3;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
@@ -225,12 +239,14 @@ namespace Parsek
             string path,
             PannotationsSidecarProbe probe,
             out List<KeyValuePair<int, SmoothingSpline>> splines,
+            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
             out string failureReason)
         {
             if (!probe.Success || !probe.Supported)
                 throw new InvalidOperationException("Pannotations sidecar probe must succeed before read.");
 
             splines = new List<KeyValuePair<int, SmoothingSpline>>();
+            anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
             failureReason = null;
 
             try
@@ -302,14 +318,33 @@ namespace Parsek
                         failureReason = $"unexpected outlier-flags count {outlierCount} for binary version {probe.BinaryVersion}";
                         return false;
                     }
+                    // Phase 6 AnchorCandidatesList block (design doc §17.3.1).
+                    // Schema: per-entry sectionIndex (int) + utCount (int) +
+                    // uts[utCount] (double) + types[utCount] (byte). Side bit
+                    // is packed into bit 7 of each type byte
+                    // (AnchorCandidate.EndSideMask).
                     int anchorCount = reader.ReadInt32();
                     if (!ValidateCount(stream, anchorCount, MaxAnchorCandidateEntries,
-                            1, "anchor-candidate", out failureReason))
+                            MinBytesPerAnchorCandidateEntry, "anchor-candidate", out failureReason))
                         return false;
-                    if (anchorCount != 0)
+                    for (int i = 0; i < anchorCount; i++)
                     {
-                        failureReason = $"unexpected anchor-candidate count {anchorCount} for binary version {probe.BinaryVersion}";
-                        return false;
+                        int sectionIndex = reader.ReadInt32();
+                        int utCount = reader.ReadInt32();
+                        // 9 bytes minimum per UT: 8-byte double + 1-byte type.
+                        if (!ValidateCount(stream, utCount, MaxAnchorCandidateEntries,
+                                9, $"anchor-candidate[{i}].uts", out failureReason))
+                            return false;
+                        var arr = new AnchorCandidate[utCount];
+                        double[] uts = new double[utCount];
+                        for (int u = 0; u < utCount; u++) uts[u] = reader.ReadDouble();
+                        for (int u = 0; u < utCount; u++)
+                        {
+                            byte typeByte = reader.ReadByte();
+                            AnchorCandidate.FromTypeByte(typeByte, out AnchorSource source, out AnchorSide side);
+                            arr[u] = new AnchorCandidate(uts[u], source, side);
+                        }
+                        anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(sectionIndex, arr));
                     }
                     int coBubbleCount = reader.ReadInt32();
                     if (!ValidateCount(stream, coBubbleCount, MaxCoBubbleTraceEntries,
@@ -365,7 +400,8 @@ namespace Parsek
             int sourceSidecarEpoch,
             int sourceRecordingFormatVersion,
             byte[] configurationHash,
-            IList<KeyValuePair<int, SmoothingSpline>> splines)
+            IList<KeyValuePair<int, SmoothingSpline>> splines,
+            IList<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates = null)
         {
             if (configurationHash == null || configurationHash.Length != 32)
                 throw new ArgumentException("configurationHash must be a 32-byte SHA-256 digest.", nameof(configurationHash));
@@ -411,7 +447,27 @@ namespace Parsek
                 // append-only (HR-11) so future phases bolt new blocks on
                 // without bumping PannotationsBinaryVersion.
                 writer.Write(0); // OutlierFlagsList
-                writer.Write(0); // AnchorCandidatesList
+
+                // Phase 6 AnchorCandidatesList block (design doc §17.3.1).
+                // Per-section: sectionIndex (int) + utCount (int) +
+                // uts[utCount] (double) + types[utCount] (byte). The side
+                // bit is bit 7 of the type byte (AnchorCandidate.EndSideMask);
+                // every AnchorSource value is < 128 so no collision today.
+                int anchorEntryCount = anchorCandidates?.Count ?? 0;
+                writer.Write(anchorEntryCount);
+                if (anchorCandidates != null)
+                {
+                    for (int i = 0; i < anchorCandidates.Count; i++)
+                    {
+                        int sectionIndex = anchorCandidates[i].Key;
+                        AnchorCandidate[] arr = anchorCandidates[i].Value ?? new AnchorCandidate[0];
+                        writer.Write(sectionIndex);
+                        writer.Write(arr.Length);
+                        for (int u = 0; u < arr.Length; u++) writer.Write(arr[u].UT);
+                        for (int u = 0; u < arr.Length; u++) writer.Write(arr[u].ToTypeByte());
+                    }
+                }
+
                 writer.Write(0); // CoBubbleOffsetTraces
 
                 writer.Flush();

@@ -61,6 +61,13 @@ namespace Parsek.Rendering
         // through FlightGlobals.
         internal static System.Func<string, CelestialBody> BodyResolverForTesting;
 
+        // Phase 6 test seam: tree resolver for AnchorCandidateBuilder. xUnit
+        // cannot stand up RecordingStore.CommittedTrees in every test, so the
+        // suite injects a (recordingId -> RecordingTree) closure here.
+        // Production callers leave the seam null and the pipeline resolves via
+        // RecordingStore directly.
+        internal static System.Func<string, RecordingTree> TreeResolverForTesting;
+
         /// <summary>
         /// Fits a Catmull-Rom spline through every eligible ABSOLUTE-frame
         /// ExoPropulsive / ExoBallistic section's frames and stores the result
@@ -184,6 +191,39 @@ namespace Parsek.Rendering
             ParsekLog.Verbose("Pipeline-Smoothing",
                 $"FitAndStorePerSection summary: recordingId={recordingId} sections={rec.TrackSections.Count} " +
                 $"fitOk={fitOk} fitFailed={fitFailed} skipped={skipped}");
+
+            // Phase 6: emit anchor candidates for the same recording. The
+            // builder is a pure function, gated internally by the
+            // useAnchorTaxonomy flag. Resolved on the same call site as
+            // spline-fit so loaders and committers see candidates and splines
+            // populate / persist together.
+            RecordingTree tree = ResolveTree(recordingId);
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree);
+        }
+
+        private static RecordingTree ResolveTree(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var seam = TreeResolverForTesting;
+            if (seam != null) return seam(recordingId);
+            try
+            {
+                List<RecordingTree> trees = RecordingStore.CommittedTrees;
+                if (trees == null) return null;
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    RecordingTree t = trees[i];
+                    if (t == null || t.Recordings == null) continue;
+                    if (t.Recordings.ContainsKey(recordingId)) return t;
+                }
+            }
+            catch
+            {
+                // Mid-load mutation of CommittedTrees, etc. Treat as
+                // tree-not-resolved; the candidate builder still runs but
+                // emits no Dock/Split candidates.
+            }
+            return null;
         }
 
         /// <summary>
@@ -323,6 +363,7 @@ namespace Parsek.Rendering
                 {
                     if (PannotationsSidecarBinary.TryRead(pannPath, probe,
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
+                            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
                             out string readFailure))
                     {
                         // HR-10: clear any prior in-memory entries for this recording
@@ -339,11 +380,17 @@ namespace Parsek.Rendering
                             SectionAnnotationStore.PutSmoothingSpline(
                                 recordingId, splines[i].Key, splines[i].Value);
                         }
+                        for (int i = 0; i < anchorCandidates.Count; i++)
+                        {
+                            SectionAnnotationStore.PutAnchorCandidates(
+                                recordingId, anchorCandidates[i].Key, anchorCandidates[i].Value);
+                        }
 
                         long bytes = SafeFileLength(pannPath);
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
-                            $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes}");
+                            $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
+                            $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
                         return;
                     }
 
@@ -427,6 +474,8 @@ namespace Parsek.Rendering
                 s_frameDecisionLogged.Clear();
             }
             BodyResolverForTesting = null;
+            TreeResolverForTesting = null;
+            AnchorCandidateBuilder.ResetForTesting();
         }
 
         // ---- helpers ----
@@ -535,6 +584,7 @@ namespace Parsek.Rendering
 
             string recordingId = rec.RecordingId;
             var splines = new List<KeyValuePair<int, SmoothingSpline>>();
+            var anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
             if (rec.TrackSections != null)
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
@@ -543,6 +593,11 @@ namespace Parsek.Rendering
                         && s.IsValid)
                     {
                         splines.Add(new KeyValuePair<int, SmoothingSpline>(i, s));
+                    }
+                    if (SectionAnnotationStore.TryGetAnchorCandidates(recordingId, i, out AnchorCandidate[] cands)
+                        && cands != null && cands.Length > 0)
+                    {
+                        anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(i, cands));
                     }
                 }
             }
@@ -555,11 +610,13 @@ namespace Parsek.Rendering
                     rec.SidecarEpoch,
                     rec.RecordingFormatVersion,
                     configHash,
-                    splines);
+                    splines,
+                    anchorCandidates);
 
                 long bytes = SafeFileLength(pannPath);
                 ParsekLog.Verbose("Pipeline-Sidecar",
-                    $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} splineCount={splines.Count}");
+                    $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} " +
+                    $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
             }
             catch (Exception ex)
             {

@@ -168,3 +168,13 @@ Source/Parsek/RevertInterceptor.cs
 # recording the anchor builder is parametrized on. The walk is read-
 # only against trajectory data (HR-1 / HR-5).
 Source/Parsek/Rendering/RenderSessionState.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 6) ---
+# AnchorPropagator.Run (ghost-trajectory-rendering-design §17.3.1 /
+# §18 Phase 6 / §9.1) reads CommittedRecordings + CommittedTrees to
+# walk every BranchPoint edge in scope. ERS would filter the active
+# re-fly target's NotCommitted provisional out of the recording list,
+# hiding the very seed anchor (Phase 2 LiveSeparation) that drives
+# the propagator's DAG walk. Read-only against trajectory data
+# (HR-1 / HR-5). Same rationale as the RenderSessionState exemption.
+Source/Parsek/Rendering/AnchorPropagator.cs

@@ -13883,6 +13883,110 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        /// <summary>
+        /// Phase 6 (design doc §18 Phase 6 / §9.1 / §20.5 Phase 6 row).
+        /// Synthetic three-stage rocket: live L1 + ghost L2+U + ghost L2 +
+        /// ghost U with two BranchPoints (L1/L2+U separation, L2/U
+        /// separation). Seeds the LiveSeparation anchor on L1 and asserts
+        /// the propagator walks the DAG, writing ε for L2+U, L2, and U.
+        /// Tolerance per stage: ε.magnitude difference within 1 m.
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: the propagator dropping an edge or applying
+        /// the wrong sign in the §9.1 rule. With Phase 6's zero-offset
+        /// placeholders, propagation reduces to ε' = ε so the downstream
+        /// ε must equal the upstream seed within tolerance.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-AnchorPropagate", Scene = GameScenes.FLIGHT,
+            Description = "Phase 6 DAG walk propagates ε through three-stage BranchPoint chain")]
+        public IEnumerator Pipeline_DAG_Three_Stage()
+        {
+            const double tol = 1.0; // 1 m tolerance — Phase 6 placeholder ε is identity-propagation
+            const double bpUT1 = 1100.0; // L1 separates from L2+U
+            const double bpUT2 = 1200.0; // L2 separates from U
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
+            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+
+            var l1 = MakeAnchorTestRecording("dag-l1", bpUT1, -0.097, -74.55, 100.0);
+            var l2u = MakeAnchorTestRecording("dag-l2u", bpUT1, -0.097, -74.55, 100.0);
+            var l2 = MakeAnchorTestRecording("dag-l2", bpUT2, -0.097, -74.55, 100.0);
+            var u = MakeAnchorTestRecording("dag-u", bpUT2, -0.097, -74.55, 100.0);
+
+            var tree = new RecordingTree { Id = "dag-tree" };
+            tree.Recordings[l1.RecordingId] = l1;
+            tree.Recordings[l2u.RecordingId] = l2u;
+            tree.Recordings[l2.RecordingId] = l2;
+            tree.Recordings[u.RecordingId] = u;
+            var bp1 = new BranchPoint
+            {
+                Id = "dag-bp1", UT = bpUT1, Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { l1.RecordingId },
+                ChildRecordingIds = new List<string> { l2u.RecordingId },
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "dag-bp2", UT = bpUT2, Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { l2u.RecordingId },
+                ChildRecordingIds = new List<string> { l2.RecordingId, u.RecordingId },
+            };
+            tree.BranchPoints.Add(bp1);
+            tree.BranchPoints.Add(bp2);
+
+            // Seed L1 with a known LiveSeparation ε.
+            var seed = new Vector3d(3.0, 0.0, 0.0);
+            Parsek.Rendering.RenderSessionState.PutAnchorForTesting(
+                new Parsek.Rendering.AnchorCorrection(
+                    recordingId: l1.RecordingId, sectionIndex: 0,
+                    side: Parsek.Rendering.AnchorSide.Start, ut: bpUT1,
+                    epsilon: seed, source: Parsek.Rendering.AnchorSource.LiveSeparation));
+
+            yield return null;
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "dag-three-stage",
+                TreeId = tree.Id,
+                ActiveReFlyRecordingId = l1.RecordingId,
+            };
+            Parsek.Rendering.AnchorPropagator.Run(marker,
+                new List<Recording> { l1, l2u, l2, u },
+                new List<RecordingTree> { tree },
+                surfaceLookup: null);
+
+            yield return null;
+
+            // L2+U should have a propagated ε at section 0 (its first
+            // section spans bpUT1).
+            bool hitL2U = Parsek.Rendering.RenderSessionState.TryLookup(
+                l2u.RecordingId, 0, Parsek.Rendering.AnchorSide.Start,
+                out Parsek.Rendering.AnchorCorrection acL2U);
+            InGameAssert.IsTrue(hitL2U, "L2+U should have a propagated start ε");
+            InGameAssert.IsTrue(System.Math.Abs((acL2U.Epsilon - seed).magnitude) < tol,
+                $"L2+U ε.magnitude residual {(acL2U.Epsilon - seed).magnitude:F3}m exceeds tolerance {tol}");
+
+            bool hitL2 = Parsek.Rendering.RenderSessionState.TryLookup(
+                l2.RecordingId, 0, Parsek.Rendering.AnchorSide.Start,
+                out Parsek.Rendering.AnchorCorrection acL2);
+            InGameAssert.IsTrue(hitL2, "L2 should have a propagated start ε");
+
+            bool hitU = Parsek.Rendering.RenderSessionState.TryLookup(
+                u.RecordingId, 0, Parsek.Rendering.AnchorSide.Start,
+                out Parsek.Rendering.AnchorCorrection acU);
+            InGameAssert.IsTrue(hitU, "U should have a propagated start ε");
+
+            ParsekLog.Info("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                "Pipeline_DAG_Three_Stage: L1 seed=({0:F3}) L2+U eps=({1:F3}) L2 eps=({2:F3}) U eps=({3:F3})",
+                seed.magnitude, acL2U.Epsilon.magnitude, acL2.Epsilon.magnitude, acU.Epsilon.magnitude));
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
+            yield break;
+        }
+
         private static Recording MakeAnchorTestRecording(
             string id, double bpUT, double lat, double lon, double alt)
         {

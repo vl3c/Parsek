@@ -11,6 +11,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done — v0.9.1 Phase 6 anchor taxonomy + DAG propagation
+
+- ~~Phase 6: emit AnchorCandidate entries for §7.2–§7.10 at commit time.~~ Implemented in `Source/Parsek/Rendering/AnchorCandidateBuilder.cs`; wired into `SmoothingPipeline.FitAndStorePerSection`.
+- ~~Phase 6: DAG propagation per §9.1 across BranchPoint edges.~~ Implemented in `Source/Parsek/Rendering/AnchorPropagator.cs`; runs from `RenderSessionState.RebuildFromMarker` after the Phase 2 LiveSeparation seeds land.
+- ~~Phase 6: cross-recording propagation at chain tips (§9.3).~~ Chain edges (Recording.ParentRecordingId continuity) included in the unified edge set.
+- ~~Phase 6: suppressed-subtree filtering in propagation (§9.4 / HR-8).~~ Routed through `SessionSuppressionState.IsSuppressed` for both edge endpoints; a suppressed parent or child skips the edge with a `Pipeline-AnchorPropagate` Verbose `suppressed-predecessor` line.
+- ~~Phase 6: §7.11 priority resolver.~~ `Source/Parsek/Rendering/AnchorPriority.cs` with rank table; integrated via `RenderSessionState.PutAnchorWithPriority`.
+- ~~Phase 6: `.pann AnchorCandidatesList` block populated; `AlgorithmStampVersion` v2→v3 (HR-10).~~ The bit-pack puts `AnchorSide` into bit 7 of the persisted type byte, leaving the schema layout stable; the alg-stamp bump invalidates pre-Phase-6 files via the existing alg-stamp-drift path.
+- ~~Phase 6: `useAnchorTaxonomy` rollout flag (default on).~~ Property + persistence wired alongside `useSmoothingSplines` / `useAnchorCorrection` in `ParsekSettings` and `ParsekSettingsPersistence`.
+
+## Phase 6 known gaps (deferred to later phases)
+
+- §7.8 CoBubblePeer anchors are reserved in the enum but emit no candidates — Phase 5 territory.
+- §7.9 SurfaceContinuous emits a marker only with ε = 0; the per-frame terrain raycast that resolves ε is Phase 7 work. The §7.11 priority rank is left at 2 (matches RelativeBoundary). If Phase 7 finds the rank ordering produces visible artifacts before its terrain resolver lands, demote the rank to 7 ("inactive") in the meantime and bump `AlgorithmStampVersion` again.
+- §7.7 BubbleEntry / BubbleExit candidates are not emitted by the Phase 6 builder. The trigger wording in the design doc ties them to "the recording session's physics bubble", which is a session-time fact rather than a commit-time one. Phase 6's session-entry pass is the natural home, but the world-frame ε resolver still needs Phase 7's surface lookup composition to be correct.
+- The split anchor sources (Undock / EVA / JointBreak) currently share the `DockOrMerge` enum byte (priority rank 4 either way). Logs label them by `BranchPointType` rather than by enum value to preserve telemetry granularity. If a future phase needs to differentiate split priorities from dock priorities, expand the `AnchorSource` enum and bump `AlgorithmStampVersion`.
+- The propagator currently feeds zero recordedOffset / smoothedOffset into the §9.1 rule; for chain edges (PID continuity) and Phase-9 sample-time-aligned dock events that's correct by construction. Edges where the recorder did not align sample times across the dock UT will see at most a few ticks of sampling noise — the same fidelity as Phase 2 today. A surface-lookup-aware resolver can drop in at the `Run(marker, recordings, trees, surfaceLookup)` overload without changing call sites.
+
+---
+
 ## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
 
 **Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.

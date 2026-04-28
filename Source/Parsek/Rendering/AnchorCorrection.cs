@@ -97,6 +97,92 @@ namespace Parsek.Rendering
     }
 
     /// <summary>
+    /// Phase 6 anchor candidate (design doc §17.3.1 / §18 Phase 6). Pure
+    /// commit-time annotation produced by <see cref="AnchorCandidateBuilder"/>
+    /// and persisted into the <c>.pann AnchorCandidatesList</c> block. A
+    /// candidate carries the metadata the session-time
+    /// <see cref="AnchorPropagator"/> needs to resolve a final
+    /// <see cref="AnchorCorrection"/> ε at session entry; ε itself is NOT
+    /// stored in the candidate because it depends on session-only inputs
+    /// (live vessel pose, anchor-vessel resolution, suppressed subtree).
+    ///
+    /// <para>
+    /// Storage: in <c>SectionAnnotationStore</c>'s parallel candidate map and
+    /// in the <c>.pann AnchorCandidatesList</c> block. The
+    /// <see cref="Side"/> bit is packed into bit 7 of the persisted type
+    /// byte (<see cref="EndSideMask"/>) so the §17.3.1 schema's "types
+    /// matches AnchorSource enum" wording stays compatible — every
+    /// <see cref="AnchorSource"/> value is &lt; 128 by the Phase-2 enum
+    /// reservation.
+    /// </para>
+    /// </summary>
+    internal readonly struct AnchorCandidate : IEquatable<AnchorCandidate>
+    {
+        /// <summary>
+        /// Bit 7 of the persisted type byte encodes <see cref="AnchorSide"/>.
+        /// Set = <see cref="AnchorSide.End"/>; cleared = <see cref="AnchorSide.Start"/>.
+        /// All <see cref="AnchorSource"/> values fit in bits 0..6 (values 0..9
+        /// today, with byte budget headroom for future taxonomy entries).
+        /// </summary>
+        internal const byte EndSideMask = 0x80;
+
+        /// <summary>Mask isolating the <see cref="AnchorSource"/> bits.</summary>
+        internal const byte SourceMask = 0x7F;
+
+        /// <summary>Universal time of the candidate (segment-endpoint UT).</summary>
+        public readonly double UT;
+
+        /// <summary>Which §7 anchor type produced this candidate.</summary>
+        public readonly AnchorSource Source;
+
+        /// <summary>Which side of the section this candidate lands on.</summary>
+        public readonly AnchorSide Side;
+
+        public AnchorCandidate(double ut, AnchorSource source, AnchorSide side)
+        {
+            UT = ut;
+            Source = source;
+            Side = side;
+        }
+
+        /// <summary>Pack source + side into the persisted type byte.</summary>
+        internal byte ToTypeByte()
+        {
+            byte b = (byte)Source;
+            if (Side == AnchorSide.End) b |= EndSideMask;
+            return b;
+        }
+
+        /// <summary>Unpack the persisted type byte into source + side.</summary>
+        internal static void FromTypeByte(byte b, out AnchorSource source, out AnchorSide side)
+        {
+            source = (AnchorSource)(b & SourceMask);
+            side = (b & EndSideMask) != 0 ? AnchorSide.End : AnchorSide.Start;
+        }
+
+        public bool Equals(AnchorCandidate other)
+        {
+            return UT == other.UT && Source == other.Source && Side == other.Side;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is AnchorCandidate other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = UT.GetHashCode();
+                hash = (hash * 397) ^ (int)Source;
+                hash = (hash * 397) ^ (int)Side;
+                return hash;
+            }
+        }
+    }
+
+    /// <summary>
     /// Composite key into <see cref="RenderSessionState"/>'s anchor map. A
     /// single segment may have one correction per side (§6.4); Phase 2 only
     /// writes <see cref="AnchorSide.Start"/>.

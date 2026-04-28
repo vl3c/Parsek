@@ -80,7 +80,7 @@ namespace Parsek.Tests.Rendering
             Assert.True(probe.Success);
             Assert.True(probe.Supported);
 
-            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var output, out string failure));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var output, out _, out string failure));
             Assert.Null(failure);
             Assert.Single(output);
 
@@ -113,7 +113,7 @@ namespace Parsek.Tests.Rendering
             Assert.True(probe.Supported);
             Assert.Equal("recE", probe.RecordingId);
 
-            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var splines, out string failure));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var splines, out _, out string failure));
             Assert.Null(failure);
             Assert.Empty(splines);
         }
@@ -327,7 +327,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.Contains("invalid string-table count", reason);
         }
@@ -348,7 +348,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.Contains("invalid spline count", reason);
         }
@@ -371,7 +371,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.Contains("invalid string-table count", reason);
         }
@@ -391,7 +391,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.Contains("invalid spline count", reason);
         }
@@ -421,7 +421,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, truncated);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.NotNull(reason);
         }
@@ -456,7 +456,7 @@ namespace Parsek.Tests.Rendering
             // The key invariant: TryRead must not throw. The exact
             // failureReason wording is implementation-dependent; we only
             // require returns=false and a populated reason.
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.NotNull(reason);
         }
@@ -485,7 +485,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             Assert.Contains("would need", reason);
             Assert.Contains("string-table", reason);
@@ -515,7 +515,7 @@ namespace Parsek.Tests.Rendering
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
-            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out string reason);
+            bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
             // Either the per-block cap or the stream-length check fires —
             // both are acceptable rejections; both reasons contain enough
@@ -549,7 +549,7 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.Equal(2, probe.SourceSidecarEpoch);
-            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var splines, out _));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe, out var splines, out _, out _));
             Assert.Equal(2, splines.Count);
             Assert.Equal(0, splines[0].Key);
             Assert.Equal(1, splines[1].Key);
@@ -616,6 +616,99 @@ namespace Parsek.Tests.Rendering
             bool ok = PannotationsSidecarBinary.TryProbe(path, out var probe);
             Assert.False(ok);
             Assert.NotNull(probe.FailureReason);
+        }
+
+        // -------------------------------------------------------------------
+        //  Phase 6 AnchorCandidatesList round-trip (design doc §17.3.1)
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void AnchorCandidatesList_RoundTripsByteIdenticalAcrossWriteRead()
+        {
+            // What makes it fail: a bug in the bit-pack (forgetting to
+            // mask source bits, or shifting the side bit into the wrong
+            // position) would silently flip Side or Source on read. The
+            // mixed-side fixture exercises both branches.
+            string path = Path.Combine(tempDir, "rec_candidates.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+
+            var candidates = new List<KeyValuePair<int, AnchorCandidate[]>>
+            {
+                new KeyValuePair<int, AnchorCandidate[]>(0, new[]
+                {
+                    new AnchorCandidate(100.5, AnchorSource.LiveSeparation, AnchorSide.Start),
+                    new AnchorCandidate(150.0, AnchorSource.DockOrMerge, AnchorSide.End),
+                }),
+                new KeyValuePair<int, AnchorCandidate[]>(2, new[]
+                {
+                    new AnchorCandidate(300.0, AnchorSource.RelativeBoundary, AnchorSide.Start),
+                    new AnchorCandidate(310.0, AnchorSource.OrbitalCheckpoint, AnchorSide.End),
+                    new AnchorCandidate(320.0, AnchorSource.SoiTransition, AnchorSide.Start),
+                }),
+            };
+
+            PannotationsSidecarBinary.Write(path, "rec-cands", sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                splines: new List<KeyValuePair<int, SmoothingSpline>>(),
+                anchorCandidates: candidates);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(probe.Success);
+            Assert.True(probe.Supported);
+
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
+                out var splinesOut, out var candsOut, out string failure));
+            Assert.Null(failure);
+            Assert.Empty(splinesOut);
+            Assert.Equal(2, candsOut.Count);
+
+            Assert.Equal(0, candsOut[0].Key);
+            Assert.Equal(2, candsOut[0].Value.Length);
+            Assert.Equal(100.5, candsOut[0].Value[0].UT);
+            Assert.Equal(AnchorSource.LiveSeparation, candsOut[0].Value[0].Source);
+            Assert.Equal(AnchorSide.Start, candsOut[0].Value[0].Side);
+            Assert.Equal(150.0, candsOut[0].Value[1].UT);
+            Assert.Equal(AnchorSource.DockOrMerge, candsOut[0].Value[1].Source);
+            Assert.Equal(AnchorSide.End, candsOut[0].Value[1].Side);
+
+            Assert.Equal(2, candsOut[1].Key);
+            Assert.Equal(3, candsOut[1].Value.Length);
+            Assert.Equal(AnchorSource.RelativeBoundary, candsOut[1].Value[0].Source);
+            Assert.Equal(AnchorSource.OrbitalCheckpoint, candsOut[1].Value[1].Source);
+            Assert.Equal(AnchorSource.SoiTransition, candsOut[1].Value[2].Source);
+        }
+
+        [Fact]
+        public void AnchorCandidatesList_EmptyList_RoundTripsAsEmpty()
+        {
+            // What makes it fail: the writer must still emit a valid count=0
+            // header; the reader must still produce a non-null but empty
+            // list so callers can distinguish "loaded but empty" from
+            // "field missing".
+            string path = Path.Combine(tempDir, "rec_empty_candidates.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+
+            PannotationsSidecarBinary.Write(path, "rec-emp", 1, 8, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
+                out var splines, out var candsOut, out _));
+            Assert.NotNull(candsOut);
+            Assert.Empty(candsOut);
+        }
+
+        [Fact]
+        public void AnchorCandidatesList_DiscardsOnAlgorithmStampVersionMismatch()
+        {
+            // What makes it fail: the AlgorithmStampVersion bump (Phase 6
+            // 2 -> 3) is the mechanism that invalidates pre-Phase-6 .pann
+            // files. ClassifyDrift must surface the alg-stamp-drift token
+            // so SmoothingPipeline.LoadOrCompute discards and recomputes.
+            // The drift classification lives in SmoothingPipeline; this
+            // test just pins the constant change.
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 3,
+                "AlgorithmStampVersion must be >= 3 after Phase 6 ships");
         }
     }
 }

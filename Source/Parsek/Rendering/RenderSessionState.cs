@@ -91,6 +91,15 @@ namespace Parsek.Rendering
         private static readonly HashSet<AnchorKey> ClampOutLerpKeys
             = new HashSet<AnchorKey>();
 
+        // Phase 6 (design doc §19.2 Stage 3 / Stage 3b): per-session dedup
+        // sets so the Pipeline-Anchor priority-resolution Verbose line and
+        // the AnchorPropagator's edge-propagated / suppressed-predecessor
+        // Verbose lines fire once per (recordingId, sectionIndex, side) /
+        // per edge / per cause — never per-frame. Cleared by
+        // ResetSessionDedupSetsLocked alongside the Phase 3 sets.
+        private static readonly HashSet<AnchorKey> PriorityResolutionLogged
+            = new HashSet<AnchorKey>();
+
         /// <summary>Number of anchors in the current session map.</summary>
         internal static int Count
         {
@@ -261,6 +270,67 @@ namespace Parsek.Rendering
             DivergentLerpKeys.Clear();
             SingleAnchorLerpKeys.Clear();
             ClampOutLerpKeys.Clear();
+            PriorityResolutionLogged.Clear();
+        }
+
+        /// <summary>
+        /// Phase 6 §7.11 priority-aware insert. Writes the supplied anchor
+        /// to the session map iff no existing entry holds the slot OR the
+        /// existing entry's source loses the priority comparison
+        /// (<see cref="AnchorPriority.ShouldReplace"/>). Returns true on
+        /// insert. Emits a per-session-deduped Pipeline-Anchor Verbose
+        /// line on contention so a developer can attribute the chosen
+        /// source from KSP.log.
+        /// </summary>
+        internal static bool PutAnchorWithPriority(AnchorCorrection candidate)
+        {
+            if (string.IsNullOrEmpty(candidate.RecordingId)) return false;
+            var key = new AnchorKey(candidate.RecordingId, candidate.SectionIndex, candidate.Side);
+
+            bool inserted;
+            bool contention = false;
+            AnchorSource existingSource = default;
+            lock (Lock)
+            {
+                if (Anchors.TryGetValue(key, out AnchorCorrection existing))
+                {
+                    contention = true;
+                    existingSource = existing.Source;
+                    if (AnchorPriority.ShouldReplace(existing.Source, candidate.Source))
+                    {
+                        Anchors[key] = candidate;
+                        inserted = true;
+                    }
+                    else
+                    {
+                        inserted = false;
+                    }
+                }
+                else
+                {
+                    Anchors[key] = candidate;
+                    inserted = true;
+                }
+            }
+
+            if (contention)
+            {
+                bool logFirst;
+                lock (Lock) { logFirst = PriorityResolutionLogged.Add(key); }
+                if (logFirst)
+                {
+                    AnchorSource winner = inserted ? candidate.Source : existingSource;
+                    AnchorSource loser  = inserted ? existingSource : candidate.Source;
+                    ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                        "Anchor source priority resolution: recordingId={0} sectionIndex={1} side={2} " +
+                        "candidates=[{3}@rank{4},{5}@rank{6}] winner={7}",
+                        candidate.RecordingId, candidate.SectionIndex, candidate.Side,
+                        existingSource, AnchorPriority.RankOf(existingSource),
+                        candidate.Source, AnchorPriority.RankOf(candidate.Source),
+                        winner));
+                }
+            }
+            return inserted;
         }
 
         // -------------------------------------------------------------------
@@ -516,6 +586,20 @@ namespace Parsek.Rendering
                     $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
                     $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
                     $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+                // Phase 6: even without LiveSeparation seeds, the propagator
+                // still emits non-LiveSeparation candidates from the per-
+                // recording .pann into the session map.
+                try
+                {
+                    List<RecordingTree> trees0 = ResolveTreesForPropagator(treeLookup, recordings);
+                    AnchorPropagator.Run(marker, recordings, trees0,
+                        SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Pipeline-AnchorPropagate",
+                        $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message}");
+                }
                 return;
             }
 
@@ -794,6 +878,45 @@ namespace Parsek.Rendering
                 $"skippedNoLivePoint={skippedNoLivePoint} skippedNoGhostPoint={skippedNoGhostPoint} " +
                 $"skippedRelativeFrame={skippedRelative} skippedBodyMissing={skippedBodyMissing} " +
                 $"skippedSplineSection={skippedSplineSection}");
+
+            // Phase 6 (design doc §18 Phase 6, §19.2 Stage 3b): immediately
+            // after the Phase-2 LiveSeparation anchors land, walk the DAG to
+            // emit the remaining §7.2 — §7.10 anchor types and propagate ε
+            // along BranchPoint edges per §9.1. AnchorPropagator gates on
+            // useAnchorTaxonomy internally, so a flag-off install gets the
+            // Phase-2-only behaviour for free.
+            try
+            {
+                List<RecordingTree> trees = ResolveTreesForPropagator(treeLookup, recordings);
+                AnchorPropagator.Run(marker, recordings, trees, surfaceLookup);
+            }
+            catch (Exception ex)
+            {
+                // HR-9: regenerable cache must not abort the session-entry
+                // path; propagator failures degrade to Phase-2 behaviour.
+                ParsekLog.Warn("Pipeline-AnchorPropagate",
+                    $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message} — falling back to Phase 2 behaviour");
+            }
+        }
+
+        private static List<RecordingTree> ResolveTreesForPropagator(
+            Func<string, RecordingTreeContext> treeLookup,
+            IReadOnlyList<Recording> recordings)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<RecordingTree>();
+            if (treeLookup == null || recordings == null) return result;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording r = recordings[i];
+                if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
+                RecordingTreeContext ctx = treeLookup(r.RecordingId);
+                if (ctx.Tree == null) continue;
+                string key = ctx.Tree.Id ?? ("<no-id>" + i);
+                if (seen.Add(key))
+                    result.Add(ctx.Tree);
+            }
+            return result;
         }
 
         // -------------------------------------------------------------------
