@@ -250,13 +250,17 @@ namespace Parsek.Tests
                 supersedeTarget: "rec_origin", treeId: "tree_pending");
             var origin = Rec("rec_origin", MergeState.CommittedProvisional,
                 treeId: "tree_pending");
+            var priorTip = Rec("rec_prior_tip", MergeState.CommittedProvisional,
+                treeId: "tree_pending");
             tree.AddOrReplaceRecording(active);
             tree.AddOrReplaceRecording(origin);
+            tree.AddOrReplaceRecording(priorTip);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
-            var marker = Marker("sess_1", "tree_pending", "rec_active", "rec_origin", "rp_1");
+            var marker = Marker("sess_1", "tree_pending", "rec_active", "rec_origin", "rp_1",
+                supersedeTargetId: "rec_prior_tip");
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { rp },
                 marker: marker);
@@ -264,6 +268,8 @@ namespace Parsek.Tests
             LoadTimeSweep.Run();
 
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("rec_prior_tip",
+                scenario.ActiveReFlySessionMarker.SupersedeTargetId);
             Assert.Single(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") && l.Contains("Marker valid sess=sess_1"));

@@ -38,9 +38,12 @@ in-place/fresh-provisional branch, `SupersedeCommit.AppendRelations` roots the
 closure at `SupersedeTargetId ?? OriginChildRecordingId`, and
 `EffectiveState.ComputeSubtreeClosureInternal` includes the root override in
 its cache key. Headless tests now cover marker round-trip and weak validation,
-fresh-provisional and in-place marker stamping, root-override closure
-equivalence/caching, linear append relations, and the hybrid legacy-star plus
-new-linear graph.
+pending-tree marker targets, fresh-provisional and in-place marker stamping,
+root-override closure equivalence/caching, linear append relations, and the
+hybrid legacy-star plus new-linear graph. When a restored origin still has the
+matching vessel PID but an existing supersede relation makes a different
+recording the slot's prior tip, invocation rejects the in-place path and creates
+a fresh provisional so commit cannot write a two-node supersede cycle.
 
 §11.3 Site B-2 result: preserve the existing B2-A force-Immutable in-place
 handling for this PR. `MergeDialog.TryCommitReFlySupersede`'s in-place path is

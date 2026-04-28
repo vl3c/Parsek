@@ -305,7 +305,7 @@ public class ReFlySessionMarker
 
 ConfigNode key: `supersedeTargetId`, **always written** when the marker is persisted post-feature. Legacy markers load with null (key absent on disk).
 
-`MarkerValidator.Validate` extends to weakly validate `SupersedeTargetId`: when non-null, must resolve in `RecordingStore.CommittedRecordings`; failure logs `[ReFlySession] Warn: Marker invalid field=SupersedeTargetId; clearing` and clears the field. Null is always valid.
+`MarkerValidator.Validate` extends to weakly validate `SupersedeTargetId`: when non-null, must resolve in `RecordingStore.CommittedRecordings` or the matching pending tree; failure logs `[ReFlySession] Warn: Marker invalid field=SupersedeTargetId; clearing` and clears the field. Null is always valid.
 
 ### 5.4 No new ConfigNode wrapper sections
 

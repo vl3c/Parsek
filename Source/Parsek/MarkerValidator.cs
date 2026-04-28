@@ -46,8 +46,9 @@ namespace Parsek
     ///   resolves to a recording in
     ///   <see cref="RecordingStore.CommittedRecordings"/>.</description></item>
     ///   <item><description><see cref="ReFlySessionMarker.SupersedeTargetId"/>
-    ///   is either null or weakly resolves to a committed recording; invalid
-    ///   non-null values are cleared without invalidating the marker.</description></item>
+    ///   is either null or weakly resolves to a committed recording or a
+    ///   recording in the matching pending tree; invalid non-null values are
+    ///   cleared without invalidating the marker.</description></item>
     ///   <item><description><see cref="ReFlySessionMarker.RewindPointId"/>
     ///   resolves to a live entry in
     ///   <see cref="ParsekScenario.RewindPoints"/>.</description></item>
@@ -287,7 +288,7 @@ namespace Parsek
             if (marker == null || string.IsNullOrEmpty(marker.SupersedeTargetId))
                 return;
 
-            if (FindCommittedRecordingById(marker.SupersedeTargetId) != null)
+            if (FindRecordingById(marker.SupersedeTargetId, marker.TreeId) != null)
                 return;
 
             string invalidTarget = marker.SupersedeTargetId;
@@ -296,21 +297,6 @@ namespace Parsek
                 $"Marker invalid field=SupersedeTargetId; clearing " +
                 $"sess={marker.SessionId ?? "<no-id>"} " +
                 $"target={invalidTarget ?? "<none>"}");
-        }
-
-        private static Recording FindCommittedRecordingById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-            return null;
         }
 
         private static double CurrentUt()

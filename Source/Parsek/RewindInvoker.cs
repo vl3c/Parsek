@@ -827,17 +827,24 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
                 throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
 
-            // Resolve the origin recording. If it survived the Limbo-restore
-            // and its VesselPersistentId matches the strip-selected pid, the
-            // recorder will continue writing into THIS recording; we point
-            // the marker at it directly with no placeholder. Otherwise we
-            // build a fresh placeholder.
+            // Resolve the origin recording. If it survived the Limbo-restore,
+            // is still the slot's effective tip, and its VesselPersistentId
+            // matches the strip-selected pid, the recorder will continue
+            // writing into THIS recording; we point the marker at it directly
+            // with no placeholder. If the slot already supersedes origin, a
+            // fresh placeholder is required so commit appends priorTip -> new
+            // instead of creating origin -> priorTip -> origin cycles.
             string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes);
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+            bool originIsPriorTip = string.Equals(
+                priorTip,
+                selected.OriginChildRecordingId,
+                StringComparison.Ordinal);
             bool inPlaceContinuation =
                 originChild != null
                 && IsCommittedRecording(originChild)
-                && originChild.VesselPersistentId == stripResult.SelectedPid;
+                && originChild.VesselPersistentId == stripResult.SelectedPid
+                && originIsPriorTip;
 
             Recording provisional = null;
             string activeReFlyRecordingId = null;

@@ -725,6 +725,62 @@ namespace Parsek.Tests
             Assert.Equal("rec_prior_tip", placeholder.SupersedeTargetId);
         }
 
+        [Fact]
+        public void AtomicMarkerWrite_PidMatchButPriorTipDiffers_CreatesPlaceholder()
+        {
+            const uint kOriginPid = 1111u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+            scenario.RecordingSupersedes.Add(Rel(slot.OriginChildRecordingId, "rec_prior_tip"));
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+                CreatingSessionId = "prior_session",
+                ProvisionalForRpId = "prior_rp",
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_cycle_guard");
+
+            Assert.Equal(committedCountBefore + 1, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal("prior_session", origin.CreatingSessionId);
+            Assert.Equal("prior_rp", origin.ProvisionalForRpId);
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            Assert.Equal("rec_prior_tip", marker.SupersedeTargetId);
+            Assert.NotEqual(slot.OriginChildRecordingId, marker.ActiveReFlyRecordingId);
+
+            Recording placeholder = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null
+                    && candidate.RecordingId == marker.ActiveReFlyRecordingId)
+                {
+                    placeholder = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(placeholder);
+            Assert.Equal("rec_prior_tip", placeholder.SupersedeTargetId);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("in-place continuation detected"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Started sess=sess_cycle_guard")
+                && l.Contains("inPlaceContinuation=False"));
+        }
+
         /// <summary>
         /// Reverse of the in-place test: even when the origin recording is
         /// committed and the pids match, an exception during marker write
