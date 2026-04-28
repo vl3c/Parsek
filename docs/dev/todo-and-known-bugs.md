@@ -81,11 +81,13 @@ matching vessel PID but an existing supersede relation makes a different
 recording the slot's prior tip, invocation rejects the in-place path and creates
 a fresh provisional so commit cannot write a two-node supersede cycle.
 
-§11.3 Site B-2 result: preserve the existing B2-A force-Immutable in-place
-handling for this PR. `MergeDialog.TryCommitReFlySupersede`'s in-place path is
-already architected around one recording acting as both slot effective state
-and supersede target, with optimizer-split tip resolution, self-link skips,
-session-owned chain cleanup, RP reap, and durable save in that branch.
+§11.3 Site B-2 result: in-place re-fly merges cannot naturally extend the
+slot chain in this PR; only the fresh-provisional path supports chain
+extension. Preserve the existing B2-A force-Immutable in-place handling.
+`MergeDialog.TryCommitReFlySupersede`'s in-place path is already architected
+around one recording acting as both slot effective state and supersede target,
+with optimizer-split tip resolution, self-link skips, session-owned chain
+cleanup, RP reap, and durable save in that branch.
 Switching it to B2-B fresh-provisional would require a deeper recorder/merge
 rearchitecture than this prerequisite PR. The limitation remains documented:
 in-place re-fly merges close the slot via `MergeState.Immutable`; natural

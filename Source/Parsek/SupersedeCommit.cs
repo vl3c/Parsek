@@ -91,7 +91,9 @@ namespace Parsek
             // Tombstones run AFTER the supersede relations land (so the
             // relations describe "what's superseded" before the ELS recomputes)
             // and BEFORE the MergeState flip's version bump so a single ELS
-            // rebuild covers both changes.
+            // rebuild covers both changes. The subtree is rooted at
+            // SupersedeTargetId when present; earlier origin -> prior-tip
+            // actions were already handled by the previous merge.
             CommitTombstones(marker, subtree, newRecordingId, ut, nowIso, scenario);
 
             FlipMergeStateAndClearTransient(marker, provisional, scenario, preserveMarker: false);
