@@ -235,7 +235,7 @@ internal class RouteStop
     public RouteEndpoint Endpoint;                          // where this stop is
     public RouteConnectionKind ConnectionKind;               // how the Supply Run connected
     public Dictionary<string, double> DeliveryManifest;     // per-resource delivery amounts (positive only in v1)
-    public Dictionary<string, int> InventoryDeliveryManifest;// stock inventory item deliveries (positive only in v1)
+    public Dictionary<string, int> InventoryDeliveryManifest; // stock inventory item deliveries (positive only in v1)
     public int SegmentIndexBefore;                          // 0-based segment whose completion UT triggers this stop
 }
 ```
@@ -279,12 +279,13 @@ internal class Route
 
     // State
     public RouteStatus Status;
+    public bool PauseAfterCurrentCycle; // pause requested while InTransit; transition to Paused after completion
     public int CompletedCycles;          // total successful cycle completions
     public int SkippedCycles;            // cycles skipped (destination full, origin empty)
 }
 ```
 
-**Backward compatibility with multi-stop routes:** A v1 Supply Route has `Stops.Count == 1`. Later multi-stop routes can reuse the same list without changing the top-level route save node.
+**Forward compatibility with multi-stop routes:** A v1 Supply Route has `Stops.Count == 1`. Later multi-stop routes can reuse the same list without changing the top-level route save node.
 
 ### 4.7 Serialization format
 
@@ -346,6 +347,7 @@ ROUTE
     pendingStopIndex = -1
     linkedRouteId =
     status = Active
+    pauseAfterCurrentCycle = False
     completedCycles = 5
     skippedCycles = 1
 
@@ -378,7 +380,7 @@ public Dictionary<string, ResourceAmount> EndResources;     // manifest at recor
 
 `ResourceAmount` is a struct with `amount` and `maxAmount` fields. Resources are summed across all parts. ElectricCharge and IntakeAir are excluded (environmental noise). Extracted by `VesselSpawner.ExtractResourceManifest(ConfigNode vesselSnapshot)`.
 
-**Connection-scoped manifests** (v1 — Phase 13 logistics prerequisite):
+**Connection-scoped manifests** (v1 logistics prerequisite):
 
 ```csharp
 public List<uint> TransportPartPersistentIds;                 // original transport part set
@@ -407,7 +409,7 @@ RESOURCE_MANIFEST
 }
 ```
 
-**Stock connection target vessel PID** (v1 — Phase 13 logistics prerequisite):
+**Stock connection target vessel PID** (v1 logistics prerequisite):
 
 ```csharp
 public uint TransferTargetVesselPid;       // PID of vessel connected to at this segment boundary (0 = no route-relevant connection)
@@ -528,6 +530,8 @@ dry source transport part cost
 
 Dry part cost means the source transport's parts with stored resources emptied and inventory contents excluded, so resource and inventory values are not double-counted. Inventory-contained parts use their own dry part/module costs and their own stored resources if those are part of the delivered item snapshot. v1 does not apply recurring recovery credit.
 
+Routes store `CostManifest` and `KscDispatchFundsCost` together for transparency and future re-costing. On KSC-origin routes, `CostManifest` is not physically deducted; `KscDispatchFundsCost` is derived from that same source data. If serialized values disagree after load/revalidation, treat that as a bug and recompute from the source recording rather than honoring the desync.
+
 ### 5.3 Validation
 
 The route analysis pass validates the chain:
@@ -575,6 +579,8 @@ Future route analysis produces:
 
 Routes with Status InTransit, Paused, EndpointLost, or MissingSourceRecording are excluded from dispatch evaluation.
 
+`MissingSourceRecording` routes are not retried as normal dispatch candidates. They are revalidated on save load, when the recordings store changes, and from a route UI "Revalidate" action. If every source recording ID resolves again, the route returns to `Active` and `NextDispatchUT` is recalculated from current UT.
+
 **Step 1: Ignore reserved round-trip fields in v1.** `LinkedRouteId` is serialized for forward compatibility only. v1 dispatch does not check it.
 
 **Step 2: Check source recordings.** Verify every `RecordingIds` entry still resolves to a committed recording. If not, set `Status = MissingSourceRecording` and stop. No proof recording means no cargo transfer.
@@ -593,7 +599,7 @@ The route scheduler, not ghost playback, is authoritative for route state. `Rout
 2. While `Status == InTransit` and `PendingDeliveryUT <= currentUT`, process the due boundary.
 3. If `PendingStopIndex >= 0`, execute delivery for that stop using current endpoint capacity.
 4. Advance `CurrentSegmentIndex` to the next 0-based segment and compute the next `PendingDeliveryUT` / `PendingStopIndex`.
-5. If the last segment boundary was processed, set `Status = Active`, increment `CompletedCycles`, reset `CurrentSegmentIndex = -1`, `PendingDeliveryUT = null`, and `PendingStopIndex = -1`.
+5. If the last segment boundary was processed, increment `CompletedCycles`, reset `CurrentSegmentIndex = -1`, `PendingDeliveryUT = null`, and `PendingStopIndex = -1`. If `PauseAfterCurrentCycle` is true, clear it and set `Status = Paused`; otherwise set `Status = Active`.
 
 `OnPlaybackCompleted` remains a visual integration hook only. It can let the route scheduler start the next ghost segment promptly in flight, but it must not be the only path that advances route state. Save/load and high time warp are handled by the UT-driven tick loop.
 
@@ -609,7 +615,7 @@ Routes do NOT use the per-recording loop toggle. The route scheduler owns all ti
 4. **Deliver inventory** from the stop inventory manifest into stock `ModuleInventoryPart` slots. Items that do not fit remain undelivered and are reported in the route event/log.
 5. **Create ROUTE_DELIVERED timeline event.** Record requested and actual amounts so the player can see partial fills instead of silent loss.
 
-### 6.4 Legacy single-delivery execution
+### 6.4 Single-delivery execution
 
 For v1, the single-stop route is the only player-facing shape. Delivery executes once when scheduler UT reaches the recorded boundary after `SegmentIndexBefore`.
 
@@ -630,9 +636,9 @@ Inventory follows the same independent rule at item granularity: deliver what fi
 
 ### 6.6 Pause, unpause, and re-target
 
-**Pause:** Player clicks Pause in route UI -> `Status = Paused` for future dispatches. If a dispatch is already `InTransit`, it continues to completion. This matches stock expectations: the supply vessel has already launched / departed, so pausing the route should not freeze cargo in mid-flight.
+**Pause:** Player clicks Pause in route UI -> `Status = Paused` for future dispatches. If a dispatch is already `InTransit`, set `PauseAfterCurrentCycle = true` and keep `Status = InTransit` until the cycle finishes. Delivery still executes at the endpoint; after the final boundary is processed, the route transitions to `Paused` instead of `Active`. This matches stock expectations: the supply vessel has already launched / departed, so pausing the route should not freeze cargo in mid-flight.
 
-**Unpause:** Player clicks Resume → `Status = Active`. Route re-enters dispatch evaluation on next scheduler tick. `NextDispatchUT` is recalculated if stale (advanced to next valid dispatch time from currentUT).
+**Unpause:** Player clicks Resume → `Status = Active`. If the route is still `InTransit` with `PauseAfterCurrentCycle = true`, Resume clears that flag and the in-flight cycle will finish back to `Active`. Route re-enters dispatch evaluation on next scheduler tick. `NextDispatchUT` is recalculated if stale (advanced to next valid dispatch time from currentUT).
 
 **Cancel current dispatch:** Deferred. If added later, cancellation should be explicit and should not refund already-deducted origin cargo unless the route event model explicitly records a reversible failure.
 
@@ -698,9 +704,9 @@ Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. 
 
 ---
 
-## 9. Round-Trip Linking
+## 9. Round-Trip Linking (Future)
 
-Round-trip linking is deferred to v1.1+. The v1 route model stores `LinkedRouteId` only as a reserved serialization field so the save shape can grow without replacing existing routes. v1 dispatch ignores `LinkedRouteId`.
+This section is future design intent, not v1 implementation scope. Round-trip linking is deferred to v1.1+. The v1 route model stores `LinkedRouteId` only as a reserved serialization field so the save shape can grow without replacing existing routes. v1 dispatch ignores `LinkedRouteId`.
 
 ### 9.1 How round trips work
 
@@ -781,7 +787,7 @@ Future implementation: player selects two routes in the UI and clicks "Link as R
 
 ### 10.14 Source recording missing
 **Scenario:** Source recording for a route is deleted or fails to load.
-**Behavior:** `Status = MissingSourceRecording`. Route cannot dispatch and cargo transfers stop. UI explains that the proof Supply Run is gone and the route must be recreated or the recording restored.
+**Behavior:** `Status = MissingSourceRecording`. Route cannot dispatch and cargo transfers stop. UI explains that the proof Supply Run is gone and the route must be recreated or the recording restored. If the recording is restored by loading/reverting to a save where it exists, or by restoring recording sidecars, route load/revalidation clears the status back to `Active` and recalculates `NextDispatchUT`.
 
 ### 10.15 Save/load round-trip
 **Scenario:** Save, load.
@@ -847,7 +853,7 @@ These are the only places where logistics code touches existing Parsek code:
 | **Playback completed** | `ParsekPlaybackPolicy.HandlePlaybackCompleted` | `RouteOrchestrator.OnVisualSegmentCompleted(evt)` | Visual hint only. Route state also advances from UT-driven scheduler ticks. |
 | **Timeline events** | `Ledger` / `LedgerOrchestrator` | New `GameActionType` entries for ROUTE_DISPATCHED / ROUTE_DELIVERED | Additive enum values + display strings. |
 
-No route-execution changes to `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, or `RecordingOptimizer`. Recording metadata changes are additive: Phase 13 logistics capture adds connection-scoped dock/undock manifests and origin-dock metadata for route analysis.
+No route-execution changes to `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, or `RecordingOptimizer`. Recording metadata changes are additive: logistics capture adds connection-scoped dock/undock manifests and origin-dock metadata for route analysis.
 
 ### 13.3 Read-only consumption of recording data
 
@@ -882,7 +888,7 @@ Routes have their own lifecycle, independent of recordings:
 - **Creation:** from a committed Supply Run after player confirmation, but the route is a separate entity with its own GUID.
 - **Persistence:** own ConfigNode section (`ROUTES` in ParsekScenario), not part of recording metadata.
 - **Deletion:** deleting a route does not affect its source recordings. Deleting a source recording disables the route (`MissingSourceRecording`); cargo transfers do not continue without the proof run.
-- **Revert:** route state is serialized in .sfs — quicksave/load restores it. Timeline events use the existing epoch isolation.
+- **Revert:** route state is serialized in .sfs — quicksave/load restores it. Timeline events use the existing epoch isolation. Loading/reverting to a save where a missing source recording exists again revalidates `MissingSourceRecording` routes and restores them to `Active`.
 
 ### 13.6 Why not a separate assembly now
 
@@ -896,6 +902,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - **Saves without resource manifests:** Load fine. Route creation unavailable for old recordings (no manifest data).
 - **Old recordings:** Cannot become routes. Player must re-fly to create a recording with manifests.
 - **Format:** All new data additive. No version bump. Missing nodes = no data.
+- **Reserved v1 fields:** v1 serializers still write the forward-compatible route shape (`Stops`, `LinkedRouteId`, inventory manifests, `KscDispatchFundsCost`, pending transit fields) even when defaults are empty. Skipping reserved fields turns future multi-stop/round-trip work into a save migration instead of an additive load.
 
 ---
 
@@ -949,7 +956,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Normal transfer on connection-scoped part PID sets: transport 200->50 LF and endpoint 0->150 LF -> delivery 150 LF. *Catches: wrong snapshot pair.*
 - Docked aggregate vessel unchanged while transport tank decreases and endpoint tank increases -> delivery detected from connection-scoped manifests. *Catches: merged-vessel false negative.*
 - Transport tank decreases but endpoint does not retain the cargo -> no delivery manifest entry. *Catches: docked consumption masquerading as delivery.*
-- Transport resource increased across the connection window -> no v1 delivery, candidate rejected as pickup-only. *Catches: accidental pickup route.*
+- LiquidFuel increased across the connection window -> no v1 delivery, candidate rejected as pickup-only. *Catches: accidental pickup route.*
 - Mixed delivery and pickup deltas -> candidate rejected except ignored environmental resources. *Catches: silently dropping pickup cargo.*
 - EC and IntakeAir deltas -> ignored. *Catches: environmental noise route creation.*
 - No resource/inventory delta -> empty manifest (validation rejects). *Catches: false positive.*
@@ -973,6 +980,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Non-docking connection -> invalid in v1. *Catches: unsupported producer accepted.*
 - No docking connection -> invalid. *Catches: missing connection check.*
 - Missing source recording -> route status becomes MissingSourceRecording. *Catches: cargo without proof recording.*
+- Missing source recording restored on load/revalidation -> route returns to Active and recomputes NextDispatchUT. *Catches: unrecoverable missing-source status.*
 
 **Chain-sequential playback**
 - `CurrentSegmentIndex = -1` while idle, `0` for first active segment. *Catches: ambiguous idle/active state.*
@@ -981,6 +989,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - UT reaches stop boundary -> delivery triggered even without playback event. *Catches: missed delivery during warp/load/non-flight scenes.*
 - Playback completion event without due UT -> visual-only hint, no duplicate delivery. *Catches: event/UT double-processing.*
 - Source recording deleted while InTransit -> status becomes MissingSourceRecording before delivery. *Catches: mid-transit cargo without proof recording.*
+- Pause requested while InTransit -> delivery still executes, then route becomes Paused. *Catches: frozen in-flight cargo or accidental future dispatch.*
 
 **Dispatch evaluation**
 - KSC origin in Career, capacity available, funds affordable -> dispatch and funds spending emitted. *Catches: free KSC mass.*
@@ -1031,6 +1040,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Inventory manifests and KscDispatchFundsCost round-trip. *Catches: stock cargo/cost data lost.*
 - Null LinkedRouteId survives round-trip. *Catches: empty vs null.*
 - In-transit route with PendingDeliveryUT, PendingStopIndex, and CurrentSegmentIndex survives. *Catches: transit state lost.*
+- In-transit route with PauseAfterCurrentCycle survives. *Catches: pause request lost across save/load.*
 - In-transit route after save/load recomputes actual deliverable capacity at delivery time. *Catches: stale pending amount delivery.*
 
 ### 16.4 Integration tests (synthetic recordings)
