@@ -295,18 +295,20 @@ Broadens the v0.9 Unfinished Flights group beyond Crashed-only siblings to inclu
 
 ---
 
-## Phase 13: Looped Transport Logistics
+## Phase 13: Logistics (Supply Routes)
 
-Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
+Stock-first automated cargo delivery from proven player-flown Supply Runs. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then confirm the prompt to create a recurring Supply Route.
 
-- **Route definition** — a recording with declared origin (Phase 10) and destination (Phase 10) plus resource/inventory/crew manifests (Phase 11)
-- **Three cargo types** — resources (LF, Ox, Ore, etc.), inventory items (stored parts in cargo containers), and crew (generic kerbals by trait)
-- **Delivery logic on loop completion** — recording completion triggers cargo transfer to nearest vessel within range
-- **Round-trip support** — initially two separate looped recordings (outbound loaded, return empty); eventual round-trip recording mode
-- **Time scaling** — deliveries at realistic intervals with UI showing "next delivery in: 3d 4h"
-- **Visual presence** — ghost supply ships actually fly (as ghosts) on every loop iteration; only approach/departure bubbles spawn visible ghosts, transit is invisible (the boring middle)
+- **v1 route shape** — docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred.
+- **Stock proof-of-work** — route creation derives the delivery manifest from connection-scoped snapshots: cargo must leave the transport-side part set and appear on the endpoint-side part set during the docking window. Aggregate merged-vessel totals are not enough proof.
+- **Origin cost model** — KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo. Non-KSC v1 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
+- **UT-driven scheduler** — route progress, delivery, pause behavior, save/load catch-up, and time-warp behavior are driven by universal time in `ParsekScenario`, with ghost playback treated as visual evidence rather than authoritative timing.
+- **Endpoint resolution** — orbital endpoints use recorded vessel PID only. Surface endpoints prefer the recorded PID and may fall back to one nearest compatible stock vessel near the recorded coordinates, never to an abstract area warehouse.
+- **Visual presence** — ghost supply vessels replay the recorded chain when visuals are available, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
 
-Every supply ship is a replay of a real mission the player flew — more immersive than abstracted route systems, more performance-demanding, but achievable within the existing architecture.
+**Logistics prerequisites added to Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also require connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
+
+Every supply ship remains a replay of a real mission the player flew, but v1 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
 ---
 
@@ -404,8 +406,8 @@ Phase 12: Rewind to Separation (v0.9 ✓)
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
     │
     ▼
-Phase 13: Looped Transport Logistics
-    │  Routes = looped recordings with resource delivery
+Phase 13: Logistics (Supply Routes)
+    │  Stock-first Supply Routes from proven dock/transfer/undock Supply Runs
     │
     ▼
 Gloops Extraction ─── Extract ghost engine to separate assembly,
