@@ -709,6 +709,10 @@ namespace Parsek
         // Phase F: timelineResourceReplayPausedLogged removed alongside ApplyResourceDeltas.
         private bool wasWarpActive = false; // tracks previous warp state for exit detection
         private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
+        private bool hasLastWarpCheckpointEvent;
+        private RecordingTree lastWarpCheckpointTree;
+        private float lastWarpCheckpointRate;
+        private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
         private WatchModeController watchMode;
 
@@ -6859,15 +6863,35 @@ namespace Parsek
 
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
+            string warpRateKey = warpRate.ToString("F1",
+                System.Globalization.CultureInfo.InvariantCulture);
+
+            bool sameCheckpointTree = ReferenceEquals(lastWarpCheckpointTree, activeTree);
+            if (ShouldSkipDuplicateWarpCheckpointEvent(
+                    warpRate,
+                    ut,
+                    hasLastWarpCheckpointEvent && sameCheckpointTree,
+                    lastWarpCheckpointRate,
+                    lastWarpCheckpointUT))
+            {
+                ParsekLog.VerboseRateLimited("Checkpoint",
+                    $"warp-rate-duplicate-{warpRateKey}",
+                    $"Duplicate time warp checkpoint ignored at {warpRateKey}x UT={ut:F2}");
+                return;
+            }
+
+            hasLastWarpCheckpointEvent = true;
+            lastWarpCheckpointTree = activeTree;
+            lastWarpCheckpointRate = warpRate;
+            lastWarpCheckpointUT = ut;
 
             // Bug #592: KSP fires onTimeWarpRateChanged very chattily — a single
             // playtest produced ~1090 events at 1.0x without any actual rate change
             // (scene transitions, warp-to-here, etc. retrigger the GameEvent).
             // Rate-limit by warpRate so transitions between distinct rates still log
             // immediately, but a burst of redundant 1x->1x fires collapses into one
-            // line per window.
-            string warpRateKey = warpRate.ToString("F1",
-                System.Globalization.CultureInfo.InvariantCulture);
+            // line per window. Bug #597 additionally skips exact duplicate
+            // same-tree/same-rate/same-UT checkpoint work before it reaches the recorder.
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-{warpRateKey}",
                 $"Time warp rate changed to {warpRateKey}x " +
@@ -6882,6 +6906,28 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
+        }
+
+        internal static bool ShouldSkipDuplicateWarpCheckpointEvent(
+            float currentWarpRate,
+            double currentUT,
+            bool hasLastEvent,
+            float lastWarpRate,
+            double lastUT)
+        {
+            if (!hasLastEvent)
+                return false;
+
+            if (float.IsNaN(currentWarpRate) || float.IsInfinity(currentWarpRate) ||
+                double.IsNaN(currentUT) || double.IsInfinity(currentUT) ||
+                float.IsNaN(lastWarpRate) || float.IsInfinity(lastWarpRate) ||
+                double.IsNaN(lastUT) || double.IsInfinity(lastUT))
+                return false;
+
+            const double RateEpsilon = 0.0001;
+            const double UTEpsilon = 0.000001;
+            return Math.Abs((double)currentWarpRate - lastWarpRate) <= RateEpsilon
+                && Math.Abs(currentUT - lastUT) <= UTEpsilon;
         }
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
