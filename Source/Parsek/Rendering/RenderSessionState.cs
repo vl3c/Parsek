@@ -959,12 +959,14 @@ namespace Parsek.Rendering
         /// <para>
         /// Inertial-longitude splines (FrameTag != 0) require a
         /// CelestialBody handle to lower the inertial position back to
-        /// world-frame. When <paramref name="surfaceLookup"/> is the only
-        /// available body resolver (xUnit), the helper conservatively
-        /// returns <paramref name="splineHit"/> = false and uses the raw
-        /// sample. Production code resolves the body via FlightGlobals
-        /// and uses <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>
-        /// instead — see <see cref="AnchorPropagator.TryEvaluateSmoothedWorldPosWithBodyDispatch"/>.
+        /// world-frame. The optional <paramref name="bodyResolver"/>
+        /// supplies one — production callers pass a closure backed by
+        /// <see cref="FlightGlobals.Bodies"/>; xUnit tests pass a closure
+        /// backed by <c>TestBodyRegistry</c>. When the resolver is null OR
+        /// returns null for the section's body name, inertial splines
+        /// fall through to <paramref name="splineHit"/> = false (raw
+        /// sample). Body-fixed splines (FrameTag == 0) succeed via the
+        /// <paramref name="surfaceLookup"/> path even without a resolver.
         /// </para>
         /// </summary>
         internal static bool TryEvaluatePerSegmentWorldPositions(
@@ -975,7 +977,8 @@ namespace Parsek.Rendering
             out Vector3d recordedWorld,
             out Vector3d smoothedWorld,
             out bool splineHit,
-            out string failureReason)
+            out string failureReason,
+            Func<string, CelestialBody> bodyResolver = null)
         {
             recordedWorld = default;
             smoothedWorld = default;
@@ -1013,23 +1016,55 @@ namespace Parsek.Rendering
                 return false;
             }
 
-            // Spline branch — falls through to "smoothed = recorded" when the
-            // section has no spline cached or its FrameTag isn't body-fixed
-            // (the body-fixed-only fallback path; production callers should
-            // use the body-aware helper on AnchorPropagator for inertial
-            // splines).
+            // Spline branch — body-fixed (FrameTag=0) routes through the
+            // surfaceLookup directly; inertial (FrameTag=1, ExoPropulsive /
+            // ExoBallistic) routes through DispatchSplineWorldByFrameTag
+            // which lowers the inertial-longitude controls back to world
+            // space using the body's rotation phase. Without the inertial
+            // dispatch, every burn / coast edge degraded to identity
+            // propagation in §9.1 (ultrareview P1-B fix).
             smoothedWorld = recordedWorld;
             if (SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
-                && spline.IsValid && spline.FrameTag == 0)
+                && spline.IsValid)
             {
                 Vector3d posLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
-                if (TryLookupSurfacePosition(
-                        surfaceLookup, sample.bodyName,
-                        posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
-                        out Vector3d smoothed))
+                if (spline.FrameTag == 0)
                 {
-                    smoothedWorld = smoothed;
-                    splineHit = true;
+                    if (TryLookupSurfacePosition(
+                            surfaceLookup, sample.bodyName,
+                            posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
+                            out Vector3d smoothed))
+                    {
+                        smoothedWorld = smoothed;
+                        splineHit = true;
+                    }
+                }
+                else
+                {
+                    // FrameTag = 1 (inertial). Need a CelestialBody handle
+                    // to drive LowerFromInertialToWorld. xUnit injects via
+                    // bodyResolver + FrameTransform.RotationPeriodForTesting
+                    // + FrameTransform.WorldSurfacePositionForTesting;
+                    // production resolves through FlightGlobals. Compare
+                    // via object.ReferenceEquals so a TestBodyRegistry-built
+                    // CelestialBody (uninitialised Unity object) is not
+                    // treated as null by Unity's overloaded `==`.
+                    CelestialBody body = bodyResolver != null
+                        ? bodyResolver(sample.bodyName) : null;
+                    if (!object.ReferenceEquals(body, null))
+                    {
+                        Vector3d worldPos = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                            spline.FrameTag,
+                            posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
+                            body, ut, rec.RecordingId, sectionIndex);
+                        if (!double.IsNaN(worldPos.x)
+                            && !double.IsNaN(worldPos.y)
+                            && !double.IsNaN(worldPos.z))
+                        {
+                            smoothedWorld = worldPos;
+                            splineHit = true;
+                        }
+                    }
                 }
             }
             return true;

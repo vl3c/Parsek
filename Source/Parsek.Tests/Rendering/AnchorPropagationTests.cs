@@ -209,6 +209,15 @@ namespace Parsek.Tests.Rendering
             tree.BranchPoints.Add(bpA);
             tree.BranchPoints.Add(bpB);
 
+            // Seed rec so the worklist starts walking. Without a seed the
+            // worklist-based propagator (P2-A) never reaches the
+            // duplicate-edge path because there's no anchor to propagate.
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recordingId: rec.RecordingId, sectionIndex: 0,
+                side: AnchorSide.Start, ut: 0.0,
+                epsilon: new Vector3d(1.0, 0, 0),
+                source: AnchorSource.LiveSeparation));
+
             var marker = new ReFlySessionMarker { SessionId = "cycle-sess", TreeId = tree.Id };
             AnchorPropagator.Run(marker, new[] { rec, rec2 }, new[] { tree },
                 surfaceLookup: null);
@@ -620,6 +629,15 @@ namespace Parsek.Tests.Rendering
                 ChildRecordingIds = new List<string> { child.RecordingId },
             });
 
+            // Seed parent so the worklist starts. The suppression check
+            // fires inside the edge walk, after the seed pulls the parent
+            // onto the queue.
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recordingId: parent.RecordingId, sectionIndex: 0,
+                side: AnchorSide.End, ut: 75.0,
+                epsilon: new Vector3d(1.0, 0, 0),
+                source: AnchorSource.LiveSeparation));
+
             AnchorPropagator.SuppressionPredicateForTesting = id =>
                 string.Equals(id, parent.RecordingId, StringComparison.Ordinal);
 
@@ -661,6 +679,417 @@ namespace Parsek.Tests.Rendering
                 l.Contains("[VERBOSE][Pipeline-AnchorPropagate]")
                 && l.Contains("chain-edge-boundary-mismatch"));
             Assert.False(RenderSessionState.TryLookup(part1.RecordingId, 0, AnchorSide.Start, out _));
+        }
+
+        // ----- ultrareview P1-B: §9.1 inertial-frame dispatch -------------
+
+        [Fact]
+        public void Run_NinePointOne_Inertial_AppliesRecordedMinusSmoothedDelta()
+        {
+            // Reviewer P1-B: the previous helper treated only FrameTag=0
+            // splines as a real spline hit. FrameTag=1 (ExoPropulsive /
+            // ExoBallistic — every burn / coast section in production)
+            // fell back to smoothedWorld = recordedWorld so the §9.1
+            // correction term cancelled to zero. This test pins the fix
+            // by injecting an inertial-FrameTag spline on both sides of
+            // an edge, providing a CelestialBody body resolver and
+            // RotationPeriodForTesting / WorldSurfacePositionForTesting
+            // seams, and asserting the propagator computes a non-zero
+            // (recordedOffset - smoothedOffset) term using
+            // TrajectoryMath.FrameTransform.LowerFromInertialToWorld.
+            const double bpUT = 50.0;
+            const double rotationPeriod = 21549.425; // Kerbin sidereal day
+
+            // Construct a synthetic CelestialBody and seed FrameTransform
+            // seams so DispatchSplineWorldByFrameTag's tag=1 branch can run
+            // without the live KSP API.
+            CelestialBody fakeKerbin = TestBodyRegistry.CreateBody(
+                "Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            try
+            {
+                TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                    object.ReferenceEquals(b, fakeKerbin) ? rotationPeriod : double.NaN;
+                // Body resolver returns the fake Kerbin; surface-lookup
+                // (lat,lon,alt) -> world maps lat/lon/alt linearly so the
+                // arithmetic is human-checkable.
+                TrajectoryMath.FrameTransform.WorldSurfacePositionForTesting =
+                    (b, lat, lon, alt) => new Vector3d(lat, lon, alt);
+                AnchorPropagator.BodyResolverForTesting = name =>
+                    string.Equals(name, "Kerbin", StringComparison.Ordinal) ? fakeKerbin : null;
+
+                var parent = MakeRec("rec-inertial-p", 0, 100);
+                var child = MakeRec("rec-inertial-c", 50, 150);
+
+                // Recorded points (lat,lon,alt) → surfaceLookup returns
+                // them as world-space directly. Parent.lat=100, child.lat=110.
+                var parentPoint = new TrajectoryPoint
+                {
+                    ut = bpUT, latitude = 100, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                };
+                parent.Points.Clear();
+                parent.Points.Add(parentPoint);
+                parent.TrackSections[0] = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 0, endUT = 100,
+                    frames = new List<TrajectoryPoint> { parentPoint },
+                    checkpoints = new List<OrbitSegment>(),
+                    source = TrackSectionSource.Active,
+                };
+                var childPoint = new TrajectoryPoint
+                {
+                    ut = bpUT, latitude = 110, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                };
+                child.Points.Clear();
+                child.Points.Add(childPoint);
+                child.TrackSections[0] = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 50, endUT = 150,
+                    frames = new List<TrajectoryPoint> { childPoint },
+                    checkpoints = new List<OrbitSegment>(),
+                    source = TrackSectionSource.Active,
+                };
+
+                // Inertial splines: the spline controls are
+                // (lat, inertialLon, alt). LowerFromInertialToWorld at
+                // playbackUT=bpUT subtracts the rotation phase from the
+                // inertial-lon, then surfaceLookup maps to world. We
+                // pre-bake the inertial-lon control values so that
+                // (controlLon - phase) returns the desired body-fixed
+                // longitude after lowering — and surfaceLookup turns
+                // (lat, lonAfterLower, alt) into world.x/y/z.
+                //
+                // Pick: parent smoothed.lat=101, child smoothed.lat=105.
+                // We don't care about the rotation phase as long as both
+                // sides see the same phase (they do — same body, same UT).
+                // Set inertialLon = 0 + phase so the lowered lon = 0.
+                double phaseAtBpUT = (bpUT * 360.0) / rotationPeriod;
+                SectionAnnotationStore.PutSmoothingSpline(parent.RecordingId, 0,
+                    new SmoothingSpline
+                    {
+                        SplineType = 0, Tension = 0.5f, FrameTag = 1, IsValid = true,
+                        KnotsUT = new[] { 0.0, 100.0 },
+                        ControlsX = new[] { 101f, 101f },
+                        ControlsY = new[] { (float)phaseAtBpUT, (float)phaseAtBpUT },
+                        ControlsZ = new[] { 0f, 0f },
+                    });
+                SectionAnnotationStore.PutSmoothingSpline(child.RecordingId, 0,
+                    new SmoothingSpline
+                    {
+                        SplineType = 0, Tension = 0.5f, FrameTag = 1, IsValid = true,
+                        KnotsUT = new[] { 50.0, 150.0 },
+                        ControlsX = new[] { 105f, 105f },
+                        ControlsY = new[] { (float)phaseAtBpUT, (float)phaseAtBpUT },
+                        ControlsZ = new[] { 0f, 0f },
+                    });
+
+                // Δ.x = (110 - 100) - (105 - 101) = 10 - 4 = 6
+                // ε_upstream = (3, 0, 0) → ε_child = (9, 0, 0)
+                RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                    recordingId: parent.RecordingId, sectionIndex: 0,
+                    side: AnchorSide.Start, ut: 0.0,
+                    epsilon: new Vector3d(3.0, 0.0, 0.0),
+                    source: AnchorSource.LiveSeparation));
+
+                var tree = new RecordingTree { Id = "t-inertial" };
+                tree.Recordings[parent.RecordingId] = parent;
+                tree.Recordings[child.RecordingId] = child;
+                tree.BranchPoints.Add(new BranchPoint
+                {
+                    Id = "dock-inertial", UT = bpUT, Type = BranchPointType.Dock,
+                    ParentRecordingIds = new List<string> { parent.RecordingId },
+                    ChildRecordingIds = new List<string> { child.RecordingId },
+                });
+
+                Func<string, double, double, double, Vector3d> surfaceLookup =
+                    (b, lat, lon, alt) => new Vector3d(lat, lon, alt);
+
+                AnchorPropagator.Run(
+                    new ReFlySessionMarker { SessionId = "inertial-91-sess", TreeId = tree.Id },
+                    new[] { parent, child }, new[] { tree }, surfaceLookup);
+
+                Assert.True(RenderSessionState.TryLookup(child.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
+                Assert.Equal(9.0, ac.Epsilon.x, 3);
+                Assert.Equal(0.0, ac.Epsilon.y, 3);
+                Assert.Equal(0.0, ac.Epsilon.z, 3);
+
+                // The Edge-propagated Verbose advertises nineOneApplied=true
+                // — proving the helper did NOT fall through to the recorded
+                // sample (which would have produced nineOneApplied=true but
+                // with offset delta = 0 because smoothed=recorded on both
+                // sides). We pin the ε value above; the log line is the
+                // belt-and-braces check.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[VERBOSE][Pipeline-AnchorPropagate]")
+                    && l.Contains("Edge propagated")
+                    && l.Contains("nineOneApplied=true"));
+                // Negative pin: the helper must NOT log the no-spline-skip
+                // Verbose because both sides DID hit the inertial spline.
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[VERBOSE][Pipeline-AnchorPropagate]")
+                    && l.Contains("no-spline-skip"));
+            }
+            finally
+            {
+                TrajectoryMath.FrameTransform.ResetForTesting();
+                AnchorPropagator.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void TryEvaluatePerSegmentWorldPositions_InertialSpline_DispatchesThroughBodyResolver()
+        {
+            // Direct unit test of the inertial branch in
+            // TryEvaluatePerSegmentWorldPositions. Pins that with a body
+            // resolver returning a non-null CelestialBody plus the
+            // FrameTransform seams set, the helper drives
+            // DispatchSplineWorldByFrameTag(FrameTag=1) and writes the
+            // lowered world position into smoothedWorld.
+            CelestialBody fakeKerbin = TestBodyRegistry.CreateBody(
+                "Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            try
+            {
+                const double rotationPeriod = 21549.425;
+                TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                    object.ReferenceEquals(b, fakeKerbin) ? rotationPeriod : double.NaN;
+                TrajectoryMath.FrameTransform.WorldSurfacePositionForTesting =
+                    (b, lat, lon, alt) => new Vector3d(lat, lon, alt);
+
+                var rec = MakeRec("rec-direct-inertial", 0, 100);
+                var p = new TrajectoryPoint
+                {
+                    ut = 50, latitude = 50, longitude = 0, altitude = 0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                };
+                rec.Points.Clear(); rec.Points.Add(p);
+                rec.TrackSections[0] = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 0, endUT = 100,
+                    frames = new List<TrajectoryPoint> { p },
+                    checkpoints = new List<OrbitSegment>(),
+                    source = TrackSectionSource.Active,
+                };
+                double phase = (50.0 * 360.0) / rotationPeriod;
+                SectionAnnotationStore.PutSmoothingSpline(rec.RecordingId, 0,
+                    new SmoothingSpline
+                    {
+                        SplineType = 0, Tension = 0.5f, FrameTag = 1, IsValid = true,
+                        KnotsUT = new[] { 0.0, 100.0 },
+                        ControlsX = new[] { 77f, 77f },
+                        ControlsY = new[] { (float)phase, (float)phase },
+                        ControlsZ = new[] { 0f, 0f },
+                    });
+
+                Func<string, double, double, double, Vector3d> surfaceLookup =
+                    (b, lat, lon, alt) => new Vector3d(lat, lon, alt);
+                Func<string, CelestialBody> bodyResolver = name =>
+                    string.Equals(name, "Kerbin", StringComparison.Ordinal) ? fakeKerbin : null;
+
+                bool ok = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                    rec, sectionIndex: 0, ut: 50.0,
+                    surfaceLookup,
+                    out Vector3d recordedWorld, out Vector3d smoothedWorld,
+                    out bool splineHit, out string failureReason,
+                    bodyResolver);
+
+                Assert.True(ok);
+                Assert.Null(failureReason);
+                Assert.True(splineHit, "Inertial path must set splineHit=true with a body resolver");
+                // Recorded sample.lat=50, lon=0, alt=0 → recordedWorld=(50,0,0).
+                Assert.Equal(50.0, recordedWorld.x, 6);
+                // Smoothed: lat=77, lonAfterLower=phase-phase=0, alt=0 → (77,0,0).
+                Assert.Equal(77.0, smoothedWorld.x, 3);
+                Assert.NotEqual(recordedWorld.x, smoothedWorld.x);
+            }
+            finally
+            {
+                TrajectoryMath.FrameTransform.ResetForTesting();
+            }
+        }
+
+        // ----- ultrareview P2-A: worklist propagation is order-independent ----
+
+        [Fact]
+        public void Run_DeepChain_ReversedBranchPointOrder_StillPropagatesEnd2End()
+        {
+            // Reviewer P2-A: RecordingTree.BranchPoints has no enforced
+            // topological order. The previous single-pass walk processed
+            // edges in list order — if a downstream edge appeared before
+            // its upstream parent had its anchor seeded, the propagator
+            // wrote zero ε and never revisited the child. Production
+            // multi-recording chains can easily have non-topological
+            // ordering. The worklist refactor follows edges outward from
+            // anchored seeds, so list order is irrelevant.
+            //
+            // Build a 4-recording linear chain via 3 BranchPoints in
+            // REVERSED list order:
+            //   recA -- bp0 --> recB -- bp1 --> recC -- bp2 --> recD
+            // BranchPoints are inserted bp2, bp1, bp0 — so a single-pass
+            // walk processes recC->recD first (recC has no anchor yet),
+            // then recB->recC (recB has no anchor yet), then recA->recB
+            // (recA HAS the seed). Pre-fix: only recB inherits ε; recC
+            // and recD stay at zero. Post-fix: all three inherit.
+            var recA = MakeRec("rec-rev-A", 0, 100);
+            var recB = MakeRec("rec-rev-B", 100, 200);
+            var recC = MakeRec("rec-rev-C", 200, 300);
+            var recD = MakeRec("rec-rev-D", 300, 400);
+
+            var seed = new Vector3d(13.0, 0.0, 0.0);
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recordingId: recA.RecordingId, sectionIndex: 0,
+                side: AnchorSide.End, ut: 100.0,
+                epsilon: seed, source: AnchorSource.LiveSeparation));
+
+            var tree = new RecordingTree { Id = "t-rev" };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+            tree.Recordings[recC.RecordingId] = recC;
+            tree.Recordings[recD.RecordingId] = recD;
+
+            var bp0 = new BranchPoint
+            {
+                Id = "bp0", UT = 100.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recA.RecordingId },
+                ChildRecordingIds = new List<string> { recB.RecordingId },
+            };
+            var bp1 = new BranchPoint
+            {
+                Id = "bp1", UT = 200.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recB.RecordingId },
+                ChildRecordingIds = new List<string> { recC.RecordingId },
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp2", UT = 300.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recC.RecordingId },
+                ChildRecordingIds = new List<string> { recD.RecordingId },
+            };
+            // Reversed order — bp2 (deepest) appears FIRST in the list.
+            tree.BranchPoints.Add(bp2);
+            tree.BranchPoints.Add(bp1);
+            tree.BranchPoints.Add(bp0);
+
+            AnchorPropagator.Run(
+                new ReFlySessionMarker { SessionId = "rev-sess", TreeId = tree.Id },
+                new[] { recA, recB, recC, recD }, new[] { tree },
+                surfaceLookup: null);
+
+            // recB / recC / recD should each have ε equal to the seed
+            // (chain edges identity-propagate; non-chain Dock edges
+            // identity-propagate when neither side has a spline cached
+            // — which is the case here because no
+            // PutSmoothingSpline calls were made).
+            Assert.True(RenderSessionState.TryLookup(recB.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acB));
+            Assert.True(RenderSessionState.TryLookup(recC.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acC));
+            Assert.True(RenderSessionState.TryLookup(recD.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acD));
+            Assert.Equal(seed.x, acB.Epsilon.x, 3);
+            Assert.Equal(seed.x, acC.Epsilon.x, 3);
+            Assert.Equal(seed.x, acD.Epsilon.x, 3);
+
+            // Three Edge-propagated Verbose lines should fire (one per
+            // edge), regardless of list order.
+            int edgePropagatedCount = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[VERBOSE][Pipeline-AnchorPropagate]")
+                    && line.Contains("Edge propagated"))
+                {
+                    edgePropagatedCount++;
+                }
+            }
+            Assert.Equal(3, edgePropagatedCount);
+        }
+
+        [Fact]
+        public void Run_NoSeed_NoEdgesProcessed()
+        {
+            // Companion test: the worklist starts empty when no recording
+            // has a seed anchor. With no live re-fly session and no
+            // pre-emitted candidates, the propagator should write nothing.
+            // This pins the seed-driven nature of the walk.
+            var recA = MakeRec("rec-noseed-A", 0, 100);
+            var recB = MakeRec("rec-noseed-B", 100, 200);
+            var tree = new RecordingTree { Id = "t-noseed" };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "noseed-bp", UT = 100, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recA.RecordingId },
+                ChildRecordingIds = new List<string> { recB.RecordingId },
+            });
+
+            AnchorPropagator.Run(
+                new ReFlySessionMarker { SessionId = "noseed-sess", TreeId = tree.Id },
+                new[] { recA, recB }, new[] { tree }, surfaceLookup: null);
+
+            Assert.False(RenderSessionState.TryLookup(recA.RecordingId, 0, AnchorSide.Start, out _));
+            Assert.False(RenderSessionState.TryLookup(recA.RecordingId, 0, AnchorSide.End, out _));
+            Assert.False(RenderSessionState.TryLookup(recB.RecordingId, 0, AnchorSide.Start, out _));
+            // No "Edge propagated" log line.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[VERBOSE][Pipeline-AnchorPropagate]")
+                && l.Contains("Edge propagated"));
+        }
+
+        [Fact]
+        public void TryEvaluatePerSegmentWorldPositions_InertialSpline_FallsBackWithoutBodyResolver()
+        {
+            // Companion negative test: when no body resolver is supplied
+            // the inertial dispatch can't run, so the helper falls back
+            // to splineHit=false and smoothedWorld=recordedWorld. This
+            // pins the "no resolver" fallback and matches the docstring's
+            // contract.
+            var rec = MakeRec("rec-inertial-no-resolver", 0, 100);
+            var p = new TrajectoryPoint
+            {
+                ut = 50, latitude = 50, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            };
+            rec.Points.Clear(); rec.Points.Add(p);
+            rec.TrackSections[0] = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0, endUT = 100,
+                frames = new List<TrajectoryPoint> { p },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            };
+            SectionAnnotationStore.PutSmoothingSpline(rec.RecordingId, 0,
+                new SmoothingSpline
+                {
+                    SplineType = 0, Tension = 0.5f, FrameTag = 1, IsValid = true,
+                    KnotsUT = new[] { 0.0, 100.0 },
+                    ControlsX = new[] { 99f, 99f },
+                    ControlsY = new[] { 0f, 0f },
+                    ControlsZ = new[] { 0f, 0f },
+                });
+
+            Func<string, double, double, double, Vector3d> surfaceLookup =
+                (b, lat, lon, alt) => new Vector3d(lat, lon, alt);
+
+            bool ok = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rec, sectionIndex: 0, ut: 50.0,
+                surfaceLookup,
+                out Vector3d recordedWorld, out Vector3d smoothedWorld,
+                out bool splineHit, out string failureReason,
+                bodyResolver: null);
+
+            Assert.True(ok);
+            Assert.Null(failureReason);
+            Assert.False(splineHit);
+            // Without a resolver, smoothed mirrors recorded.
+            Assert.Equal(recordedWorld.x, smoothedWorld.x, 6);
+            Assert.Equal(recordedWorld.y, smoothedWorld.y, 6);
+            Assert.Equal(recordedWorld.z, smoothedWorld.z, 6);
         }
     }
 }

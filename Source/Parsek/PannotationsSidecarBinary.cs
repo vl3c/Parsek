@@ -114,14 +114,25 @@ namespace Parsek
         // would force a runtime fallback for every consumer; the bump triggers
         // the existing alg-stamp-drift path so stale files are discarded and
         // recomputed on first load (HR-10).
-        internal const int AlgorithmStampVersion = 3;
+        // Bumped to 4 in Phase 6 follow-up (ultrareview P1-A): the
+        // ConfigurationHash canonical encoding gained the `useAnchorTaxonomy`
+        // tunable byte. A .pann written with v3 hashed without the flag, so
+        // its ConfigurationHash will compare equal to the new v4 hash for
+        // recordings whose flag happens to match the v3 default — that is a
+        // false-cache-hit risk. The alg-stamp bump forces every existing
+        // .pann to invalidate via alg-stamp-drift on first load after the
+        // upgrade, regardless of the configured flag value.
+        internal const int AlgorithmStampVersion = 4;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +
         // outlierAccelAtm(4) + outlierAccelExo(4) + anchorPriority(10) +
-        // coBubbleBlendMaxWindow(8) + coBubbleResampleHz(4) = 51 bytes.
-        private const int CanonicalEncodingLength = 51;
+        // coBubbleBlendMaxWindow(8) + coBubbleResampleHz(4) +
+        // useAnchorTaxonomy(1) = 52 bytes. Phase 6 follow-up appended the
+        // useAnchorTaxonomy flag so flag flips invalidate cached .pann
+        // files via config-hash-drift (HR-10 freshness).
+        private const int CanonicalEncodingLength = 52;
 
         /// <summary>
         /// Probes the file header. Returns <c>true</c> with
@@ -486,6 +497,24 @@ namespace Parsek
         /// </summary>
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
+            // Backward-compatible overload: tests that don't care about the
+            // Phase 6 flag default it to true (matches Phase 6's shipped
+            // default). Production callers should use the two-argument
+            // overload below so a flag flip invalidates cached .pann files.
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true);
+        }
+
+        /// <summary>
+        /// Phase 6 follow-up (ultrareview P1-A): the canonical encoding now
+        /// includes the <see cref="ParsekSettings.useAnchorTaxonomy"/> flag
+        /// as a single byte at offset 51. Flipping the flag changes the
+        /// derived <c>AnchorCandidatesList</c> output (writer emits an
+        /// empty block when off, populated when on), so HR-10 freshness
+        /// requires the flag to participate in the cache key.
+        /// </summary>
+        internal static byte[] ComputeConfigurationHash(
+            SmoothingConfiguration cfg, bool useAnchorTaxonomy)
+        {
             byte[] buffer = new byte[CanonicalEncodingLength];
             using (var ms = new MemoryStream(buffer, writable: true))
             using (var w = new BinaryWriter(ms))
@@ -501,6 +530,7 @@ namespace Parsek
                 for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] anchorPriorityVector (reserved)
                 w.Write((double)0);                        // [39..46] coBubbleBlendMaxWindow (reserved)
                 w.Write((float)0);                         // [47..50] coBubbleResampleHz (reserved)
+                w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [51] useAnchorTaxonomy (Phase 6)
             }
 
             using (var sha = SHA256.Create())

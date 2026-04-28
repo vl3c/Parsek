@@ -852,6 +852,7 @@ Binary schema (initial version `PannotationsBinaryVersion = 1`):
 | `anchorPriorityVector` (byte[10])       | Section 7.11                       | `AnchorCandidatesList` ordering   |
 | `coBubbleBlendMaxWindow` (float64 s)    | `Rendering/CoBubbleBlender.cs`     | `CoBubbleOffsetTraces` window     |
 | `coBubbleResampleHz` (float32)          | same                               | trace UT density                  |
+| `useAnchorTaxonomy` (bool, byte)        | `ParsekSettings.cs`                | `AnchorCandidatesList` (off → empty block; on → populated). Phase 6 follow-up — without this byte, flipping the rollout flag would let a previously-cached `.pann` with an empty candidate list cache-hit a flag-on session, breaking HR-10 freshness. |
 
 Any code path that reads a tunable must contribute it to the canonical encoding. Missing one is the bug HR-10 names: a parameter change with no cache invalidation. Tests verify reproducibility (same inputs → same hash) and sensitivity (perturbing any tunable → hash changes) — see Section 20.1's `PannotationsConfigHashTests`.
 

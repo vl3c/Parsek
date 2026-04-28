@@ -39,13 +39,21 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class SmoothingPipeline
     {
-        // Cached configuration hash. Computed once per process; recomputed only
-        // if a future code path swaps SmoothingConfiguration.Default. The on/off
-        // toggle (ParsekSettings.useSmoothingSplines) is intentionally NOT in
-        // the hash — toggling it does not invalidate fitted splines, it just
-        // controls whether the consumer reads them.
+        // Cached configuration hash. Computed once per (config, useAnchorTaxonomy)
+        // pair. The `useSmoothingSplines` toggle is intentionally NOT in the
+        // hash — toggling it does not invalidate fitted splines, it just
+        // controls whether the consumer reads them. The `useAnchorTaxonomy`
+        // toggle IS in the hash (Phase 6 follow-up, ultrareview P1-A): the
+        // candidate writer emits an empty AnchorCandidatesList when the flag
+        // is off, and a populated one when on, so a stale cached hash would
+        // false-positive against a freshly-flipped flag and let the load
+        // path skip the lazy-recompute. The hash is keyed on the flag value
+        // so a flip blows out the cache, and ClassifyDrift compares the
+        // probed file's hash against the current one — flag flip → drift →
+        // discard + recompute.
         private static readonly object s_configHashLock = new object();
         private static byte[] s_cachedConfigurationHash;
+        private static bool s_cachedConfigurationHashFlag;
 
         // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
         // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
@@ -468,6 +476,7 @@ namespace Parsek.Rendering
             lock (s_configHashLock)
             {
                 s_cachedConfigurationHash = null;
+                s_cachedConfigurationHashFlag = false;
             }
             lock (s_frameDecisionLock)
             {
@@ -556,11 +565,19 @@ namespace Parsek.Rendering
 
         private static byte[] CurrentConfigurationHash()
         {
+            // Read the flag through AnchorCandidateBuilder's resolver so the
+            // test override and the production setting flow through one
+            // path. The cache is invalidated whenever the flag flips.
+            bool flag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
             lock (s_configHashLock)
             {
-                if (s_cachedConfigurationHash == null)
+                if (s_cachedConfigurationHash == null
+                    || s_cachedConfigurationHashFlag != flag)
+                {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default);
+                        SmoothingConfiguration.Default, flag);
+                    s_cachedConfigurationHashFlag = flag;
+                }
                 return s_cachedConfigurationHash;
             }
         }

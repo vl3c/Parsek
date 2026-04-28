@@ -392,10 +392,83 @@ namespace Parsek.Rendering
                 }
             }
 
+            // Phase 2 worklist (ultrareview P2-A). The previous single-pass
+            // loop processed edges in BranchPoints-list order — if a
+            // downstream edge appeared before its upstream parent had its
+            // anchor seeded, the propagator wrote zero ε and never
+            // revisited the child. RecordingTree.BranchPoints is a public
+            // persisted list with no enforced topological order, so this
+            // was a real correctness gap. The worklist follows edges
+            // outward from anchored seeds, naturally visiting them in
+            // topological order regardless of list order.
+            //
+            // Build an outgoing-edge index keyed by parent recordingId so
+            // each worklist pop is O(outgoing edges), not O(all edges).
+            var outgoingByParent = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int e = 0; e < edges.Count; e++)
             {
-                Edge edge = edges[e];
-                edgesVisited++;
+                Edge ed = edges[e];
+                if (string.IsNullOrEmpty(ed.ParentId)) continue;
+                if (!outgoingByParent.TryGetValue(ed.ParentId, out var bucket))
+                {
+                    bucket = new List<int>();
+                    outgoingByParent[ed.ParentId] = bucket;
+                }
+                bucket.Add(e);
+            }
+
+            // Seed the worklist with every recording that already has an
+            // anchor written (Phase 2 LiveSeparation seeds from
+            // RebuildFromMarker plus the seed pass above). Any recording
+            // without an anchor isn't reachable by propagation — popping it
+            // would be a no-op.
+            var worklist = new Queue<string>();
+            var enqueued = new HashSet<string>(StringComparer.Ordinal);
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    Recording r = recordings[i];
+                    if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
+                    // Cheap probe: does any anchor exist for this recording?
+                    // The anchor map is keyed (recordingId, sectionIndex, side);
+                    // we don't know the section, so iterate the recording's
+                    // sections looking for any populated slot. With a typical
+                    // recording having a handful of sections this is O(1)
+                    // amortized.
+                    if (r.TrackSections == null) continue;
+                    bool hasAnyAnchor = false;
+                    for (int sIdx = 0; sIdx < r.TrackSections.Count && !hasAnyAnchor; sIdx++)
+                    {
+                        if (RenderSessionState.TryLookup(r.RecordingId, sIdx, AnchorSide.Start, out _)
+                            || RenderSessionState.TryLookup(r.RecordingId, sIdx, AnchorSide.End, out _))
+                        {
+                            hasAnyAnchor = true;
+                        }
+                    }
+                    if (hasAnyAnchor && enqueued.Add(r.RecordingId))
+                        worklist.Enqueue(r.RecordingId);
+                }
+            }
+
+            // Drive the walk. For each anchored parent, propagate ε along
+            // its outgoing edges. If propagation actually inserts a new
+            // anchor on the child (TryWriteAnchor returned true), enqueue
+            // the child so its outgoing edges get a chance to propagate
+            // farther downstream. Cycle defense — the visitedEdges set
+            // ensures each edge processes at most once even if the parent
+            // is enqueued multiple times.
+            while (worklist.Count > 0)
+            {
+                string parentId = worklist.Dequeue();
+                if (!outgoingByParent.TryGetValue(parentId, out var edgeIndices))
+                    continue;
+
+                for (int ei = 0; ei < edgeIndices.Count; ei++)
+                {
+                    int e = edgeIndices[ei];
+                    Edge edge = edges[e];
+                    edgesVisited++;
 
                 string edgeKey = edge.ParentId + "->" + edge.ChildId + "@" +
                     edge.UT.ToString("R", CultureInfo.InvariantCulture);
@@ -453,14 +526,20 @@ namespace Parsek.Rendering
                 string nineOneFallbackReason = null;
                 if (!edge.IsChain)
                 {
+                    // Pass our body resolver so FrameTag=1 inertial splines
+                    // dispatch through LowerFromInertialToWorld instead of
+                    // falling back to the raw sample (ultrareview P1-B).
+                    Func<string, CelestialBody> bodyResolver = ResolveBody;
                     bool parentOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
                         rParent, parentSectionIdx, edge.UT, surfaceLookup,
                         out Vector3d parentRecorded, out Vector3d parentSmoothed,
-                        out bool parentSplineHit, out string parentReason);
+                        out bool parentSplineHit, out string parentReason,
+                        bodyResolver);
                     bool childOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
                         rChild, childSectionIdx, edge.UT, surfaceLookup,
                         out Vector3d childRecorded, out Vector3d childSmoothed,
-                        out bool childSplineHit, out string childReason);
+                        out bool childSplineHit, out string childReason,
+                        bodyResolver);
                     if (parentOk && childOk)
                     {
                         recordedOffset = childRecorded - parentRecorded;
@@ -528,12 +607,30 @@ namespace Parsek.Rendering
                         edge.IsChain ? "true" : "false",
                         nineOneApplied ? "true" : "false",
                         (epsilonChild - epsilonUpstream).magnitude.ToString("F3", CultureInfo.InvariantCulture)));
+
+                    // Worklist propagation: the child now has an anchor,
+                    // so enqueue it (idempotently) so its outgoing edges
+                    // get a chance to propagate farther downstream. The
+                    // visitedEdges set guarantees each edge runs at most
+                    // once regardless of how many times the parent is
+                    // enqueued, so re-enqueueing on every successful write
+                    // is safe — the alternative (only enqueue on the FIRST
+                    // anchor write per child) would lose the §7.11 priority
+                    // resolution case where a higher-priority source
+                    // overwrites a lower-priority one and the new ε needs
+                    // to flow downstream.
+                    if (!enqueued.Contains(edge.ChildId))
+                    {
+                        enqueued.Add(edge.ChildId);
+                        worklist.Enqueue(edge.ChildId);
+                    }
                 }
                 else
                 {
                     candidatesDeferred++;
                 }
-            }
+                } // for ei
+            } // while worklist
 
             sw.Stop();
             ParsekLog.Info("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
