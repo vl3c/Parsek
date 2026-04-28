@@ -629,11 +629,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Patches KSP's facility levels to match the module's derived state.
-        /// Reads from ScenarioUpgradeableFacilities.protoUpgradeables and sets
-        /// levels via UpgradeableFacility.SetLevel, following the same pattern
-        /// as the old ActionReplay.ReplayFacilityUpgrade (now removed).
-        /// No-op if protoUpgradeables is null.
+        /// Wrapper preserved for existing KspStatePatcher callers.
+        /// Facility patch behavior lives in <see cref="FacilityStatePatcher.PatchFacilities"/>.
         /// </summary>
         internal static void PatchFacilities(FacilitiesModule facilities)
         {
@@ -641,10 +638,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Patches DestructibleBuilding components to match the module's destroyed/intact state.
-        /// Collects all DestructibleBuilding objects once, then iterates facilities to find matches.
-        /// Uses exact ID matching between FacilityId and DestructibleBuilding.id.
-        /// No-op if no DestructibleBuilding objects are found (e.g. not in KSC scene).
+        /// Wrapper preserved for existing KspStatePatcher callers.
+        /// Destruction patch behavior lives in <see cref="FacilityStatePatcher.PatchDestructionState"/>.
         /// </summary>
         internal static void PatchDestructionState(
             System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
