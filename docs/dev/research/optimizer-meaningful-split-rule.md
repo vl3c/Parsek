@@ -6,7 +6,7 @@
 >
 > The Producer C no-payload boundary seam (`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) needs a separate signal at the producer (e.g. an `IsBoundarySeam` flag on the emitted `TrackSection`), not a generic post-hoc gate.
 >
-> Kept as historical record of what was considered and shipped on this attempt. See `docs/dev/todo-and-known-bugs.md` #632 for the post-revert acceptance.
+> Kept as historical record of what was considered and shipped on this attempt. See `docs/dev/todo-and-known-bugs.md` #632 for the post-revert acceptance and `docs/dev/plans/optimizer-persistence-split.md` for the persistence-based redesign plan.
 
 ---
 
