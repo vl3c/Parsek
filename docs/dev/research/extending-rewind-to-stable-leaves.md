@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R16 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R15 incorporated eleven external review passes; R16 closes a twelfth pass with one P1 (R5-R15's Site B design only touched `FlipMergeStateAndClearTransient`, but the in-place continuation path in `MergeDialog.TryCommitReFlySupersede` overrides the classifier's verdict with an unconditional Immutable -- R16 expands to a Site B-1 + Site B-2 split) and a P2 (the reaper close-rule treated `slot.Sealed == true` as closed regardless of effective MergeState; R16 makes NotCommitted unconditional no-reap). The next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R17 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R15 incorporated eleven external review passes; R16 closed a twelfth pass; R17 incorporates a second internal opus review pass that surfaced three Significant issues + a P2 nit + four Open Questions. R17 folds all of them in: explicit `TryResolveRewindPointForRecording` extraction prerequisite (Significant #1); Site B defensive fall-back rewritten as a hard failure in DEBUG (Significant #3); §S22 breakup-survivor-with-stable-orbit promoted to a §10 risk; v0.9 chain-extension test status added as a §10 known-unknown to investigate during the design-doc phase; `MarkerValidator.Validate` extension added to §12; §3 EVA branch comment tightened to drop the misleading "dead" example; §7.0 gains a fourth (L4 right-click) layout candidate; §9.5 gains a hybrid star+linear graph regression test. The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -23,7 +23,17 @@
 - **R13.** Ninth external review pass landed one P1 + a P2: (a) **P1.M** -- R12's `ComputeSubtreeClosure(rootRecordingId)` was root-only; R13 made it marker-aware with a root override (`ComputeSubtreeClosureInternal(marker, rootOverride)`). (b) **P2.N** -- step 2 pseudocode still had unconditional provisional assign; R13 inlined the null-check.
 - **R14.** Tenth external review pass landed two P2s: (a) **P2.O** -- R13's wrapper snippet broke the existing public helper's null-guard and defensive-copy contracts; R14 added the marker-null guard and the HashSet-copy. (b) **P2.P** -- §S21 still named the old origin-rooted helper for the merge path; R14 updated to the new internal helper with the SupersedeTargetId fallback.
 - **R15.** Eleventh external review pass landed one P2: **P2.Q** -- R14's wrapper still missed the existing public helper's "internal returns null -> public returns empty" contract; R15 added the cached-null guard.
-- **R16 (this version).** Twelfth external review pass landed one P1 + a P2: (a) **P1.N** -- R5-R15's Site B design only touched `SupersedeCommit.FlipMergeStateAndClearTransient`, but the in-place continuation merge path in `MergeDialog.TryCommitReFlySupersede` calls Site B-1 and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier verdict. That override would silently undo the new stable-leaf CommittedProvisional result for in-place re-flies ending Orbiting/SubOrbital/EVA-stranded -- §S8 chain extension would still vanish from Unfinished Flights immediately after the in-place merge. R16 splits Site B into B-1 (the existing classifier flip) and B-2 (remove the unconditional override in `TryCommitReFlySupersede`). Added an in-place stable-terminal regression test in §9.5 with a negative variant that asserts the test fails while the override is still in place. (b) **P2.R** -- the §9.3 reaper rule treated `slot.Sealed == true` as closed regardless of the effective recording's MergeState. A stale or accidental Seal flag persisted on a NotCommitted recording (e.g. load-time race state where the journal finisher rolled MergeState back to NotCommitted while the slot's Sealed bit is still on disk) would have allowed the reaper to delete the RP quicksave while an active re-fly is still live. R16 makes NotCommitted unconditional no-reap regardless of `slot.Sealed`; the close predicate is now `MergeState != NotCommitted AND (MergeState == Immutable OR slot.Sealed == true)`. Updated §5 prose, §7 Seal cell wording, §9.3 reaper section, §9.5 reaper test, and §12 recommendation to match.
+- **R16.** Twelfth external review pass: (a) **P1.N** -- the in-place continuation path in `MergeDialog.TryCommitReFlySupersede` overrides the Site B classifier verdict; R16 expanded Site B into B-1 + B-2. (b) **P2.R** -- reaper close-rule was too permissive on stale Sealed flags; R16 made NotCommitted unconditional no-reap.
+- **R17 (this version).** Second internal opus review pass surfaced three Significant issues + four Open Questions + minor nits, all folded in:
+   - **Sig #1**: `TryResolveRewindPointForRecording` lives in `UI/RecordingsTableUI.cs` but Site A, Site B-1, and §9.4's Seal handler all call it from `RecordingStore` / `SupersedeCommit` -- layering inversion. R17 adds an explicit prerequisite refactor in §9.1 that moves the helper (with `IsUnfinishedFlightCandidateShape` / `IsVisibleUnfinishedFlight`) into the shared classifier; `RecordingsTableUI` becomes a consumer.
+   - **Sig #2**: §5 reaper paragraph was looser than §9.3 on which object the predicate is on. Already addressed in R16's §5 rewrite as part of the P2.R fix; verified consistent in R17.
+   - **Sig #3**: Site B's defensive fall-back silently widened v0.9 behaviour for an unanticipated lookup failure. R17 rewrites it as a hard failure in DEBUG (Debug.Assert + log Error) with the v0.9 fall-back retained in RELEASE for crash safety; explicitly documents the fall-back is a panic-safe, not a graceful path.
+   - **Open Q on v0.9 chain-extension test status**: R17 adds a §10 risk entry that the formal design doc must run the v0.9 `MergeCrashedReFlyCreatesCPSupersedeTest` against current main to determine whether v0.9 chain extension is silently broken under the star-graph code (and file a `todo-and-known-bugs.md` entry if so).
+   - **Open Q on `MarkerValidator.Validate`**: R17 adds the validator extension to §12's prerequisite list (weak validation: non-null `SupersedeTargetId` must resolve in `CommittedRecordings`; failure logs Warn and clears the field).
+   - **Open Q on §7.0 kebab feasibility**: §7.0 L3 gains an implementation note about Parsek's existing `PopupDialog` reuse + a UX-mock recommendation; L4 right-click added as a fourth candidate.
+   - **Nit on §3 EVA comment**: dead-kerbal example dropped (dead EVA hits Destroyed and routes through the Crashed branch, not the kerbal branch); kerbal branch comment now correctly says "stable terminals only."
+   - **Nit on §S22 third sub-bullet**: promoted to §10 risk so the design-doc reviewer doesn't miss the most "obvious-feeling-bug" case (breakup survivor that ends Orbiting can't be re-flown via UF).
+   - **Nit on §9.5 hybrid graph coverage**: added a regression test for the legacy-star + new-linear hybrid case that §9.2.1's "no migration sweep needed" claim depends on.
 
 ---
 
@@ -137,15 +147,20 @@ TerminalOutcomeQualifies(chainTip, slot, RP) :=
 
     if kerbal:
         return terminal.Value != Boarded
-        // EVA kerbals: any non-Boarded terminal is unfinished (stranded on
-        // surface, drifting in orbit, dead). Focus-status doesn't gate this --
-        // a stranded EVA kerbal is unfinished whether the player flew the
-        // EVA actively or never took focus. The kerbal branch returns BEFORE
-        // the FocusSlotIndex == -1 short-circuit below, by design: stranded
-        // EVAs surface even from legacy / no-focus-signal RPs. This is an
-        // INTENTIONAL retroactive exception to the otherwise forward-only
-        // migration -- a stranded kerbal is unambiguous (player wants them
-        // back), unlike orbital siblings where intent is ambiguous.
+        // EVA kerbals: any non-Boarded terminal is unfinished (stranded
+        // landed/splashed on a body, drifting in orbit). Dead EVA kerbals
+        // hit terminal.Value == Destroyed and are handled by the Crashed
+        // branch below; they are NOT routed through this kerbal branch
+        // (which is reached only on stable terminals).
+        //
+        // Focus-status doesn't gate the kerbal branch -- a stranded EVA
+        // is unfinished whether the player flew the EVA actively or never
+        // took focus. The branch returns BEFORE the FocusSlotIndex == -1
+        // short-circuit below, by design: stranded EVAs surface even from
+        // legacy / no-focus-signal RPs. INTENTIONAL retroactive exception
+        // to the otherwise forward-only migration -- a stranded kerbal is
+        // unambiguous (player wants them back), unlike orbital siblings
+        // where intent is ambiguous.
         // See §9.2 + §10 EVA-exception note + §9.5 test cases.
 
     if terminal.Value == Destroyed:
@@ -298,11 +313,12 @@ The crashed-row UX (today's v0.9) gets the same two actions. A crashed row's Sea
 
 ### 7.0 Unresolved: how to surface the second action in the table
 
-The natural-language R3 framing was "split the Rewind cell into Fly + Seal." On closer reading of [RecordingsTableUI.cs:39](../../../Source/Parsek/UI/RecordingsTableUI.cs), `ColW_Rewind = 75f` and the existing `DrawUnfinishedFlightRewindButton` draws a single Fly button at the full column width. Two side-by-side controls in 75 px would be unreadable. Three candidate layouts, none free:
+The natural-language R3 framing was "split the Rewind cell into Fly + Seal." On closer reading of [RecordingsTableUI.cs:39](../../../Source/Parsek/UI/RecordingsTableUI.cs), `ColW_Rewind = 75f` and the existing `DrawUnfinishedFlightRewindButton` draws a single Fly button at the full column width. Two side-by-side controls in 75 px would be unreadable. Four candidate layouts, none free:
 
 - **(L1) Widen the Rewind column.** Bump `ColW_Rewind` to ~150 px; draw two `DrawBodyCenteredButton`s side-by-side; each ~70 px wide. Cascades through every row in the table (Crashed rows currently using R/FF/Fly/blank also get the new width). The header "Rewind/FF" stays; possibly relabel to "Rewind / Seal."
 - **(L2) Add a separate Seal column.** New `ColW_Seal = 60f`; only drawn for rows where `IsUnfinishedFlight` is true; blank otherwise. Adds a column to *every* row visually (alignment), even though most cells are blank. Less natural-grouping but no width pressure on existing controls.
-- **(L3) Row context action / kebab menu.** Tiny "..." button next to the Fly cell that pops a menu with "Seal slot" as the only entry (today). Cheapest layout-wise; least discoverable. Discoverability matters less if the v0.9 crashed-row Seal is also routed through the same menu (consistent across flavours).
+- **(L3) Row context action / kebab menu.** Tiny "..." button next to the Fly cell that pops a menu with "Seal slot" as the only entry (today). Cheapest layout-wise; least discoverable. Discoverability matters less if the v0.9 crashed-row Seal is also routed through the same menu (consistent across flavours). Implementation note: KSP doesn't have a stock kebab pattern, but Parsek already uses `PopupDialog` extensively (e.g. `RewindInvoker.ShowDialog`, `ReFlyRevertDialog`); the same affordance shape would fit. Worth a UX mock to verify the visual weight of a "..." button in the existing 75 px column doesn't crowd the Fly button.
+- **(L4) Right-click row context menu.** Right-clicking the row pops a menu with "Seal slot" (and any future per-row actions). Most discoverable for power users, invisible to casual players. KSP's stock UI doesn't use right-click for table rows (no precedent to lean on); Parsek would be establishing a new pattern. Trade-off: zero column-width pressure, but adds an event handler + accessibility concern (touchpad players, controllers). Probably the worst choice for v1; mentioned for completeness.
 
 R4 does not pick. Promoting this doc to a formal design doc requires a UI mock for one of the three (or a fourth nobody's thought of yet); the chosen layout drives `RecordingsTableUI` changes in the build phase.
 
@@ -582,6 +598,8 @@ ConfigNode key: `supersedeTargetId`, **always written** when the marker is persi
 
 Extract `TerminalOutcomeQualifies` and the controllable-subject helper into `EffectiveState` (or a new `UnfinishedFlightClassifier` static class) so both call sites in §9.2 share a single source of truth.
 
+**Prerequisite refactor (R17 Significant #1):** `TryResolveRewindPointForRecording` currently lives in [`UI/RecordingsTableUI.cs:2802`](../../../Source/Parsek/UI/RecordingsTableUI.cs). Site A (`RecordingStore.ApplyRewindProvisionalMergeStates`) and Site B-1 (`SupersedeCommit.FlipMergeStateAndClearTransient`) both call it; the Seal handler in §9.4 also calls it; promoting the predicate into `EffectiveState` / `UnfinishedFlightClassifier` would create a layering inversion if the helper stays in the UI layer (RecordingStore -> UI). The formal design doc must move `TryResolveRewindPointForRecording` and its supporting `IsUnfinishedFlightCandidateShape` / `IsVisibleUnfinishedFlight` into the same shared classifier (or an adjacent `UnfinishedFlightResolver` static class). `RecordingsTableUI` becomes a consumer of the moved helpers rather than their owner. Update call sites in `RecordingsTableUI` to use the new namespace; verify no other UI code depends on the old location.
+
 Logging additions (`[UnfinishedFlights] Verbose`):
 
 - `IsUnfinishedFlight=false rec=<rid> reason=notControllable headIsDebris=true`
@@ -656,15 +674,27 @@ Add a §9.5 in-place stable-terminal regression test (see test list below): an i
 After this feature -- same shared classifier, same triple as Site A. Slot resolution uses the same `TryResolveRewindPointForRecording` helper Site A uses, fed the **provisional** recording. The helper walks each slot's `OriginChildRecordingId` forward through `RecordingSupersedes` and returns the slot whose forward trail contains the queried recording id.
 
 ```
-// Use the v0.9 resolver. After Phase 2 (Supersede / AppendRelations) of
-// MergeJournalOrchestrator runs, the new supersede relation is in
+// Use the v0.9 resolver (relocated to the shared classifier per §9.1's
+// prerequisite refactor). After Phase 2 (Supersede / AppendRelations)
+// of MergeJournalOrchestrator runs, the new supersede relation is in
 // supersedes, so the walk from the matching slot's OriginChildRecordingId
 // now reaches the provisional's id. The resolver returns that slot.
 if NOT TryResolveRewindPointForRecording(provisional, out rp, out slotIdx):
-    // Should not happen for a valid re-fly merge; defensive log + fall back
-    // to the v0.9 default (Immutable for non-Crashed) so we never throw
-    // mid-merge.
-    log [Supersede] Warn: Site B slot lookup failed for provisional=<rid> ...
+    // Should not happen for a valid re-fly merge with §9.2.1's invocation
+    // linearization in place. R17 Significant #3 fix: this fall-back is a
+    // documented HARD FAILURE in DEBUG (assert + throw) so a regression in
+    // the invocation path or AppendRelations is caught loudly during
+    // development. RELEASE builds log [Supersede] Error and fall back to
+    // the v0.9 default (Immutable for non-Crashed) so a player session
+    // never crashes mid-merge -- but a release-build occurrence indicates
+    // a code bug, not a recoverable runtime state. The fall-back is NOT
+    // a graceful path for "the predicate occasionally can't resolve"; it
+    // is a panic-safe.
+    log [Supersede] Error: Site B slot lookup failed for provisional=<rid>
+        rpId=<marker.RewindPointId> originChildRec=<marker.OriginChildRecordingId>
+        supersedeTargetId=<marker.SupersedeTargetId>
+        -- this indicates a §9.2.1 invocation regression or AppendRelations bug
+    Debug.Assert(false, "Site B slot lookup failed -- regression in §9.2.1?")
     provisional.MergeState = (Classify(provisional) == Crashed)
                                  ? CommittedProvisional : Immutable
     return
@@ -800,7 +830,7 @@ Logging on reap:
 
 ### 9.4 UI
 
-`UI/RecordingsTableUI.cs` `DrawUnfinishedFlightRewindButton` ([line 2559](../../../Source/Parsek/UI/RecordingsTableUI.cs)) gains a second action -- Seal -- per one of the three layouts proposed in §7.0. The chosen layout drives whether `ColW_Rewind` widens, a new column is added, or a kebab menu is introduced.
+`UI/RecordingsTableUI.cs` `DrawUnfinishedFlightRewindButton` ([line 2559](../../../Source/Parsek/UI/RecordingsTableUI.cs)) gains a second action -- Seal -- per one of the four candidate layouts in §7.0. The chosen layout drives whether `ColW_Rewind` widens, a new column is added, a kebab is introduced, or a right-click handler is wired up.
 
 Seal handler:
 
@@ -843,6 +873,7 @@ Seal handler tests:
 - Slot.Sealed flip + SealedRealTime stamp; `SupersedeStateVersion` bumps; `MergeState` UNCHANGED.
 - `RewindPointReaper.IsReapEligible`: slots Immutable + Sealed -> reap; any unsealed CP slot -> no-reap; any NotCommitted -> no-reap regardless of `slot.Sealed` (R16 P2.R regression guard: even if a stale Seal flag persists on a NotCommitted recording, the reaper must NOT reap; this catches load-time race states where the journal finisher rolled MergeState back to NotCommitted while the slot's Sealed bit is still on disk).
 - **In-place re-fly stable-terminal merge state** (R16 P1.N regression guard): drive a re-fly through the in-place continuation path of `MergeDialog.TryCommitReFlySupersede` (NOT through the spawn-a-fresh-provisional path) and end the re-fly with terminal Orbiting/SubOrbital/EVA-stranded. Assert `provisional.MergeState == CommittedProvisional` (NOT Immutable). Negative variant: with the v0.9 unconditional `provisional.MergeState = MergeState.Immutable` override still in `TryCommitReFlySupersede`, assert the assertion fails -- this is the failure mode that R16 P1.N requires removing.
+- **Hybrid star+linear supersede graph** (R17 nit): build a save with a legacy star portion `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` (representing pre-§9.2.1 chain extension) AND a new linear portion `{probeReFly2 -> probeReFly3}` (representing a post-fix re-fly into the same slot). Assert `slot.EffectiveRecordingId(supersedes)` resolves consistently (the walker picks the oldest member of the star, then walks linearly from there: probeOrig -> probeReFly1, terminating since the linear extension grows from probeReFly2 not probeReFly1). Assert that `TryResolveRewindPointForRecording(probeReFly3, ...)` still returns the slot (the helper accepts any node in any forward trail from the slot's origin, so probeReFly3 is reachable via probeOrig -> probeReFly2 -> probeReFly3 even with the dangling probeReFly1 sibling). This catches the design's "hybrid graphs are tolerable, no migration sweep needed" claim from §9.2.1.
 - Legacy unsealed `Immutable` crash row -> Seal flips slot.Sealed without touching the recording -> reaper now treats slot as closed -> RP eventually reaps.
 - Sealing one of N siblings with the others still CP -> log emits `reaperImpact=stillBlocked`; sealing the last one -> `reaperImpact=willReap`.
 
@@ -892,6 +923,8 @@ In-game tests:
 - **Legacy migration is forward-only for vessels, retroactive for stranded EVAs.** Pre-upgrade BG-recorded vessels left in stable orbit stay `Immutable` after upgrade -- the `FocusSlotIndex == -1` short-circuit suppresses Orbiting/SubOrbital because legacy RPs have no focus signal. But the EVA branch in `TerminalOutcomeQualifies` returns BEFORE that short-circuit, so a legacy live RP with a stranded (non-Boarded terminal) EVA kerbal newly surfaces post-upgrade. **This is intentional**: stranded kerbals are unambiguous and low-volume; orbital siblings are ambiguous and potentially high-volume. CHANGELOG must split the migration story into two notes: (1) "vessels left in past missions do NOT retroactively appear"; (2) "stranded EVA kerbals from past missions DO retroactively appear so you can attempt rescue."
 - **EVA stranded edge cases.** What if the kerbal is dead (suit ran out)? `TerminalState` for a dead EVA kerbal might be Destroyed; that's already UF via the Crashed path. What if KSP unloaded the kerbal mid-EVA? The finalization-cache work in `parsek-recording-finalization-design.md` should give a reliable terminal; depends on that work being solid.
 - **Optimizer chain length.** S16 / §2.1 -- chain walks unbounded in eccentric-orbit case. Performance risk on a save with many such vessels; the chip-spawned investigations should fix the optimizer side independently.
+- **Breakup-survivor with stable-orbit terminal can't be re-flown** (R17 promotion of §S22 third sub-bullet). When a vessel V undergoes a `Breakup` BP and the controllable survivor continues into stable orbit (terminal Orbiting/SubOrbital), V is FocusSlot, the focus-gate excludes it from UF, and the player loses access to re-fly the breakup moment via Unfinished Flights. This is the single most "obvious-feeling-bug" outcome of the focus-slot exclusion: the player remembers a structural failure, looks for it under UF, doesn't find it. The mitigations are: (a) the player can manually crash the post-breakup vessel and the row will appear; (b) the player can wait for v2's Park-from-not-UF affordance. The formal design doc must surface this in the CHANGELOG to set expectations explicitly. Worth a Discord/forum FAQ entry too.
+- **v0.9 Crashed chain-extension status under star-graph code is unverified** (R17 Open Question). v0.9's existing Crashed chain-extension test (`MergeCrashedReFlyCreatesCPSupersedeTest` per §7.43 of the rewind-to-separation doc) is marked "Shipped (test)," but R9-R15's analysis of the star-shaped supersede graph implies that the second crashed re-fly's `EffectiveRecordingId` walk would silently resolve to the first re-fly, hiding the second. Two possibilities: (a) the v0.9 test is silently passing because of an unstated mechanism (relation insertion order, walker tie-break) that makes star-graph resolution work in practice; (b) v0.9 chain extension is silently broken and nobody has noticed. The §9.2.1 invocation linearization fixes both possibilities, but the formal design doc should run the v0.9 test against the current main and flag a v0.9 bug entry in `docs/dev/todo-and-known-bugs.md` if (b) turns out to be the case. Otherwise the linearization ships as a "fix for a bug nobody knew existed" rather than as a feature prerequisite.
 
 ---
 
@@ -911,10 +944,12 @@ In-game tests:
 
 ## 12. Recommendation
 
-R16 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
+R17 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (now widen column / new column / kebab menu / right-click context menu -- four candidates). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
 
 - **Prerequisite v0.9 marker-write change + closure-helper split**: `RewindInvoker.AtomicMarkerWrite` (NOT `BuildProvisionalRecording`) computes `priorTip = selected.EffectiveRecordingId(supersedes)` once before the in-place vs fresh-provisional branch; stamps `marker.OriginChildRecordingId` (slot origin, unchanged contract) and `marker.SupersedeTargetId` (NEW, prior tip) in the shared marker-creation block; the `provisional.SupersedeTargetId = priorTip` overwrite is guarded with `if (provisional != null)` (the in-place branch sets provisional null). Existing `ComputeSessionSuppressedSubtree(marker)` is refactored: body extracts into `ComputeSubtreeClosureInternal(marker, rootOverride)` (preserves all marker-context gates: InvokedUT for PID-peer, mixed-parent halt, chain-sibling expansion); the existing wrapper delegates with `marker.OriginChildRecordingId`. `SupersedeCommit.AppendRelations` calls the internal helper with `marker.SupersedeTargetId ?? marker.OriginChildRecordingId`. Runtime ghost suppression is unchanged. See §9.2.1.
 - **Three new persistent fields**: `ChildSlot.Sealed` (+ diagnostic `SealedRealTime`); `RewindPoint.FocusSlotIndex` (int, -1 default); `ReFlySessionMarker.SupersedeTargetId` (string, null default). All back-compat.
+- **`MarkerValidator.Validate` extension** (R17 nit): when `marker.SupersedeTargetId` is non-null, validate it resolves in `RecordingStore.CommittedRecordings` (weak validation: a missing target logs `[ReFlySession] Warn: Marker invalid field=SupersedeTargetId; clearing` and clears the field, falling the next AppendRelations call back to the OriginChildRecordingId path). Null is always valid (legacy markers + first-re-fly with the field unset historically).
+- **Helper extraction prerequisite**: `TryResolveRewindPointForRecording`, `IsUnfinishedFlightCandidateShape`, and `IsVisibleUnfinishedFlight` move from `UI/RecordingsTableUI.cs` into the shared classifier (`EffectiveState` or new `UnfinishedFlightClassifier` / `UnfinishedFlightResolver`). `RecordingsTableUI` becomes a consumer rather than the owner. Required to avoid layering inversion when `RecordingStore` and `SupersedeCommit` start calling these helpers from §9.2.
 - **Predicate**: keep v0.9's `MergeState in { Immutable, CommittedProvisional }`; add `IsDebris == false` controllable-subject gate; add per-RP-context leaf gate (chainTip ChildBranchPointId is null OR equals the matched RP's BranchPointId); add `slot.Sealed == false`; replace terminal-Crashed-only with `TerminalOutcomeQualifies(chainTip, slot, RP)` per §3. Shared classifier helper used by both call sites.
 - **MergeState promotion at THREE sites** (R16 P1.N expansion): `RecordingStore.ApplyRewindProvisionalMergeStates` (Site A) + `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B-1) + `MergeDialog.TryCommitReFlySupersede` (Site B-2: remove the unconditional `provisional.MergeState = MergeState.Immutable` override that runs after Site B-1 on the in-place continuation path -- otherwise the classifier's CP verdict is silently overridden for in-place merges). Site A and Site B-1 route through the shared classifier; Site B-2 is a deletion. **Reaper rule**: a slot is closed iff effective recording is committed AND (Immutable OR slot.Sealed); NotCommitted is unconditional no-reap regardless of slot.Sealed.
 - **UI**: per-row Seal action alongside the existing Fly button. Layout TBD (§7.0). Confirmation dialog with destructive-action language (§7.1). Tooltip refresh.
@@ -928,4 +963,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R16.*
+*End of research note R17.*
