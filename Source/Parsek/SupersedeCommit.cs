@@ -7,7 +7,8 @@ namespace Parsek
     /// <summary>
     /// Phase 8 of Rewind-to-Staging (design §5.3 / §5.5 / §6.6 step 2-3 /
     /// §7.17 / §7.43 / §10.4): commits a re-fly session's supersede relations
-    /// for the subtree rooted at the marker's <c>OriginChildRecordingId</c>
+    /// for the subtree rooted at the marker's supersede target, falling back
+    /// to <c>OriginChildRecordingId</c> for legacy markers,
     /// and flips the provisional's <see cref="MergeState"/> to either
     /// <see cref="MergeState.Immutable"/> (Landed / stable) or
     /// <see cref="MergeState.CommittedProvisional"/> (Crashed — still
@@ -99,7 +100,7 @@ namespace Parsek
         /// <summary>
         /// Phase 10 decomposed helper (design §6.6 step 3): compute the
         /// forward-only merge-guarded subtree closure rooted at the marker's
-        /// origin child recording and append one
+        /// supersede target (or origin child recording for legacy markers) and append one
         /// <see cref="RecordingSupersedeRelation"/> per descendant pointing at
         /// the provisional. Idempotent: pre-existing relations are skipped
         /// with a Verbose log. Returns the closure so the downstream
@@ -136,8 +137,9 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario))
                 return new List<string>();
 
+            string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
             IReadOnlyCollection<string> subtree =
-                EffectiveState.ComputeSessionSuppressedSubtree(marker);
+                EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
             int subtreeCount = subtree?.Count ?? 0;
             string newRecordingId = provisional.RecordingId;
             string originId = marker.OriginChildRecordingId;
@@ -254,8 +256,9 @@ namespace Parsek
             }
 
             ParsekLog.Info(Tag,
-                $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
-                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)} " +
+                $"Added {added.ToString(ic)} supersede relations for subtree rooted at {closureRoot ?? "<none>"} " +
+                $"(origin={originId ?? "<none>"} subtreeCount={subtreeCount.ToString(ic)} " +
+                $"skippedExisting={skippedExisting.ToString(ic)} " +
                 $"skippedSelfLink={skippedSelfLink.ToString(ic)} " +
                 $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)})");
 

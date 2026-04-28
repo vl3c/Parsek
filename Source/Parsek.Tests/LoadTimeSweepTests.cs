@@ -128,7 +128,8 @@ namespace Parsek.Tests
             string activeId,
             string originId,
             string rpId,
-            double invokedUt = 500.0)
+            double invokedUt = 500.0,
+            string supersedeTargetId = null)
         {
             return new ReFlySessionMarker
             {
@@ -136,6 +137,7 @@ namespace Parsek.Tests
                 TreeId = treeId,
                 ActiveReFlyRecordingId = activeId,
                 OriginChildRecordingId = originId,
+                SupersedeTargetId = supersedeTargetId,
                 RewindPointId = rpId,
                 InvokedUT = invokedUt,
                 InvokedRealTime = "2026-04-18T00:00:00Z",
@@ -265,6 +267,31 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") && l.Contains("Marker valid sess=sess_1"));
+        }
+
+        [Fact]
+        public void MarkerValidator_InvalidSupersedeTarget_ClearsFieldAndLogsWarning()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_active", MergeState.NotCommitted, sessionId: "sess_1"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
+                supersedeTargetId: "rec_missing_target");
+            InstallScenario(rps: new List<RewindPoint> { rp }, marker: marker);
+
+            var result = MarkerValidator.Validate(marker);
+
+            Assert.True(result.Valid);
+            Assert.Null(marker.SupersedeTargetId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Marker invalid field=SupersedeTargetId; clearing")
+                && l.Contains("rec_missing_target"));
         }
 
         [Fact]

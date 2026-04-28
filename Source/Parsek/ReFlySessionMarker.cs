@@ -44,6 +44,14 @@ namespace Parsek
         /// <summary>Supersede target — the child recording being re-flown (design §5.7).</summary>
         public string OriginChildRecordingId;
 
+        /// <summary>
+        /// Supersede target at invocation time: the slot's current effective
+        /// recording id before this re-fly appends any new relation. Legacy
+        /// markers load with null and merge falls back to
+        /// <see cref="OriginChildRecordingId"/>.
+        /// </summary>
+        public string SupersedeTargetId;
+
         /// <summary>Invoked RewindPoint (design §5.7).</summary>
         public string RewindPointId;
 
@@ -65,6 +73,7 @@ namespace Parsek
             node.AddValue("treeId", TreeId ?? "");
             node.AddValue("activeReFlyRecordingId", ActiveReFlyRecordingId ?? "");
             node.AddValue("originChildRecordingId", OriginChildRecordingId ?? "");
+            node.AddValue("supersedeTargetId", SupersedeTargetId ?? "");
             node.AddValue("rewindPointId", RewindPointId ?? "");
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
@@ -89,6 +98,9 @@ namespace Parsek
 
             string origin = node.GetValue("originChildRecordingId");
             m.OriginChildRecordingId = string.IsNullOrEmpty(origin) ? null : origin;
+
+            string supersedeTarget = node.GetValue("supersedeTargetId");
+            m.SupersedeTargetId = string.IsNullOrEmpty(supersedeTarget) ? null : supersedeTarget;
 
             string rp = node.GetValue("rewindPointId");
             m.RewindPointId = string.IsNullOrEmpty(rp) ? null : rp;

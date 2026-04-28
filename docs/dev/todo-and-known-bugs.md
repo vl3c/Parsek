@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 634. Re-fly chain extension wrote origin-rooted star supersede rows instead of linear prior-tip rows ~~done~~
+
+**Status:** ~~done~~ — fixed in the invocation-linearization worktree.
+
+The §11.2 stable-leaves prerequisite investigation found that
+`MergeCrashedReFlyCreatesCPSupersedeTest` is an in-game single-merge smoke
+test, not a headless chain-extension regression. Running
+`dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter
+MergeCrashedReFlyCreatesCPSupersedeTest` on 2026-04-28 built successfully
+but found no matching xUnit test, and source inspection showed the in-game
+test only asserts the first crashed provisional remains visible after merge.
+It never constructs a second re-fly and never asserts the second relation is
+`{priorTip -> newRecording}`.
+
+The actual bug was the prerequisite design's star graph: invocation stamped
+the slot origin as the supersede target, and `SupersedeCommit.AppendRelations`
+rooted closure at `marker.OriginChildRecordingId`. Repeated re-flies therefore
+wrote `{origin -> attempt1}`, `{origin -> attempt2}`, ...; the forward walker
+uses the first matching relation, so the oldest re-fly won and later attempts
+were not the dominant effective slot recording.
+
+Fix: `ReFlySessionMarker.SupersedeTargetId` now persists the prior effective
+tip, `RewindInvoker.AtomicMarkerWrite` computes that prior tip once before the
+in-place/fresh-provisional branch, `SupersedeCommit.AppendRelations` roots the
+closure at `SupersedeTargetId ?? OriginChildRecordingId`, and
+`EffectiveState.ComputeSubtreeClosureInternal` includes the root override in
+its cache key. Headless tests now cover marker round-trip and weak validation,
+fresh-provisional and in-place marker stamping, root-override closure
+equivalence/caching, linear append relations, and the hybrid legacy-star plus
+new-linear graph.
+
+§11.3 Site B-2 result: preserve the existing B2-A force-Immutable in-place
+handling for this PR. `MergeDialog.TryCommitReFlySupersede`'s in-place path is
+already architected around one recording acting as both slot effective state
+and supersede target, with optimizer-split tip resolution, self-link skips,
+session-owned chain cleanup, RP reap, and durable save in that branch.
+Switching it to B2-B fresh-provisional would require a deeper recorder/merge
+rearchitecture than this prerequisite PR. The limitation remains documented:
+in-place re-fly merges close the slot via `MergeState.Immutable`; natural
+chain extension is supported on the fresh-provisional path.
+
 ## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
 
 **Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.

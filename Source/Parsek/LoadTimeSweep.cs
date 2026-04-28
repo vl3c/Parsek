@@ -59,7 +59,7 @@ namespace Parsek
             }
 
             // ----------------------------------------------------------------
-            // Step 1 (§6.9 step 3): validate the marker's six durable fields.
+            // Step 1 (§6.9 step 3): validate the marker's durable fields.
             // On failure, log Warn and clear the marker BEFORE we gather the
             // spare set — §7.11 nested cleanup below depends on the cleared
             // marker's session id.

@@ -39,6 +39,7 @@ namespace Parsek
 
         private static object suppressionCacheMarkerIdentity;
         private static int suppressionCacheStoreVersion = int.MinValue;
+        private static string suppressionCacheRootOverride;
         private static HashSet<string> suppressionCache;
 
         /// <summary>Resets all caches. For unit tests only.</summary>
@@ -57,6 +58,7 @@ namespace Parsek
 
                 suppressionCacheMarkerIdentity = null;
                 suppressionCacheStoreVersion = int.MinValue;
+                suppressionCacheRootOverride = null;
                 suppressionCache = null;
             }
         }
@@ -154,14 +156,54 @@ namespace Parsek
             {
                 var slot = rp.ChildSlots[i];
                 if (slot == null) continue;
-                string effective = slot.EffectiveRecordingId(effectiveSupersedes);
+                string origin = slot.OriginChildRecordingId;
+                if (string.Equals(origin, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+                string effective = EffectiveRecordingId(origin, effectiveSupersedes);
                 if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
                     return i;
-                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes))
                     return i;
             }
 
             return -1;
+        }
+
+        private static bool IsInSupersedeForwardTrail(
+            string originRecordingId,
+            string targetRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (string.IsNullOrEmpty(originRecordingId)
+                || string.IsNullOrEmpty(targetRecordingId)
+                || supersedes == null
+                || supersedes.Count == 0)
+                return false;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>();
+            visited.Add(originRecordingId);
+            queue.Enqueue(originRecordingId);
+
+            while (queue.Count > 0)
+            {
+                string current = queue.Dequeue();
+                for (int i = 0; i < supersedes.Count; i++)
+                {
+                    var rel = supersedes[i];
+                    if (rel == null) continue;
+                    if (!string.Equals(rel.OldRecordingId, current, StringComparison.Ordinal))
+                        continue;
+                    string next = rel.NewRecordingId;
+                    if (string.IsNullOrEmpty(next)) continue;
+                    if (string.Equals(next, targetRecordingId, StringComparison.Ordinal))
+                        return true;
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -465,7 +507,8 @@ namespace Parsek
                     return ersCache;
                 }
 
-                var suppressed = ComputeSessionSuppressedSubtreeInternal(marker);
+                var suppressed = ComputeSubtreeClosureInternal(
+                    marker, marker?.OriginChildRecordingId);
                 var source = RecordingStore.CommittedRecordings;
                 var result = new List<Recording>(source.Count);
                 int raw = source.Count;
@@ -601,7 +644,9 @@ namespace Parsek
         /// </summary>
         public static IReadOnlyCollection<string> ComputeSessionSuppressedSubtree(ReFlySessionMarker marker)
         {
-            var cached = ComputeSessionSuppressedSubtreeInternal(marker);
+            if (marker == null)
+                return Array.Empty<string>();
+            var cached = ComputeSubtreeClosureInternal(marker, marker.OriginChildRecordingId);
             if (cached == null) return Array.Empty<string>();
             // Defensive copy: callers get an isolated snapshot so mutations (if they
             // ever happened) cannot corrupt the shared cache.
@@ -618,15 +663,16 @@ namespace Parsek
             if (rec == null) return false;
             if (marker == null) return false;
             if (string.IsNullOrEmpty(rec.RecordingId)) return false;
-            var closure = ComputeSessionSuppressedSubtreeInternal(marker);
+            var closure = ComputeSubtreeClosureInternal(marker, marker.OriginChildRecordingId);
             return closure != null && closure.Contains(rec.RecordingId);
         }
 
         // Internal closure computation that returns the cached HashSet directly
         // so ComputeERS can do O(1) membership checks.
-        private static HashSet<string> ComputeSessionSuppressedSubtreeInternal(ReFlySessionMarker marker)
+        internal static HashSet<string> ComputeSubtreeClosureInternal(
+            ReFlySessionMarker marker, string rootOverride)
         {
-            if (marker == null || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            if (marker == null || string.IsNullOrEmpty(rootOverride))
                 return null;
 
             int storeVersion = RecordingStore.StateVersion;
@@ -635,13 +681,17 @@ namespace Parsek
             {
                 if (suppressionCache != null
                     && ReferenceEquals(suppressionCacheMarkerIdentity, marker)
-                    && suppressionCacheStoreVersion == storeVersion)
+                    && suppressionCacheStoreVersion == storeVersion
+                    && string.Equals(
+                        suppressionCacheRootOverride,
+                        rootOverride,
+                        StringComparison.Ordinal))
                 {
                     return suppressionCache;
                 }
 
                 var result = new HashSet<string>(StringComparer.Ordinal);
-                result.Add(marker.OriginChildRecordingId);
+                result.Add(rootOverride);
 
                 // Build a recording-id -> Recording lookup so the walk is O(N)
                 // rather than O(N^2) per committed recording.
@@ -691,7 +741,7 @@ namespace Parsek
                 // EnqueueChainSiblings — those are by-construction same physical
                 // vessel and the chain identity guarantees the same PID.
                 var queue = new Queue<string>();
-                queue.Enqueue(marker.OriginChildRecordingId);
+                queue.Enqueue(rootOverride);
 
                 int mixedParentHalts = 0;
                 int childrenAdded = 0;
@@ -794,9 +844,10 @@ namespace Parsek
                 suppressionCache = result;
                 suppressionCacheMarkerIdentity = marker;
                 suppressionCacheStoreVersion = storeVersion;
+                suppressionCacheRootOverride = rootOverride;
 
                 ParsekLog.Verbose("ReFlySession",
-                    $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
+                    $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
                     $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
                     $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
 

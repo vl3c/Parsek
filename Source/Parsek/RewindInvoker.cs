@@ -832,6 +832,7 @@ namespace Parsek
             // recorder will continue writing into THIS recording; we point
             // the marker at it directly with no placeholder. Otherwise we
             // build a fresh placeholder.
+            string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes);
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
             bool inPlaceContinuation =
                 originChild != null
@@ -878,6 +879,7 @@ namespace Parsek
                 else
                 {
                     provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    provisional.SupersedeTargetId = priorTip;
                     activeReFlyRecordingId = provisional.RecordingId;
                     treeIdForMarker = provisional.TreeId;
 
@@ -892,6 +894,7 @@ namespace Parsek
                     TreeId = treeIdForMarker,
                     ActiveReFlyRecordingId = activeReFlyRecordingId,
                     OriginChildRecordingId = selected.OriginChildRecordingId,
+                    SupersedeTargetId = priorTip,
                     RewindPointId = rp.RewindPointId,
                     InvokedUT = SafeNow(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
@@ -940,6 +943,7 @@ namespace Parsek
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
                 $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
+                $"supersedeTarget={priorTip ?? "<none>"} " +
                 $"tree={treeIdForMarker ?? "<none>"} " +
                 $"inPlaceContinuation={inPlaceContinuation}");
         }

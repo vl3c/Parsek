@@ -321,6 +321,17 @@ namespace Parsek.Tests
             return (rp, slot);
         }
 
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0,
+            };
+        }
+
         private static PostLoadStripResult MakeStripResult(uint selectedPid = 12345u)
         {
             return new PostLoadStripResult
@@ -570,6 +581,7 @@ namespace Parsek.Tests
             Assert.Equal("sess_inplace", marker.SessionId);
             Assert.Equal(origin.RecordingId, marker.ActiveReFlyRecordingId);
             Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            Assert.Equal(slot.OriginChildRecordingId, marker.SupersedeTargetId);
             // Origin's TreeId is reused on the marker.
             Assert.Equal("tree_origin", marker.TreeId);
             Assert.Equal("sess_inplace", origin.CreatingSessionId);
@@ -669,6 +681,48 @@ namespace Parsek.Tests
             // continuation log line should appear.
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("in-place continuation detected"));
+        }
+
+        [Fact]
+        public void AtomicMarkerWrite_OriginPidMismatch_StampsPriorTipOnMarkerAndPlaceholder()
+        {
+            const uint kOriginPid = 1111u;
+            const uint kActivePid = 2222u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+            scenario.RecordingSupersedes.Add(Rel(slot.OriginChildRecordingId, "rec_prior_tip"));
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kActivePid), "sess_prior_tip");
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            Assert.Equal("rec_prior_tip", marker.SupersedeTargetId);
+
+            Recording placeholder = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null
+                    && candidate.RecordingId == marker.ActiveReFlyRecordingId)
+                {
+                    placeholder = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(placeholder);
+            Assert.Equal("rec_prior_tip", placeholder.SupersedeTargetId);
         }
 
         /// <summary>
