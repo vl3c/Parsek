@@ -213,5 +213,53 @@ namespace Parsek.Tests
 
             Assert.False(applied);
         }
+
+        [Fact]
+        public void ShouldEvaluateOrphanEnginePlayback_NullTrajectory_ReturnsFalse()
+        {
+            var state = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    { 1UL, new EngineGhostInfo() },
+                },
+            };
+
+            Assert.False(GhostPlaybackLogic.ShouldEvaluateOrphanEnginePlayback(state, traj: null));
+        }
+
+        [Fact]
+        public void ShouldEvaluateOrphanEnginePlayback_NoEngineOrAudioInfos_ReturnsFalse()
+        {
+            var state = new GhostPlaybackState();
+
+            Assert.False(GhostPlaybackLogic.ShouldEvaluateOrphanEnginePlayback(state, new MockTrajectory()));
+        }
+
+        [Fact]
+        public void ShouldEvaluateOrphanEnginePlayback_EngineOrAudioInfosPresent_ReturnsTrue()
+        {
+            var traj = new MockTrajectory();
+
+            Assert.True(GhostPlaybackLogic.ShouldEvaluateOrphanEnginePlayback(
+                new GhostPlaybackState
+                {
+                    engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                    {
+                        { 1UL, new EngineGhostInfo() },
+                    },
+                },
+                traj));
+
+            Assert.True(GhostPlaybackLogic.ShouldEvaluateOrphanEnginePlayback(
+                new GhostPlaybackState
+                {
+                    audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                    {
+                        { 1UL, new AudioGhostInfo() },
+                    },
+                },
+                traj));
+        }
     }
 }
