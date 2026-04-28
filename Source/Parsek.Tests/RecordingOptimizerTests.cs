@@ -3854,5 +3854,475 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Persistence-based split predicate (Phase 2, plan §3 / §3.1)
+
+        // Helper: build a Recording from a list of (env, duration_seconds, body, isBoundarySeam)
+        // tuples. Sections start at startUT and run consecutively. Each section has 2 frames
+        // (start, end) so CanAutoSplitIgnoringGhostTriggers's >= 5s half check passes when the
+        // halves themselves are ≥ 5s.
+        private static Recording MakePersistenceRecording(
+            string recordingId,
+            double startUT,
+            params (SegmentEnvironment env, double duration, string body, bool isSeam)[] sections)
+        {
+            var rec = new Recording { RecordingId = recordingId };
+            double cur = startUT;
+            for (int i = 0; i < sections.Length; i++)
+            {
+                var (env, duration, body, isSeam) = sections[i];
+                double sectionStart = cur;
+                double sectionEnd = cur + duration;
+                rec.Points.Add(new TrajectoryPoint { ut = sectionStart, altitude = 50000, bodyName = body });
+                rec.Points.Add(new TrajectoryPoint { ut = sectionEnd, altitude = 50000, bodyName = body });
+                rec.TrackSections.Add(new TrackSection
+                {
+                    environment = env,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    source = TrackSectionSource.Active,
+                    startUT = sectionStart,
+                    endUT = sectionEnd,
+                    sampleRateHz = 10f,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = sectionStart, altitude = 50000, bodyName = body },
+                        new TrajectoryPoint { ut = sectionEnd, altitude = 50000, bodyName = body },
+                    },
+                    checkpoints = new List<OrbitSegment>(),
+                    isBoundarySeam = isSeam,
+                });
+                cur = sectionEnd;
+            }
+            return rec;
+        }
+
+        // Convenience overload: same body throughout, no seam flags set.
+        private static Recording MakePersistenceRecording(
+            string recordingId,
+            double startUT,
+            params (SegmentEnvironment env, double duration)[] sections)
+        {
+            var withBody = sections
+                .Select(s => (s.env, s.duration, "Kerbin", false))
+                .ToArray();
+            return MakePersistenceRecording(recordingId, startUT, withBody);
+        }
+
+        private static List<Recording> SingleRec(Recording rec) => new List<Recording> { rec };
+
+        // Test #1: Real ascent (Atmo[long], Exo[long]) splits at the env-class boundary.
+        // Guards the "engine-off coast through 70 km" regression that PR #625 caused.
+        [Fact]
+        public void Persistence_AscentLongAtmoLongExo_Splits()
+        {
+            var rec = MakePersistenceRecording("ascent-long-atmo-long-exo", 17000,
+                (SegmentEnvironment.SurfaceStationary, 30),
+                (SegmentEnvironment.Atmospheric, 300),
+                (SegmentEnvironment.ExoBallistic, 600));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+
+            // Optimizer returns one candidate per pass (break after first), so we just check
+            // a candidate IS produced. The Surface boundary at s=1 is reached first.
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #2: Passive deorbit reentry — Exo→Atmo→Surface. Both env-class boundaries split.
+        // Guards the passive-deorbit regression from PR #625.
+        [Fact]
+        public void Persistence_DeorbitLongExoMediumAtmoLongSurface_Splits()
+        {
+            var rec = MakePersistenceRecording("deorbit-passive-coast", 17000,
+                (SegmentEnvironment.ExoBallistic, 1800),
+                (SegmentEnvironment.Atmospheric, 200),
+                (SegmentEnvironment.SurfaceMobile, 60));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]); // Exo→Atmo splits first (forward bracket would
+                                                  // need next-class neighbour to be Exo, but it's
+                                                  // Surface — so no graze, splits).
+        }
+
+        // Test #3: S16 chain-explosion case — eccentric Pe grazing produces N atmo dips.
+        // All boundaries suppress via clause A or B.
+        [Fact]
+        public void Persistence_EccentricGrazing_4Crossings_AllSuppress()
+        {
+            var rec = MakePersistenceRecording("eccentric-grazing", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 40),
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 40),
+                (SegmentEnvironment.ExoBallistic, 1500));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #4: Single aerobrake pass (Exo → brief Atmo → Exo) stays as one segment.
+        [Fact]
+        public void Persistence_AerobrakeSinglePass_BothBoundariesSuppress()
+        {
+            var rec = MakePersistenceRecording("aerobrake-single-pass", 17000,
+                (SegmentEnvironment.ExoBallistic, 1000),
+                (SegmentEnvironment.Atmospheric, 60),
+                (SegmentEnvironment.ExoBallistic, 1000));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #5: Karman-line tourist hop (Surface → Atmo → brief Exo → Atmo → Surface).
+        // The Exo above 70 km is brief and bracketed by Atmo on both sides — the two Exo
+        // boundaries suppress; the two Surface boundaries always split.
+        [Fact]
+        public void Persistence_KarmanLineHop_ExoBracketed_SuppressesExoSplits()
+        {
+            var rec = MakePersistenceRecording("karman-hop", 17000,
+                (SegmentEnvironment.SurfaceStationary, 30),
+                (SegmentEnvironment.Atmospheric, 300),
+                (SegmentEnvironment.ExoBallistic, 40),
+                (SegmentEnvironment.Atmospheric, 200),
+                (SegmentEnvironment.SurfaceMobile, 60));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            // First candidate produced is at s=1 (Surface→Atmo, always splits). Don't assert
+            // the count beyond ≥1 since the loop breaks after the first add per pass.
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+
+            // After splitting at s=1, the optimizer would re-scan. We assert here that the
+            // brief-Exo boundaries (s=2 and s=3) IsGrazePattern correctly suppresses.
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 2, out var fwdReason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeForward, fwdReason);
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 3, out var bwdReason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeBackward, bwdReason);
+        }
+
+        // Test #6: Real suborbital arc with sustained apogee — Atmo[long] → Exo[300s] → Atmo[long]
+        // → Surface. With K=120, Exo is sustained (300>K), all env-class boundaries split.
+        [Fact]
+        public void Persistence_RealSuborbitalArc_LongApogee_AllSplit()
+        {
+            var rec = MakePersistenceRecording("suborbital-sustained", 17000,
+                (SegmentEnvironment.SurfaceStationary, 30),
+                (SegmentEnvironment.Atmospheric, 300),
+                (SegmentEnvironment.ExoBallistic, 300),
+                (SegmentEnvironment.Atmospheric, 200),
+                (SegmentEnvironment.SurfaceMobile, 60));
+
+            // Each Atmo↔Exo boundary persists (Exo run is 300s > K=120s). Verify
+            // IsGrazePattern returns false for both.
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 2, out _));
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 3, out _));
+        }
+
+        // Test #7: Producer-C boundary seam — `Loaded[long, Exo], Absolute[1 frame, Atmo, seam=true]`.
+        // Seam short-circuit at step 1 of §3 ordering — boundary is not a candidate.
+        [Fact]
+        public void Persistence_BoundarySeam_NotASplitCandidate()
+        {
+            var rec = MakePersistenceRecording("producer-c-seam", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 0.0, "Kerbin", true)); // brief seam-flagged
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #8: Symmetric variant — the *previous* section has isBoundarySeam=true.
+        // Hard step-1 short-circuit fires regardless of which side carries the flag.
+        [Fact]
+        public void Persistence_BoundarySeamFlagOnEitherSide_NotASplitCandidate()
+        {
+            var rec = MakePersistenceRecording("seam-prev-side", 17000,
+                (SegmentEnvironment.ExoBallistic, 0.0, "Kerbin", true), // brief seam-flagged
+                (SegmentEnvironment.Atmospheric, 1500, "Kerbin", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #9: ExoPropulsive S3 short-circuit — `Atmo[300], ExoPropulsive[600]` always splits
+        // regardless of persistence predicate. Engine-firing-at-the-crossing is gameplay-meaningful.
+        [Fact]
+        public void Persistence_ExoPropulsiveAtCrossing_AlwaysSplits_RegressionOfS3()
+        {
+            var rec = MakePersistenceRecording("exo-propulsive-crossing", 17000,
+                (SegmentEnvironment.Atmospheric, 300),
+                (SegmentEnvironment.ExoPropulsive, 600));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #10: Body change (#251) — Kerbin ExoBallistic → Mun ExoBallistic. Same env class,
+        // body change short-circuits before the persistence predicate runs. SOI traversal stays
+        // a split.
+        [Fact]
+        public void Persistence_BodyChange_SameEnvClass_Splits_RegressionOf251()
+        {
+            var rec = MakePersistenceRecording("body-change-same-class", 17000,
+                (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
+                (SegmentEnvironment.ExoBallistic, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #11: Body change AND env-class change with no bracket — body change short-circuits
+        // before the persistence predicate runs.
+        [Fact]
+        public void Persistence_BodyChange_AndClassChange_NoBracket_Splits()
+        {
+            var rec = MakePersistenceRecording("body-change-class-change", 17000,
+                (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #12: Mun grazing — Approach↔Exo goes through the same persistence predicate as
+        // Atmo↔Exo (eccentric Mun grazing case is structurally identical to atmo grazing).
+        [Fact]
+        public void Persistence_ApproachExoGrazing_BothSuppress()
+        {
+            var rec = MakePersistenceRecording("mun-approach-grazing", 17000,
+                (SegmentEnvironment.ExoBallistic, 1000, "Mun", false),
+                (SegmentEnvironment.Approach, 40, "Mun", false),
+                (SegmentEnvironment.ExoBallistic, 1000, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #13: Mun Approach→Surface always splits (Surface bucket bypasses the persistence
+        // predicate — gated upstream by Vessel.Situations).
+        [Fact]
+        public void Persistence_ApproachToSurface_AlwaysSplits()
+        {
+            var rec = MakePersistenceRecording("mun-approach-landing", 17000,
+                (SegmentEnvironment.Approach, 60, "Mun", false),
+                (SegmentEnvironment.SurfaceStationary, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #14: End of recording — `Exo[1500], Atmo[40, EOR]`. Only 2 sections, recording
+        // ends in Atmo. The forward walk reaches sections.Count without finding a different-class
+        // bracket. Falls through to split (conservative §3.3 default).
+        [Fact]
+        public void Persistence_EndOfRecording_BriefNextNoFollowup_Splits()
+        {
+            var rec = MakePersistenceRecording("eor-brief-atmo", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 40));
+
+            // s=1 (only env-class boundary): IsGrazePattern returns false (no forward bracket
+            // because s+1 doesn't exist; backward needs prev brief but prev is 1500s).
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 1, out _));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #15: Same shape as #14 but with isBoundarySeam=true on the brief Atmo. Seam
+        // short-circuit at §3 step 1 overrides the §3.3 fallback, no split.
+        [Fact]
+        public void Persistence_EndOfRecording_BriefNextWithSeamFlag_Suppressed()
+        {
+            var rec = MakePersistenceRecording("eor-brief-atmo-seam", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 40, "Kerbin", true)); // seam-flagged EOR
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #16: Minimal recording with boundary at index 1 — no s-2 lookup possible. Clause
+        // (B) cannot fire. Tests array-index safety on the smallest realistic input.
+        [Fact]
+        public void Persistence_BoundaryAtIndexOne_NoBackwardLookup_DoesntCrash()
+        {
+            var rec = MakePersistenceRecording("boundary-at-index-one", 17000,
+                (SegmentEnvironment.Atmospheric, 300),
+                (SegmentEnvironment.ExoBallistic, 600));
+
+            // Both sections long → no bracket either side. Splits.
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 1, out _));
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+        }
+
+        // Test #17: Minimum-duration brief section — single 0.4 s middle Atmo bracketed by long
+        // same-class neighbours. Predicate suppresses via collapse-walk clause A or B (the single
+        // brief section IS the entire run). Defensive sanity check that very short sections do
+        // not break the algorithm.
+        [Fact]
+        public void Persistence_BriefSectionWithMinimalDuration_Suppresses()
+        {
+            var rec = MakePersistenceRecording("minimal-duration-brief", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 0.4),
+                (SegmentEnvironment.ExoBallistic, 1500));
+
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 1, out _));
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 2, out _));
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #18: Vessel-switch / source-change forced break inside a graze. Two adjacent
+        // same-`SegmentEnvironment` Atmo sections (envChanged=false at the seam between them, so
+        // s=2 is not a candidate). Forward walk through both Atmo sections (cumDur=40s<K),
+        // bracket=Exo, suppress. Symmetric for the s=3 boundary. Guards mechanism 2 from §3.2 —
+        // a single-step bracket would land on the seam-split half and split both boundaries.
+        [Fact]
+        public void Persistence_ForcedBreakSameEnvMidGraze_CollapseWalkSuppresses()
+        {
+            var rec = MakePersistenceRecording("forced-break-same-env-graze", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 20),
+                (SegmentEnvironment.Atmospheric, 20), // forced break, same env
+                (SegmentEnvironment.ExoBallistic, 1500));
+
+            // s=1 (Exo→Atmo): forward bracket on Exo
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 1, out var s1Reason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeForward, s1Reason);
+            // s=2 is Atmo→Atmo, not an env-class boundary — IsSplittableEnvOrBodyBoundary
+            // returns false with NotABoundary. The optimizer skips it.
+            // s=3 (Atmo→Exo): backward bracket on Exo
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 3, out var s3Reason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeBackward, s3Reason);
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #19: ExoBallistic↔ExoPropulsive thrust toggles before a graze. The thrust toggles
+        // at s=1, s=2 are intra-class (both class 1, envChanged=false). s=3 (ExoBallistic→Atmo)
+        // and s=4 (Atmo→ExoBallistic) are env-class boundaries; both suppress because the brief
+        // Atmo is bracketed by class-1 sections on both sides. Guards mechanism 1 from §3.2.
+        [Fact]
+        public void Persistence_ThrustToggleAdjacentToGraze_CollapseWalkSuppresses()
+        {
+            var rec = MakePersistenceRecording("thrust-toggle-around-graze", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.ExoPropulsive, 5),  // intra-class
+                (SegmentEnvironment.ExoBallistic, 5),   // intra-class
+                (SegmentEnvironment.Atmospheric, 20),
+                (SegmentEnvironment.ExoBallistic, 1500));
+
+            // s=3 (ExoBallistic→Atmo, env-class boundary): forward bracket — Atmo[20s] alone
+            // (next neighbour is Exo class 1, walk stops), bracketIdx=Exo class 1=prev class 1.
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 3, out var s3Reason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeForward, s3Reason);
+            // s=4 (Atmo→ExoBallistic, env-class boundary): backward bracket — Atmo[20s] alone
+            // (sections[s-2]=ExoBallistic class 1, walk stops), bracketIdx=ExoBallistic class 1=
+            // next class 1.
+            Assert.True(RecordingOptimizer.IsGrazePattern(rec, 4, out var s4Reason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedGrazeBackward, s4Reason);
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #20: Cumulative-too-long — three same-env Atmo sections (multiple forced breaks),
+        // cumDur = 40+40+40 = 120s. cumDur < K is FALSE (strict <) for K=120. Falls through to
+        // split. Guards the strict `<` comparison at the K boundary.
+        [Fact]
+        public void Persistence_CumulativeRunBeyondK_Splits()
+        {
+            var rec = MakePersistenceRecording("cumulative-beyond-k", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500),
+                (SegmentEnvironment.Atmospheric, 40),
+                (SegmentEnvironment.Atmospheric, 40),
+                (SegmentEnvironment.Atmospheric, 40),
+                (SegmentEnvironment.ExoBallistic, 1500));
+
+            // s=1: forward walk through three Atmo sections, cumDur=120s, NOT <K, no bracket.
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 1, out _));
+            // s=4: symmetric backward walk, cumDur=120s, NOT <K, no bracket.
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 4, out _));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates); // First env-class boundary found is at s=1.
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #21: Aggregate suppression log fires once per recording. 4 graze boundaries in
+        // one recording → exactly one `Split suppressed: rec=…` aggregate line, no per-boundary
+        // suppression spam. Guards CLAUDE.md "Batch counting convention" pattern.
+        [Fact]
+        public void Persistence_AggregateSuppressionLog_FiresOncePerRecording()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var rec = MakePersistenceRecording("agg-suppress-log", 17000,
+                    (SegmentEnvironment.ExoBallistic, 1500),
+                    (SegmentEnvironment.Atmospheric, 40),
+                    (SegmentEnvironment.ExoBallistic, 1500),
+                    (SegmentEnvironment.Atmospheric, 40),
+                    (SegmentEnvironment.ExoBallistic, 1500));
+
+                RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+
+                int aggregateLines = logLines.Count(l =>
+                    l.Contains("[Optimizer]") && l.Contains("Split suppressed:") &&
+                    l.Contains("rec=agg-suppress-log"));
+                Assert.Equal(1, aggregateLines);
+
+                int perBoundaryLines = logLines.Count(l =>
+                    l.Contains("[Optimizer]") && l.Contains("Split suppressed (")); // per-boundary form
+                Assert.Equal(0, perBoundaryLines);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        // Test #22: Acceptance log emits the discriminator. One accepted Atmo→Exo (long, long)
+        // → one `Split candidate (PersistedPhaseChange): …` line.
+        [Fact]
+        public void Persistence_AcceptanceLog_EmitsDiscriminator()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var rec = MakePersistenceRecording("accept-log", 17000,
+                    (SegmentEnvironment.Atmospheric, 300),
+                    (SegmentEnvironment.ExoBallistic, 600));
+
+                RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Optimizer]") &&
+                    l.Contains("Split candidate (PersistedPhaseChange)") &&
+                    l.Contains("rec=accept-log"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        #endregion
     }
 }
