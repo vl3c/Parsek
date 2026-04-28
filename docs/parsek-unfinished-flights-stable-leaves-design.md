@@ -784,11 +784,13 @@ Not supported. The new ConfigNode keys (`sealed`, `focusSlotIndex`, `supersedeTa
 
 ### 9.2 CHANGELOG
 
-The migration story splits into two notes that must be presented separately to the player:
+The migration + behavior-change story splits into three notes that must be presented separately to the player:
 
 > **Vessels: forward-only.** Past missions where you deployed probes or stages and left them parked are not retroactively converted to Unfinished Flights. The feature only surfaces splits made after the upgrade. (Why: legacy data has no focus signal, and we'd rather under-include than flood your list with every routine upper stage from your career.)
 
 > **Stranded EVA kerbals: retroactive.** EVA kerbals who got stranded on a body in past missions DO appear in Unfinished Flights after the upgrade. Click Fly to attempt a rescue. (Why: stranded kerbals are unambiguous — you almost certainly want them back — unlike orbital siblings where intent is unclear.)
+
+> **In-place re-fly merges close the slot on stable terminals.** When you click Continue Flying through the in-place merge dialog (instead of letting Parsek spawn a fresh provisional), an Unfinished Flight that ends Orbiting / SubOrbital / EVA-stranded closes the slot via MergeState — the Fly button on that row disappears and the rewind point becomes eligible for cleanup. Re-flying that slot again requires a fresh split with its own RewindPoint. (Why: the in-place merge path uses one Recording for both the slot's effective state AND the supersede target, so leaving it CommittedProvisional would create a row that never goes away. The fresh-provisional merge path — the default in most UI flows — keeps the slot open for chain extension as today.) See §6.3 (B2-A) and §11.3 for context; the implementation PR may revise this behavior to (B2-B) or (B2-C) per the §11.3 investigation.
 
 ### 9.3 v1+ saves on pre-v1 (v0.9.x) Parsek
 
@@ -812,7 +814,7 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 - **Breakup-survivor with stable-orbit terminal can't be re-flown via UF** (§7.11). The single most "obvious-feeling-bug" outcome of the focus-slot exclusion. Player remembers a structural failure, looks for it under UF, doesn't find it (because they survived to orbit). **Acceptable v1 limitation.** Mitigations: player can crash the post-breakup vessel, or wait for v2 Park-from-not-UF. CHANGELOG must surface this with an FAQ-style entry; consider a forum/Discord post too.
 
-- **Site B-2 in-place duplicate-row invariant.** The current v0.9 `MergeDialog.TryCommitReFlySupersede` override exists because the in-place path has no separate provisional — leaving the recording CP after merge would create a duplicate / un-reapable UF row. §6.3 enumerates three candidate handlings (B2-A force-Immutable / B2-B fresh-provisional / B2-C auto-Seal); §11.3 picks one. Until the investigation completes, the design defaults to **(B2-A) force-Immutable** which preserves v0.9 behavior exactly. The chain-extension limitation under (B2-A) is documented in CHANGELOG (in-place re-flies on stable terminals seal the slot; player must use a fresh split RP to re-fly again).
+- **Site B-2 in-place duplicate-row invariant.** The current v0.9 `MergeDialog.TryCommitReFlySupersede` override exists because the in-place path has no separate provisional — leaving the recording CP after merge would create a duplicate / un-reapable UF row. §6.3 enumerates three candidate handlings (B2-A force-Immutable / B2-B fresh-provisional / B2-C auto-Seal); §11.3 picks one. Until the investigation completes, the design defaults to **(B2-A) force-Immutable** which preserves v0.9 behavior exactly. Under (B2-A) the in-place re-fly's recording flips to `MergeState.Immutable` (closing the slot via MergeState — distinct from the player-explicit `ChildSlot.Sealed` action elsewhere in the design); chain extension via the in-place path is unavailable, and the player must use a fresh split RP to re-fly again. Documented in §9.2 CHANGELOG note 3.
 
 - **Legacy hybrid supersede graphs.** §7.26 — tolerated by the design but the §11 hybrid test must run green for confidence. If the walker behavior on hybrids differs from expectations, a migration sweep may need to be added back.
 
