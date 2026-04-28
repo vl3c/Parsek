@@ -1378,6 +1378,12 @@ namespace Parsek
                 if (track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
+                // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
+                // for legacy text loaders (unknown key is silently ignored). See
+                // docs/dev/plans/optimizer-persistence-split.md §5.3.
+                if (track.isBoundarySeam)
+                    tsNode.AddValue("seam", "1");
+
                 // Nested trajectory data depends on reference frame
                 if (track.referenceFrame == ReferenceFrame.Absolute ||
                     track.referenceFrame == ReferenceFrame.Relative)
@@ -1523,6 +1529,12 @@ namespace Parsek
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))
                     section.anchorVesselId = anchorPid;
+
+                // Producer-C boundary seam flag: defaults to false when absent — forward-tolerant
+                // for legacy text recordings that were written before v8.
+                string seamStr = tsNode.GetValue("seam");
+                if (seamStr == "1")
+                    section.isBoundarySeam = true;
 
                 // Parse nested trajectory data based on reference frame
                 if (section.referenceFrame == ReferenceFrame.Absolute ||

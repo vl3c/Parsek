@@ -55,60 +55,93 @@ keyed by `partPersistentId` so seed events can find the matching info; (d)
 defensive null-transform handling in `ApplyDeployableState` (unresolved
 ghost paths must not NRE the spawn baseline).
 
-## 632. Optimizer meaningful-action gate broke per-phase loop splits
+## ~~632. Optimizer meaningful-action gate broke per-phase loop splits~~
 
-**Status:** PR #625 reverted; gate removed. Original symptom (eccentric grazing
-chain bloat) reverts to known-issue status — see acceptance below.
+**Status:** ~~done~~. PR #625 (the broken meaningful-action gate) was reverted
+in PR #628. The persistence-based redesign shipped in this PR. Both the
+player-facing per-phase loop split AND the eccentric-grazing chain-bloat
+suppression now hold simultaneously. Plan:
+[`docs/dev/plans/optimizer-persistence-split.md`](plans/optimizer-persistence-split.md).
 
-PR #625 added a meaningful-action gate to
-`RecordingOptimizer.FindSplitCandidatesForOptimizer` that suppressed pure
-Atmospheric↔Exo and Approach↔Exo boundaries unless a thrust / decoupling /
-parachute / gear / thermal `PartEvent` landed within ±5 s of the split UT
-(`MeaningfulBoundaryWindowSeconds = 5.0`). Intent: stop eccentric atmo-grazing
-periapsis passes from producing 2N chain segments per N orbits (see
-`extending-rewind-to-stable-leaves.md` §S16).
+History — what went wrong with PR #625:
 
-The gate broke two extremely common gameplay phases:
+PR #625 added a meaningful-action gate that suppressed pure Atmospheric↔Exo
+and Approach↔Exo boundaries unless a thrust / decoupling / parachute / gear /
+thermal `PartEvent` landed within ±5 s of the split UT
+(`MeaningfulBoundaryWindowSeconds = 5.0`). Intent: stop eccentric atmo-
+grazing periapsis passes from producing 2N chain segments per N orbits
+(`extending-rewind-to-stable-leaves.md` §S16). The gate broke two extremely
+common gameplay phases:
 
 - **Passive deorbit reentries.** Engines off well before 70 km, parachutes
   deploy at ~5 km, `ThermalAnimationMedium` fires at `normalizedHeat ≥ 0.40`
-  which usually only happens deep in atmo (>5 s after the 70 km crossing). The
-  reentry segment glued to the orbital coast and lost its own loop toggle.
+  which usually only happens deep in atmo (>5 s after the 70 km crossing).
+  The reentry segment glued to the orbital coast and lost its own loop toggle.
 - **Staged ascents with a coast through 70 km.** First stage cuts off at
   ~50 km, vessel coasts through 70 km, circularization burn at apoapsis
   (~80 km). The `EngineShutdown` and circularization `EngineIgnited` events
   both fall outside the ±5 s window. The ascent segment glued to the orbital
   coast.
 
-The trade was bad: a rare focused-flight grazing case (the on-rails case is
-already structurally guarded by `EccentricOrbitOptimizerInvariantTests`) was
-fixed at the cost of breaking the player-facing per-phase loop split that
+A rare focused-flight grazing case (the on-rails case is already structurally
+guarded by `EccentricOrbitOptimizerInvariantTests`) was fixed at the cost of
+breaking the player-facing per-phase loop split that
 `docs/parsek-flight-recorder-design.md` §9A.5 codifies as the whole point of
-`SplitEnvironmentClass`.
+`SplitEnvironmentClass`. Reverted in PR #628.
 
-Revert PR: this commit. Splits at pure env-class boundaries are restored.
+What this PR ships:
 
-**Accepted as known issue (deferred to v1.1):** focused-flight scenarios that
-produce multiple Atmo↔Exo crossings without intervention (player keeps focus
-on a spent stage doing periapsis passes; aerobraking with hysteresis flipping
-twice; debris bouncing through a glancing reentry) will produce a few extra
-chain segments per affected recording. Annoying but local.
+- **Persistence-based discriminator** in
+  `RecordingOptimizer.FindSplitCandidatesForOptimizer` (§3 / §3.1 of the
+  plan). For boundaries that aren't already meaningful via body change /
+  Surface / ExoPropulsive short-circuits, the predicate suppresses an
+  Atmo↔Exo* boundary iff one side is a brief (< 120 s) run that's bracketed
+  by the same env class on the other side. Real ascents and reentries
+  (sustained transitions to/from the new env class) keep splitting per phase.
+  Eccentric grazing, single aerobrake passes, Karman-line tourist hops up to
+  ~150 km apogee collapse to one segment.
+- **Collapse-walk on `SplitEnvironmentClass` runs** (§3.2 of the plan). The
+  bracket lookup walks through same-split-class adjacent sections — handles
+  ExoBallistic↔ExoPropulsive thrust toggles AND forced section breaks (vessel-
+  switch seam, source-change forced break) that produce same-raw-env adjacent
+  sections. Single-step lookup would misclassify these; the collapse-walk
+  handles them uniformly.
+- **`TrackSection.isBoundarySeam` flag** (§5 of the plan).
+  `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` sets the flag on
+  the no-payload boundary section it emits at the loaded→on-rails transition.
+  The optimizer skips boundaries on either side of a flagged section as a
+  hard step-1 override, ahead of body / Surface / ExoPropulsive short-
+  circuits. Persisted in both text codec (sparse `seam=1` key) and binary
+  codec (mandatory v8 format bump from `RelativeAbsoluteShadowFormatVersion`
+  to `BoundarySeamFlagFormatVersion`).
+- **30 tests** (22 unit + 3 integration through `RunOptimizationPass` + 4
+  serialization round-trip + 1 in-game smoke). Cover each §3 short-circuit,
+  the §3.1 collapse-walk on both mechanisms it solves, the §3.3 edge-of-
+  recording fall-through and its seam-flag override, the strict `<` cumulative
+  K boundary, accept-side discriminator logging, and the per-recording
+  aggregate suppression-counter log.
 
-**v1.1 redesign — persistence-based discriminator (S5):** suppress an
-Atmo↔Exo* boundary iff one side is a brief (< K ≈ 120 s) section bracketed
-by the same env class on the other side (`A → [brief B] → A` shape). Real
-reentries (Exo→Atmo→Surface) and ascents (Atmo→Exo→end-of-recording) have no
-bracket → split. Eccentric grazing (Exo→[brief Atmo]→Exo) and single-pass
-aerobrakes have a bracket → suppress. Producer C no-payload boundary seam
-gets an explicit `TrackSection.IsBoundarySeam` flag set at the producer; the
-optimizer skips boundaries on either side of a flagged section. The research
-note for PR #624 (`docs/dev/research/optimizer-meaningful-split-rule.md`)
-dropped this signal in §5 S5 with a faulty argument ("composing across
-already-split recordings is awkward") — but the optimizer scans the whole
-recording's `TrackSections` list before any split, so the post-split
-composition concern doesn't apply at scan time.
+Player-visible effects:
 
-Plan: [`docs/dev/plans/optimizer-persistence-split.md`](plans/optimizer-persistence-split.md).
+- Passive deorbit reentry / staged ascent with a coast across 70 km: per-
+  phase chain segments preserved (regression from PR #625 stays fixed).
+- Eccentric atmo-grazing focused recordings: stay as one chain segment
+  instead of fragmenting per Pe pass.
+- Single aerobrake pass: one segment.
+- Karman-line tourist hop ≤ ~150 km apogee: one segment. > ~150 km: Exo phase
+  becomes its own segment.
+- Aborted Mun landing (Exo → Approach[< 120 s] → Exo, no touchdown): folds
+  to one segment. Players can use the manual split UI if they want it
+  separated.
+- Existing recordings written before this PR: legacy chains are unchanged
+  (`CanAutoMerge` phase-equality gate prevents retroactive merging). Producer-
+  C seams written under old code load with `isBoundarySeam=false` and may
+  still produce one extra chain segment on first load — same behaviour as
+  pre-PR, no regression. New recordings under this PR carry the flag and the
+  seam never produces a split.
+- Binary `.prec` sidecars bumped from v7 to v8. Old `Parsek` versions cannot
+  read recordings produced by this version. New code reads both v7 and v8
+  files (default-false for the seam flag on v7).
 
 ## ~~629. Multi-stage crash showed only one half in Unfinished Flights (effective-leaf finalize)~~
 

@@ -196,8 +196,197 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers.
-        /// Used by the optimizer split pass where ghosting triggers don't block splitting.
+        /// Cumulative duration threshold (seconds) below which a `SplitEnvironmentClass` run is
+        /// considered "brief" and therefore eligible to be treated as a graze pattern by the
+        /// persistence predicate. A run shorter than this — when bracketed by the same env
+        /// class on the other side — collapses into the surrounding chain segment instead of
+        /// producing its own split. Aerobrake passes, eccentric Pe dips, and Karman-line
+        /// tourist hops all fall under this threshold; sustained suborbital arcs, real
+        /// ascents, and reentries do not.
+        ///
+        /// 120 s is a starting point grounded in the §3.1 calibration table (Karman hop Exo
+        /// dwell crosses K at ~150 km apogee on Kerbin; LKO orbital periods are ~30 min so
+        /// grazing exits never bracket-match across orbits). See
+        /// docs/dev/plans/optimizer-persistence-split.md §3.1 for the rationale and
+        /// docs/dev/research/optimizer-meaningful-split-rule.md for the historical
+        /// PartEvent-window dead end (the reverted PR #625) that this threshold replaces.
+        /// </summary>
+        internal const double BriefSectionMaxSeconds = 120.0;
+
+        /// <summary>
+        /// Result of the optimizer's per-boundary classification, used for diagnostic logging.
+        /// The accept reasons (BodyChange / SurfaceInvolved / ExoPropulsiveAtCrossing /
+        /// PersistedPhaseChange) drive the Verbose accept log; the suppress reasons
+        /// (SuppressedGrazeForward / SuppressedGrazeBackward / SuppressedBoundarySeam) feed
+        /// the per-recording aggregate suppression-counter log. NotABoundary is the case
+        /// where env class is unchanged AND body is unchanged — not a decision to log.
+        /// See docs/dev/plans/optimizer-persistence-split.md §8.
+        /// </summary>
+        internal enum SplitBoundaryReason
+        {
+            NotABoundary = 0,
+            BodyChange,
+            SurfaceInvolved,
+            ExoPropulsiveAtCrossing,
+            PersistedPhaseChange,
+            SuppressedGrazeForward,
+            SuppressedGrazeBackward,
+            SuppressedBoundarySeam
+        }
+
+        /// <summary>
+        /// Boundary predicate for the optimizer split pass. Encodes the §3 ordering from
+        /// docs/dev/plans/optimizer-persistence-split.md:
+        ///   1. Seam short-circuit (hard "always wins" override — Producer-C boundary seam).
+        ///   2. Not a boundary (env unchanged AND body unchanged) — caller skips.
+        ///   3. Body change (#251) — always meaningful.
+        ///   4. Surface involved — gated upstream by Vessel.Situations + debounce.
+        ///   5. ExoPropulsive at the crossing — engine firing, direct gameplay event.
+        ///   6. Persistence predicate (graze-pattern detection via collapse-walk).
+        /// </summary>
+        /// <param name="reason">
+        /// Set on every call where env or body changed (i.e., the function inspected the
+        /// boundary). NotABoundary when env class is the same and body did not change —
+        /// caller treats this as "skip without counting." Seam-flagged sections also return
+        /// false but with reason = SuppressedBoundarySeam, which the caller tallies.
+        /// </param>
+        private static bool IsSplittableEnvOrBodyBoundary(
+            Recording rec, int s, out SplitBoundaryReason reason)
+        {
+            var prev = rec.TrackSections[s - 1];
+            var next = rec.TrackSections[s];
+
+            // Step 1: seam short-circuit. Hard "always wins" override regardless of env class
+            // or body. The contract: "this section is a recorder bookkeeping artifact, never
+            // a split candidate, full stop." Producer-C today only emits seams on a
+            // loaded->on-rails transition where body and Surface state cannot change at the
+            // seam, but the ordering must hold for future producers.
+            if (prev.isBoundarySeam || next.isBoundarySeam)
+            {
+                reason = SplitBoundaryReason.SuppressedBoundarySeam;
+                return false;
+            }
+
+            // Step 2: not a boundary at all.
+            bool envChanged = SplitEnvironmentClass(prev.environment)
+                != SplitEnvironmentClass(next.environment);
+            bool bodyChanged = SectionBodyChanged(prev, next);
+            if (!envChanged && !bodyChanged)
+            {
+                reason = SplitBoundaryReason.NotABoundary;
+                return false;
+            }
+
+            // Step 3: body change (#251) — always meaningful, never gated.
+            if (bodyChanged)
+            {
+                reason = SplitBoundaryReason.BodyChange;
+                return true;
+            }
+
+            // Step 4: Surface (class 2) on either side — always meaningful (gated upstream
+            // by Vessel.Situations + EnvironmentDetector debounce).
+            int prevClass = SplitEnvironmentClass(prev.environment);
+            int nextClass = SplitEnvironmentClass(next.environment);
+            if (prevClass == 2 || nextClass == 2)
+            {
+                reason = SplitBoundaryReason.SurfaceInvolved;
+                return true;
+            }
+
+            // Step 5: ExoPropulsive at the crossing. EnvironmentDetector.Classify only
+            // assigns ExoPropulsive when ModuleEngines thrust is positive, so this directly
+            // encodes "engines were firing across the boundary."
+            if (prev.environment == SegmentEnvironment.ExoPropulsive
+                || next.environment == SegmentEnvironment.ExoPropulsive)
+            {
+                reason = SplitBoundaryReason.ExoPropulsiveAtCrossing;
+                return true;
+            }
+
+            // Step 6: persistence predicate. Atmospheric <-> ExoBallistic and
+            // Approach <-> ExoBallistic (the noise cluster) — split iff this isn't a graze
+            // pattern.
+            if (IsGrazePattern(rec, s, out var grazeDirection))
+            {
+                reason = grazeDirection;
+                return false;
+            }
+
+            reason = SplitBoundaryReason.PersistedPhaseChange;
+            return true;
+        }
+
+        /// <summary>
+        /// Persistence predicate: returns true when the boundary at index <paramref name="s"/>
+        /// is a graze pattern (one side is a brief run that's bracketed by the same env class
+        /// on the other side, i.e. <c>A → [brief run of B] → A'</c>). Walks
+        /// <see cref="SplitEnvironmentClass"/> runs on both sides to handle same-split-class
+        /// adjacent sections (raw <see cref="SegmentEnvironment"/> transitions within a class,
+        /// or forced section breaks that restart the same env). See §3.1 / §3.2 of
+        /// docs/dev/plans/optimizer-persistence-split.md.
+        /// </summary>
+        /// <remarks>
+        /// The walks have a built-in upper bound: as soon as cumulative duration crosses
+        /// <see cref="BriefSectionMaxSeconds"/>, the run is "long enough to be a phase" and
+        /// no bracket check is needed. Cumulative cost across all boundaries in a recording
+        /// is O(N) (each section visited at most twice — once forward from a left-side
+        /// boundary, once backward from a right-side boundary).
+        /// </remarks>
+        internal static bool IsGrazePattern(
+            Recording rec, int s, out SplitBoundaryReason direction)
+        {
+            var sections = rec.TrackSections;
+            var prev = sections[s - 1];
+            var next = sections[s];
+            int prevClass = SplitEnvironmentClass(prev.environment);
+            int nextClass = SplitEnvironmentClass(next.environment);
+
+            // (A) Forward bracket: walk forward through next's split-class run; if cumulative
+            // duration is brief AND the section after the run is in prev's class, suppress.
+            int nextRunEndIdx = s;
+            while (nextRunEndIdx + 1 < sections.Count
+                && SplitEnvironmentClass(sections[nextRunEndIdx + 1].environment) == nextClass)
+            {
+                nextRunEndIdx++;
+            }
+            double nextRunCumDur = sections[nextRunEndIdx].endUT - next.startUT;
+            int forwardBracketIdx = nextRunEndIdx + 1;
+            if (nextRunCumDur < BriefSectionMaxSeconds
+                && forwardBracketIdx < sections.Count
+                && SplitEnvironmentClass(sections[forwardBracketIdx].environment) == prevClass)
+            {
+                direction = SplitBoundaryReason.SuppressedGrazeForward;
+                return true;
+            }
+
+            // (B) Backward bracket: walk backward through prev's split-class run; if
+            // cumulative duration is brief AND the section before the run is in next's class,
+            // suppress.
+            int prevRunStartIdx = s - 1;
+            while (prevRunStartIdx - 1 >= 0
+                && SplitEnvironmentClass(sections[prevRunStartIdx - 1].environment) == prevClass)
+            {
+                prevRunStartIdx--;
+            }
+            double prevRunCumDur = prev.endUT - sections[prevRunStartIdx].startUT;
+            int backwardBracketIdx = prevRunStartIdx - 1;
+            if (prevRunCumDur < BriefSectionMaxSeconds
+                && backwardBracketIdx >= 0
+                && SplitEnvironmentClass(sections[backwardBracketIdx].environment) == nextClass)
+            {
+                direction = SplitBoundaryReason.SuppressedGrazeBackward;
+                return true;
+            }
+
+            direction = SplitBoundaryReason.PersistedPhaseChange; // unused on false return
+            return false;
+        }
+
+        /// <summary>
+        /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers and applies
+        /// the §3 / §3.1 boundary predicate (seam short-circuit, body / Surface / ExoPropulsive
+        /// short-circuits, persistence predicate). Used by the optimizer split pass.
         /// </summary>
         /// <remarks>
         /// Splits are driven by `rec.TrackSections` only — `rec.OrbitSegments` is never
@@ -206,6 +395,8 @@ namespace Parsek
         /// `BackgroundRecorder.BackgroundOnRailsState`), so an eccentric grazing-Pe orbit
         /// coasted for thousands of orbits produces zero split candidates regardless of
         /// orbit count. The invariant is guarded by `EccentricOrbitOptimizerInvariantTests`.
+        /// Producer-C boundary seams (`TrackSection.isBoundarySeam == true`) are skipped at
+        /// step 1 of the predicate — see `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
         /// </remarks>
         internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
         {
@@ -217,20 +408,79 @@ namespace Parsek
                 var rec = committed[i];
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
 
+                // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" —
+                // an eccentric grazing recording can present hundreds of suppressed boundaries,
+                // exactly the spam this gate is meant to avoid).
+                int evaluatedBoundaries = 0;
+                int suppressedGrazeForward = 0;
+                int suppressedGrazeBackward = 0;
+                int suppressedBoundarySeam = 0;
+                int splittableButRejected = 0;
+
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
-                    // Split where coarse environment class changes OR body changes (#251)
-                    bool envChanged = SplitEnvironmentClass(rec.TrackSections[s].environment)
-                        != SplitEnvironmentClass(rec.TrackSections[s - 1].environment);
-                    bool bodyChanged = SectionBodyChanged(rec.TrackSections[s - 1], rec.TrackSections[s]);
-                    if (!envChanged && !bodyChanged)
-                        continue;
+                    SplitBoundaryReason reason;
+                    bool isSplittable = IsSplittableEnvOrBodyBoundary(rec, s, out reason);
 
-                    if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                    if (isSplittable)
                     {
-                        candidates.Add((i, s));
-                        break; // One split per recording per pass (re-scan after split)
+                        if (CanAutoSplitIgnoringGhostTriggers(rec, s))
+                        {
+                            // Per-candidate accept log — bounded by the `break` after one
+                            // split per recording per pass × the maxSplitsPerPass cap from
+                            // RunOptimizationSplitPass.
+                            ParsekLog.Verbose("Optimizer",
+                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={s} " +
+                                $"splitUT={rec.TrackSections[s].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                                $"prev={rec.TrackSections[s - 1].environment} next={rec.TrackSections[s].environment}");
+                            candidates.Add((i, s));
+                            break; // One split per recording per pass (re-scan after split).
+                        }
+                        // Splittable boundary that CanAutoSplit rejects (e.g. too-short halves,
+                        // EVA atmo↔surface continuous gate). Counted as evaluated and as
+                        // "splittable-but-rejected" so the summary log surfaces a recording
+                        // where every boundary is rejected for the same downstream reason.
+                        evaluatedBoundaries++;
+                        splittableButRejected++;
+                        continue;
                     }
+
+                    // NotABoundary → env unchanged + body unchanged. Not a decision to count
+                    // or log; just keep scanning later boundaries.
+                    if (reason == SplitBoundaryReason.NotABoundary) continue;
+
+                    // Suppression cases (env or body changed but the predicate said no).
+                    evaluatedBoundaries++;
+                    switch (reason)
+                    {
+                        case SplitBoundaryReason.SuppressedGrazeForward:
+                            suppressedGrazeForward++;
+                            break;
+                        case SplitBoundaryReason.SuppressedGrazeBackward:
+                            suppressedGrazeBackward++;
+                            break;
+                        case SplitBoundaryReason.SuppressedBoundarySeam:
+                            suppressedBoundarySeam++;
+                            break;
+                    }
+                }
+
+                // Aggregate per-recording summary line. Covers both predicate-suppressed
+                // boundaries (graze patterns + seam short-circuits) AND splittable boundaries
+                // that CanAutoSplit later rejected. The line title is "Split summary" because
+                // "splittableButRejected" is downstream-rejected by CanAutoSplit, not
+                // suppressed by the §3 predicate — calling the whole line "Split suppressed"
+                // would imply the predicate caused all of it.
+                if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
+                    || suppressedBoundarySeam > 0 || splittableButRejected > 0)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"Split summary: rec={rec.RecordingId} " +
+                        $"evaluated={evaluatedBoundaries} " +
+                        $"grazeForward={suppressedGrazeForward} " +
+                        $"grazeBackward={suppressedGrazeBackward} " +
+                        $"seamSkipped={suppressedBoundarySeam} " +
+                        $"splittableButRejected={splittableButRejected}");
                 }
             }
 
