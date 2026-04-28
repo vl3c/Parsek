@@ -1091,5 +1091,119 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(recordedWorld.y, smoothedWorld.y, 6);
             Assert.Equal(recordedWorld.z, smoothedWorld.z, 6);
         }
+
+        [Fact]
+        public void Run_TwoSectionParent_EdgeOnUnanchoredSection_DefersUntilSlotIsSeededLater()
+        {
+            // /ultrareview P1: the per-recording worklist seeded a recording
+            // when ANY of its sections had an anchor. An edge whose
+            // parentSectionIdx pointed to a DIFFERENT, still-unanchored
+            // section would then fall through to ε=0, write a stale child
+            // anchor, and mark the edge in visitedEdges. When the real
+            // upstream anchor for that section was later written, the edge
+            // was already visited and the corrected ε never flowed
+            // downstream — propagation was still order-dependent.
+            //
+            // The slot-keyed worklist guarantees an edge only fires when
+            // its specific parent slot (recordingId, sectionIndex) has been
+            // seeded. This test pins the recovery case: recB has section 0
+            // seeded but section 1 unanchored; bp_BC requires recB.1; bp_AB
+            // writes recB.1 from recA's seed. With recordings iterated in
+            // [recB, recC, recA] order and BranchPoints in reversed list
+            // order, the per-recording worklist would burn bp_BC with ε=0
+            // when popping recB (because recB.1 is empty at that moment).
+            // The slot-keyed worklist instead defers bp_BC until recB.1's
+            // anchor lands via bp_AB, so recC inherits the correct ε.
+
+            var recA = MakeRec("rec-multi-A", 0, 200);
+            var recC = MakeRec("rec-multi-C", 200, 300);
+
+            // Build recB with two sections [0,100] and [100,200] inline —
+            // MakeRec only creates a single-section recording.
+            var recB = new Recording { RecordingId = "rec-multi-B", VesselName = "rec-multi-B" };
+            recB.TrackSections.Clear();
+            recB.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0, endUT = 100,
+                anchorVesselId = 0u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+            recB.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 100, endUT = 200,
+                anchorVesselId = 0u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 200, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+
+            var seedA = new Vector3d(7.0, 0.0, 0.0);
+            var seedB0 = new Vector3d(11.0, 0.0, 0.0);
+            // Seed recA at section 0 START (UT=0). bp_AB at UT=150 still
+            // falls inside recA section 0 [0,200], so the edge index
+            // picks it up under parentSlot="rec-multi-A@0".
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recA.RecordingId, 0, AnchorSide.Start, 0.0, seedA, AnchorSource.LiveSeparation));
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recB.RecordingId, 0, AnchorSide.End, 100.0, seedB0, AnchorSource.LiveSeparation));
+
+            var tree = new RecordingTree { Id = "t-multi-section" };
+            tree.Recordings[recA.RecordingId] = recA;
+            tree.Recordings[recB.RecordingId] = recB;
+            tree.Recordings[recC.RecordingId] = recC;
+
+            // bp_AB at UT 150 lands inside recB.1; this is the path that
+            // anchors recB.1 from recA's seed.
+            var bp_AB = new BranchPoint
+            {
+                Id = "bp-AB", UT = 150.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recA.RecordingId },
+                ChildRecordingIds = new List<string> { recB.RecordingId },
+            };
+            // bp_BC at UT 200 sits at the boundary between recB.1 [100,200]
+            // and recC.0 [200,300]; both inclusive-end last-section ranges
+            // contain UT=200 per FindTrackSectionForUT semantics. The
+            // edge requires the recB.1 anchor to fire.
+            var bp_BC = new BranchPoint
+            {
+                Id = "bp-BC", UT = 200.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { recB.RecordingId },
+                ChildRecordingIds = new List<string> { recC.RecordingId },
+            };
+            // Reversed list order — bp_BC (deepest) first.
+            tree.BranchPoints.Add(bp_BC);
+            tree.BranchPoints.Add(bp_AB);
+
+            // recordings iterated [recB, recC, recA] so recB enqueues
+            // before recA writes recB.1 — the exact ordering that burnt
+            // bp_BC with ε=0 under the per-recording worklist.
+            AnchorPropagator.Run(
+                new ReFlySessionMarker { SessionId = "multi-sect", TreeId = tree.Id },
+                new[] { recB, recC, recA }, new[] { tree }, surfaceLookup: null);
+
+            // Post-fix: recB.1 inherits seedA via bp_AB; recC inherits
+            // recB.1's ε via bp_BC. Both are non-zero (= seedA), proving
+            // the edge wasn't burnt and recovered after the slot's
+            // anchor landed.
+            Assert.True(RenderSessionState.TryLookup(recB.RecordingId, 1, AnchorSide.Start, out AnchorCorrection acB1));
+            Assert.True(RenderSessionState.TryLookup(recC.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acC));
+            // No spline cached → §9.1 helper returns identity, ε flows unchanged.
+            Assert.Equal(seedA.x, acB1.Epsilon.x, 3);
+            Assert.Equal(seedA.x, acC.Epsilon.x, 3);
+        }
     }
 }

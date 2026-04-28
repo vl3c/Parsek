@@ -392,76 +392,90 @@ namespace Parsek.Rendering
                 }
             }
 
-            // Phase 2 worklist (ultrareview P2-A). The previous single-pass
-            // loop processed edges in BranchPoints-list order — if a
-            // downstream edge appeared before its upstream parent had its
-            // anchor seeded, the propagator wrote zero ε and never
-            // revisited the child. RecordingTree.BranchPoints is a public
-            // persisted list with no enforced topological order, so this
-            // was a real correctness gap. The worklist follows edges
-            // outward from anchored seeds, naturally visiting them in
-            // topological order regardless of list order.
+            // Phase 2 worklist (ultrareview P2-A + follow-up: slot-keyed).
+            // The first iteration keyed worklist + outgoing-edge index by
+            // parent recordingId; that fixed BranchPoints list-order
+            // dependence but introduced a subtler order-dependence bug
+            // (subsequent ultrareview P1): when a recording was queued
+            // because an UNRELATED section had a seed anchor, edges whose
+            // parentSectionIdx was a DIFFERENT, still-unanchored section
+            // would fall through to ε = 0, write a stale child anchor,
+            // and mark the edge visitedEdges. When the real upstream
+            // anchor for that edge's section was later written, the
+            // edge was already visited and the corrected ε never flowed
+            // downstream.
             //
-            // Build an outgoing-edge index keyed by parent recordingId so
-            // each worklist pop is O(outgoing edges), not O(all edges).
-            var outgoingByParent = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            // The slot-keyed worklist makes the propagation actually
+            // section-precise: index by (parentRecordingId, parentSectionIdx),
+            // seed by walking every populated AnchorKey, and only walk
+            // edges whose parent slot has been seeded. This way an edge
+            // is processed exactly when its specific upstream anchor
+            // exists, never sooner.
+            //
+            // Slot keys are encoded as `recordingId@sectionIdx` strings to
+            // keep using HashSet<string> / Dictionary<string, _> without
+            // a value-tuple-based equality comparer.
+            var outgoingByParentSlot = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int e = 0; e < edges.Count; e++)
             {
                 Edge ed = edges[e];
                 if (string.IsNullOrEmpty(ed.ParentId)) continue;
-                if (!outgoingByParent.TryGetValue(ed.ParentId, out var bucket))
+                if (!byId.TryGetValue(ed.ParentId, out Recording rParent)) continue;
+                if (rParent.TrackSections == null) continue;
+                int parentSectionIdx = TrajectoryMath.FindTrackSectionForUT(rParent.TrackSections, ed.UT);
+                if (parentSectionIdx < 0) continue;
+                string slotKey = ed.ParentId + "@" +
+                    parentSectionIdx.ToString(CultureInfo.InvariantCulture);
+                if (!outgoingByParentSlot.TryGetValue(slotKey, out var bucket))
                 {
                     bucket = new List<int>();
-                    outgoingByParent[ed.ParentId] = bucket;
+                    outgoingByParentSlot[slotKey] = bucket;
                 }
                 bucket.Add(e);
             }
 
-            // Seed the worklist with every recording that already has an
-            // anchor written (Phase 2 LiveSeparation seeds from
-            // RebuildFromMarker plus the seed pass above). Any recording
-            // without an anchor isn't reachable by propagation — popping it
-            // would be a no-op.
+            // Seed the worklist with every (recordingId, sectionIndex)
+            // that already has an anchor written (any Side). Phase 2
+            // LiveSeparation seeds from RebuildFromMarker plus the per-
+            // source seed pass above both populate the anchor map BEFORE
+            // this code runs. Slots without anchors are never enqueued —
+            // edges depending on them stay deferred until a future
+            // worklist iteration writes the missing anchor.
             var worklist = new Queue<string>();
-            var enqueued = new HashSet<string>(StringComparer.Ordinal);
+            var enqueuedSlots = new HashSet<string>(StringComparer.Ordinal);
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     Recording r = recordings[i];
                     if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
-                    // Cheap probe: does any anchor exist for this recording?
-                    // The anchor map is keyed (recordingId, sectionIndex, side);
-                    // we don't know the section, so iterate the recording's
-                    // sections looking for any populated slot. With a typical
-                    // recording having a handful of sections this is O(1)
-                    // amortized.
                     if (r.TrackSections == null) continue;
-                    bool hasAnyAnchor = false;
-                    for (int sIdx = 0; sIdx < r.TrackSections.Count && !hasAnyAnchor; sIdx++)
+                    for (int sIdx = 0; sIdx < r.TrackSections.Count; sIdx++)
                     {
                         if (RenderSessionState.TryLookup(r.RecordingId, sIdx, AnchorSide.Start, out _)
                             || RenderSessionState.TryLookup(r.RecordingId, sIdx, AnchorSide.End, out _))
                         {
-                            hasAnyAnchor = true;
+                            string slotKey = r.RecordingId + "@" +
+                                sIdx.ToString(CultureInfo.InvariantCulture);
+                            if (enqueuedSlots.Add(slotKey))
+                                worklist.Enqueue(slotKey);
                         }
                     }
-                    if (hasAnyAnchor && enqueued.Add(r.RecordingId))
-                        worklist.Enqueue(r.RecordingId);
                 }
             }
 
-            // Drive the walk. For each anchored parent, propagate ε along
-            // its outgoing edges. If propagation actually inserts a new
-            // anchor on the child (TryWriteAnchor returned true), enqueue
-            // the child so its outgoing edges get a chance to propagate
-            // farther downstream. Cycle defense — the visitedEdges set
-            // ensures each edge processes at most once even if the parent
-            // is enqueued multiple times.
+            // Drive the walk. For each anchored parent slot, propagate ε
+            // along its outgoing edges. If propagation actually inserts a
+            // new anchor on the child slot (TryWriteAnchor returned true),
+            // enqueue THAT slot — not just the child recording — so only
+            // edges whose parent slot is the newly-anchored one re-fire.
+            // Cycle defense — the visitedEdges set ensures each edge
+            // processes at most once even if the same slot gets enqueued
+            // multiple times via priority overwrites.
             while (worklist.Count > 0)
             {
-                string parentId = worklist.Dequeue();
-                if (!outgoingByParent.TryGetValue(parentId, out var edgeIndices))
+                string parentSlotKey = worklist.Dequeue();
+                if (!outgoingByParentSlot.TryGetValue(parentSlotKey, out var edgeIndices))
                     continue;
 
                 for (int ei = 0; ei < edgeIndices.Count; ei++)
@@ -608,22 +622,21 @@ namespace Parsek.Rendering
                         nineOneApplied ? "true" : "false",
                         (epsilonChild - epsilonUpstream).magnitude.ToString("F3", CultureInfo.InvariantCulture)));
 
-                    // Worklist propagation: the child now has an anchor,
-                    // so enqueue it (idempotently) so its outgoing edges
-                    // get a chance to propagate farther downstream. The
-                    // visitedEdges set guarantees each edge runs at most
-                    // once regardless of how many times the parent is
-                    // enqueued, so re-enqueueing on every successful write
-                    // is safe — the alternative (only enqueue on the FIRST
-                    // anchor write per child) would lose the §7.11 priority
-                    // resolution case where a higher-priority source
-                    // overwrites a lower-priority one and the new ε needs
-                    // to flow downstream.
-                    if (!enqueued.Contains(edge.ChildId))
-                    {
-                        enqueued.Add(edge.ChildId);
-                        worklist.Enqueue(edge.ChildId);
-                    }
+                    // Worklist propagation: the child slot now has an
+                    // anchor, so enqueue (childRecordingId, childSectionIdx)
+                    // — not just the recording — so only edges whose
+                    // parent slot IS this newly-anchored slot can re-fire
+                    // downstream. visitedEdges keeps cycle defense; once
+                    // an edge has run, a later §7.11 priority overwrite
+                    // on the same child slot will NOT re-flow through
+                    // visited edges. That limitation is documented in
+                    // docs/dev/todo-and-known-bugs.md (Phase 6 known
+                    // gaps); the iterative-refinement variant is tracked
+                    // for a future phase.
+                    string childSlotKey = edge.ChildId + "@" +
+                        childSectionIdx.ToString(CultureInfo.InvariantCulture);
+                    if (enqueuedSlots.Add(childSlotKey))
+                        worklist.Enqueue(childSlotKey);
                 }
                 else
                 {
