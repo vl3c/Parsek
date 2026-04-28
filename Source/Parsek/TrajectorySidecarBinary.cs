@@ -40,7 +40,8 @@ namespace Parsek
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
         private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
         private const int RelativeAbsoluteShadowBinaryVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
-        private const int CurrentBinaryVersion = RelativeAbsoluteShadowBinaryVersion;
+        private const int BoundarySeamFlagBinaryVersion = RecordingStore.BoundarySeamFlagFormatVersion;
+        private const int CurrentBinaryVersion = BoundarySeamFlagBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -128,6 +129,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= RelativeAbsoluteShadowBinaryVersion
+                    ? RelativeAbsoluteShadowBinaryVersion
                 : rec.RecordingFormatVersion >= RelativeLocalFrameBinaryVersion
                     ? RelativeLocalFrameBinaryVersion
                 : rec.RecordingFormatVersion >= PredictedOrbitSegmentBinaryVersion
@@ -345,6 +348,7 @@ namespace Parsek
                 || version == LoopIntervalBinaryVersion
                 || version == PredictedOrbitSegmentBinaryVersion
                 || version == RelativeLocalFrameBinaryVersion
+                || version == RelativeAbsoluteShadowBinaryVersion
                 || version == CurrentBinaryVersion;
         }
 
@@ -643,6 +647,12 @@ namespace Parsek
                 writer.Write(track.boundaryDiscontinuityMeters);
                 writer.Write(track.minAltitude);
                 writer.Write(track.maxAltitude);
+                // v8: isBoundarySeam flag for Producer-C no-payload boundary seam. The byte
+                // appears AFTER maxAltitude and BEFORE the frames list so v7 readers (which
+                // expect frames immediately after maxAltitude) keep reading frames at the
+                // correct offset. New readers gate on binaryVersion >= 8 and default-false on <8.
+                if (binaryVersion >= BoundarySeamFlagBinaryVersion)
+                    writer.Write(track.isBoundarySeam);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
                 if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
                     WritePointList(writer, track.absoluteFrames, table, binaryVersion, ref stats);
@@ -667,6 +677,9 @@ namespace Parsek
                     boundaryDiscontinuityMeters = reader.ReadSingle(),
                     minAltitude = reader.ReadSingle(),
                     maxAltitude = reader.ReadSingle(),
+                    // v8: isBoundarySeam flag — gated on binaryVersion >= 8, default-false on <8.
+                    // Reading happens BEFORE the frames list to preserve positional layout.
+                    isBoundarySeam = (binaryVersion >= BoundarySeamFlagBinaryVersion) && reader.ReadBoolean(),
                     frames = new List<TrajectoryPoint>(),
                     absoluteFrames = new List<TrajectoryPoint>(),
                     checkpoints = new List<OrbitSegment>()

@@ -3020,10 +3020,17 @@ namespace Parsek
             {
                 StartBackgroundTrackSection(loadedState, nextEnv, ReferenceFrame.Absolute, ut);
                 AddFrameToActiveTrackSection(loadedState, boundaryPoint);
+                // Mark the section as a recorder bookkeeping artifact: RecordingOptimizer
+                // never treats boundaries on either side of a seam-flagged section as
+                // split candidates (hard step-1 override, ahead of body / Surface /
+                // ExoPropulsive short-circuits). See TrackSection.isBoundarySeam and
+                // docs/dev/plans/optimizer-persistence-split.md §5.
+                // TrackSection is a struct; mutate via field assignment on the held copy.
+                loadedState.currentTrackSection.isBoundarySeam = true;
                 CloseBackgroundTrackSection(loadedState, ut);
                 ParsekLog.Info("BgRecorder",
                     $"Persisted no-payload on-rails boundary section: pid={loadedState.vesselPid} " +
-                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} (seam=1)");
             }
 
             FlushTrackSectionsToRecording(loadedState, flushRec);
