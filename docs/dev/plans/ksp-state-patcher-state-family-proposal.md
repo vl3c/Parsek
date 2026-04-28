@@ -1,7 +1,7 @@
 # KspStatePatcher State-Family Refactor Proposal
 
 Date: 2026-04-28
-Branch/worktree: `proposal-ksp-state-patcher` from `origin/main` at `afdb70466806875edf81bfe77229af6d748305ee`
+Branch/worktree: `proposal-ksp-state-patcher` from `origin/main` at `2b03135bf71cac4cb2c2327c8309df61c7ad88f5`
 
 ## Goal
 
