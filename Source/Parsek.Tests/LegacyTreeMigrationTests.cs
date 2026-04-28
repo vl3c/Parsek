@@ -1092,6 +1092,78 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Pipeline-level guard for the load-order handoff between old-save event
+        /// migration and legacy-tree residual migration. The first load must let
+        /// null-tagged actions synthesized by MigrateOldSaveEvents count as coverage;
+        /// the next load must reset that flag so previously-persisted null-tagged KSC
+        /// rows do not mask an unrelated legacy tree's zero-coverage residual.
+        /// </summary>
+        [Fact]
+        public void OnKspLoad_OldSaveEventMigrationFlag_CountsOnlyForSameLoad()
+        {
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
+            try
+            {
+                var firstTree = MakeTree(
+                    "tree-load-flag-first",
+                    "rec-load-flag-first",
+                    100.0,
+                    200.0,
+                    deltaFunds: 34400.0);
+                RegisterTree(firstTree);
+
+                var oldSaveEvent = new GameStateEvent
+                {
+                    ut = 150.0,
+                    eventType = GameStateEventType.ContractCompleted,
+                    key = "contract-old-save",
+                    detail = "fundsReward=1000;repReward=0;sciReward=0"
+                };
+                GameStateStore.AddEvent(ref oldSaveEvent);
+
+                LedgerOrchestrator.OnKspLoad(
+                    new HashSet<string> { "rec-load-flag-first" },
+                    maxUT: 1000.0);
+
+                Assert.Contains(Ledger.Actions, a =>
+                    a.Type == GameActionType.ContractComplete
+                    && a.RecordingId == null
+                    && a.ContractId == "contract-old-save");
+                Assert.DoesNotContain(Ledger.Actions, a =>
+                    a.Type == GameActionType.FundsEarning
+                    && a.FundsSource == FundsEarningSource.LegacyMigration
+                    && a.RecordingId == "rec-load-flag-first");
+                AssertTreeRecordingsFullyApplied(firstTree);
+                Assert.True(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+
+                var secondTree = MakeTree(
+                    "tree-load-flag-second",
+                    "rec-load-flag-second",
+                    100.0,
+                    200.0,
+                    deltaFunds: 1200.0);
+                RegisterTree(secondTree);
+
+                LedgerOrchestrator.OnKspLoad(
+                    new HashSet<string> { "rec-load-flag-first", "rec-load-flag-second" },
+                    maxUT: 1000.0);
+
+                var synth = Ledger.Actions.SingleOrDefault(a =>
+                    a.Type == GameActionType.FundsEarning
+                    && a.FundsSource == FundsEarningSource.LegacyMigration
+                    && a.RecordingId == "rec-load-flag-second");
+                Assert.NotNull(synth);
+                Assert.Equal(1200f, synth.FundsAwarded, precision: 0);
+                AssertTreeRecordingsFullyApplied(secondTree);
+                Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+            }
+            finally
+            {
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
+        /// <summary>
         /// Null-tag coverage is bounded by the tree's UT window. A null-tagged action
         /// at a UT OUTSIDE the window is KSC activity unrelated to the tree and must
         /// not short-circuit the zero-coverage path.
