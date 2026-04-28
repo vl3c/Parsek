@@ -40,7 +40,12 @@ namespace Parsek
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
         private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
         private const int RelativeAbsoluteShadowBinaryVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
-        private const int BoundarySeamFlagBinaryVersion = RecordingStore.BoundarySeamFlagFormatVersion;
+        // Internal so the cross-codec sync test in TrajectorySidecarBinaryTests can pin
+        // RecordingStore.BoundarySeamFlagFormatVersion == this constant. Drift between the
+        // two would silently break v8 round-trip — the binary write/read paths gate on
+        // this value, but the public RecordingStore.BoundarySeamFlagFormatVersion drives
+        // the recording's RecordingFormatVersion stamp and the version-selection ladder.
+        internal const int BoundarySeamFlagBinaryVersion = RecordingStore.BoundarySeamFlagFormatVersion;
         private const int CurrentBinaryVersion = BoundarySeamFlagBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;

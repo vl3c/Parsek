@@ -20,6 +20,12 @@ namespace Parsek.InGameTests
     /// `TrackSections` mirror what the recorder would produce for a real
     /// "pad → atmo ascent → orbit → atmo reentry → landing" mission, then runs the
     /// production optimizer pass and asserts the resulting chain.
+    ///
+    /// <para>Scene = SPACECENTER (deliberate deviation from plan §9.4 which specified
+    /// FLIGHT). The synthetic shape doesn't require a flight scene to construct — it
+    /// goes straight into <see cref="RecordingStore"/>. SPACECENTER is the cheapest scene
+    /// the in-game test runner can launch into, so it minimises the cost of the smoke
+    /// run without losing coverage of the production wiring.</para>
     /// </summary>
     public class PersistenceSplitOptimizerTest
     {

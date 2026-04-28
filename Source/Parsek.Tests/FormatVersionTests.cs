@@ -53,6 +53,21 @@ namespace Parsek.Tests
             Assert.Equal(8, RecordingStore.BoundarySeamFlagFormatVersion);
         }
 
+        // Cross-codec sync guard. The binary `.prec` codec gates the seam-flag
+        // write/read on its own `BoundarySeamFlagBinaryVersion` constant, while the
+        // public `RecordingStore.BoundarySeamFlagFormatVersion` drives the recording's
+        // `RecordingFormatVersion` stamp and the version-selection ladder. If those two
+        // ever drift (e.g. someone bumps one without the other), v8 round-trip silently
+        // breaks: the writer might emit the seam byte at a different version threshold
+        // than the reader expects. This test pins them together.
+        [Fact]
+        public void BoundarySeamFlag_FormatVersion_MatchesBinaryVersion()
+        {
+            Assert.Equal(
+                RecordingStore.BoundarySeamFlagFormatVersion,
+                TrajectorySidecarBinary.BoundarySeamFlagBinaryVersion);
+        }
+
         [Fact]
         public void UsesRelativeLocalFrameContract_V5False_V6True()
         {

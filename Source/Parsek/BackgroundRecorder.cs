@@ -3028,9 +3028,14 @@ namespace Parsek
                 // TrackSection is a struct; mutate via field assignment on the held copy.
                 loadedState.currentTrackSection.isBoundarySeam = true;
                 CloseBackgroundTrackSection(loadedState, ut);
+                // Read the flag from the closed section's held copy. CloseBackgroundTrackSection
+                // doesn't zero `currentTrackSection`, so the flag survives. This phrasing keeps
+                // the log honest if a future producer ever shares this code path with a non-seam
+                // emit (today the persistNoPayloadBoundarySection branch always sets the flag).
+                string seamSuffix = loadedState.currentTrackSection.isBoundarySeam ? " (seam=1)" : "";
                 ParsekLog.Info("BgRecorder",
                     $"Persisted no-payload on-rails boundary section: pid={loadedState.vesselPid} " +
-                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} (seam=1)");
+                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}{seamSuffix}");
             }
 
             FlushTrackSectionsToRecording(loadedState, flushRec);

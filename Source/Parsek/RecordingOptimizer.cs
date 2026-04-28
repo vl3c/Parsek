@@ -196,11 +196,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// PartEvent UT window? No — that was the reverted PR #625 design. The persistence
-        /// predicate uses a brief-section-duration threshold instead. See §3.1 of
-        /// docs/dev/plans/optimizer-persistence-split.md for the rationale (aerobrakes /
-        /// eccentric Pe dips / Karman-line tourist hops are all brief enough to be treated
-        /// as graze patterns; sustained suborbital arcs and real ascents/reentries are not).
+        /// Cumulative duration threshold (seconds) below which a `SplitEnvironmentClass` run is
+        /// considered "brief" and therefore eligible to be treated as a graze pattern by the
+        /// persistence predicate. A run shorter than this — when bracketed by the same env
+        /// class on the other side — collapses into the surrounding chain segment instead of
+        /// producing its own split. Aerobrake passes, eccentric Pe dips, and Karman-line
+        /// tourist hops all fall under this threshold; sustained suborbital arcs, real
+        /// ascents, and reentries do not.
+        ///
+        /// 120 s is a starting point grounded in the §3.1 calibration table (Karman hop Exo
+        /// dwell crosses K at ~150 km apogee on Kerbin; LKO orbital periods are ~30 min so
+        /// grazing exits never bracket-match across orbits). See
+        /// docs/dev/plans/optimizer-persistence-split.md §3.1 for the rationale and
+        /// docs/dev/research/optimizer-meaningful-split-rule.md for the historical
+        /// PartEvent-window dead end (the reverted PR #625) that this threshold replaces.
         /// </summary>
         internal const double BriefSectionMaxSeconds = 120.0;
 
@@ -456,11 +465,17 @@ namespace Parsek
                     }
                 }
 
+                // Aggregate per-recording summary line. Covers both predicate-suppressed
+                // boundaries (graze patterns + seam short-circuits) AND splittable boundaries
+                // that CanAutoSplit later rejected. The line title is "Split summary" because
+                // "splittableButRejected" is downstream-rejected by CanAutoSplit, not
+                // suppressed by the §3 predicate — calling the whole line "Split suppressed"
+                // would imply the predicate caused all of it.
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
                     || suppressedBoundarySeam > 0 || splittableButRejected > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
-                        $"Split suppressed: rec={rec.RecordingId} " +
+                        $"Split summary: rec={rec.RecordingId} " +
                         $"evaluated={evaluatedBoundaries} " +
                         $"grazeForward={suppressedGrazeForward} " +
                         $"grazeBackward={suppressedGrazeBackward} " +

@@ -4163,6 +4163,31 @@ namespace Parsek.Tests
             Assert.Single(candidates);
         }
 
+        // Test #16b: Minimal recording with boundary at index 1 AND brief prev. Exercises the
+        // `bracketIdx >= 0` array-index guard in clause (B) when the brief-prev cumulative-
+        // duration check would otherwise pass. The walk's `prevRunStartIdx - 1 >= 0` precondition
+        // is what prevents an out-of-bounds read at sections[-1]. Falls through to split.
+        // Complements test #16, which exercised the long-prev path; this one exercises the
+        // brief-prev path on the same edge.
+        [Fact]
+        public void Persistence_BoundaryAtIndexOne_BriefPrev_DoesntCrash_Splits()
+        {
+            var rec = MakePersistenceRecording("boundary-at-index-one-brief-prev", 17000,
+                (SegmentEnvironment.Atmospheric, 40),  // brief prev — would be eligible for clause (B)
+                (SegmentEnvironment.ExoBallistic, 40)); // brief next — would be eligible for clause (A)
+
+            // Forward bracket: nextRunEndIdx=1, walk forward (s+1=2 >= count=2), no walk; cumDur=40<K
+            // but forwardBracketIdx=2 NOT < count=2, so no fire.
+            // Backward bracket: prevRunStartIdx=0, walk back (-1 < 0), no walk; cumDur=40<K
+            // but backwardBracketIdx=-1 NOT >= 0, so no fire.
+            // Both index guards fire correctly. Falls through to split.
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 1, out var reason));
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.PersistedPhaseChange, reason);
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+        }
+
         // Test #17: Minimum-duration brief section — single 0.4 s middle Atmo bracketed by long
         // same-class neighbours. Predicate suppresses via collapse-walk clause A or B (the single
         // brief section IS the entire run). Defensive sanity check that very short sections do
@@ -4260,8 +4285,15 @@ namespace Parsek.Tests
         }
 
         // Test #21: Aggregate suppression log fires once per recording. 4 graze boundaries in
-        // one recording → exactly one `Split suppressed: rec=…` aggregate line, no per-boundary
+        // one recording → exactly one `Split summary: rec=…` aggregate line, no per-boundary
         // suppression spam. Guards CLAUDE.md "Batch counting convention" pattern.
+        //
+        // Negative assertion is the strict "exactly one [Optimizer] log line per recording id"
+        // form rather than "no line containing pattern X" — that way a future regression that
+        // adds a per-boundary log line under a NEW name (e.g. "Suppressed graze:" or "Skipped
+        // boundary:") still trips the test, instead of slipping through because the substring
+        // we banned doesn't match the new wording. The Split-summary line is the only
+        // [Optimizer] line allowed for a recording with no accepted candidate.
         [Fact]
         public void Persistence_AggregateSuppressionLog_FiresOncePerRecording()
         {
@@ -4279,14 +4311,18 @@ namespace Parsek.Tests
 
                 RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
 
-                int aggregateLines = logLines.Count(l =>
-                    l.Contains("[Optimizer]") && l.Contains("Split suppressed:") &&
-                    l.Contains("rec=agg-suppress-log"));
-                Assert.Equal(1, aggregateLines);
+                // Strict: total [Optimizer] lines tagged with this rec-id must be exactly 1.
+                // No accepted candidate (eccentric grazing → all 4 boundaries suppressed), so
+                // the summary line is the only [Optimizer] line that should mention this rec.
+                int totalRecLines = logLines.Count(l =>
+                    l.Contains("[Optimizer]") && l.Contains("rec=agg-suppress-log"));
+                Assert.Equal(1, totalRecLines);
 
-                int perBoundaryLines = logLines.Count(l =>
-                    l.Contains("[Optimizer]") && l.Contains("Split suppressed (")); // per-boundary form
-                Assert.Equal(0, perBoundaryLines);
+                // The single line must be the "Split summary:" aggregate, not anything else.
+                int summaryLines = logLines.Count(l =>
+                    l.Contains("[Optimizer]") && l.Contains("Split summary:") &&
+                    l.Contains("rec=agg-suppress-log"));
+                Assert.Equal(1, summaryLines);
             }
             finally
             {
