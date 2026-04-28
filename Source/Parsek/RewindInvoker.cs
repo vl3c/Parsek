@@ -886,6 +886,10 @@ namespace Parsek
                 else
                 {
                     provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    // The merge path consumes marker.SupersedeTargetId. This
+                    // recording-level copy is a transient diagnostic on the
+                    // NotCommitted placeholder and is cleared with the rest of
+                    // the provisional fields at merge time.
                     provisional.SupersedeTargetId = priorTip;
                     activeReFlyRecordingId = provisional.RecordingId;
                     treeIdForMarker = provisional.TreeId;

@@ -39,6 +39,9 @@ namespace Parsek
 
         private static object suppressionCacheMarkerIdentity;
         private static int suppressionCacheStoreVersion = int.MinValue;
+        // Runtime suppression uses the marker origin. Merge-time append can
+        // walk from SupersedeTargetId for one commit, so the root participates
+        // in the single-slot cache discriminator.
         private static string suppressionCacheRootOverride;
         private static HashSet<string> suppressionCache;
 
@@ -174,6 +177,9 @@ namespace Parsek
             string targetRecordingId,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
+            // Needed for hybrid legacy-star plus new-linear graphs where a
+            // mid-chain recording is still part of the slot even when it is no
+            // longer the EffectiveRecordingId tip.
             if (string.IsNullOrEmpty(originRecordingId)
                 || string.IsNullOrEmpty(targetRecordingId)
                 || supersedes == null
