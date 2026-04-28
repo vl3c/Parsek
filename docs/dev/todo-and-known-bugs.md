@@ -94,18 +94,21 @@ on a spent stage doing periapsis passes; aerobraking with hysteresis flipping
 twice; debris bouncing through a glancing reentry) will produce a few extra
 chain segments per affected recording. Annoying but local.
 
-**v1.1 redesign idea — persistence-based discriminator (S5):** suppress an
-Atmo↔Exo* boundary iff the vessel returns to the previous env class within
-~60-120 s. Real reentries (Exo→Atmo→Surface, no return) and ascents
-(Atmo→Exo→end-of-recording, no return) split. Eccentric grazing
-(Exo→Atmo→Exo within seconds) and aerobrake passes do not. The research note
-for PR #624 (`docs/dev/research/optimizer-meaningful-split-rule.md`) dropped
-this signal in §5 S5 with a faulty argument ("composing across already-split
-recordings is awkward") — but the optimizer scans the whole recording's
-`TrackSections` list before any split, so the post-split composition concern
-doesn't apply at scan time. The Producer C no-payload boundary seam needs a
-separate signal at the producer (e.g. an `IsBoundarySeam` flag on the emitted
-`TrackSection`), not a generic post-hoc gate.
+**v1.1 redesign — persistence-based discriminator (S5):** suppress an
+Atmo↔Exo* boundary iff one side is a brief (< K ≈ 120 s) section bracketed
+by the same env class on the other side (`A → [brief B] → A` shape). Real
+reentries (Exo→Atmo→Surface) and ascents (Atmo→Exo→end-of-recording) have no
+bracket → split. Eccentric grazing (Exo→[brief Atmo]→Exo) and single-pass
+aerobrakes have a bracket → suppress. Producer C no-payload boundary seam
+gets an explicit `TrackSection.IsBoundarySeam` flag set at the producer; the
+optimizer skips boundaries on either side of a flagged section. The research
+note for PR #624 (`docs/dev/research/optimizer-meaningful-split-rule.md`)
+dropped this signal in §5 S5 with a faulty argument ("composing across
+already-split recordings is awkward") — but the optimizer scans the whole
+recording's `TrackSections` list before any split, so the post-split
+composition concern doesn't apply at scan time.
+
+Plan: [`docs/dev/plans/optimizer-persistence-split.md`](plans/optimizer-persistence-split.md).
 
 ## ~~629. Multi-stage crash showed only one half in Unfinished Flights (effective-leaf finalize)~~
 
