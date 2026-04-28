@@ -423,7 +423,7 @@ namespace Parsek.Tests.Rendering
             Assert.True(probe.Supported);
             Assert.Equal("rec-commit", probe.RecordingId);
             Assert.Equal(rec.SidecarEpoch, probe.SourceSidecarEpoch);
-            Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probe, out var splines, out _));
+            Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probe, out var splines, out _, out _));
             Assert.Single(splines);
             Assert.Equal(0, splines[0].Key);
             Assert.True(splines[0].Value.IsValid);
@@ -728,13 +728,15 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void PannotationsHeader_WritesV2Stamp()
+        public void PannotationsHeader_WritesCurrentAlgorithmStamp()
         {
             // What makes it fail: a forgotten bump of AlgorithmStampVersion
-            // would leave new .pann files with stamp 1, so a future Phase 5
-            // that bumps to 3 would not be able to invalidate them. This is
-            // the constant-side regression; the drift-test above is the
-            // behaviour-side regression.
+            // would leave new .pann files with a stale stamp, so a future
+            // phase that bumps further would not be able to invalidate
+            // them via alg-stamp-drift. Phase 6 bumped 2 -> 3 to invalidate
+            // existing files that lack the AnchorCandidatesList payload.
+            // Pin to the constant so a future bump updates the value here
+            // and the test still passes.
             var rec = MakeRecording("rec-v2write",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
             string pannPath = Path.Combine(tempDir, "rec-v2write.pann");
@@ -743,7 +745,92 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probe));
             Assert.True(probe.Success);
-            Assert.Equal(2, probe.AlgorithmStampVersion);
+            Assert.Equal(PannotationsSidecarBinary.AlgorithmStampVersion, probe.AlgorithmStampVersion);
+        }
+
+        // ---- ultrareview P1-A: useAnchorTaxonomy flag in ConfigurationHash ----
+
+        [Fact]
+        public void ConfigurationHash_DiffersByUseAnchorTaxonomy()
+        {
+            // What makes it fail: a hash that ignores the flag would let a
+            // .pann written when the flag was off cache-hit when the flag
+            // is on (and vice-versa). Phase 6's writer emits an empty
+            // AnchorCandidatesList when off and a populated one when on,
+            // so the two are NOT equivalent — the cache key must reflect
+            // that.
+            byte[] hashOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
+            byte[] hashOff = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: false);
+            Assert.NotEqual(hashOn, hashOff);
+        }
+
+        [Fact]
+        public void ConfigurationHash_SingleArgOverload_DefaultsToFlagOn()
+        {
+            // What makes it fail: existing call sites (test fixtures pinned
+            // before P1-A landed) pass the single-arg overload. They must
+            // continue to compute the same hash they always did, which
+            // means defaulting to the shipped Phase 6 default (true).
+            byte[] singleArg = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default);
+            byte[] explicitOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
+            Assert.Equal(singleArg, explicitOn);
+        }
+
+        [Fact]
+        public void LoadOrCompute_DiscardsAndRecomputesOn_UseAnchorTaxonomy_FlagFlip()
+        {
+            // What makes it fail: the canonical regression for ultrareview
+            // P1-A. Write a .pann while the flag is off, then load it
+            // while the flag is on. Without the flag in the
+            // ConfigurationHash the load path treats the file as fresh
+            // and skips the lazy-recompute → §7.4-§7.10 anchors never
+            // re-emit. With the flag in the hash, the load surfaces
+            // config-hash-drift and the recompute fires.
+            var rec = MakeRecording("rec-flag-flip",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-flag-flip.pann");
+
+            // Write .pann with flag off.
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = false;
+            try { SmoothingPipeline.PersistAfterCommit(rec, pannPath); }
+            finally { AnchorCandidateBuilder.ResetForTesting(); }
+            Assert.True(File.Exists(pannPath));
+
+            // Re-read with flag on. The cached hash should differ from
+            // the hash baked into the file → ClassifyDrift returns
+            // config-hash-drift → orchestrator logs invalidation, runs
+            // FitAndStorePerSection, rewrites .pann.
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+            // Reset the cached hash so CurrentConfigurationHash recomputes
+            // for the new flag value. ResetForTesting also reseats the
+            // body resolver / surface lookup seams the test ctor injected,
+            // so we re-install them after the reset.
+            SmoothingPipeline.ResetForTesting();
+            CelestialBody capturedKerbin = fakeKerbin;
+            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? capturedKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, capturedKerbin) ? KerbinRotationPeriod : double.NaN;
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+            try { SmoothingPipeline.LoadOrCompute(rec, pannPath); }
+            finally { AnchorCandidateBuilder.ResetForTesting(); }
+
+            // The Pipeline-Sidecar invalidation Info line should fire with
+            // reason=config-hash-drift (the canonical token for hash
+            // mismatch).
+            Assert.Contains(logLines,
+                l => l.Contains("[INFO][Pipeline-Sidecar]")
+                    && l.Contains("Pannotations whole-file invalidation")
+                    && l.Contains("recordingId=rec-flag-flip")
+                    && l.Contains("reason=config-hash-drift"));
+            Assert.Contains(logLines,
+                l => l.Contains("[INFO][Pipeline-Smoothing]")
+                    && l.Contains("Lazy compute")
+                    && l.Contains("recordingId=rec-flag-flip")
+                    && l.Contains("reason=config-hash-drift"));
         }
     }
 }

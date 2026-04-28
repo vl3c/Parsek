@@ -2301,6 +2301,7 @@ namespace Parsek
             int checkpointed = 0;
             int skippedNoVessel = 0;
             int skippedNotOrbital = 0;
+            int skippedDuplicateBoundary = 0;
 
             foreach (var kvp in onRailsStates)
             {
@@ -2312,6 +2313,12 @@ namespace Parsek
                 {
                     // Landed/splashed or no-orbit vessels don't need orbital checkpoints
                     skippedNotOrbital++;
+                    continue;
+                }
+
+                if (IsDuplicateOrbitSegmentBoundary(state.currentOrbitSegment, ut))
+                {
+                    skippedDuplicateBoundary++;
                     continue;
                 }
 
@@ -2347,11 +2354,20 @@ namespace Parsek
             // no-op summaries during a quiet warp burst collapse into one line.
             string key = string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,
-                "checkpoint-all-{0}-{1}-{2}",
-                checkpointed, skippedNotOrbital, skippedNoVessel);
+                "checkpoint-all-{0}-{1}-{2}-{3}",
+                checkpointed, skippedNotOrbital, skippedNoVessel, skippedDuplicateBoundary);
             ParsekLog.VerboseRateLimited("BgRecorder", key,
                 $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
-                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
+                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}, " +
+                $"skippedDuplicateBoundary={skippedDuplicateBoundary}");
+        }
+
+        private static bool IsDuplicateOrbitSegmentBoundary(OrbitSegment segment, double ut)
+        {
+            const double UTEpsilon = 0.000001;
+            return IsFiniteUT(segment.startUT)
+                && IsFiniteUT(ut)
+                && Math.Abs(segment.startUT - ut) <= UTEpsilon;
         }
 
         /// <summary>

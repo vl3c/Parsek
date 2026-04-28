@@ -39,13 +39,21 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class SmoothingPipeline
     {
-        // Cached configuration hash. Computed once per process; recomputed only
-        // if a future code path swaps SmoothingConfiguration.Default. The on/off
-        // toggle (ParsekSettings.useSmoothingSplines) is intentionally NOT in
-        // the hash — toggling it does not invalidate fitted splines, it just
-        // controls whether the consumer reads them.
+        // Cached configuration hash. Computed once per (config, useAnchorTaxonomy)
+        // pair. The `useSmoothingSplines` toggle is intentionally NOT in the
+        // hash — toggling it does not invalidate fitted splines, it just
+        // controls whether the consumer reads them. The `useAnchorTaxonomy`
+        // toggle IS in the hash (Phase 6 follow-up, ultrareview P1-A): the
+        // candidate writer emits an empty AnchorCandidatesList when the flag
+        // is off, and a populated one when on, so a stale cached hash would
+        // false-positive against a freshly-flipped flag and let the load
+        // path skip the lazy-recompute. The hash is keyed on the flag value
+        // so a flip blows out the cache, and ClassifyDrift compares the
+        // probed file's hash against the current one — flag flip → drift →
+        // discard + recompute.
         private static readonly object s_configHashLock = new object();
         private static byte[] s_cachedConfigurationHash;
+        private static bool s_cachedConfigurationHashFlag;
 
         // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
         // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
@@ -60,6 +68,13 @@ namespace Parsek.Rendering
         // via this hook. Production callers leave the seam null and resolve
         // through FlightGlobals.
         internal static System.Func<string, CelestialBody> BodyResolverForTesting;
+
+        // Phase 6 test seam: tree resolver for AnchorCandidateBuilder. xUnit
+        // cannot stand up RecordingStore.CommittedTrees in every test, so the
+        // suite injects a (recordingId -> RecordingTree) closure here.
+        // Production callers leave the seam null and the pipeline resolves via
+        // RecordingStore directly.
+        internal static System.Func<string, RecordingTree> TreeResolverForTesting;
 
         /// <summary>
         /// Fits a Catmull-Rom spline through every eligible ABSOLUTE-frame
@@ -184,6 +199,39 @@ namespace Parsek.Rendering
             ParsekLog.Verbose("Pipeline-Smoothing",
                 $"FitAndStorePerSection summary: recordingId={recordingId} sections={rec.TrackSections.Count} " +
                 $"fitOk={fitOk} fitFailed={fitFailed} skipped={skipped}");
+
+            // Phase 6: emit anchor candidates for the same recording. The
+            // builder is a pure function, gated internally by the
+            // useAnchorTaxonomy flag. Resolved on the same call site as
+            // spline-fit so loaders and committers see candidates and splines
+            // populate / persist together.
+            RecordingTree tree = ResolveTree(recordingId);
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree);
+        }
+
+        private static RecordingTree ResolveTree(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var seam = TreeResolverForTesting;
+            if (seam != null) return seam(recordingId);
+            try
+            {
+                List<RecordingTree> trees = RecordingStore.CommittedTrees;
+                if (trees == null) return null;
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    RecordingTree t = trees[i];
+                    if (t == null || t.Recordings == null) continue;
+                    if (t.Recordings.ContainsKey(recordingId)) return t;
+                }
+            }
+            catch
+            {
+                // Mid-load mutation of CommittedTrees, etc. Treat as
+                // tree-not-resolved; the candidate builder still runs but
+                // emits no Dock/Split candidates.
+            }
+            return null;
         }
 
         /// <summary>
@@ -323,6 +371,7 @@ namespace Parsek.Rendering
                 {
                     if (PannotationsSidecarBinary.TryRead(pannPath, probe,
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
+                            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
                             out string readFailure))
                     {
                         // HR-10: clear any prior in-memory entries for this recording
@@ -339,11 +388,17 @@ namespace Parsek.Rendering
                             SectionAnnotationStore.PutSmoothingSpline(
                                 recordingId, splines[i].Key, splines[i].Value);
                         }
+                        for (int i = 0; i < anchorCandidates.Count; i++)
+                        {
+                            SectionAnnotationStore.PutAnchorCandidates(
+                                recordingId, anchorCandidates[i].Key, anchorCandidates[i].Value);
+                        }
 
                         long bytes = SafeFileLength(pannPath);
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
-                            $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes}");
+                            $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
+                            $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
                         return;
                     }
 
@@ -421,12 +476,15 @@ namespace Parsek.Rendering
             lock (s_configHashLock)
             {
                 s_cachedConfigurationHash = null;
+                s_cachedConfigurationHashFlag = false;
             }
             lock (s_frameDecisionLock)
             {
                 s_frameDecisionLogged.Clear();
             }
             BodyResolverForTesting = null;
+            TreeResolverForTesting = null;
+            AnchorCandidateBuilder.ResetForTesting();
         }
 
         // ---- helpers ----
@@ -507,11 +565,19 @@ namespace Parsek.Rendering
 
         private static byte[] CurrentConfigurationHash()
         {
+            // Read the flag through AnchorCandidateBuilder's resolver so the
+            // test override and the production setting flow through one
+            // path. The cache is invalidated whenever the flag flips.
+            bool flag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
             lock (s_configHashLock)
             {
-                if (s_cachedConfigurationHash == null)
+                if (s_cachedConfigurationHash == null
+                    || s_cachedConfigurationHashFlag != flag)
+                {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default);
+                        SmoothingConfiguration.Default, flag);
+                    s_cachedConfigurationHashFlag = flag;
+                }
                 return s_cachedConfigurationHash;
             }
         }
@@ -535,6 +601,7 @@ namespace Parsek.Rendering
 
             string recordingId = rec.RecordingId;
             var splines = new List<KeyValuePair<int, SmoothingSpline>>();
+            var anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
             if (rec.TrackSections != null)
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
@@ -543,6 +610,11 @@ namespace Parsek.Rendering
                         && s.IsValid)
                     {
                         splines.Add(new KeyValuePair<int, SmoothingSpline>(i, s));
+                    }
+                    if (SectionAnnotationStore.TryGetAnchorCandidates(recordingId, i, out AnchorCandidate[] cands)
+                        && cands != null && cands.Length > 0)
+                    {
+                        anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(i, cands));
                     }
                 }
             }
@@ -555,11 +627,13 @@ namespace Parsek.Rendering
                     rec.SidecarEpoch,
                     rec.RecordingFormatVersion,
                     configHash,
-                    splines);
+                    splines,
+                    anchorCandidates);
 
                 long bytes = SafeFileLength(pannPath);
                 ParsekLog.Verbose("Pipeline-Sidecar",
-                    $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} splineCount={splines.Count}");
+                    $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} " +
+                    $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
             }
             catch (Exception ex)
             {

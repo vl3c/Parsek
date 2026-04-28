@@ -126,6 +126,44 @@ namespace Parsek
         private bool _useAnchorCorrection = true;
 
         /// <summary>
+        /// Phase 6 of the ghost trajectory rendering pipeline (design doc
+        /// §18 Phase 6, §7.1 — §7.10, §7.11). Gates BOTH the commit-time
+        /// emission of <see cref="Parsek.Rendering.AnchorCandidate"/> entries
+        /// (via <c>AnchorCandidateBuilder.BuildAndStorePerSection</c>) AND
+        /// the session-time DAG walk (via <c>AnchorPropagator.Run</c>). When
+        /// off, the rendering pipeline collapses back to Phase 2 behaviour:
+        /// LiveSeparation anchors are still computed (the Phase-2 path), but
+        /// no other taxonomy entries (Dock/Merge, RELATIVE-boundary,
+        /// OrbitalCheckpoint, SOI, BubbleEntry/Exit, Loop, SurfaceContinuous)
+        /// are produced. Default true.
+        ///
+        /// <para>
+        /// Two-flag rationale (vs. reusing <see cref="useAnchorCorrection"/>):
+        /// <see cref="useAnchorCorrection"/> gates render-time consumption of
+        /// any anchor in the <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// map; <see cref="useAnchorTaxonomy"/> gates whether non-LiveSeparation
+        /// entries get into the map at all. Two flags decouple the rollout
+        /// from regression bisection.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use anchor taxonomy",
+            toolTip = "When on (Phase 6), every anchor type from §7.1–§7.10 produces an AnchorCorrection and DAG propagation walks BranchPoint edges. Phase 2 LiveSeparation behaviour is unchanged.")]
+        public bool useAnchorTaxonomy
+        {
+            get { return _useAnchorTaxonomy; }
+            set
+            {
+                if (_useAnchorTaxonomy == value) return;
+                bool prev = _useAnchorTaxonomy;
+                _useAnchorTaxonomy = value;
+                NotifyUseAnchorTaxonomyChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseAnchorTaxonomy(value);
+            }
+        }
+        private bool _useAnchorTaxonomy = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -407,6 +445,21 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Anchor", $"useAnchorCorrection: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Anchor log line when
+        /// <see cref="useAnchorTaxonomy"/> flips. Phase 6 spec (design doc
+        /// §19.2 Stage 3 / Stage 3b row, §18 Phase 6) requires Info-level
+        /// visibility for the rollout gate so a developer can attribute a
+        /// visual artifact to the toggle moment in KSP.log. Mirrors the
+        /// Phase 2 <see cref="NotifyUseAnchorCorrectionChanged"/> contract
+        /// line-for-line.
+        /// </summary>
+        internal static void NotifyUseAnchorTaxonomyChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Anchor", $"useAnchorTaxonomy: {oldValue}->{newValue}");
         }
     }
 }
