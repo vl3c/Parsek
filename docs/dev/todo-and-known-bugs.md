@@ -11,6 +11,50 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
+
+**Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.
+
+Stock retractable ladders showed up extended in the ghost snapshot even when
+the recording started with them stowed. The recorder side was correct:
+`PartStateSeeder.SeedLadders` only seeds deployed ladders into the
+`deployedLadders` set, so a stowed ladder produces no `DeployableExtended`
+seed event at recording start, and per-frame transitions during the recording
+correctly emit `DeployableExtended` / `DeployableRetracted` events from
+`FlightRecorder.CheckLadderState`. The toggle-action recording works.
+
+The bug lived in `GhostPlaybackLogic.PopulateGhostInfoDictionaries`
+(`GhostPlaybackLogic.cs:1062`): it built `state.deployableInfos` from the
+build result but never explicitly snapped each entry to its stowed pose.
+The ghost therefore inherited the prefab's default pose. Stock ladders are
+authored in the deployed pose so the prefab default IS extended; without a
+seed event no playback handler ever fires to retract the ladder, and the
+ghost stayed visibly extended for the whole recording.
+
+The same `state.deployableInfos` is already explicitly re-stowed at every
+loop boundary by
+`GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle`
+(`GhostPlaybackLogic.cs:1562-1569`), so the loop-cycle path was correct —
+only the first-spawn path was missing the baseline. Fix: add a stow
+baseline immediately after the dict build, mirroring the heat-info
+cold-baseline pattern earlier in the same method
+(`GhostPlaybackLogic.cs:1119-1126`). For each entry, call
+`ApplyDeployableState(state, evt, deployed: false)`. Already-deployed
+deployables get a `DeployableExtended` seed event at `startUT` from
+`PartStateSeeder.EmitSeedEvents`, so the playback frame loop snaps them
+back to deployed when it reaches the recording start. Fix covers all
+deployables that route through `DeployableGhostInfo` — solar panels, gear,
+ladders, animation groups, animate-generic, aero/control surfaces, robot
+arm scanners — not just ladders. Showcase recordings flow through the same
+spawn path so they benefit too.
+
+Regression tests in `GhostSpawnDeployableBaselineTests.cs` pin: (a) the
+baseline log fires when `deployableInfos.Count > 0`; (b) it does not fire
+when `deployableInfos` is null or empty (no log noise); (c) the dict is
+keyed by `partPersistentId` so seed events can find the matching info; (d)
+defensive null-transform handling in `ApplyDeployableState` (unresolved
+ghost paths must not NRE the spawn baseline).
+
 ## 632. Optimizer meaningful-action gate broke per-phase loop splits
 
 **Status:** PR #625 reverted; gate removed. Original symptom (eccentric grazing
