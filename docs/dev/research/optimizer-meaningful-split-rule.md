@@ -1,5 +1,15 @@
 # Research: Meaningful-action gate on `RecordingOptimizer` env-class splits
 
+> **Conclusion reverted (post-implementation).** The PartEvent-window gate sketched here was implemented in PR #625 and merged, then reverted. Reason: the gate suppressed pure Atmo↔Exo and Approach↔Exo crossings without nearby PartEvents, which broke the per-phase loop split for two extremely common gameplay phases (passive deorbit reentries; staged ascents that coast through 70 km between first-stage shutdown and circularization burn). The architectural premise — that env-class boundaries are "geometric noise that needs gameplay-event corroboration" — inverts the design intent of `SplitEnvironmentClass` (see `parsek-flight-recorder-design.md` §9A.5: per-phase chain segments exist *to enable individual loop toggles*, so the boundary IS the gameplay split from the player's perspective).
+>
+> The "S5 one-way vs oscillating" discriminator dropped in §5 was the right idea and was dropped for the wrong reason: the optimizer scans the whole recording's `TrackSections` list before any split happens, so the "composing across already-split recordings" concern doesn't apply at scan time. A persistence-based discriminator (suppress an Atmo↔Exo* boundary iff the vessel returns to the previous env class within ~60-120 s) handles real ascents/reentries (no return → split) and grazing passes (returns within seconds → no split) without needing to gate on PartEvents at all.
+>
+> The Producer C no-payload boundary seam (`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) needs a separate signal at the producer (e.g. an `IsBoundarySeam` flag on the emitted `TrackSection`), not a generic post-hoc gate.
+>
+> Kept as historical record of what was considered and shipped on this attempt. See `docs/dev/todo-and-known-bugs.md` #632 for the post-revert acceptance.
+
+---
+
 Status: investigation only — no code change in this PR. Implementation would follow as a separate plan PR.
 
 Companion to `extending-rewind-to-stable-leaves.md` §2.1 / §S16. That note flagged the eccentric-orbit chain-explosion symptom; this note is the broader principled redesign.
@@ -79,16 +89,16 @@ These are not common but they are not zero, and the redesign is cheap.
 | Approach (3) → Atmo (0) | (impossible — Approach requires `!hasAtmosphere`) | (impossible) | n/a — defensive: keep splitting |
 | Exo (1) → Surface (2) | Vacuum landing burn ends with touchdown on airless body | (none — Surface only via `situation`) | **Always meaningful** — keep current behavior |
 | Surface (2) → Exo (1) | Take-off from airless body | Bouncy EVA hop (debounce already handles) | **Always meaningful** — keep current behavior |
-| Exo (1) → Approach (3) | Vacuum descent crossing the airless approach altitude | Eccentric flyby just dipping below approach altitude — structurally identical to atmo grazing | **Same gate as Atmo↔Exo** (extended from the original v1 always-meaningful default; see resolution below) |
-| Approach (3) → Exo (1) | Take-off ascent past approach altitude | Same flyby case in reverse | **Same gate as Atmo↔Exo** |
-| Surface (2) → Approach (3) | Take-off on airless body before reaching escape (debounce already covers near-surface jitter) | EVA jetpack on Mun | **Always meaningful** — Surface↔Approach gated upstream by Vessel.Situations + `ApproachDebounceSeconds = 3.0`, see [EnvironmentDetector.cs:243-245](../../../Source/Parsek/EnvironmentDetector.cs) |
-| Approach (3) → Surface (2) | Vacuum landing — passes through approach zone before touchdown | EVA jetpack settle | **Always meaningful** |
+| Exo (1) → Approach (3) | Vacuum descent crossing the airless approach altitude | Highly eccentric flyby just dipping below approach altitude (rare) | **Always meaningful** — keep current behavior (see resolution below) |
+| Approach (3) → Exo (1) | Take-off ascent past approach altitude | Same flyby case in reverse | **Always meaningful** — keep current behavior |
+| Surface (2) → Approach (3) | Take-off on airless body before reaching escape (debounce already covers near-surface jitter) | EVA jetpack on Mun | **Keep current** — Surface↔Approach already debounced (`ApproachDebounceSeconds = 3.0`, see [EnvironmentDetector.cs:243-245](../../../Source/Parsek/EnvironmentDetector.cs)) |
+| Approach (3) → Surface (2) | Vacuum landing — passes through approach zone before touchdown | EVA jetpack settle | **Keep current** |
 
 **Aggregating into three buckets:**
 
 1. **Body change (#251)** — orthogonal, always meaningful (real SOI traversal). No change.
-2. **Boundary involves Surface (class 2)** — always meaningful. Surface boundaries are gated upstream by `Vessel.Situations` flags + debounce, never by altitude alone. Surface↔Approach, Surface↔Atmo, Surface↔Exo all live here.
-3. **Pure Atmospheric ↔ Exo OR Approach ↔ Exo pair** — the noise cluster. Both go through the same meaningful-action signal. The Approach extension was originally deferred to v1.1 (open Q3) on the assumption that airless-body grazing flybys were rare; reconsidering during implementation confirmed the eccentric-Mun case is structurally identical to atmo grazing (a Mun probe with periapsis below ~30 km would otherwise still produce N splits per N periapsis passes), and the extension is a one-line change in the helper.
+2. **Boundary involves Surface (class 2) or Approach (class 3)** — always meaningful. Surface boundaries are gated by `Vessel.Situations` flags + debounce. Approach boundaries get the same default-allow treatment in v1: the airless-flyby noise case (§4 row 9) is rare in practice and a single false-positive split per flyby is mild, while a passive-flyby gate would require yet more signal-engineering. **Decision: Approach↔Exo is *not* gated; treat any class-3 boundary as always meaningful, matching the helper in §5.** §8 open Q3 records this as a v1.1 candidate to revisit if playtests show false positives.
+3. **Pure Atmospheric ↔ Exo pair** — the entire noise cluster sits here. Gate behind a meaningful-action signal.
 
 ---
 
@@ -138,12 +148,11 @@ internal static bool IsMeaningfulSplitBoundary(
     int prevClass = SplitEnvironmentClass(prev.environment);
     int nextClass = SplitEnvironmentClass(next.environment);
 
-    // 5A. Surface (class 2) involvement: always meaningful — gated upstream by
-    // Vessel.Situations + debounce.
+    // 5A. Surface (class 2) or Approach (class 3) involvement: always meaningful.
     if (prevClass == 2 || nextClass == 2) return true;
+    if (prevClass == 3 || nextClass == 3) return true;
 
-    // 5B. Atmo ↔ Exo OR Approach ↔ Exo (both in the noise cluster: passive
-    // periapsis crossings produce no nearby PartEvents).
+    // 5B. Pure Atmo ↔ Exo (the noise cluster).
     // S3: thrust-on at the crossing (ExoPropulsive on either side) is itself meaningful.
     if (prev.environment == SegmentEnvironment.ExoPropulsive
         || next.environment == SegmentEnvironment.ExoPropulsive)
@@ -278,7 +287,7 @@ Every existing test in `#region FindSplitCandidates` and `#region FindSplitCandi
 
 2. **Thermal animation on the active vessel.** Heat events fire reliably on aerobraking and reentry, but the threshold for `ThermalAnimationHot` needs a quick check — if it only fires above a high threshold, glancing reentries (e.g. a single 65 km dip) might not produce the event and would be classed as passive. If that's the case, the fallback is to add a **velocity-direction signal** (the velocity vector pointed *into* the body at the crossing). That's a richer change because the optimizer doesn't currently consume velocity data; defer until playtest demands it.
 
-3. **`Approach ↔ Exo` treatment.** *Resolved during implementation.* Originally (in this note's first version) Approach↔Exo was kept as always-meaningful and a v1.1 candidate to revisit. Reconsidering during implementation: the eccentric-Mun grazing case (probe periapsis below ~30 km approach altitude, hundreds of orbits without thrust) is structurally identical to the atmo case and would still produce N splits per N periapsis passes under an always-meaningful Approach gate. The fix is one line — drop the class-3 short-circuit and let Approach↔Exo fall through to the same `ExoPropulsive` + PartEvent check. Surface↔Approach stays always-meaningful via class 2. Tests `MeaningfulGate_ApproachToExoBallistic_NoEvents_ReturnsEmpty`, `MeaningfulGate_ApproachToExoPropulsive_S3ShortCircuit_Splits`, `MeaningfulGate_ExoBallisticToApproach_EngineIgnited_Splits`, `MeaningfulGate_ApproachToSurface_AlwaysSplits` cover the four sub-cases.
+3. **`Approach ↔ Exo` treatment.** Section 4 / §5 keep Approach↔Exo as always-meaningful (any class-3 boundary short-circuits to `true` in the helper). The alternative — applying the same meaningful-action gate as Atmo↔Exo — was considered and deferred. Rationale: passive low-flying flybys on airless bodies are rare, the failure mode (one extra split per flyby) is mild, and the helper stays simpler. If playtest ever shows a noisy case there, the gate composes naturally — drop the `prevClass == 3 || nextClass == 3` short-circuit and the boundary falls through to the PartEvent check.
 
 4. **Where does the meaningful-action gate live?** The natural home is `RecordingOptimizer` itself (alongside `SplitEnvironmentClass`). Extracting to a separate file would be premature — the function is small and tightly coupled to the optimizer's responsibilities.
 
