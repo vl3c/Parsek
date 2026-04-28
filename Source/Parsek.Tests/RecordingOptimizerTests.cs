@@ -69,23 +69,6 @@ namespace Parsek.Tests
             return rec;
         }
 
-        /// <summary>
-        /// Adds a synthetic EngineIgnited PartEvent at <paramref name="ut"/> — convenience
-        /// helper for fixtures that need the meaningful-action gate to accept a pure
-        /// Atmo↔ExoBallistic boundary on the optimizer path.
-        /// </summary>
-        private static void AddMeaningfulBoundaryEvent(Recording rec, double ut)
-        {
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = ut,
-                eventType = PartEventType.EngineIgnited,
-                partName = "synthetic-boundary",
-                partPersistentId = 100000,
-                value = 1f
-            });
-        }
-
         private static Recording MakeRecordingWith3Sections(
             double ut0, double ut1, double ut2, double ut3,
             SegmentEnvironment env1, SegmentEnvironment env2, SegmentEnvironment env3,
@@ -1217,12 +1200,8 @@ namespace Parsek.Tests
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            // Place events near the boundary (within MeaningfulBoundaryWindowSeconds = 5s)
-            // so the optimizer's meaningful-action gate accepts the env-class split.
-            // value > 0 required: activation events with value == 0 are inert and would
-            // not unblock the gate (mirrors IsInertPartEventForTailTrim).
-            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17028, value = 1f });
-            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.RCSActivated, ut = 17029, value = 1f });
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.EngineIgnited, ut = 17010 });
+            rec.PartEvents.Add(new PartEvent { eventType = PartEventType.RCSActivated, ut = 17015 });
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidates(committed));
@@ -1236,7 +1215,6 @@ namespace Parsek.Tests
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.TreeId = "tree-001";
             var committed = new List<Recording> { rec };
 
@@ -1292,637 +1270,6 @@ namespace Parsek.Tests
             var committed = new List<Recording> { rec };
 
             Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(committed));
-        }
-
-        // -----------------------------------------------------------------------
-        // Meaningful-action gate (research note §7 — 18 cases). Each test pins down
-        // one decision the IsMeaningfulSplitBoundary helper has to make.
-        // -----------------------------------------------------------------------
-
-        // 1. Atmo ↔ ExoBallistic with no PartEvents anywhere → empty.
-        [Fact]
-        public void MeaningfulGate_AtmoToExoBallistic_NoEvents_ReturnsEmpty()
-        {
-            var fwd = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            var rev = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { fwd }));
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rev }));
-        }
-
-        // 2. Atmo ↔ ExoBallistic with EngineIgnited within 2 s of splitUT → split.
-        [Fact]
-        public void MeaningfulGate_EngineIgnited_WithinWindow_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17028, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec });
-            Assert.Single(candidates);
-            Assert.Equal((0, 1), candidates[0]);
-        }
-
-        // 3. EngineIgnited 30 s before boundary (outside window) → empty.
-        [Fact]
-        public void MeaningfulGate_EngineIgnited_OutsideWindow_ReturnsEmpty()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17000, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 4. Decoupled at boundary → split.
-        [Fact]
-        public void MeaningfulGate_DecoupledAtBoundary_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17030, eventType = PartEventType.Decoupled
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 5. ParachuteDeployed at boundary → split.
-        [Fact]
-        public void MeaningfulGate_ParachuteDeployedAtBoundary_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17030, eventType = PartEventType.ParachuteDeployed
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 6. ThermalAnimationHot at boundary → split (passive reentry without engine).
-        [Fact]
-        public void MeaningfulGate_ThermalHotAtBoundary_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17030, eventType = PartEventType.ThermalAnimationHot
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 7. Atmo → ExoPropulsive (S3 short-circuit) → split, even without nearby PartEvents.
-        [Fact]
-        public void MeaningfulGate_AtmoToExoPropulsive_S3ShortCircuit_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoPropulsive);
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 8. ExoBallistic → ExoBallistic (no class change) → empty (regression).
-        [Fact]
-        public void MeaningfulGate_SameClass_ReturnsEmpty_Regression()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoBallistic);
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 9. Atmo ↔ Surface boundary → split (Surface bucket bypasses the gate).
-        [Fact]
-        public void MeaningfulGate_AtmoToSurface_AlwaysSplits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 10. ExoBallistic ↔ Surface boundary → split.
-        [Fact]
-        public void MeaningfulGate_ExoBallisticToSurface_AlwaysSplits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceStationary);
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 11. Body change with same env class on both sides → split (#251 untouched).
-        [Fact]
-        public void MeaningfulGate_BodyChange_SameEnvClass_Splits()
-        {
-            var rec = MakeBodyChangeRecording(
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoBallistic,
-                bodyA: "Kerbin", bodyB: "Mun");
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 12. Body change AND class change AND no PartEvents → split (body-change short-circuits).
-        [Fact]
-        public void MeaningfulGate_BodyChange_ClassChange_NoEvents_Splits()
-        {
-            var rec = MakeBodyChangeRecording(
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                bodyA: "Mun", bodyB: "Kerbin");
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        private static Recording MakeBodyChangeRecording(
-            SegmentEnvironment envA, SegmentEnvironment envB, string bodyA, string bodyB)
-        {
-            const double startUT = 17000, midUT = 17030, endUT = 17060;
-            var rec = new Recording { RecordingId = "rec_body_change" };
-            rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 80000, bodyName = bodyA });
-            rec.Points.Add(new TrajectoryPoint { ut = midUT, altitude = 30000, bodyName = bodyB });
-            rec.Points.Add(new TrajectoryPoint { ut = endUT, altitude = 100, bodyName = bodyB });
-
-            // Populate frames so SectionBodyChanged's GetSectionBody can read the body.
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = envA,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = startUT,
-                endUT = midUT,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = startUT, altitude = 80000, bodyName = bodyA }
-                }
-            });
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = envB,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = midUT,
-                endUT = endUT,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = midUT, altitude = 30000, bodyName = bodyB }
-                }
-            });
-            return rec;
-        }
-
-        // 13. Multiple atmo↔exo oscillations, no PartEvents → empty (eccentric case).
-        [Fact]
-        public void MeaningfulGate_MultipleAtmoExoOscillations_NoEvents_ReturnsEmpty()
-        {
-            var rec = new Recording { RecordingId = "rec_oscillating" };
-            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
-
-            // 6 alternating sections (3 atmo↔exo crossings).
-            var envs = new[]
-            {
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-            };
-            for (int i = 0; i < envs.Length; i++)
-            {
-                rec.TrackSections.Add(new TrackSection
-                {
-                    environment = envs[i],
-                    referenceFrame = ReferenceFrame.Absolute,
-                    startUT = 17000 + i * 60,
-                    endUT = 17000 + (i + 1) * 60,
-                    frames = new List<TrajectoryPoint>()
-                });
-            }
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 14. Multiple oscillations, engine event on the FIRST crossing only → split there only.
-        [Fact]
-        public void MeaningfulGate_MultipleOscillations_EventAtFirstCrossingOnly_SplitsOnce()
-        {
-            var rec = new Recording { RecordingId = "rec_first_meaningful" };
-            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
-
-            var envs = new[]
-            {
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-            };
-            for (int i = 0; i < envs.Length; i++)
-            {
-                rec.TrackSections.Add(new TrackSection
-                {
-                    environment = envs[i],
-                    referenceFrame = ReferenceFrame.Absolute,
-                    startUT = 17000 + i * 60,
-                    endUT = 17000 + (i + 1) * 60,
-                    frames = new List<TrajectoryPoint>()
-                });
-            }
-
-            // First boundary is at sectionIndex = 1, splitUT = 17060.
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17060, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec });
-            Assert.Single(candidates);
-            Assert.Equal((0, 1), candidates[0]);
-        }
-
-        // 15. Both adjacent sections OrbitalCheckpoint with differing env class → empty (S4).
-        [Fact]
-        public void MeaningfulGate_BothCheckpointDifferingEnv_S4Defensive_ReturnsEmpty()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            // Override both sections' frame to OrbitalCheckpoint (synthetic — recorder
-            // pathway never emits this today, but the helper guards against it).
-            for (int i = 0; i < rec.TrackSections.Count; i++)
-            {
-                var sec = rec.TrackSections[i];
-                sec.referenceFrame = ReferenceFrame.OrbitalCheckpoint;
-                rec.TrackSections[i] = sec;
-            }
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 16a. RCS-only deorbit kick (RCSActivated, value > 0) within window → split.
-        [Fact]
-        public void MeaningfulGate_RcsActivatedPositive_WithinWindow_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17029, eventType = PartEventType.RCSActivated, value = 1f
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 16b. Positive RCS throttle change within window → split. Distinct from 16a:
-        // RCSThrottle fires on power *changes* during a continuous burn, so a recording
-        // can have RCSThrottle without a corresponding RCSActivated in-window.
-        [Fact]
-        public void MeaningfulGate_RcsThrottlePositive_WithinWindow_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17029.5, eventType = PartEventType.RCSThrottle, value = 0.4f
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 16c. RCSActivated with value == 0 (e.g. seed event from in-flight save resume)
-        // is inert and does NOT unblock the gate. Mirrors IsInertPartEventForTailTrim.
-        [Fact]
-        public void MeaningfulGate_RcsActivatedZero_IsInert_DoesNotSplit()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17029, eventType = PartEventType.RCSActivated, value = 0f
-            });
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 17. Producer C: two adjacent Background/Absolute sections, second is single-frame,
-        // no PartEvents at the seam → empty (no-payload boundary recorder bookkeeping).
-        [Fact]
-        public void MeaningfulGate_ProducerC_NoPayloadBoundarySeam_ReturnsEmpty()
-        {
-            var rec = new Recording { RecordingId = "rec_producer_c" };
-            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 75000, bodyName = "Kerbin" });
-
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Background,
-                startUT = 17000,
-                endUT = 17030,
-                frames = new List<TrajectoryPoint>()
-            });
-            // Single-frame no-payload boundary section emitted by
-            // BackgroundRecorder.FlushLoadedStateForOnRailsTransition.
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Background,
-                startUT = 17030,
-                endUT = 17030,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 17030, altitude = 75000, bodyName = "Kerbin" }
-                }
-            });
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 14b. Multiple oscillations, meaningful event on a LATER crossing — split fires
-        // at the meaningful crossing, not before. Pins the loop's continue-after-suppress
-        // path: a `false` from IsSplittableEnvOrBodyBoundary must keep scanning later
-        // boundaries rather than abandon the recording.
-        [Fact]
-        public void MeaningfulGate_MultipleOscillations_EventOnLaterCrossing_SplitsAtThatBoundary()
-        {
-            var rec = new Recording { RecordingId = "rec_late_meaningful" };
-            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
-
-            var envs = new[]
-            {
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-            };
-            for (int i = 0; i < envs.Length; i++)
-            {
-                rec.TrackSections.Add(new TrackSection
-                {
-                    environment = envs[i],
-                    referenceFrame = ReferenceFrame.Absolute,
-                    startUT = 17000 + i * 60,
-                    endUT = 17000 + (i + 1) * 60,
-                    frames = new List<TrajectoryPoint>()
-                });
-            }
-
-            // Boundaries are at sectionIndex {1, 2, 3, 4, 5} → splitUT {17060, 17120,
-            // 17180, 17240, 17300}. Place a meaningful event near the *third* boundary
-            // (17180). Boundaries 1 and 2 must be suppressed and the loop must keep
-            // scanning until it finds boundary 3.
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17180, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec });
-            Assert.Single(candidates);
-            Assert.Equal((0, 3), candidates[0]);
-        }
-
-        // 18a. Approach ↔ ExoBallistic with no PartEvents → empty.
-        // The eccentric airless-body grazing case: a Mun orbit whose periapsis dips
-        // below the approach altitude (timeWarpAltitudeLimits[4], ~30 km) used to
-        // produce N splits per N periapsis passes; now the same gate as Atmo↔Exo
-        // suppresses passive crossings.
-        [Fact]
-        public void MeaningfulGate_ApproachToExoBallistic_NoEvents_ReturnsEmpty()
-        {
-            var fwd = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Approach, SegmentEnvironment.ExoBallistic);
-            var rev = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach);
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { fwd }));
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rev }));
-        }
-
-        // 18b. Approach → ExoPropulsive (S3 short-circuit on airless body) → split,
-        // even without nearby PartEvents. Take-off ascent past the approach altitude
-        // with engines firing.
-        [Fact]
-        public void MeaningfulGate_ApproachToExoPropulsive_S3ShortCircuit_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Approach, SegmentEnvironment.ExoPropulsive);
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 18c. ExoBallistic → Approach with EngineIgnited near boundary → split.
-        // Powered descent crossing the approach altitude.
-        [Fact]
-        public void MeaningfulGate_ExoBallisticToApproach_EngineIgnited_Splits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Approach);
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = 17029, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 18d. Approach ↔ Surface boundary still always-meaningful (Surface bucket).
-        [Fact]
-        public void MeaningfulGate_ApproachToSurface_AlwaysSplits()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.Approach, SegmentEnvironment.SurfaceStationary);
-
-            Assert.Single(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-        }
-
-        // 19. Gap larger than the window: prev.endUT = next.startUT - (W + 2), event placed
-        // exactly at prev.endUT, no event at splitUT → empty. Guards the splitUT-vs-prev.endUT
-        // discriminator: a prev.endUT-anchored gate would (incorrectly) split here.
-        [Fact]
-        public void MeaningfulGate_GapBeyondWindow_EventAtPrevEnd_AnchorsOnSplitUT()
-        {
-            const double W = RecordingOptimizer.MeaningfulBoundaryWindowSeconds;
-            const double prevEndUT = 17000.0;
-            const double nextStartUT = prevEndUT + W + 2.0; // = 17007.0
-
-            var rec = new Recording { RecordingId = "rec_gap_window" };
-            rec.Points.Add(new TrajectoryPoint { ut = 16500, altitude = 80000, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 75000, bodyName = "Kerbin" });
-
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 16500,
-                endUT = prevEndUT,
-                frames = new List<TrajectoryPoint>()
-            });
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = nextStartUT,
-                endUT = 17030,
-                frames = new List<TrajectoryPoint>()
-            });
-
-            // Event at prev.endUT (offset from splitUT = nextStartUT by W + 2 — outside window).
-            rec.PartEvents.Add(new PartEvent
-            {
-                ut = prevEndUT, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec }));
-
-            // Symmetric overlap variant: prev.endUT > next.startUT, event still at prev.endUT.
-            var overlap = new Recording { RecordingId = "rec_overlap_window" };
-            const double overlapPrevEnd = 17030.0 + W + 2.0; // = 17037.0
-            overlap.Points.Add(new TrajectoryPoint { ut = 16500, altitude = 80000, bodyName = "Kerbin" });
-            overlap.Points.Add(new TrajectoryPoint { ut = 17040, altitude = 75000, bodyName = "Kerbin" });
-
-            overlap.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 16500,
-                endUT = overlapPrevEnd,
-                frames = new List<TrajectoryPoint>()
-            });
-            overlap.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 17030.0,
-                endUT = 17040.0,
-                frames = new List<TrajectoryPoint>()
-            });
-            overlap.PartEvents.Add(new PartEvent
-            {
-                ut = overlapPrevEnd, eventType = PartEventType.EngineIgnited, value = 1f
-            });
-
-            Assert.Empty(RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { overlap }));
-        }
-
-        // 20. Log assertion: aggregate suppression summary fires once per recording
-        // when ≥1 boundary was suppressed, with a counter for each reason. Pins the
-        // counter increment paths so a typo (suppressedPassive++ → suppressedCheckpointPair++)
-        // is caught (per CLAUDE.md "Testing Requirements" — log assertions verify
-        // that code paths executed and logged the expected data).
-        [Fact]
-        public void MeaningfulGate_AggregateSuppressionLog_CountsPassiveCrossings()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            try
-            {
-                var rec = new Recording { RecordingId = "rec_log_passive" };
-                rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
-                rec.Points.Add(new TrajectoryPoint { ut = 17400, altitude = 40000, bodyName = "Kerbin" });
-
-                // 6 sections → 5 boundaries, all passive Atmo↔ExoBallistic. Each is
-                // suppressed: passiveCrossings=5, evaluated=5.
-                var envs = new[]
-                {
-                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                    SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric,
-                };
-                for (int i = 0; i < envs.Length; i++)
-                {
-                    rec.TrackSections.Add(new TrackSection
-                    {
-                        environment = envs[i],
-                        referenceFrame = ReferenceFrame.Absolute,
-                        startUT = 17000 + i * 60,
-                        endUT = 17000 + (i + 1) * 60,
-                        frames = new List<TrajectoryPoint>()
-                    });
-                }
-
-                RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec });
-
-                // Exactly one summary line per recording per pass.
-                Assert.Contains(logLines, l =>
-                    l.Contains("[Optimizer]")
-                    && l.Contains("Split suppressed: rec=rec_log_passive")
-                    && l.Contains("evaluated=5")
-                    && l.Contains("passiveCrossings=5")
-                    && l.Contains("checkpointPairs=0")
-                    && l.Contains("splittableButRejected=0"));
-            }
-            finally
-            {
-                ParsekLog.SuppressLogging = true;
-                ParsekLog.ResetTestOverrides();
-            }
-        }
-
-        // 21. Log assertion: per-acceptance log fires with the discriminator that fired.
-        [Fact]
-        public void MeaningfulGate_AcceptanceLog_EmitsDiscriminator()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.VerboseOverrideForTesting = true;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            try
-            {
-                var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                    SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-                rec.RecordingId = "rec_log_accept";
-                rec.PartEvents.Add(new PartEvent
-                {
-                    ut = 17030, eventType = PartEventType.Decoupled
-                });
-
-                RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec });
-
-                Assert.Contains(logLines, l =>
-                    l.Contains("[Optimizer]")
-                    && l.Contains("Split candidate (MeaningfulPartEventNearUT)")
-                    && l.Contains("rec=rec_log_accept"));
-            }
-            finally
-            {
-                ParsekLog.SuppressLogging = true;
-                ParsekLog.ResetTestOverrides();
-            }
         }
 
         #endregion
@@ -2157,9 +1504,6 @@ namespace Parsek.Tests
                 17000, 17030, 17060, 17090,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic, SegmentEnvironment.SurfaceStationary,
                 body1: "Kerbin", body2: "Kerbin", body3: "Mun");
-            // Atmo↔Exo seam needs a meaningful event under the optimizer's split gate.
-            // The Exo↔Surface seam is always-meaningful (Surface bucket).
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "original_id";
             rec.VesselName = "TestVessel";
             rec.VesselPersistentId = 12345;
@@ -2188,7 +1532,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "orig_id";
 
             var recordings = RecordingStore.CommittedRecordings;
@@ -2214,7 +1557,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "rec_in_tree";
             rec.TreeId = "tree_001";
 
@@ -2252,7 +1594,6 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
                 body1: "Kerbin", body2: "Mun");
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "body_test";
 
             var recordings = RecordingStore.CommittedRecordings;
@@ -2278,7 +1619,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "parent_rec";
             rec.TreeId = "tree_bp";
             rec.ChildBranchPointId = "bp_001";
@@ -2334,7 +1674,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(100, 170, 240,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 170);
             rec.RecordingId = "upper_parent";
             rec.TreeId = "tree_bp_early";
             rec.ChildBranchPointId = "bp_early";
@@ -2400,7 +1739,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "idem_test";
 
             var recordings = RecordingStore.CommittedRecordings;
@@ -2429,7 +1767,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "budget_test";
             rec.PreLaunchFunds = 100000;
             rec.PreLaunchScience = 50;
@@ -2456,7 +1793,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "groups_test";
             rec.RecordingGroups = new List<string> { "Launches", "Mun Missions" };
 
@@ -2483,7 +1819,6 @@ namespace Parsek.Tests
 
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            AddMeaningfulBoundaryEvent(rec, 17030);
             rec.RecordingId = "no_parent_test";
 
             var recordings = RecordingStore.CommittedRecordings;
@@ -4261,21 +3596,6 @@ namespace Parsek.Tests
             {
                 environment = SegmentEnvironment.SurfaceStationary, startUT = 17600, endUT = 17700,
                 frames = new List<TrajectoryPoint>()
-            });
-
-            // Atmo↔Exo seam at 17100 and Exo↔Approach seam at 17500 both fall under
-            // the optimizer's gate (Atmo↔Exo and Approach↔Exo are noise-cluster pairs
-            // unless gated by a meaningful action). Approach↔Surface at 17600 stays
-            // always-meaningful via the Surface bucket and needs no event.
-            main.PartEvents.Add(new PartEvent
-            {
-                ut = 17100, eventType = PartEventType.EngineIgnited, value = 1f,
-                partName = "synthetic-boundary", partPersistentId = 100000
-            });
-            main.PartEvents.Add(new PartEvent
-            {
-                ut = 17500, eventType = PartEventType.EngineIgnited, value = 1f,
-                partName = "synthetic-boundary", partPersistentId = 100000
             });
 
             main.ChildBranchPointId = "bp_staging";
