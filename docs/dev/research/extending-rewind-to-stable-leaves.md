@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R15 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R14 incorporated ten external review passes; R15 closes an eleventh pass with one P2 (the R14 wrapper snippet still missed the existing public helper's "internal returns null -> public returns empty" contract; R15 adds an explicit null-check on the cached result before the defensive copy). The next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R16 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R15 incorporated eleven external review passes; R16 closes a twelfth pass with one P1 (R5-R15's Site B design only touched `FlipMergeStateAndClearTransient`, but the in-place continuation path in `MergeDialog.TryCommitReFlySupersede` overrides the classifier's verdict with an unconditional Immutable -- R16 expands to a Site B-1 + Site B-2 split) and a P2 (the reaper close-rule treated `slot.Sealed == true` as closed regardless of effective MergeState; R16 makes NotCommitted unconditional no-reap). The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -22,7 +22,8 @@
 - **R12.** Eighth external review pass landed one P1 + two P2s: (a) **P1.K** -- R11 framed closure re-rooting as a one-line `AppendRelations` change, but the helper is shared with runtime suppression; R12 split into a separate root-aware helper. (b) **P2.L** -- stale "v0.9 parity exactly" wording contradicted the EVA carve-out; R12 narrowed it. (c) **P2.M** -- R10 framed the in-place continuation as outside `AtomicMarkerWrite`; R12 corrected with a precise within-method recipe.
 - **R13.** Ninth external review pass landed one P1 + a P2: (a) **P1.M** -- R12's `ComputeSubtreeClosure(rootRecordingId)` was root-only; R13 made it marker-aware with a root override (`ComputeSubtreeClosureInternal(marker, rootOverride)`). (b) **P2.N** -- step 2 pseudocode still had unconditional provisional assign; R13 inlined the null-check.
 - **R14.** Tenth external review pass landed two P2s: (a) **P2.O** -- R13's wrapper snippet broke the existing public helper's null-guard and defensive-copy contracts; R14 added the marker-null guard and the HashSet-copy. (b) **P2.P** -- §S21 still named the old origin-rooted helper for the merge path; R14 updated to the new internal helper with the SupersedeTargetId fallback.
-- **R15 (this version).** Eleventh external review pass landed one P2: **P2.Q** -- R14's wrapper guarded `marker == null` and added a defensive copy, but the existing public helper also returns empty when the internal closure itself returns null (e.g. when the marker is non-null but `OriginChildRecordingId` is null/empty so the internal closure walk has no root). R14's snippet would have NRE'd in `new HashSet<string>(cached)` in that case. R15 adds an explicit `if (cached == null) return Array.Empty<string>()` between the internal call and the defensive copy. Also documents that internal call sites (the new `AppendRelations` path) must themselves null-check the result, since the internal still returns null when the supplied root is null/empty.
+- **R15.** Eleventh external review pass landed one P2: **P2.Q** -- R14's wrapper still missed the existing public helper's "internal returns null -> public returns empty" contract; R15 added the cached-null guard.
+- **R16 (this version).** Twelfth external review pass landed one P1 + a P2: (a) **P1.N** -- R5-R15's Site B design only touched `SupersedeCommit.FlipMergeStateAndClearTransient`, but the in-place continuation merge path in `MergeDialog.TryCommitReFlySupersede` calls Site B-1 and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier verdict. That override would silently undo the new stable-leaf CommittedProvisional result for in-place re-flies ending Orbiting/SubOrbital/EVA-stranded -- §S8 chain extension would still vanish from Unfinished Flights immediately after the in-place merge. R16 splits Site B into B-1 (the existing classifier flip) and B-2 (remove the unconditional override in `TryCommitReFlySupersede`). Added an in-place stable-terminal regression test in §9.5 with a negative variant that asserts the test fails while the override is still in place. (b) **P2.R** -- the §9.3 reaper rule treated `slot.Sealed == true` as closed regardless of the effective recording's MergeState. A stale or accidental Seal flag persisted on a NotCommitted recording (e.g. load-time race state where the journal finisher rolled MergeState back to NotCommitted while the slot's Sealed bit is still on disk) would have allowed the reaper to delete the RP quicksave while an active re-fly is still live. R16 makes NotCommitted unconditional no-reap regardless of `slot.Sealed`; the close predicate is now `MergeState != NotCommitted AND (MergeState == Immutable OR slot.Sealed == true)`. Updated §5 prose, §7 Seal cell wording, §9.3 reaper section, §9.5 reaper test, and §12 recommendation to match.
 
 ---
 
@@ -226,7 +227,7 @@ Outside an RP-resolution context (e.g. a generic "is this recording re-fly-able"
 
 ## 5. RP retention and reaping
 
-User confirmed (R3): **keep an RP alive while any sibling could re-fly.** Concretely: an RP becomes reap-eligible only when every child slot is "closed" -- either the effective recording is `Immutable` (today's signal) OR the slot has `Sealed == true` (R5's new signal). The reaper rule extends from "every slot Immutable" to "every slot Immutable OR Sealed."
+User confirmed (R3): **keep an RP alive while any sibling could re-fly.** Concretely: an RP becomes reap-eligible only when every child slot is "closed." A slot is closed iff the effective recording is committed (not NotCommitted) AND either its `MergeState == Immutable` OR `slot.Sealed == true`. NotCommitted is unconditionally no-reap regardless of `slot.Sealed` (R16 P2.R: defends against a corrupt/race-state Sealed flag on a recording whose MergeState got rolled back). Full predicate in §9.3.
 
 **This is the only reaper change in R5.** Previously reaped behaviour for routine missions is preserved -- the §S3 / §S19 auto-parachute booster scenarios reap as before because the focus-continuation upper stage now correctly resolves to Immutable (P1.3 fix; see §3) and the booster's Landed terminal stays Immutable (TerminalOutcomeQualifies returns false).
 
@@ -291,7 +292,7 @@ All play back as ghosts simultaneously when any later mission rewinds past UT 10
 | Action | Effect |
 |---|---|
 | Fly | Routes through `RewindInvoker.StartInvoke` (existing v0.9 flow). Reloads the RP quicksave, strips siblings, activates this recording's vessel, scene reload. Today this is the only button in the Rewind column for an Unfinished Flight row, drawn by `DrawUnfinishedFlightRewindButton` ([RecordingsTableUI.cs:2559](../../../Source/Parsek/UI/RecordingsTableUI.cs)). |
-| Seal | Spawns the Seal confirmation dialog (see §7.1). On accept: set `slot.Sealed = true` (NOT MergeState); bump `SupersedeStateVersion`; row drops from group; reaper runs (RP deleted if all sibling slots are also closed -- Immutable OR Sealed). |
+| Seal | Spawns the Seal confirmation dialog (see §7.1). On accept: set `slot.Sealed = true` (NOT MergeState); bump `SupersedeStateVersion`; row drops from group; reaper runs (RP deleted if every sibling slot is closed per §9.3 -- effective recording committed AND (Immutable OR Sealed); NotCommitted always blocks reap). |
 
 The crashed-row UX (today's v0.9) gets the same two actions. A crashed row's Seal action is "I accept the crash as canonical; stop offering me the re-fly." Same semantics; works identically for both default-UF flavours (Crashed and Stable-Unconcluded).
 
@@ -644,6 +645,14 @@ newState = (kind == Crashed) ? CommittedProvisional : Immutable
 provisional.MergeState = newState
 ```
 
+**R16 P1.N callout: Site B is NOT the only writer of `provisional.MergeState` on a re-fly merge.** `MergeDialog.TryCommitReFlySupersede` (the in-place continuation merge path) calls `FlipMergeStateAndClearTransient` and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier's verdict. That override pre-dates this feature and would silently undo the new stable-leaf CommittedProvisional result for in-place re-flies ending Orbiting / SubOrbital / EVA-stranded -- §S8 (chain extension on stable terminals) would still vanish from Unfinished Flights immediately after the in-place merge.
+
+The §9.2 prerequisite therefore has TWO Site B touch sites, not one:
+- **Site B-1: `SupersedeCommit.FlipMergeStateAndClearTransient`** -- the recipe below.
+- **Site B-2: `MergeDialog.TryCommitReFlySupersede`** -- remove the unconditional `provisional.MergeState = MergeState.Immutable` override that runs after `FlipMergeStateAndClearTransient`. The classifier's verdict from Site B-1 must be authoritative for in-place merges too. If the override exists for a non-supersede invariant (e.g. a v0.9 hack to force in-place re-flies to seal), the formal design doc must articulate the original reason and explain why the new predicate's verdict is safe to trust instead.
+
+Add a §9.5 in-place stable-terminal regression test (see test list below): an in-place re-fly merge ending Orbiting/SubOrbital/EVA-stranded must produce `provisional.MergeState == CommittedProvisional` (not Immutable), so the row stays in Unfinished Flights for further chain extension.
+
 After this feature -- same shared classifier, same triple as Site A. Slot resolution uses the same `TryResolveRewindPointForRecording` helper Site A uses, fed the **provisional** recording. The helper walks each slot's `OriginChildRecordingId` forward through `RecordingSupersedes` and returns the slot whose forward trail contains the queried recording id.
 
 ```
@@ -767,7 +776,23 @@ Both Site A and Site B route through the same `UnfinishedFlightClassifier.Qualif
 
 ### 9.3 Reaper
 
-`RewindPointReaper.IsReapEligible` extended one line: a slot is treated as closed when `effectiveRecording.MergeState == Immutable` OR `slot.Sealed == true`. Combined with §9.2's broader CP promotion, the rule remains "every slot closed -> reap-eligible," with the close definition expanded by one term.
+`RewindPointReaper.IsReapEligible` extended carefully so a stale or accidental Seal flag on a NotCommitted recording cannot reap an RP whose re-fly is still live. The closed-slot predicate is:
+
+```
+SlotIsClosed(slot, effectiveRecording) :=
+    effectiveRecording.MergeState != NotCommitted        // R16 P2.R: NotCommitted is
+                                                         // ALWAYS no-reap, regardless
+                                                         // of slot.Sealed
+    AND
+    (effectiveRecording.MergeState == Immutable          // existing v0.9 close signal
+     OR slot.Sealed == true)                             // new R5 close signal
+```
+
+Equivalent prose: a slot counts as closed only when its effective recording has been committed (CP or Immutable) AND either the recording is Immutable OR the player has Sealed the slot. CP-with-Sealed reaps; CP-without-Sealed blocks. NotCommitted-with-Sealed (corrupt or load-time race state -- a seal flag persisted on a recording whose MergeState got rolled back to NotCommitted by a journal finisher) does NOT reap.
+
+Combined with §9.2's broader CP promotion, the rule remains "every slot closed -> reap-eligible," with the close definition expanded by one term AND tightened by the NotCommitted invariant.
+
+Implementation note: `Seal` should refuse to fire on a NotCommitted slot at the UI layer too (the Fly+Seal cell only renders for committed UF rows; NotCommitted recordings aren't in ERS so they don't produce UF rows in the first place). The reaper-side guard is defense-in-depth against load-time races where a sealed slot's MergeState got rolled back.
 
 Logging on reap:
 
@@ -816,7 +841,8 @@ Site A / Site B promotion tests:
 Seal handler tests:
 
 - Slot.Sealed flip + SealedRealTime stamp; `SupersedeStateVersion` bumps; `MergeState` UNCHANGED.
-- `RewindPointReaper.IsReapEligible`: slots Immutable + Sealed -> reap; any unsealed CP slot -> no-reap; any NotCommitted -> no-reap (regression).
+- `RewindPointReaper.IsReapEligible`: slots Immutable + Sealed -> reap; any unsealed CP slot -> no-reap; any NotCommitted -> no-reap regardless of `slot.Sealed` (R16 P2.R regression guard: even if a stale Seal flag persists on a NotCommitted recording, the reaper must NOT reap; this catches load-time race states where the journal finisher rolled MergeState back to NotCommitted while the slot's Sealed bit is still on disk).
+- **In-place re-fly stable-terminal merge state** (R16 P1.N regression guard): drive a re-fly through the in-place continuation path of `MergeDialog.TryCommitReFlySupersede` (NOT through the spawn-a-fresh-provisional path) and end the re-fly with terminal Orbiting/SubOrbital/EVA-stranded. Assert `provisional.MergeState == CommittedProvisional` (NOT Immutable). Negative variant: with the v0.9 unconditional `provisional.MergeState = MergeState.Immutable` override still in `TryCommitReFlySupersede`, assert the assertion fails -- this is the failure mode that R16 P1.N requires removing.
 - Legacy unsealed `Immutable` crash row -> Seal flips slot.Sealed without touching the recording -> reaper now treats slot as closed -> RP eventually reaps.
 - Sealing one of N siblings with the others still CP -> log emits `reaperImpact=stillBlocked`; sealing the last one -> `reaperImpact=willReap`.
 
@@ -885,12 +911,12 @@ In-game tests:
 
 ## 12. Recommendation
 
-R15 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
+R16 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
 
 - **Prerequisite v0.9 marker-write change + closure-helper split**: `RewindInvoker.AtomicMarkerWrite` (NOT `BuildProvisionalRecording`) computes `priorTip = selected.EffectiveRecordingId(supersedes)` once before the in-place vs fresh-provisional branch; stamps `marker.OriginChildRecordingId` (slot origin, unchanged contract) and `marker.SupersedeTargetId` (NEW, prior tip) in the shared marker-creation block; the `provisional.SupersedeTargetId = priorTip` overwrite is guarded with `if (provisional != null)` (the in-place branch sets provisional null). Existing `ComputeSessionSuppressedSubtree(marker)` is refactored: body extracts into `ComputeSubtreeClosureInternal(marker, rootOverride)` (preserves all marker-context gates: InvokedUT for PID-peer, mixed-parent halt, chain-sibling expansion); the existing wrapper delegates with `marker.OriginChildRecordingId`. `SupersedeCommit.AppendRelations` calls the internal helper with `marker.SupersedeTargetId ?? marker.OriginChildRecordingId`. Runtime ghost suppression is unchanged. See §9.2.1.
 - **Three new persistent fields**: `ChildSlot.Sealed` (+ diagnostic `SealedRealTime`); `RewindPoint.FocusSlotIndex` (int, -1 default); `ReFlySessionMarker.SupersedeTargetId` (string, null default). All back-compat.
 - **Predicate**: keep v0.9's `MergeState in { Immutable, CommittedProvisional }`; add `IsDebris == false` controllable-subject gate; add per-RP-context leaf gate (chainTip ChildBranchPointId is null OR equals the matched RP's BranchPointId); add `slot.Sealed == false`; replace terminal-Crashed-only with `TerminalOutcomeQualifies(chainTip, slot, RP)` per §3. Shared classifier helper used by both call sites.
-- **MergeState promotion at TWO sites**: `RecordingStore.ApplyRewindProvisionalMergeStates` (Site A) AND `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B), both routing through the shared classifier. Reaper extended one term ("Immutable OR Sealed").
+- **MergeState promotion at THREE sites** (R16 P1.N expansion): `RecordingStore.ApplyRewindProvisionalMergeStates` (Site A) + `SupersedeCommit.FlipMergeStateAndClearTransient` (Site B-1) + `MergeDialog.TryCommitReFlySupersede` (Site B-2: remove the unconditional `provisional.MergeState = MergeState.Immutable` override that runs after Site B-1 on the in-place continuation path -- otherwise the classifier's CP verdict is silently overridden for in-place merges). Site A and Site B-1 route through the shared classifier; Site B-2 is a deletion. **Reaper rule**: a slot is closed iff effective recording is committed AND (Immutable OR slot.Sealed); NotCommitted is unconditional no-reap regardless of slot.Sealed.
 - **UI**: per-row Seal action alongside the existing Fly button. Layout TBD (§7.0). Confirmation dialog with destructive-action language (§7.1). Tooltip refresh.
 - **Logging**: new `[UnfinishedFlights]` reasons covering each predicate gate; new `[Rewind]` reaper line with `sealedSlotsContributing` counter; `[UnfinishedFlights]` Seal accept/cancel logs; `[Supersede]` log emits the new `qualifies` field on Site B's flip.
 - **Tests**: unit + in-game per §9.5, including: shared-classifier identity test (Site A/B drift guard); legacy-Immutable-crash regression guard (P1.1); breakup-survivor guard (P1.2); routine-launch-reap regression guard (P1.3); R9 invocation linearization guard + Site B chain-extension positive/negative test (P1.G).
@@ -902,4 +928,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R15.*
+*End of research note R16.*
