@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R14 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R13 incorporated nine external review passes; R14 closes a tenth pass with two P2s (the R13 wrapper snippet was expression-bodied and dropped the existing public helper's null-guard and defensive-copy contracts; §S21's narrative still named the old origin-rooted helper for the merge path even though R12/R13 split it). The next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R15 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R14 incorporated ten external review passes; R15 closes an eleventh pass with one P2 (the R14 wrapper snippet still missed the existing public helper's "internal returns null -> public returns empty" contract; R15 adds an explicit null-check on the cached result before the defensive copy). The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -21,7 +21,8 @@
 - **R11.** Seventh external review pass landed one P1 + a P2: (a) **P1.J** -- R10 said `AppendRelations` should bypass the closure; R11 re-rooted it instead. (b) **P2** -- "omitted when null" contract conflict with unconditional write recipe; R11 picked the unconditional contract.
 - **R12.** Eighth external review pass landed one P1 + two P2s: (a) **P1.K** -- R11 framed closure re-rooting as a one-line `AppendRelations` change, but the helper is shared with runtime suppression; R12 split into a separate root-aware helper. (b) **P2.L** -- stale "v0.9 parity exactly" wording contradicted the EVA carve-out; R12 narrowed it. (c) **P2.M** -- R10 framed the in-place continuation as outside `AtomicMarkerWrite`; R12 corrected with a precise within-method recipe.
 - **R13.** Ninth external review pass landed one P1 + a P2: (a) **P1.M** -- R12's `ComputeSubtreeClosure(rootRecordingId)` was root-only; R13 made it marker-aware with a root override (`ComputeSubtreeClosureInternal(marker, rootOverride)`). (b) **P2.N** -- step 2 pseudocode still had unconditional provisional assign; R13 inlined the null-check.
-- **R14 (this version).** Tenth external review pass landed two P2s: (a) **P2.O** -- R13's wrapper snippet was expression-bodied and would have broken the existing public helper's null-guard contract (`ComputeSessionSuppressedSubtree(null)` returns empty; the `marker.OriginChildRecordingId` access would NRE) AND its defensive-copy contract (the public method returns a fresh HashSet, not the cached one; expression-body would expose the cache to mutation by callers). R14 rewrites the wrapper as a method body that null-guards the marker, calls the internal, and returns a defensive copy of the cached HashSet. Internal call sites (the new `AppendRelations` path) get the raw cached collection so the hot suppression read path doesn't pay per-call copy cost. (b) **P2.P** -- §S21's cross-tree dock scenario still narrated `AppendRelations` as walking `EffectiveState.ComputeSessionSuppressedSubtree(marker)` for the merge subtree, but R12/R13's whole point is that merge MUST call the marker-aware root-override helper while runtime suppression keeps using `ComputeSessionSuppressedSubtree`. R14 updates §S21 to reference the new internal helper with the fallback expression so the scenario aligns with the §9.2.1 design.
+- **R14.** Tenth external review pass landed two P2s: (a) **P2.O** -- R13's wrapper snippet broke the existing public helper's null-guard and defensive-copy contracts; R14 added the marker-null guard and the HashSet-copy. (b) **P2.P** -- §S21 still named the old origin-rooted helper for the merge path; R14 updated to the new internal helper with the SupersedeTargetId fallback.
+- **R15 (this version).** Eleventh external review pass landed one P2: **P2.Q** -- R14's wrapper guarded `marker == null` and added a defensive copy, but the existing public helper also returns empty when the internal closure itself returns null (e.g. when the marker is non-null but `OriginChildRecordingId` is null/empty so the internal closure walk has no root). R14's snippet would have NRE'd in `new HashSet<string>(cached)` in that case. R15 adds an explicit `if (cached == null) return Array.Empty<string>()` between the internal call and the defensive copy. Also documents that internal call sites (the new `AppendRelations` path) must themselves null-check the result, since the internal still returns null when the supplied root is null/empty.
 
 ---
 
@@ -725,13 +726,17 @@ This is **not just a Site B problem.** v0.9's existing Crashed chain extension d
            return Array.Empty<string>();                          // existing public contract
        var cached = ComputeSubtreeClosureInternal(
                         marker, marker.OriginChildRecordingId);   // internal sees cached HashSet
+       if (cached == null)
+           return Array.Empty<string>();                          // existing public contract:
+                                                                  // null root / empty closure
+                                                                  // returns empty, never null
        return new HashSet<string>(cached);                        // existing public contract:
                                                                   // defensive copy, callers
                                                                   // cannot mutate the cache
    }
    ```
 
-   The existing public-helper contract is preserved exactly: legacy callers get the same null-empty behaviour and the same defensive-copy guarantee. Internal callers (the new `AppendRelations` site, plus the existing wrapper) see the raw cached HashSet to avoid per-call copies on the hot ghost-suppression read path.
+   The existing public-helper contract is preserved exactly: legacy callers get the same null-empty behaviour for both `marker == null` AND `marker` with a null/empty `OriginChildRecordingId` (which makes the internal return null), plus the same defensive-copy guarantee. Internal callers (the new `AppendRelations` site, plus the existing wrapper) see the raw cached HashSet to avoid per-call copies on the hot ghost-suppression read path -- but must themselves null-check the result, since the internal can return null when the supplied root is null/empty.
 
    Two consumers, two call shapes, both pass the marker context:
    - **Runtime suppression** (ghost playback engine, chain walker, ghost map presence, watch mode): continue calling `ComputeSessionSuppressedSubtree(marker)` -- delegates to the internal helper with the slot's immutable origin. **No behavioural change.**
@@ -880,7 +885,7 @@ In-game tests:
 
 ## 12. Recommendation
 
-R14 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
+R15 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
 
 - **Prerequisite v0.9 marker-write change + closure-helper split**: `RewindInvoker.AtomicMarkerWrite` (NOT `BuildProvisionalRecording`) computes `priorTip = selected.EffectiveRecordingId(supersedes)` once before the in-place vs fresh-provisional branch; stamps `marker.OriginChildRecordingId` (slot origin, unchanged contract) and `marker.SupersedeTargetId` (NEW, prior tip) in the shared marker-creation block; the `provisional.SupersedeTargetId = priorTip` overwrite is guarded with `if (provisional != null)` (the in-place branch sets provisional null). Existing `ComputeSessionSuppressedSubtree(marker)` is refactored: body extracts into `ComputeSubtreeClosureInternal(marker, rootOverride)` (preserves all marker-context gates: InvokedUT for PID-peer, mixed-parent halt, chain-sibling expansion); the existing wrapper delegates with `marker.OriginChildRecordingId`. `SupersedeCommit.AppendRelations` calls the internal helper with `marker.SupersedeTargetId ?? marker.OriginChildRecordingId`. Runtime ghost suppression is unchanged. See §9.2.1.
 - **Three new persistent fields**: `ChildSlot.Sealed` (+ diagnostic `SealedRealTime`); `RewindPoint.FocusSlotIndex` (int, -1 default); `ReFlySessionMarker.SupersedeTargetId` (string, null default). All back-compat.
@@ -897,4 +902,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R14.*
+*End of research note R15.*
