@@ -282,6 +282,19 @@ The pre-implementation spec that drove v0.9 is archived at
 
 ---
 
+## Phase 12.5: Unfinished Flights stable-leaf extension (planned, v0.10)
+
+Broadens the v0.9 Unfinished Flights group beyond Crashed-only siblings to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved. Full design: [`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md). Pre-implementation research note (R17) at [`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
+
+- **Broader UF predicate** — `IsUnfinishedFlight` extends to non-focus stable-terminal leaves (Orbiting/SubOrbital) and stranded EVA kerbals, while keeping focus-continuation upper stages and successful auto-recovered boosters out of the list.
+- **Per-row Seal action** — new in-table affordance closes a slot permanently without touching the underlying recording. Gives the player a cleanup escape hatch for over-included rows; the recording continues to play back as a ghost.
+- **Three new persistent fields** — `ChildSlot.Sealed` (close signal), `RewindPoint.FocusSlotIndex` (focus attribution at split time, gates stable-terminal qualification), `ReFlySessionMarker.SupersedeTargetId` (linear supersede chain root for chain extension).
+- **Helper extraction** — `TryResolveRewindPointForRecording` and friends move from `UI/RecordingsTableUI.cs` into a new `UnfinishedFlightClassifier` so non-UI consumers (`RecordingStore`, `SupersedeCommit`) can call them without a layering inversion.
+- **Forward-only migration for vessels, retroactive for stranded EVAs** — pre-upgrade Orbiting siblings stay Immutable (no focus signal on legacy RPs); pre-upgrade stranded EVA kerbals do retroactively appear (intentional carve-out).
+- **Prerequisite v0.9 invocation linearization PR** — separate PR fixes a v0.9 chain-extension bug where re-fly invocation produces a star-shaped supersede graph that resolves incorrectly under multiple re-flies. Lands first; this feature builds on the linear-graph behavior it establishes.
+
+---
+
 ## Phase 13: Looped Transport Logistics
 
 Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
