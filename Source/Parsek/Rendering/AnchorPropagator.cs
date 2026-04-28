@@ -84,12 +84,33 @@ namespace Parsek.Rendering
         /// </summary>
         internal static System.Func<string, CelestialBody> BodyResolverForTesting;
 
+        /// <summary>
+        /// Test seam: when set, replaces
+        /// <see cref="SessionSuppressionState.IsSuppressed"/>. xUnit can't
+        /// stand up <see cref="ParsekScenario.Instance"/> + the
+        /// <see cref="EffectiveState"/> closure cache that the suppression
+        /// helper relies on. The seam takes a recordingId and returns
+        /// <see langword="true"/> when that id should be treated as
+        /// suppressed by the active session. Production code reads
+        /// <c>null</c> here and routes through
+        /// <see cref="SessionSuppressionState"/>.
+        /// </summary>
+        internal static System.Func<string, bool> SuppressionPredicateForTesting;
+
         /// <summary>Test-only: clears injected seams.</summary>
         internal static void ResetForTesting()
         {
             ResolverOverrideForTesting = null;
             SmoothedPositionForTesting = null;
             BodyResolverForTesting = null;
+            SuppressionPredicateForTesting = null;
+        }
+
+        private static bool IsSuppressed(string recordingId)
+        {
+            var seam = SuppressionPredicateForTesting;
+            if (seam != null) return seam(recordingId);
+            return SessionSuppressionState.IsSuppressed(recordingId);
         }
         /// <summary>
         /// Pure §9.1 propagation rule. Translates an upstream ε to a
@@ -225,7 +246,7 @@ namespace Parsek.Rendering
                     Recording r = recordings[i];
                     if (r == null) continue;
                     if (r.TrackSections == null) continue;
-                    if (SessionSuppressionState.IsSuppressed(r.RecordingId))
+                    if (IsSuppressed(r.RecordingId))
                     {
                         // Suppressed-predecessor symmetry: a suppressed
                         // recording cannot seed candidates either.
@@ -315,16 +336,59 @@ namespace Parsek.Rendering
                     }
                 }
             }
-            // Chain edges (PID continuity across recordings).
+            // Chain edges (PID continuity across recordings). Reviewer
+            // P1-2: chain continuity is encoded by Recording.ChainId +
+            // Recording.ChainIndex, NOT Recording.ParentRecordingId
+            // (which is EVA child linkage — already covered by the
+            // BranchPointType.EVA loop above). Group recordings by
+            // ChainId, sort by ChainIndex, emit edges between consecutive
+            // members at the boundary UT (parent.EndUT == child.StartUT).
             if (recordings != null)
             {
+                var chainGroups = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     Recording r = recordings[i];
                     if (r == null) continue;
-                    if (string.IsNullOrEmpty(r.ParentRecordingId)) continue;
-                    edges.Add(new Edge(r.ParentRecordingId, r.RecordingId,
-                        r.StartUT, BranchPointType.Terminal /* sentinel */, isChain: true));
+                    if (string.IsNullOrEmpty(r.ChainId)) continue;
+                    if (r.ChainIndex < 0) continue;
+                    if (!chainGroups.TryGetValue(r.ChainId, out var list))
+                    {
+                        list = new List<Recording>();
+                        chainGroups[r.ChainId] = list;
+                    }
+                    list.Add(r);
+                }
+                const double chainBoundaryToleranceSeconds = 1e-3;
+                foreach (var kvp in chainGroups)
+                {
+                    List<Recording> members = kvp.Value;
+                    if (members.Count < 2) continue;
+                    members.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+                    for (int i = 0; i < members.Count - 1; i++)
+                    {
+                        Recording parent = members[i];
+                        Recording child = members[i + 1];
+                        // Verify boundary continuity within tolerance.
+                        // Recordings whose endUT/startUT do not abut are
+                        // either misordered or have a gap — skip emit
+                        // and surface a Verbose so a real chain corruption
+                        // doesn't silently propagate stale ε.
+                        double parentEnd = parent.EndUT;
+                        double childStart = child.StartUT;
+                        if (System.Math.Abs(parentEnd - childStart) > chainBoundaryToleranceSeconds)
+                        {
+                            ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                                "chain-edge-boundary-mismatch: chainId={0} parent={1} parentEndUT={2} child={3} childStartUT={4}",
+                                kvp.Key, parent.RecordingId,
+                                parentEnd.ToString("R", CultureInfo.InvariantCulture),
+                                child.RecordingId,
+                                childStart.ToString("R", CultureInfo.InvariantCulture)));
+                            continue;
+                        }
+                        edges.Add(new Edge(parent.RecordingId, child.RecordingId,
+                            childStart, BranchPointType.Terminal /* sentinel — chain edges */, isChain: true));
+                    }
                 }
             }
 
@@ -346,15 +410,15 @@ namespace Parsek.Rendering
                     continue;
                 }
 
-                if (SessionSuppressionState.IsSuppressed(edge.ChildId)
-                    || SessionSuppressionState.IsSuppressed(edge.ParentId))
+                bool childSuppressed = IsSuppressed(edge.ChildId);
+                bool parentSuppressed = IsSuppressed(edge.ParentId);
+                if (childSuppressed || parentSuppressed)
                 {
                     suppressedSkipped++;
                     ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
                         "suppressed-predecessor: parent={0} child={1} reason={2}",
                         edge.ParentId, edge.ChildId,
-                        SessionSuppressionState.IsSuppressed(edge.ChildId)
-                            ? "suppressed-child" : "suppressed-parent"));
+                        childSuppressed ? "suppressed-child" : "suppressed-parent"));
                     continue;
                 }
 
@@ -376,18 +440,76 @@ namespace Parsek.Rendering
                 else if (RenderSessionState.TryLookup(edge.ParentId, parentSectionIdx, AnchorSide.Start, out AnchorCorrection acStart))
                     epsilonUpstream = acStart.Epsilon;
 
-                // Phase 6: Vector3d.zero for the recorded/smoothed offsets
-                // at the event UT. The §9.1 rule reduces to ε' = ε in this
-                // configuration — sufficient for chain continuity (PID
-                // continuity → recordedOffset = 0 by construction) and for
-                // Dock/Board/Split where the recorder's sample-time
-                // alignment is the design-doc invariant. A surface-lookup
-                // capable resolver would compute the recorded vs smoothed
-                // delta and feed it through Propagate(); see the propagator
-                // class README for the §7.4 / §7.5 follow-up.
-                Vector3d epsilonChild = Propagate(epsilonUpstream, Vector3d.zero, Vector3d.zero);
+                // §9.1 propagation rule. For non-chain edges we evaluate
+                // (recordedOffset_at_event - smoothedOffset_at_event) and
+                // feed it through Propagate(). For chain edges (PID
+                // continuity across recordings) the recorded offset is
+                // zero by construction — the same vessel writes both
+                // sides — so we keep ε' = ε without invoking the
+                // per-side evaluator.
+                Vector3d recordedOffset = Vector3d.zero;
+                Vector3d smoothedOffset = Vector3d.zero;
+                bool nineOneApplied = false;
+                string nineOneFallbackReason = null;
+                if (!edge.IsChain)
+                {
+                    bool parentOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                        rParent, parentSectionIdx, edge.UT, surfaceLookup,
+                        out Vector3d parentRecorded, out Vector3d parentSmoothed,
+                        out bool parentSplineHit, out string parentReason);
+                    bool childOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                        rChild, childSectionIdx, edge.UT, surfaceLookup,
+                        out Vector3d childRecorded, out Vector3d childSmoothed,
+                        out bool childSplineHit, out string childReason);
+                    if (parentOk && childOk)
+                    {
+                        recordedOffset = childRecorded - parentRecorded;
+                        smoothedOffset = childSmoothed - parentSmoothed;
+                        nineOneApplied = true;
 
-                AnchorSide side = edge.IsChain ? AnchorSide.Start : AnchorSide.Start;
+                        // HR-9: surface a "no-spline-skip" Verbose when
+                        // either side fell through to recorded == smoothed.
+                        // The propagation formula still runs (the offset
+                        // delta is just zero on that side) but the
+                        // operator needs to see that the §9.1 correction
+                        // term is degraded.
+                        if (!parentSplineHit || !childSplineHit)
+                        {
+                            ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                                "no-spline-skip: parent={0} parentSection={1} parentSplineHit={2} child={3} childSection={4} childSplineHit={5} bpUT={6}",
+                                edge.ParentId, parentSectionIdx, parentSplineHit ? "true" : "false",
+                                edge.ChildId, childSectionIdx, childSplineHit ? "true" : "false",
+                                edge.UT.ToString("R", CultureInfo.InvariantCulture)));
+                        }
+                    }
+                    else
+                    {
+                        // Either side lacks an Absolute section, or no
+                        // recorded sample at bp.UT, or body resolve failed.
+                        // Identity-propagate (ε' = ε) and surface the
+                        // failure reason once per edge.
+                        nineOneFallbackReason = !parentOk ? parentReason : childReason;
+                        string failTag = !parentOk ? "no-sample-skip" : "no-sample-skip";
+                        // section-not-absolute / no-sample / body-resolve-failed
+                        // each get their own diagnostic suffix so log readers
+                        // can distinguish them without parsing the reason field.
+                        if (string.Equals(nineOneFallbackReason, "section-not-absolute", StringComparison.Ordinal))
+                            failTag = "section-not-absolute-skip";
+                        else if (string.Equals(nineOneFallbackReason, "no-sample", StringComparison.Ordinal))
+                            failTag = "no-sample-skip";
+                        else
+                            failTag = "no-spline-skip"; // catch-all for body-resolve / out-of-range
+                        ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                            "{0}: parent={1} parentSection={2} parentReason={3} child={4} childSection={5} childReason={6} bpUT={7}",
+                            failTag, edge.ParentId, parentSectionIdx, parentReason ?? "<ok>",
+                            edge.ChildId, childSectionIdx, childReason ?? "<ok>",
+                            edge.UT.ToString("R", CultureInfo.InvariantCulture)));
+                    }
+                }
+
+                Vector3d epsilonChild = Propagate(epsilonUpstream, recordedOffset, smoothedOffset);
+
+                AnchorSide side = AnchorSide.Start;
                 var acChild = new AnchorCorrection(
                     recordingId: edge.ChildId,
                     sectionIndex: childSectionIdx,
@@ -400,10 +522,11 @@ namespace Parsek.Rendering
                 {
                     edgesPropagated++;
                     ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                        "Edge propagated: {0}->{1} bpType={2} bpUT={3} chainEdge={4} epsilonDeltaM={5}",
+                        "Edge propagated: {0}->{1} bpType={2} bpUT={3} chainEdge={4} nineOneApplied={5} epsilonDeltaM={6}",
                         edge.ParentId, edge.ChildId, edge.IsChain ? "chain" : edge.BranchType.ToString(),
                         edge.UT.ToString("R", CultureInfo.InvariantCulture),
                         edge.IsChain ? "true" : "false",
+                        nineOneApplied ? "true" : "false",
                         (epsilonChild - epsilonUpstream).magnitude.ToString("F3", CultureInfo.InvariantCulture)));
                 }
                 else

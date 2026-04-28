@@ -71,10 +71,18 @@ namespace Parsek.Rendering
         /// <summary>
         /// Phase 6: stores or overwrites the candidate array for a
         /// (recordingId, sectionIndex) pair. Caller passes a frozen array;
-        /// silent overwrite mirrors <see cref="PutSmoothingSpline"/>. A null
-        /// or empty array is recorded as an explicit "section was scanned,
-        /// no candidates emitted" marker so downstream consumers can
-        /// distinguish "missing candidate set" from "scanned and empty".
+        /// silent overwrite mirrors <see cref="PutSmoothingSpline"/>.
+        ///
+        /// <para>
+        /// Empty / null arrays are stored verbatim in-memory but are
+        /// equivalent to "absent" on round-trip: the
+        /// <see cref="SmoothingPipeline"/> writer drops sections whose
+        /// candidate array is empty before persisting to <c>.pann</c>, and
+        /// the persisted block only contains sections the writer included.
+        /// Consumers that need a "scanned but empty" distinction (e.g.
+        /// "this section was inspected and produced zero candidates") must
+        /// hold that state outside this store.
+        /// </para>
         /// </summary>
         internal static void PutAnchorCandidates(
             string recordingId, int sectionIndex, AnchorCandidate[] candidates)

@@ -248,6 +248,7 @@ namespace Parsek.Tests.Rendering
         {
             var rec = MakeRecording("rec-loop",
                 MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
+            rec.LoopPlayback = true;
             rec.LoopIntervalSeconds = 60.0;
             rec.LoopAnchorVesselId = 1234u;
 
@@ -255,6 +256,135 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr));
             Assert.Contains(arr, c => c.Source == AnchorSource.Loop && c.Side == AnchorSide.Start);
+        }
+
+        [Fact]
+        public void EmitsPerCandidateVerbose_AtCommitTime()
+        {
+            // Reviewer P2-4: design doc §19.2 Stage 3 row 1 calls for a
+            // per-candidate Verbose at commit time, not just a summary.
+            // A buggy implementation that drops the per-candidate line
+            // would let log-grep tests miss anchor activity.
+            var capturedLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
+            try
+            {
+                var rec = MakeRecording("rec-per-cand-verbose",
+                    MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.SurfaceMobile, 0, 100));
+                AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+                // SurfaceMobile section emits a SurfaceContinuous candidate.
+                // The per-candidate Verbose should fire once.
+                Assert.Contains(capturedLines,
+                    l => l.Contains("[VERBOSE][Pipeline-Anchor]")
+                        && l.Contains("Anchor candidate computed")
+                        && l.Contains("recordingId=rec-per-cand-verbose")
+                        && l.Contains("candidateType=SurfaceContinuous"));
+                // Summary line should also fire.
+                Assert.Contains(capturedLines,
+                    l => l.Contains("[VERBOSE][Pipeline-Anchor]")
+                        && l.Contains("AnchorCandidateBuilder summary"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
+        public void EmitsPerCandidateVerbose_IncludesBpType_ForDockOrMergeCandidates()
+        {
+            // Reviewer P2-1: the DockOrMerge byte is shared by §7.2 (Dock /
+            // Board) and §7.3 (Undock / EVA / JointBreak). The per-candidate
+            // Verbose must surface the originating BranchPointType so log
+            // readers can distinguish the cases without bumping the
+            // AnchorSource enum.
+            var capturedLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
+            try
+            {
+                const double bpUT = 30.0;
+                var parent = MakeRecording("rec-bp-type-p",
+                    MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
+                var child = MakeRecording("rec-bp-type-c",
+                    MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 30, 200));
+
+                var tree = new RecordingTree { Id = "t-bp-type" };
+                tree.Recordings[parent.RecordingId] = parent;
+                tree.Recordings[child.RecordingId] = child;
+                tree.BranchPoints.Add(new BranchPoint
+                {
+                    Id = "eva-bp",
+                    UT = bpUT,
+                    Type = BranchPointType.EVA,
+                    ParentRecordingIds = new List<string> { parent.RecordingId },
+                    ChildRecordingIds = new List<string> { child.RecordingId },
+                });
+
+                AnchorCandidateBuilder.BuildAndStorePerSection(parent, tree);
+
+                // Per-candidate Verbose for the parent's End-side candidate
+                // must include bpType=EVA so the log distinguishes EVA from
+                // Dock/Board within the shared DockOrMerge byte.
+                Assert.Contains(capturedLines,
+                    l => l.Contains("[VERBOSE][Pipeline-Anchor]")
+                        && l.Contains("Anchor candidate computed")
+                        && l.Contains("recordingId=rec-bp-type-p")
+                        && l.Contains("candidateType=DockOrMerge")
+                        && l.Contains("bpType=EVA"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
+        public void NoLoopMarker_WhenLoopPlaybackDisabled_EvenWithIntervalAndAnchor()
+        {
+            // Reviewer P2-2: the LoopIntervalSeconds field initializes to
+            // LoopTiming.UntouchedLoopIntervalSentinel (10.0) and
+            // LoopPlayback is the explicit user-intent flag. A recording
+            // with LoopPlayback=false must NOT emit a Loop candidate even
+            // when the other two fields look "configured". Without this
+            // gate a fresh recording auto-assigned a stage anchor would
+            // produce phantom Loop ε every time it loaded.
+            var rec = MakeRecording("rec-loop-disabled",
+                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
+            rec.LoopPlayback = false;
+            rec.LoopIntervalSeconds = 60.0; // user-edited away from the sentinel
+            rec.LoopAnchorVesselId = 1234u;
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr))
+                Assert.DoesNotContain(arr, c => c.Source == AnchorSource.Loop);
+        }
+
+        [Fact]
+        public void NoLoopMarker_WhenLoopIntervalIsAtSentinel()
+        {
+            // Reviewer P2-2: even with LoopPlayback=true, the sentinel
+            // value (10.0) is the "never customized" marker. Emitting
+            // a Loop candidate at the sentinel default would feed Phase
+            // 6 a non-meaningful loop anchor every load.
+            var rec = MakeRecording("rec-loop-sentinel",
+                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
+            rec.LoopPlayback = true;
+            // Leave LoopIntervalSeconds at its field-initializer default
+            // (UntouchedLoopIntervalSentinel = 10.0).
+            rec.LoopAnchorVesselId = 1234u;
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr))
+                Assert.DoesNotContain(arr, c => c.Source == AnchorSource.Loop);
         }
 
         [Fact]
@@ -290,6 +420,7 @@ namespace Parsek.Tests.Rendering
             // section. We override one section to be SurfaceMobile so both
             // emitters fire.
             rec.TrackSections[0] = MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.SurfaceMobile, 0, 100);
+            rec.LoopPlayback = true;
             rec.LoopIntervalSeconds = 60.0;
             rec.LoopAnchorVesselId = 1u;
 

@@ -923,6 +923,118 @@ namespace Parsek.Rendering
             return result;
         }
 
+        /// <summary>
+        /// Phase 6 §9.1 helper. Evaluates both <c>recorded_world(ut)</c>
+        /// (the raw boundary sample's world-frame position) and
+        /// <c>smoothed_world(ut)</c> (the spline + frame-tag dispatch
+        /// output) for a given <c>(recordingId, sectionIndex, ut)</c>.
+        /// Used by both the Phase 2 LiveSeparation path (inline) and the
+        /// Phase 6 <see cref="AnchorPropagator"/> §9.1 propagation rule
+        /// to compute <c>recordedOffset_at_event</c> and
+        /// <c>smoothedOffset_at_event</c> on each side of a propagated edge.
+        ///
+        /// <para>
+        /// Returns <see langword="false"/> when:
+        /// <list type="bullet">
+        ///   <item>The section is not <see cref="ReferenceFrame.Absolute"/>
+        ///   — RELATIVE / OrbitalCheckpoint sections need a frame-aware
+        ///   resolver that does not compose with <paramref name="surfaceLookup"/>'s
+        ///   body-fixed semantics.</item>
+        ///   <item>No recorded sample exists at or after <paramref name="ut"/>.</item>
+        ///   <item>The recorded sample's body cannot be resolved via
+        ///   <paramref name="surfaceLookup"/> (production: the test
+        ///   override is null and KSP can't find the body; xUnit:
+        ///   the seam threw).</item>
+        /// </list>
+        /// On success, <paramref name="recordedWorld"/> is the raw boundary
+        /// sample's world position; <paramref name="smoothedWorld"/> is
+        /// either the spline-evaluated world position (when a Phase 1
+        /// spline is cached for the section) OR a copy of
+        /// <paramref name="recordedWorld"/> with <paramref name="splineHit"/>
+        /// = <see langword="false"/> (the §9.1 caller treats that as
+        /// "smoothed component is the raw sample" — the offset delta is
+        /// then zero and propagation degrades to identity).
+        /// </para>
+        ///
+        /// <para>
+        /// Inertial-longitude splines (FrameTag != 0) require a
+        /// CelestialBody handle to lower the inertial position back to
+        /// world-frame. When <paramref name="surfaceLookup"/> is the only
+        /// available body resolver (xUnit), the helper conservatively
+        /// returns <paramref name="splineHit"/> = false and uses the raw
+        /// sample. Production code resolves the body via FlightGlobals
+        /// and uses <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>
+        /// instead — see <see cref="AnchorPropagator.TryEvaluateSmoothedWorldPosWithBodyDispatch"/>.
+        /// </para>
+        /// </summary>
+        internal static bool TryEvaluatePerSegmentWorldPositions(
+            Recording rec,
+            int sectionIndex,
+            double ut,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            out Vector3d recordedWorld,
+            out Vector3d smoothedWorld,
+            out bool splineHit,
+            out string failureReason)
+        {
+            recordedWorld = default;
+            smoothedWorld = default;
+            splineHit = false;
+            failureReason = null;
+
+            if (rec == null)
+            {
+                failureReason = "rec-null";
+                return false;
+            }
+            if (rec.TrackSections == null || sectionIndex < 0
+                || sectionIndex >= rec.TrackSections.Count)
+            {
+                failureReason = "section-out-of-range";
+                return false;
+            }
+            TrackSection section = rec.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.Absolute)
+            {
+                failureReason = "section-not-absolute";
+                return false;
+            }
+            if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out TrajectoryPoint sample))
+            {
+                failureReason = "no-sample";
+                return false;
+            }
+            if (!TryLookupSurfacePosition(
+                    surfaceLookup, sample.bodyName,
+                    sample.latitude, sample.longitude, sample.altitude,
+                    out recordedWorld))
+            {
+                failureReason = "body-resolve-failed";
+                return false;
+            }
+
+            // Spline branch — falls through to "smoothed = recorded" when the
+            // section has no spline cached or its FrameTag isn't body-fixed
+            // (the body-fixed-only fallback path; production callers should
+            // use the body-aware helper on AnchorPropagator for inertial
+            // splines).
+            smoothedWorld = recordedWorld;
+            if (SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
+                && spline.IsValid && spline.FrameTag == 0)
+            {
+                Vector3d posLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
+                if (TryLookupSurfacePosition(
+                        surfaceLookup, sample.bodyName,
+                        posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
+                        out Vector3d smoothed))
+                {
+                    smoothedWorld = smoothed;
+                    splineHit = true;
+                }
+            }
+            return true;
+        }
+
         // -------------------------------------------------------------------
         //  helpers
         // -------------------------------------------------------------------

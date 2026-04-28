@@ -868,7 +868,7 @@ Without this per-trace key, a peer whose `.prec` was rewritten — by `Supersede
 Properties:
 
 - The file is regenerable. A reader encountering a non-matching `AlgorithmStampVersion`, `ConfigurationHash`, or `SourceSidecarEpoch` discards the entire `.pann` and triggers lazy recompute (HR-10). Per-trace mismatches in the co-bubble block discard only the affected trace, not the whole file — splines and outlier flags depend only on the source recording and remain valid.
-- Both probe and load go through a `PannotationsSidecarProbe` struct in the same shape as `TrajectorySidecarProbe`. Missing file surfaces as `Success = false, FailureReason = "file missing"` → expected, not an error. The orchestrator's whole-file invalidation reason for this case is `file-missing` (one of the canonical six tokens, see §19.2 Stage 1 row 2 and the Pipeline-Sidecar table).
+- Both probe and load go through a `PannotationsSidecarProbe` struct in the same shape as `TrajectorySidecarProbe`. Missing file surfaces as `Success = false, FailureReason = "file missing"` → expected, not an error. The orchestrator's whole-file invalidation reason for this case is `file-missing`, one of the canonical drift tokens listed in §19.2 Stage 1 row 2 and the Pipeline-Sidecar table: `file-missing`, `probe-failed`, `version-drift`, `alg-stamp-drift`, `epoch-drift`, `format-drift`, `recording-id-mismatch`, `config-hash-drift`, `payload-corrupt`. (The set has grown over time as new cache-key fields land — `recording-id-mismatch` was added when `.pann` files copied between recordings under the same filename had to be rejected.)
 - Atomic writes via `FileIOUtils.SafeWriteBytes` — same pattern as `TrajectorySidecarBinary.Write` (`Source/Parsek/TrajectorySidecarBinary.cs:163`).
 - Storage class per Section 24:
   - `SmoothingSplineList`, `OutlierFlagsList`, `AnchorCandidatesList` — annotation (deterministic from raw + algorithm-stamp version).
@@ -1226,7 +1226,7 @@ For each stage, the table below lists the events that must produce a log line, t
 |----------------------------------------------|---------|----------------------|--------------------------------------------------------------------|
 | New node read OK                             | Verbose | `Pipeline-Sidecar`   | `recordingId`, nodeName, version, byteCount                        |
 | Node missing → lazy compute scheduled        | Info    | `Pipeline-Sidecar`   | `recordingId`, nodeName, reason                                    |
-| Whole-file invalidation → discard + recompute| Info    | `Pipeline-Sidecar`   | `recordingId`, reason (PannotationsBinaryVersion / AlgorithmStampVersion / SourceSidecarEpoch / SourceRecordingFormatVersion / ConfigurationHash), found vs expected |
+| Whole-file invalidation → discard + recompute| Info    | `Pipeline-Sidecar`   | `recordingId`, reason ∈ {`version-drift`, `alg-stamp-drift`, `epoch-drift`, `format-drift`, `recording-id-mismatch`, `config-hash-drift`, `payload-corrupt`, `file-missing`, `probe-failed`}, found vs expected |
 | Per-trace co-bubble invalidation             | Info    | `Pipeline-CoBubble`  | `recordingId`, peerRecordingId, reason (peer-missing / peer-epoch-changed / peer-format-changed / peer-content-mismatch) |
 | Atomic write success                         | Verbose | `Pipeline-Sidecar`   | `recordingId`, nodeName, byteCount                                 |
 | Atomic write failure (HR-12)                 | Warn    | `Pipeline-Sidecar`   | `recordingId`, nodeName, IO error                                  |

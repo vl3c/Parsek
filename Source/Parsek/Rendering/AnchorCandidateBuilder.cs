@@ -39,15 +39,11 @@ namespace Parsek.Rendering
         private static readonly object s_flagOffLogLock = new object();
         private static bool s_flagOffLogged;
 
-        /// <summary>
-        /// Resolve commit-time/load-time tree access for a recording. Phase 6
-        /// only needs the BranchPoint list to emit Dock/Merge / Split /
-        /// candidates that depend on inter-recording structural events.
-        /// Production code resolves trees from
-        /// <see cref="RecordingStore.CommittedTrees"/>; tests inject a
-        /// closure.
-        /// </summary>
-        internal static Func<string, RecordingTree> TreeLookupOverrideForTesting;
+        // Reviewer Nit removed: TreeLookupOverrideForTesting was an
+        // unused public surface left over from an earlier sketch.
+        // BuildAndStorePerSection takes the RecordingTree explicitly,
+        // so xUnit injects the tree at the call site rather than via a
+        // static seam.
 
         /// <summary>
         /// Pure helper: scans <paramref name="rec"/>'s sections + branch
@@ -129,7 +125,25 @@ namespace Parsek.Rendering
 
             int totalCandidates = 0;
             int dockCount = 0, splitCount = 0, relCount = 0, orbitCount = 0,
-                soiCount = 0, surfaceCount = 0, loopCount = 0;
+                soiCount = 0, surfaceCount = 0, loopCount = 0, otherCount = 0;
+
+            // Reviewer P2-1: BranchPointType differentiation for the
+            // DockOrMerge byte-aliased split sources (Undock / EVA /
+            // JointBreak). Build an optional UT -> bpType lookup so the
+            // per-candidate log can carry the originating bp type even
+            // though the AnchorSource byte is shared. Bounded by the
+            // BranchPoint count (small handfuls per recording).
+            Dictionary<double, BranchPointType> bpTypeByUT = null;
+            if (tree != null && tree.BranchPoints != null)
+            {
+                bpTypeByUT = new Dictionary<double, BranchPointType>(tree.BranchPoints.Count);
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    if (bp == null) continue;
+                    bpTypeByUT[bp.UT] = bp.Type;
+                }
+            }
 
             for (int i = 0; i < perSection.Count; i++)
             {
@@ -139,32 +153,64 @@ namespace Parsek.Rendering
                 totalCandidates += arr.Length;
                 for (int k = 0; k < arr.Length; k++)
                 {
-                    switch (arr[k].Source)
+                    AnchorCandidate cand = arr[k];
+                    // Reviewer P2-4: per-candidate Verbose at commit time
+                    // (design doc §19.2 Stage 3 row 1). Bounded by the per-
+                    // recording candidate count (a few per section, a few
+                    // sections per recording — well under the ~20 batch-log
+                    // ceiling). Includes the originating BranchPointType
+                    // so DockOrMerge byte aliasing of split causes (P2-1)
+                    // surfaces in telemetry without bumping AnchorSource.
+                    string bpTypeLabel = "<n/a>";
+                    if (bpTypeByUT != null && bpTypeByUT.TryGetValue(cand.UT, out BranchPointType bpType))
+                        bpTypeLabel = bpType.ToString();
+                    ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                        "Anchor candidate computed: recordingId={0} sectionIndex={1} candidateUT={2} candidateType={3} side={4} bpType={5}",
+                        recordingId, sectionIdx,
+                        cand.UT.ToString("R", CultureInfo.InvariantCulture),
+                        cand.Source, cand.Side, bpTypeLabel));
+                    switch (cand.Source)
                     {
-                        case AnchorSource.DockOrMerge:       dockCount++;    break;
+                        case AnchorSource.DockOrMerge:
+                            // P2-1: count Dock/Board separately from
+                            // Undock/EVA/JointBreak via the bp type lookup.
+                            // When the candidate has no matching BranchPoint
+                            // (shouldn't happen for DockOrMerge byte; defensive)
+                            // we count it under "split" so totals balance.
+                            if (bpTypeByUT != null && bpTypeByUT.TryGetValue(cand.UT, out BranchPointType resolvedBp)
+                                && (resolvedBp == BranchPointType.Dock || resolvedBp == BranchPointType.Board))
+                            {
+                                dockCount++;
+                            }
+                            else
+                            {
+                                splitCount++;
+                            }
+                            break;
                         case AnchorSource.RelativeBoundary:  relCount++;     break;
                         case AnchorSource.OrbitalCheckpoint: orbitCount++;   break;
                         case AnchorSource.SoiTransition:     soiCount++;     break;
                         case AnchorSource.SurfaceContinuous: surfaceCount++; break;
                         case AnchorSource.Loop:              loopCount++;    break;
-                        // Split causes share the DockOrMerge byte today (see
-                        // class docstring on AnchorPropagator); split-derived
-                        // candidates are emitted with that source. We track a
-                        // separate split counter only when the helper sets it
-                        // explicitly via the bookkeeping struct below.
+                        default:
+                            // Reviewer Nit: real per-source counter rather
+                            // than total-minus-everything-else subtraction
+                            // so a future enum value silently rolls into
+                            // "other" instead of being misattributed.
+                            otherCount++;
+                            break;
                     }
                 }
             }
-            splitCount = totalCandidates - (dockCount + relCount + orbitCount + soiCount + surfaceCount + loopCount);
 
             ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
                 "AnchorCandidateBuilder summary: recordingId={0} sections={1} candidatesEmittedTotal={2} " +
-                "perSourceCounts=[Dock/Split/Merge={3} RelativeBoundary={4} OrbitalCheckpoint={5} " +
-                "SoiTransition={6} SurfaceContinuous={7} Loop={8}]",
+                "perSourceCounts=[Dock/Merge={3} Split(EVA/Undock/JointBreak)={4} RelativeBoundary={5} OrbitalCheckpoint={6} " +
+                "SoiTransition={7} SurfaceContinuous={8} Loop={9} other={10}]",
                 recordingId,
                 rec.TrackSections != null ? rec.TrackSections.Count : 0,
                 totalCandidates,
-                dockCount + splitCount, relCount, orbitCount, soiCount, surfaceCount, loopCount));
+                dockCount, splitCount, relCount, orbitCount, soiCount, surfaceCount, loopCount, otherCount));
         }
 
         /// <summary>
@@ -194,7 +240,6 @@ namespace Parsek.Rendering
         internal static void ResetForTesting()
         {
             UseAnchorTaxonomyOverrideForTesting = null;
-            TreeLookupOverrideForTesting = null;
             lock (s_flagOffLogLock) { s_flagOffLogged = false; }
         }
 
@@ -394,12 +439,18 @@ namespace Parsek.Rendering
         }
 
         // §7.10 Loop marker — emit when the recording has a loop interval +
-        // anchor vessel id configured.
+        // anchor vessel id configured. Reviewer P2-2: the "never configured"
+        // sentinel is LoopTiming.UntouchedLoopIntervalSentinel (10.0),
+        // not 0 — a fresh Recording has LoopIntervalSeconds == 10.0 by
+        // field-initializer and `LoopPlayback == false`. Gate on
+        // LoopPlayback (real user intent) so the sentinel default does not
+        // emit a phantom Loop candidate.
         private static void EmitLoopMarkers(
             Recording rec, Dictionary<int, List<AnchorCandidate>> output)
         {
-            if (rec.LoopIntervalSeconds <= 0.0) return;
+            if (!rec.LoopPlayback) return;
             if (rec.LoopAnchorVesselId == 0u) return;
+            if (rec.LoopIntervalSeconds <= LoopTiming.UntouchedLoopIntervalSentinel) return;
             if (rec.TrackSections == null || rec.TrackSections.Count == 0) return;
             // Apply to the first eligible section only. "Eligible" here is
             // a forward-compatible "first non-empty section" — the loop
