@@ -868,7 +868,7 @@ Without this per-trace key, a peer whose `.prec` was rewritten — by `Supersede
 Properties:
 
 - The file is regenerable. A reader encountering a non-matching `AlgorithmStampVersion`, `ConfigurationHash`, or `SourceSidecarEpoch` discards the entire `.pann` and triggers lazy recompute (HR-10). Per-trace mismatches in the co-bubble block discard only the affected trace, not the whole file — splines and outlier flags depend only on the source recording and remain valid.
-- Both probe and load go through a `PannotationsSidecarProbe` struct in the same shape as `TrajectorySidecarProbe`. Missing file is `Success = false, FailureReason = "annotation-absent"` → expected, not an error.
+- Both probe and load go through a `PannotationsSidecarProbe` struct in the same shape as `TrajectorySidecarProbe`. Missing file surfaces as `Success = false, FailureReason = "file missing"` → expected, not an error. The orchestrator's whole-file invalidation reason for this case is `file-missing` (one of the canonical six tokens, see §19.2 Stage 1 row 2 and the Pipeline-Sidecar table).
 - Atomic writes via `FileIOUtils.SafeWriteBytes` — same pattern as `TrajectorySidecarBinary.Write` (`Source/Parsek/TrajectorySidecarBinary.cs:163`).
 - Storage class per Section 24:
   - `SmoothingSplineList`, `OutlierFlagsList`, `AnchorCandidatesList` — annotation (deterministic from raw + algorithm-stamp version).
@@ -1145,7 +1145,7 @@ For each stage, the table below lists the events that must produce a log line, t
 | Event                                        | Level   | Tag                   | Data to include                                                           |
 |----------------------------------------------|---------|-----------------------|---------------------------------------------------------------------------|
 | Spline fit at commit                         | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, env, sampleCount, knotCount, fit duration ms |
-| Spline fit lazy (annotation absent on load)  | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason="annotation-absent"                   |
+| Spline fit lazy (annotation absent / drift on load)  | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason ∈ {`file-missing`, `version-drift`, `epoch-drift`, `format-drift`, `config-hash-drift`, `alg-stamp-drift`} |
 | Fallback to legacy bracket (fit failure)     | Warn    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason, sampleCount                          |
 | Spline evaluation per frame (rate-limited)   | Verbose | `Pipeline-Smoothing`  | `VerboseRateLimited` shared key, count summary                            |
 | Settings flag flip (`useSmoothingSplines`)   | Info    | `Pipeline-Smoothing`  | old → new                                                                  |
