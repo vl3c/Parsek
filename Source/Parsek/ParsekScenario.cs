@@ -4197,7 +4197,7 @@ namespace Parsek
                 // case in particular must not re-snapshot, because the new
                 // active vessel may have already started physics-loading
                 // and a fresh snapshot would capture mid-load state.
-                ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true);
+                ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true, treeContext: tree);
                 if (wasTerminal)
                     alreadyTerminal++;
                 else if (rec.TerminalStateValue.HasValue)

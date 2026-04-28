@@ -11,6 +11,224 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
+
+**Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.
+
+Stock retractable ladders showed up extended in the ghost snapshot even when
+the recording started with them stowed. The recorder side was correct:
+`PartStateSeeder.SeedLadders` only seeds deployed ladders into the
+`deployedLadders` set, so a stowed ladder produces no `DeployableExtended`
+seed event at recording start, and per-frame transitions during the recording
+correctly emit `DeployableExtended` / `DeployableRetracted` events from
+`FlightRecorder.CheckLadderState`. The toggle-action recording works.
+
+The bug lived in `GhostPlaybackLogic.PopulateGhostInfoDictionaries`
+(`GhostPlaybackLogic.cs:1062`): it built `state.deployableInfos` from the
+build result but never explicitly snapped each entry to its stowed pose.
+The ghost therefore inherited the prefab's default pose. Stock ladders are
+authored in the deployed pose so the prefab default IS extended; without a
+seed event no playback handler ever fires to retract the ladder, and the
+ghost stayed visibly extended for the whole recording.
+
+The same `state.deployableInfos` is already explicitly re-stowed at every
+loop boundary by
+`GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle`
+(`GhostPlaybackLogic.cs:1562-1569`), so the loop-cycle path was correct —
+only the first-spawn path was missing the baseline. Fix: add a stow
+baseline immediately after the dict build, mirroring the heat-info
+cold-baseline pattern earlier in the same method
+(`GhostPlaybackLogic.cs:1119-1126`). For each entry, call
+`ApplyDeployableState(state, evt, deployed: false)`. Already-deployed
+deployables get a `DeployableExtended` seed event at `startUT` from
+`PartStateSeeder.EmitSeedEvents`, so the playback frame loop snaps them
+back to deployed when it reaches the recording start. Fix covers all
+deployables that route through `DeployableGhostInfo` — solar panels, gear,
+ladders, animation groups, animate-generic, aero/control surfaces, robot
+arm scanners — not just ladders. Showcase recordings flow through the same
+spawn path so they benefit too.
+
+Regression tests in `GhostSpawnDeployableBaselineTests.cs` pin: (a) the
+baseline log fires when `deployableInfos.Count > 0`; (b) it does not fire
+when `deployableInfos` is null or empty (no log noise); (c) the dict is
+keyed by `partPersistentId` so seed events can find the matching info; (d)
+defensive null-transform handling in `ApplyDeployableState` (unresolved
+ghost paths must not NRE the spawn baseline).
+
+## 632. Optimizer meaningful-action gate broke per-phase loop splits
+
+**Status:** PR #625 reverted; gate removed. Original symptom (eccentric grazing
+chain bloat) reverts to known-issue status — see acceptance below.
+
+PR #625 added a meaningful-action gate to
+`RecordingOptimizer.FindSplitCandidatesForOptimizer` that suppressed pure
+Atmospheric↔Exo and Approach↔Exo boundaries unless a thrust / decoupling /
+parachute / gear / thermal `PartEvent` landed within ±5 s of the split UT
+(`MeaningfulBoundaryWindowSeconds = 5.0`). Intent: stop eccentric atmo-grazing
+periapsis passes from producing 2N chain segments per N orbits (see
+`extending-rewind-to-stable-leaves.md` §S16).
+
+The gate broke two extremely common gameplay phases:
+
+- **Passive deorbit reentries.** Engines off well before 70 km, parachutes
+  deploy at ~5 km, `ThermalAnimationMedium` fires at `normalizedHeat ≥ 0.40`
+  which usually only happens deep in atmo (>5 s after the 70 km crossing). The
+  reentry segment glued to the orbital coast and lost its own loop toggle.
+- **Staged ascents with a coast through 70 km.** First stage cuts off at
+  ~50 km, vessel coasts through 70 km, circularization burn at apoapsis
+  (~80 km). The `EngineShutdown` and circularization `EngineIgnited` events
+  both fall outside the ±5 s window. The ascent segment glued to the orbital
+  coast.
+
+The trade was bad: a rare focused-flight grazing case (the on-rails case is
+already structurally guarded by `EccentricOrbitOptimizerInvariantTests`) was
+fixed at the cost of breaking the player-facing per-phase loop split that
+`docs/parsek-flight-recorder-design.md` §9A.5 codifies as the whole point of
+`SplitEnvironmentClass`.
+
+Revert PR: this commit. Splits at pure env-class boundaries are restored.
+
+**Accepted as known issue (deferred to v1.1):** focused-flight scenarios that
+produce multiple Atmo↔Exo crossings without intervention (player keeps focus
+on a spent stage doing periapsis passes; aerobraking with hysteresis flipping
+twice; debris bouncing through a glancing reentry) will produce a few extra
+chain segments per affected recording. Annoying but local.
+
+**v1.1 redesign — persistence-based discriminator (S5):** suppress an
+Atmo↔Exo* boundary iff one side is a brief (< K ≈ 120 s) section bracketed
+by the same env class on the other side (`A → [brief B] → A` shape). Real
+reentries (Exo→Atmo→Surface) and ascents (Atmo→Exo→end-of-recording) have no
+bracket → split. Eccentric grazing (Exo→[brief Atmo]→Exo) and single-pass
+aerobrakes have a bracket → suppress. Producer C no-payload boundary seam
+gets an explicit `TrackSection.IsBoundarySeam` flag set at the producer; the
+optimizer skips boundaries on either side of a flagged section. The research
+note for PR #624 (`docs/dev/research/optimizer-meaningful-split-rule.md`)
+dropped this signal in §5 S5 with a faulty argument ("composing across
+already-split recordings is awkward") — but the optimizer scans the whole
+recording's `TrackSections` list before any split, so the post-split
+composition concern doesn't apply at scan time.
+
+Plan: [`docs/dev/plans/optimizer-persistence-split.md`](plans/optimizer-persistence-split.md).
+
+## ~~629. Multi-stage crash showed only one half in Unfinished Flights (effective-leaf finalize)~~
+
+Repro: `logs/2026-04-27_2157_stage-separation-bugs/KSP.log`. LU stack
+launched (recording `34757abf...`, vessel `Kerbal X`, pid 2708531065). Stage
+separation at BP `bc780859...` carved off the L probe as a new child recording
+`b4b0470e...` with a DIFFERENT pid (334653631). Both halves crashed; only
+`b4b0470e` was promoted to `CommittedProvisional`. The original `34757abf`
+stayed in the default state with `TerminalStateValue=null` and disappeared
+from the Unfinished Flights list. Smoking gun: `[Flight] FinalizeTreeRecordings:
+rec='34757abf...' ... terminal=none ... leaf=False` despite `FinalizerCache`
+having `terminal=Destroyed` available.
+
+Root cause: `FinalizeIndividualRecording` decided "is leaf?" with the strict
+`bool isLeaf = rec.ChildBranchPointId == null;` predicate. A recording whose
+BP child has a different PID is still the effective continuation of its own
+PID (the U side of the LU split), but the strict check treated it as a non-
+leaf and skipped the entire terminal-state determination block. The codebase
+already had `GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree)` for this
+exact case (added in #224 for breakup-continuous recordings), but
+`FinalizeIndividualRecording` was never updated to consult it.
+
+Fix: `FinalizeIndividualRecording` now takes an optional `RecordingTree
+treeContext = null` parameter and computes `isLeaf` as `rec.ChildBranchPointId
+== null || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext)`.
+`FinalizeTreeRecordingsAfterFlush` threads its `tree` argument through, and
+`FinalizePendingLimboTreeForRevert` passes the limbo `tree` so the lookup
+works even when the tree isn't yet in `RecordingStore.CommittedTrees`. All
+existing leaf-gated blocks (snapshot re-capture, terminal orbit refresh, no-
+playback-data warning) inherit the broader definition because the intent
+everywhere is "this recording's vessel has reached its terminal state".
+
+## ~~630. Launch row dropped its Rewind-to-launch ("R") button when a sibling chain segment was an Unfinished Flight~~
+
+Repro: launched `Kerbal X` (launch 2 in the session), separated stages, the
+booster continuation crashed. Back at KSC the launch row showed neither R nor
+Rewind-to-Staging — the player had no rewind action on the launch. Launch 1's
+launch row in the same session DID show R because its tree was never split
+into chain segments by the optimizer (no clean atmo→exo boundary before the
+crash).
+
+Tree shape from logs:
+
+```
+HEAD chainIndex=0  rec_5ca2cac9  Kerbal X            (owns rewindSave parsek_rw_ab2e3b)
+TIP  chainIndex=1  rec_6bb1973f  Kerbal X (cont.)    terminal=Destroyed, parentBP=bp_LU
+```
+
+Root cause: `RecordingsTableUI.ShouldShowLegacyRewindButton` suppressed the R
+button when `EffectiveState.IsChainMemberOfUnfinishedFlight(rec)` returned
+true. That predicate scans every member of the chain — so the HEAD (the
+launch row) tripped the suppression because the destroyed TIP qualified as an
+Unfinished Flight, even though the HEAD itself has no `ParentBranchPointId`
+and would never draw the Rewind-to-Staging button.
+
+Fix: Replaced the chain-wide check with `EffectiveState.IsUnfinishedFlight(rec)`
+so the R button is suppressed only on the row that is itself an unfinished
+flight (which gets Rewind-to-Staging instead via
+`DrawUnfinishedFlightRewindButton`). The chain HEAD keeps R-to-launch even
+when a sibling TIP is the unfinished flight; the chain TIP still draws
+Rewind-to-Staging and the legacy R is correctly hidden there. Updated the
+helper's doc comment and the call-site comment in `DrawTreeMainRowRewindCell`
+to spell out the new semantics. Added regression tests in
+`RewindTreeLookupTests`:
+
+- `ShouldShowLegacyRewindButton_ChainHeadWithUnfinishedTip_ReturnsTrue`
+  (asserts both `head→true` and `tip→false` for the bug's exact tree shape).
+- `ShouldShowLegacyRewindButton_StandaloneCrashedRecording_StillReturnsTrue`
+  (inverse-regression: a plain crashed standalone with its own save still
+  gets R).
+
+The pre-existing `ShouldShowLegacyRewindButton_ChainMemberOfUnfinishedFlight_ReturnsFalse`
+still passes — its head carries `ParentBranchPointId` AND has a destroyed
+chain tip, so `IsUnfinishedFlight(head)` returns true and R is correctly
+suppressed.
+
+## ~~631. Re-Fly hides side-off vessels (e.g. previous lower stage) for the entire session~~
+
+Repro logs: `logs/2026-04-27_2157_stage-separation-bugs/KSP.log` lines around
+18045-18047. Re-Fly origin recording `5ca2cac9d7b24b87a0a4367a5929c0e7`
+("Kerbal X" upper stage U, pid 2708531065) carries `ChildBranchPointId =
+ff480fe7…` (the LU separation BP). That BP has two children: the same-PID
+linear continuation of U, AND `d252fa498a5c476abb852f66d57f0f02` ("Kerbal X
+Probe", pid 3295431853 = lower stage L) which is the side-off booster from the
+original separation. L runs on its own ChainId, reached orbit, and is a
+stand-alone branch. While re-flying U, the user expects L's ghost to keep
+playing so they can watch the original booster do its thing — instead L
+disappears from flight, map view, and ghost playback for the entire re-fly
+session because the SessionSuppressedSubtree closure was treating every
+BP-child as suppressed.
+
+Root cause: `EffectiveState.ComputeSessionSuppressedSubtreeInternal`'s
+BP-children loop walked every child of every BP encountered. Side-off
+branches (children whose `VesselPersistentId` differs from the parent
+recording's PID) are separate physical vessels with their own lineage; the
+re-fly only re-records the same-PID linear continuation and cannot
+legitimately supersede sibling branches with different PIDs. Same-PID
+continuations across chains were already handled separately by
+`EnqueueChainSiblings` and `EnqueuePidPeerSiblings`.
+
+Fix: restrict the BP-children walk to children whose `VesselPersistentId`
+matches the dequeued recording's `VesselPersistentId`. Side-off children are
+skipped with a verbose `[ReFlySession] SessionSuppressedSubtree: skipped
+side-off …` log line; the summary log gains a `sideOffSkips=N` counter.
+PID 0 on EITHER side falls back to the prior wide-walk behavior so legacy /
+unset-PID data is unchanged. The fewer supersede rows / fewer kerbal-death
+tombstones produced at merge time are the correct outcome — the re-fly does
+not supersede side-offs; the new flight will produce its own side-offs at
+its own future staging events and supersede the old ones at that moment.
+
+Regression coverage in `SessionSuppressedSubtreeTests`:
+`BpChildrenWalk_SidePidChild_Excluded`,
+`BpChildrenWalk_DownstreamOfSideOff_AlsoExcluded`,
+`BpChildrenWalk_BothPidsZero_LegacyWideWalk_Preserved`,
+`BpChildrenWalk_OriginPidZero_ChildPidNonZero_AdmittedAsLegacy`,
+`BpChildrenWalk_OriginPidNonZero_ChildPidZero_AdmittedAsLegacy`. The two
+`SessionSuppressionWiringTests` fixtures that incidentally used different
+PIDs for origin/inside descendants were updated to use the same PID so they
+still exercise the linear-continuation path the closure now scopes to.
+
 ## ~~627. Watch-mode cutoff false-positive during time warp (FloatingOrigin/Krakensbane frame seam)~~
 
 Repro logs: `logs/2026-04-27_1902/KSP.log` line 208360 (timestamp 19:01:05.946),

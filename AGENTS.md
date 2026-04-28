@@ -85,6 +85,8 @@ When investigating KSP API behavior, search the web and read other open-source K
 
 **Recording storage (format v3)**: bulk data lives in sidecar files under `saves/<save>/Parsek/Recordings/`: `<id>.prec` (trajectory), `<id>_vessel.craft`, `<id>_ghost.craft`, `<id>.pcrf` (ghost geometry). Only lightweight metadata + mutable state stays in `.sfs`. `RecordingPaths.ValidateRecordingId` rejects path traversal and invalid filename chars.
 
+**On-rails BG vessels emit no env-classified TrackSections**: `BackgroundOnRailsState` (`BackgroundRecorder.cs:157`) deliberately omits `currentTrackSection` / `trackSections` / `environmentHysteresis`, and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. An eccentric BG-recorded orbit grazing atmosphere across N orbits cannot generate optimizer-splittable Atmospheric<->ExoBallistic toggles — `RecordingOptimizer.FindSplitCandidatesForOptimizer` reads `rec.TrackSections` only, never `rec.OrbitSegments`. Don't add a TrackSection field to the on-rails state and don't move env-classification ahead of the packed/isOnRails gates without re-reading `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16. Guarded by `EccentricOrbitOptimizerInvariantTests`.
+
 ## Project Layout
 
 ```

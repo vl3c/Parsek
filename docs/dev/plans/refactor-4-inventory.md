@@ -25,6 +25,12 @@ Build warning note: the build emits MSB3026/MSB3027/MSB3021 warnings when the
 post-build copy cannot replace the deployed KSP `Parsek.dll`. This matches the
 locked KSP process/log condition above; the build itself succeeds.
 
+Closeout note after PR #621: global baseline counts above remain the original
+Pass 0 snapshot. The Pass 3 KSC split leaves
+`LedgerOrchestrator.cs` at 6,596 lines and adds
+`KscActionExpectationClassifier.cs` (281 lines) plus
+`KscActionReconciler.cs` (309 lines).
+
 ## Directory Size Summary
 
 | Directory | Files | Lines |
@@ -43,7 +49,7 @@ locked KSP process/log condition above; the build itself succeeds.
 |------|-------|----------------|
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Done; post-switch auto-record trigger helpers extracted, finalization deferred |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
-| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,976 | Pass1-Done; earnings-window, vessel-cost, and recalculation helpers extracted |
+| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,596 | Pass3-Done for KSC classifier/reconciler extraction; earnings-window, vessel-cost, and recalculation helpers remain Pass1-Done |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
 | `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
@@ -324,11 +330,30 @@ Validation:
 
 No remaining Pass 1 same-file candidates are planned for this file.
 
-Cross-file decomposition should wait for Pass 2. Likely owners to evaluate are
-ledger migration/load repair, KSC expectation reconciliation, post-walk
-reconciliation, recovery-funds pairing, and rollout adoption. These regions are
-large enough to justify a split, but they share tolerances, ledger/action
-classification details, and commit-window state.
+Pass 3 KSC split completed:
+
+- PR #620 added the proposal for the KSC action classifier/reconciler slice.
+- PR #621 extracted `KscActionExpectationClassifier` for the
+  `CreateExpectationLeg` and `ClassifyAction` body, then moved the KSC
+  DTO/enum types into that classifier.
+- PR #621 also extracted `KscActionReconciler` for
+  `KscExpectedLegMatch`, `ReconcileKscAction`, KSC expectation-leg matching,
+  aggregate expected-delta computation, resource channel tagging, and the
+  canonical `KscReconcileEpsilonSeconds` source.
+- `LedgerOrchestrator` keeps compatibility facades for `ClassifyAction`,
+  `ReconcileKscAction`, `ResourceChannelTag`, and
+  `KscReconcileEpsilonSeconds`.
+- KSC event entry points, ledger writes, sequence assignment, post-walk
+  reconciliation, legacy migration/load repair, ledger mutation, and
+  resource/currency mutation order remain in `LedgerOrchestrator`.
+- Validation for the landed slice: build passed, focused ledger/career gate
+  passed 326 tests, and the full non-injection xUnit gate passed 9,261 tests.
+
+Remaining LedgerOrchestrator cross-file decomposition candidates are ledger
+migration/load repair, post-walk reconciliation, recovery-funds pairing, and
+rollout adoption. These regions are large enough to justify future proposals,
+but they still share tolerances, ledger/action classification details, and
+commit-window state.
 
 Magic-value follow-up candidates include the resource tolerances used by
 earnings/post-walk reconciliation, `KscReconcileEpsilonSeconds`,
@@ -999,18 +1024,18 @@ raw scan with a manual map for the high-risk owners:
 
 ## Next Investigation Priorities
 
-1. Prepare Pass 2 owner proposals for the deferred architectural areas before
-   moving code across files: visual builders, foreground/background part-event
-   pollers, KSC/flight playback, event handler families, state patchers,
-   serialization codecs, and rewind invocation.
+1. Prepare the next Pass 3 owner proposal before moving more code across files:
+   candidates include LedgerOrchestrator post-walk/migration/recovery-rollout
+   bands, visual builders, foreground/background part-event pollers,
+   KSC/flight playback, event handler families, state patchers, and rewind
+   invocation.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication. Initial result: `refactor-4-pass2-storage-sidecars.md`
    recommends separate sidecar commit, sidecar orchestration, trajectory text
-   codec, manifest codec, and tree-record codec owners. The sidecar commit
-  batch and save/load-path orchestration slices are complete; schema redesign
-  remains out of scope, and binary/text format unification is deferred until
-  the manifest codec owner lands.
+   codec, manifest codec, and tree-record codec owners. Those Pass 2 slices are
+   complete; schema redesign remains out of scope, and binary/text format
+   unification is deferred.
 3. Build a static mutable state map for `GameStateRecorder`,
    `LedgerOrchestrator`, `RecordingStore`, `ParsekScenario`,
    `WatchModeController`, and `GhostPlaybackEngine`.
