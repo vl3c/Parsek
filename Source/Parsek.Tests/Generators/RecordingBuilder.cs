@@ -328,7 +328,8 @@ namespace Parsek.Tests.Generators
             SegmentEnvironment env, ReferenceFrame refFrame, TrackSectionSource source,
             double startUT, double endUT,
             List<TrajectoryPoint> frames = null, List<OrbitSegment> checkpoints = null,
-            uint anchorVesselId = 0, float sampleRateHz = 0f)
+            uint anchorVesselId = 0, float sampleRateHz = 0f,
+            bool isBoundarySeam = false)
         {
             var section = new TrackSection
             {
@@ -340,7 +341,8 @@ namespace Parsek.Tests.Generators
                 frames = frames ?? new List<TrajectoryPoint>(),
                 checkpoints = checkpoints ?? new List<OrbitSegment>(),
                 anchorVesselId = anchorVesselId,
-                sampleRateHz = sampleRateHz
+                sampleRateHz = sampleRateHz,
+                isBoundarySeam = isBoundarySeam
             };
             trackSections.Add(section);
             return this;

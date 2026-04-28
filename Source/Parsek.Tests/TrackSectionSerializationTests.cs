@@ -717,5 +717,92 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsBoundarySeam — text codec round-trip (Phase 1, plan §5.3)
+
+        // Test #26 from docs/dev/plans/optimizer-persistence-split.md §9.3.
+        // Guards the text codec sparse-field write/read path: a seam-flagged TrackSection
+        // round-trips through the text codec without losing the flag.
+        [Fact]
+        public void TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec()
+        {
+            var original = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 17000.0,
+                endUT = 17000.0,
+                sampleRateHz = 0f,
+                source = TrackSectionSource.Background,
+                frames = new List<TrajectoryPoint> { MakePoint(17000.0, 0.0, 0.0, 70000) },
+                checkpoints = new List<OrbitSegment>(),
+                isBoundarySeam = true
+            };
+
+            var parent = new ConfigNode("TEST");
+            var tracks = new List<TrackSection> { original };
+            RecordingStore.SerializeTrackSections(parent, tracks);
+
+            // Sparse: the seam key is written exactly when the flag is set.
+            var tsNode = parent.GetNodes("TRACK_SECTION")[0];
+            Assert.Equal("1", tsNode.GetValue("seam"));
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(parent, loaded);
+
+            Assert.Single(loaded);
+            Assert.True(loaded[0].isBoundarySeam);
+        }
+
+        // Test #27 from §9.3.
+        // Guards forward-tolerance for legacy text recordings: a TRACK_SECTION node without
+        // the "seam" key deserializes with isBoundarySeam == false (struct default).
+        [Fact]
+        public void TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyTextLoad()
+        {
+            var parent = new ConfigNode("TEST");
+            var tsNode = parent.AddNode("TRACK_SECTION");
+            tsNode.AddValue("env", ((int)SegmentEnvironment.Atmospheric).ToString(CultureInfo.InvariantCulture));
+            tsNode.AddValue("ref", ((int)ReferenceFrame.Absolute).ToString(CultureInfo.InvariantCulture));
+            tsNode.AddValue("startUT", "17000");
+            tsNode.AddValue("endUT", "17050");
+            tsNode.AddValue("sampleRate", "10");
+            // Deliberately no "seam" key — pre-v8 layout.
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(parent, loaded);
+
+            Assert.Single(loaded);
+            Assert.False(loaded[0].isBoundarySeam);
+        }
+
+        // Sparse-write contract: when isBoundarySeam == false, the "seam" key is NOT written.
+        // Keeps the on-disk footprint small for the common case (the vast majority of sections
+        // are not seams) and matches the established sparse pattern of the text codec.
+        [Fact]
+        public void TrackSection_BoundarySeamFlag_NotWrittenWhenFalse()
+        {
+            var tracks = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.Atmospheric,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 17000, endUT = 17050,
+                    sampleRateHz = 10f,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>(),
+                    isBoundarySeam = false
+                }
+            };
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(node, tracks);
+
+            var tsNode = node.GetNodes("TRACK_SECTION")[0];
+            Assert.Null(tsNode.GetValue("seam"));
+        }
+
+        #endregion
     }
 }
