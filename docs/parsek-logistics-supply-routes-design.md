@@ -212,7 +212,7 @@ internal struct RouteEndpoint
     public double latitude;        // from dock event trajectory point
     public double longitude;
     public double altitude;
-    public uint vesselPid;         // PID of connected endpoint/origin vessel; 0 only means KSC origin sentinel
+    public uint vesselPid;         // 0 = KSC sentinel for KSC origins; non-zero for all stops and non-KSC origins
     public bool isSurface;         // true = landed/splashed/prelaunch endpoint; enables surface fallback
 }
 ```
@@ -649,7 +649,7 @@ For `WaitingForResources` and `WaitingForFunds`, skip evaluation until `NextElig
 
 **Step 4: Check origin.** For non-KSC origins, find the start-docked origin depot vessel (section 7). If no vessel is found -> set `Status = EndpointLost`, skip cycle. If the vessel lacks `CostManifest` resources or `InventoryCostManifest` items -> set `Status = WaitingForResources`, set `NextEligibilityCheckUT`, and do NOT advance `NextDispatchUT`. For KSC origins in Career, check that `KscDispatchFundsCost` is affordable under the existing ledger reservation rules. If funds are insufficient, set `Status = WaitingForFunds`, set `NextEligibilityCheckUT`, and do NOT advance `NextDispatchUT`. For KSC origins in Science or Sandbox, skip the funds branch entirely; do not touch `Funding.Instance`.
 
-**Step 5: Dispatch.** Clear `NextEligibilityCheckUT`. Deduct `CostManifest` / `InventoryCostManifest` from non-KSC origin, or charge `KscDispatchFundsCost` for KSC origin in Career. Science and Sandbox KSC origins pay no funds. Set `CurrentCycleStartUT` to the scheduled dispatch UT being processed (`NextDispatchUT`, or `currentUT` only for an explicit immediate/manual dispatch), set `CurrentSegmentIndex = 0`, compute `PendingDeliveryUT` from the first route boundary, and set `PendingStopIndex` to the stop due at that boundary or `-1`. Tell the ghost playback engine to play the first recording in `RecordingIds` when visuals are available. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event at `CurrentCycleStartUT`. Advance `NextDispatchUT`.
+**Step 5: Dispatch.** Clear `NextEligibilityCheckUT`. Deduct `CostManifest` / `InventoryCostManifest` from non-KSC origin, or charge `KscDispatchFundsCost` for KSC origin in Career. Science and Sandbox KSC origins pay no funds. Set `CurrentCycleStartUT` to the scheduled dispatch UT being processed (`NextDispatchUT`), set `CurrentSegmentIndex = 0`, compute `PendingDeliveryUT` from the first route boundary, and set `PendingStopIndex` to the stop due at that boundary or `-1`. Tell the ghost playback engine to play the first recording in `RecordingIds` when visuals are available. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event at `CurrentCycleStartUT`. Advance `NextDispatchUT`.
 
 ### 6.2 UT-driven chain progression
 
@@ -910,7 +910,7 @@ Source/Parsek/Logistics/
     RouteOrchestrator.cs        // thin integration layer -- called from ParsekScenario hooks
 ```
 
-### 13.2 Integration seams (4 total)
+### 13.2 Integration seams (5 total)
 
 These are the only places where logistics code touches existing Parsek code:
 
@@ -918,10 +918,11 @@ These are the only places where logistics code touches existing Parsek code:
 |------|-------|------|-------------|
 | **Save/Load** | `ParsekScenario.OnSave`/`OnLoad` | `RouteOrchestrator.OnSave(node)`/`OnLoad(node)` | Null-check. Missing ROUTES node = no routes. |
 | **Scheduler tick** | `ParsekScenario.Update` | `RouteOrchestrator.Tick(currentUT)` | Single call, no-op if no active routes. |
+| **Playback start/seek** | `ParsekPlaybackPolicy` / ghost playback start path | `RouteOrchestrator.RequestVisualPlayback(recordingId, recordingLocalOffsetUT)` | Visual-only. Used for dispatch visuals and mid-transit scene entry; no route state authority. |
 | **Playback completed** | `ParsekPlaybackPolicy.HandlePlaybackCompleted` | `RouteOrchestrator.OnVisualSegmentCompleted(evt)` | Visual hint only. Route state also advances from UT-driven scheduler ticks. |
 | **Timeline events** | `Ledger` / `LedgerOrchestrator` | New `GameActionType` entries for ROUTE_DISPATCHED / ROUTE_DELIVERED | Additive enum values + display strings. |
 
-No route-execution changes to `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, or `RecordingOptimizer`. Recording metadata changes are additive: logistics capture adds connection-scoped dock/undock manifests and origin-dock metadata for route analysis. `GhostPlaybackEngine` continues to emit `PlaybackCompleted` at the same point it does today; only `ParsekPlaybackPolicy` / `RouteOrchestrator` interpret that event as a visual hint instead of an authoritative route-state transition.
+No route-state changes to `GhostPlaybackEngine`, `RecordingStore`, `RecordingTree`, `ChainSegmentManager`, or `RecordingOptimizer`. Recording metadata changes are additive: logistics capture adds connection-scoped dock/undock manifests and origin-dock metadata for route analysis. The playback start/seek seam is visual only; if the existing ghost start path needs an offset parameter or adapter, that change must not make ghost playback authoritative for delivery. `GhostPlaybackEngine` continues to emit `PlaybackCompleted` at the same point it does today; only `ParsekPlaybackPolicy` / `RouteOrchestrator` interpret that event as a visual hint instead of an authoritative route-state transition.
 
 ### 13.3 Read-only consumption of recording data
 
@@ -1135,6 +1136,8 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 ### 16.5 In-game tests (KSP runtime)
 
+These complement the pure-logic visual-handoff tests in §16.1: unit tests prove the scheduler chooses the right recording-local offset, while in-game tests prove the live ghost playback and loaded-vessel stock APIs honor that decision.
+
 - Loaded-vessel resource delivery uses `Part.RequestResource()` and clamps to current tank capacity. *Catches: unloaded-only implementation passing unit tests.*
 - Loaded-vessel non-KSC origin deduction removes resources from the proven origin depot. *Catches: dispatch cost mutation hitting the wrong vessel.*
 - Loaded `ModuleInventoryPart` delivery reconstructs exact `STOREDPART` payloads and respects slot limits. *Catches: inventory slot accounting only working in serialized ConfigNodes.*
@@ -1149,6 +1152,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - **Pickup routes:** v1 is delivery-only. Resource and inventory pickup routes need separate stock-slot and part-identity tests before exposure.
 - **Non-KSC undocked-start origins:** v1 non-KSC routes require the Supply Run to start docked to a real origin depot. Common patterns where a tanker launches from a Minmus surface base, drives/flies away undocked, and later docks to a destination are deferred until origin ownership can be proven without inventing a warehouse.
 - **KSC cost tuning:** v1 charges stock-realistic funds for source vessel parts plus used/delivered resources and inventory. This can be revisited later if repeated dispatch costs need recovery modeling.
+- **Force dispatch now:** v1 schedules dispatch from `NextDispatchUT` only. A later explicit "Dispatch now" UI action would need its own affordability/capacity checks and would set `CurrentCycleStartUT` from the action UT.
 - **Map view integration:** Route lines on the map. Deferred.
 - **Dispatch priority for competing routes:** v1 uses FIFO by NextDispatchUT.
 
