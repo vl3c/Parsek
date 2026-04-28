@@ -143,18 +143,17 @@ namespace Parsek.Tests.Rendering
             foreach (string file in Directory.EnumerateFiles(
                 sourceRoot, "*.cs", SearchOption.AllDirectories))
             {
-                // Skip the in-game test fixtures — they intentionally null
-                // the marker as test setup, not as production state
-                // transitions, and have no rendering side effect.
-                if (file.IndexOf(Path.Combine("InGameTests"),
-                        StringComparison.OrdinalIgnoreCase) >= 0)
-                    continue;
                 // Skip ReconciliationBundle's struct initializer — that's
                 // the *fresh-bundle* default value, never a live-scenario
                 // mutation.
                 if (file.EndsWith("ReconciliationBundle.cs",
                         StringComparison.OrdinalIgnoreCase))
                     continue;
+                // InGameTests are now part of the scan: they null the
+                // marker in teardown and a failing test that aborts mid-way
+                // could leak prior anchors into the next session. Each
+                // marker-null in the in-game fixtures is paired with
+                // RenderSessionState.Clear("ingame-test-teardown").
 
                 string[] lines = File.ReadAllLines(file);
                 for (int i = 0; i < lines.Length; i++)

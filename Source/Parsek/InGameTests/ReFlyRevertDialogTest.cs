@@ -240,6 +240,7 @@ namespace Parsek.InGameTests
             try
             {
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("ingame-test-teardown");
 
                 // Hook should never fire when the prefix lets stock revert through.
                 bool hookFired = false;
