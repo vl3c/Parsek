@@ -3212,7 +3212,8 @@ line.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Log-only fix; the
 underlying "KSP fires rate-change at 1x ~4x more often than there are
-real rate changes" concern is tracked separately as #597.
+real rate changes" concern was tracked separately as #597 and closed in
+the v0.9.1 follow-up.
 
 ---
 
@@ -4048,7 +4049,7 @@ case that reduces to equality.
 
 ---
 
-## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
+## ~~597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
 events were `1.0x`, but only 248 unique UT values appeared, and many
@@ -4056,6 +4057,18 @@ of those 248 had multiple sub-second-apart 1.0x events (e.g.
 `19:08:26.557` and `19:08:26.567` both at UT≈21526.10). KSP fires the
 event spuriously across scene transitions, warp-to-here, save/load
 boundaries, and similar transients.
+
+**Follow-up evidence (2026-04-28):** newest retained bundles
+`logs/2026-04-27_2157_stage-separation-bugs` and
+`logs/2026-04-27_1902` no longer show the original log volume after
+#592's rate-limiting, and a sidecar scan found no zero/negative orbit
+segments (`566` `.prec` files, `30` top-level orbit segments, `8`
+track-section checkpoints in the newest bundle; `22` `.prec` files,
+`10` top-level orbit segments, `10` track-section checkpoints in the
+older bundle). The code still had a direct duplicate-boundary risk:
+`CheckpointAllVessels` closed the current open orbit segment and opened
+a replacement at the checkpoint UT, so an exact duplicate same-UT event
+could append a zero-length segment before later cleanup.
 
 **Why it matters:** Bug #592 only addresses the LOG noise. The
 underlying `BackgroundRecorder.CheckpointAllVessels` call still runs
@@ -4067,21 +4080,19 @@ work scaling with `backgroundVesselCount × eventCount` and could
 mask a real correctness regression in the future ("why is this orbit
 segment getting reopened mid-flight?").
 
-**Files to investigate:**
+**Fix:** `ParsekFlight.OnTimeWarpRateChanged` now lets the warp-start /
+warp-end ledger/facility path run first, then skips only exact duplicate
+checkpoint work scoped to the same active tree, same warp rate, and same
+UT. `BackgroundRecorder.CheckpointAllVessels` is also idempotent at the
+same orbit-segment boundary, so a direct duplicate call no longer closes
+and appends a zero-length segment. Regression coverage:
+`ParsekFlightWarpCheckpointTests` pins the duplicate-event predicate and
+`BackgroundRecorderTests.CheckpointAllVessels_DuplicateBoundary_DoesNotAppendZeroLengthSegment`
+pins the recorder-level guard.
 
-- `Source/Parsek/ParsekFlight.cs:5842` — `OnTimeWarpRateChanged`. Add
-  a `lastSeenWarpRate` field and short-circuit when both the rate and
-  the UT have not advanced past the last invocation. Care needed
-  because the warp-start / warp-end branch above this call also
-  depends on the event firing.
-- `Source/Parsek/BackgroundRecorder.cs:2030` — `CheckpointAllVessels`.
-  An alternate fix is to make this method itself idempotent at the
-  same UT (skip the close+reopen if the segment is already closed
-  at this exact UT).
-
-**Status:** Open. Performance / hygiene; no observed correctness
-defect. Defer until a measurable hot-path latency or a specific
-ghost-orbit anomaly points at it.
+**Status:** CLOSED 2026-04-28. Fixed for v0.9.1. No retained-log
+correctness defect found; fixed the remaining performance / hygiene and
+duplicate-boundary hazard.
 
 ---
 
@@ -4789,10 +4800,9 @@ GameEvent. #593 covers ~1190 lines from repeatable record milestones
 `Milestone rep at UT` line on every recalc walk. #594 covers 221 KspStatePatcher
 bare-Id fallback lines. #595 widens the OrbitalCheckpoint playback and Recorder
 sample-skipped rate-limit windows from 1-2s to the default 5s. #596 gates the
-PatchFacilities INFO summary on having actual work. #597 tracks the underlying
-"KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
-a separate open todo (performance / hygiene only — no observed correctness
-defect).
+PatchFacilities INFO summary on having actual work. #597 later closed the
+underlying duplicate checkpoint work with a same-tree/same-rate/same-UT guard
+plus recorder-level duplicate-boundary idempotence.
 
 2026-04-26 update (observability Phase 1 current spam hygiene): the newest
 retained package `2026-04-26_0118_refly-postfix-still-broken` surfaced a
