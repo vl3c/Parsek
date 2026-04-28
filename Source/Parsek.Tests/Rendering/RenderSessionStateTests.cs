@@ -756,6 +756,98 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void ResolveLiveVesselPidForRecording_PrefersVesselPersistentId()
+        {
+            // What makes it fail: the active re-fly recording is the live
+            // vessel — BuildProvisionalRecording writes the live PID into
+            // VesselPersistentId; SpawnedVesselPersistentId stays 0 on the
+            // provisional. If the resolver still reads SpawnedVesselPersistentId
+            // first, the production provider returns null and RebuildFromMarker
+            // clears anchors as live-vessel-missing.
+            var rec = new Recording
+            {
+                RecordingId = "active-refly",
+                VesselPersistentId = 42u,           // live PID written by BuildProvisionalRecording
+                SpawnedVesselPersistentId = 0u      // 0 on the provisional (it's not Parsek-spawned)
+            };
+
+            uint pid = RenderSessionState.ResolveLiveVesselPidForRecording(
+                "active-refly", new List<Recording> { rec });
+
+            Assert.Equal(42u, pid);
+        }
+
+        [Fact]
+        public void ResolveLiveVesselPidForRecording_FallsBackToSpawnedPid()
+        {
+            // What makes it fail: a non-active resolver call (e.g. for a ghost
+            // recording) might rely on the legacy SpawnedVesselPersistentId
+            // surface. Removing that fallback would break ghost-recording
+            // live-position lookups in downstream features.
+            var rec = new Recording
+            {
+                RecordingId = "ghost-rec",
+                VesselPersistentId = 0u,            // not set
+                SpawnedVesselPersistentId = 99u     // legacy ghost-spawn PID
+            };
+
+            uint pid = RenderSessionState.ResolveLiveVesselPidForRecording(
+                "ghost-rec", new List<Recording> { rec });
+
+            Assert.Equal(99u, pid);
+        }
+
+        [Fact]
+        public void ResolveLiveVesselPidForRecording_PrefersVesselOverSpawnedWhenBothSet()
+        {
+            // What makes it fail: priority-order regression. The active
+            // re-fly recording could in theory have both fields set in some
+            // future scenario; VesselPersistentId must win.
+            var rec = new Recording
+            {
+                RecordingId = "both",
+                VesselPersistentId = 42u,
+                SpawnedVesselPersistentId = 99u
+            };
+
+            uint pid = RenderSessionState.ResolveLiveVesselPidForRecording(
+                "both", new List<Recording> { rec });
+
+            Assert.Equal(42u, pid);
+        }
+
+        [Fact]
+        public void ResolveLiveVesselPidForRecording_BothZero_ReturnsZero()
+        {
+            // What makes it fail: if neither field resolves, the resolver
+            // must report 0 so the caller can short-circuit (HR-15: frozen
+            // value or no value, never a guessed one).
+            var rec = new Recording
+            {
+                RecordingId = "neither",
+                VesselPersistentId = 0u,
+                SpawnedVesselPersistentId = 0u
+            };
+
+            uint pid = RenderSessionState.ResolveLiveVesselPidForRecording(
+                "neither", new List<Recording> { rec });
+
+            Assert.Equal(0u, pid);
+        }
+
+        [Fact]
+        public void ResolveLiveVesselPidForRecording_RecordingMissing_ReturnsZero()
+        {
+            // What makes it fail: a missing recording must not throw or
+            // return a stray PID; the production provider treats 0 as
+            // live-vessel-missing.
+            uint pid = RenderSessionState.ResolveLiveVesselPidForRecording(
+                "nope", new List<Recording>());
+
+            Assert.Equal(0u, pid);
+        }
+
+        [Fact]
         public void RebuildFromMarker_ClearsLerpDedupSets()
         {
             // What makes it fail: per-session lerp dedup sets

@@ -357,27 +357,42 @@ namespace Parsek.Rendering
             return new RecordingTreeContext(null, null);
         }
 
-        private static Vector3d? ResolveLiveWorldPositionForRecording(
+        /// <summary>
+        /// Resolve the persistent-vessel-id to use when looking up a live
+        /// KSP <see cref="Vessel"/> for the named recording. The active
+        /// re-fly recording (<see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>)
+        /// is the *live* vessel being flown — BuildProvisionalRecording
+        /// writes the live PID into <see cref="Recording.VesselPersistentId"/>.
+        /// <see cref="Recording.SpawnedVesselPersistentId"/> is set only for
+        /// Parsek-spawned ghost vessels and stays 0 on the provisional. So
+        /// prefer <c>VesselPersistentId</c>; fall back to
+        /// <c>SpawnedVesselPersistentId</c> for any non-active resolver
+        /// caller that asks for a ghost recording's live position (rare —
+        /// the anchor builder only ever passes the active id today).
+        /// Returns 0 when neither field is set or the recording is missing.
+        /// </summary>
+        internal static uint ResolveLiveVesselPidForRecording(
             string recordingId, IReadOnlyList<Recording> recordings)
         {
-            if (string.IsNullOrEmpty(recordingId) || recordings == null) return null;
-
-            // Find the recording's spawned-vessel persistentId. The provisional
-            // re-fly target writes its PID to SpawnedVesselPersistentId once
-            // the spawn lands; before then the production overload will get
-            // null here and short-circuit (HR-15 — frozen value or no value).
-            uint spawnedPid = 0;
+            if (string.IsNullOrEmpty(recordingId) || recordings == null) return 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 Recording r = recordings[i];
                 if (r == null) continue;
                 if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
                 {
-                    spawnedPid = r.SpawnedVesselPersistentId;
-                    break;
+                    if (r.VesselPersistentId != 0) return r.VesselPersistentId;
+                    return r.SpawnedVesselPersistentId; // fallback (may be 0)
                 }
             }
-            if (spawnedPid == 0) return null;
+            return 0;
+        }
+
+        private static Vector3d? ResolveLiveWorldPositionForRecording(
+            string recordingId, IReadOnlyList<Recording> recordings)
+        {
+            uint pid = ResolveLiveVesselPidForRecording(recordingId, recordings);
+            if (pid == 0) return null;
 
             try
             {
@@ -388,7 +403,7 @@ namespace Parsek.Rendering
                 {
                     Vessel v = vessels[i];
                     if (v == null) continue;
-                    if (v.persistentId == spawnedPid)
+                    if (v.persistentId == pid)
                         return v.GetWorldPos3D();
                 }
             }
