@@ -13987,6 +13987,221 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        #endregion
+
+        #region Pipeline-CoBubble (Phase 5)
+
+        /// <summary>
+        /// Phase 5 (design doc §6.5 / §10 / §18 Phase 5 / §20.5 Phase 5 row).
+        /// Live-primary co-bubble blend smoke test: synthetic peer ghost
+        /// shadowing the active re-fly target. Seeds a co-bubble offset
+        /// trace centred on the live primary, drives the blender, and
+        /// asserts the returned world offset matches the recorded value
+        /// within 0.05 m at the window's midpoint.
+        /// </summary>
+        /// <remarks>
+        /// HR-15 audit: the blender does NOT read live KSP state — it
+        /// reads from the primary RECORDING. Mutating live vessel position
+        /// must not move the peer ghost. The xUnit suite covers the gate's
+        /// branches; this test runs against a real CelestialBody to catch
+        /// any KSP-side rotation/world-frame regression.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-CoBubble", Scene = GameScenes.FLIGHT,
+            Description = "Live-primary co-bubble peer ghost follows recorded offset within tolerance")]
+        public IEnumerator Pipeline_CoBubble_Live()
+        {
+            const string primaryId = "in-game-cobubble-primary";
+            const string peerId = "in-game-cobubble-peer";
+            const double startUT = 1500.0;
+            const double endUT = 1530.0;
+            const double tolerance = 0.05;
+            Vector3d recordedOffset = new Vector3d(10.0, 0.0, 0.0);
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+            yield return null;
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            Parsek.Rendering.CoBubbleBlender.ResetForTesting();
+
+            // Designate primaryId as the primary for peerId.
+            Parsek.Rendering.RenderSessionState.PutPrimaryAssignmentForTesting(peerId, primaryId);
+
+            // Build a co-bubble trace storing recordedOffset peer-minus-primary.
+            int n = 5;
+            double[] uts = new double[n];
+            float[] dx = new float[n], dy = new float[n], dz = new float[n];
+            double step = (endUT - startUT) / (n - 1);
+            for (int i = 0; i < n; i++)
+            {
+                uts[i] = startUT + i * step;
+                dx[i] = (float)recordedOffset.x;
+                dy[i] = (float)recordedOffset.y;
+                dz[i] = (float)recordedOffset.z;
+            }
+            byte[] sig = new byte[32];
+            var trace = new Parsek.Rendering.CoBubbleOffsetTrace
+            {
+                PeerRecordingId = primaryId,
+                PeerSourceFormatVersion = 8,
+                PeerSidecarEpoch = 1,
+                PeerContentSignature = sig,
+                StartUT = startUT,
+                EndUT = endUT,
+                FrameTag = 0,
+                PrimaryDesignation = 1,
+                UTs = uts, Dx = dx, Dy = dy, Dz = dz,
+            };
+            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(peerId, trace);
+
+            yield return null;
+
+            // Sample at the window midpoint.
+            double midUT = 0.5 * (startUT + endUT);
+            bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
+                peerId, midUT,
+                out Vector3d worldOffset,
+                out Parsek.Rendering.CoBubbleBlendStatus status,
+                out string resolvedPrimary);
+
+            ParsekLog.Info("Pipeline-CoBubble",
+                "Pipeline_CoBubble_Live: status="
+                + status
+                + " primary=" + (resolvedPrimary ?? "<null>")
+                + " worldOffset=("
+                + worldOffset.x.ToString("F4", CultureInfo.InvariantCulture) + ","
+                + worldOffset.y.ToString("F4", CultureInfo.InvariantCulture) + ","
+                + worldOffset.z.ToString("F4", CultureInfo.InvariantCulture) + ")");
+
+            InGameAssert.IsTrue(hit,
+                "CoBubbleBlender.TryEvaluateOffset miss for live-primary peer — status=" + status);
+            InGameAssert.IsTrue(resolvedPrimary == primaryId,
+                "Resolved primary id mismatch: expected " + primaryId + " got " + (resolvedPrimary ?? "<null>"));
+            double residual = (worldOffset - recordedOffset).magnitude;
+            InGameAssert.IsTrue(residual < tolerance,
+                "Co-bubble offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m — recorded offset / blender wiring is broken");
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            yield break;
+        }
+
+        /// <summary>
+        /// Phase 5 ghost-ghost formation smoke test (design doc §10.1, §20.5
+        /// Phase 5 row). Two ghost recordings, no live re-fly. Asserts:
+        /// (a) primary selection picks the deterministic winner per §10.1,
+        /// (b) the peer's blender lookup hits inside the recorded window,
+        /// (c) the Pipeline-CoBubble Info "Primary selection" line emits.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-CoBubble", Scene = GameScenes.FLIGHT,
+            Description = "Phase 5 ghost-ghost formation: deterministic primary, recorded offset preserved")]
+        public IEnumerator Pipeline_CoBubble_GhostGhost()
+        {
+            const string idA = "in-game-cobubble-gg-A";
+            const string idB = "in-game-cobubble-gg-B";
+            const double startUT = 2000.0;
+            const double endUT = 2030.0;
+            const double tolerance = 0.05;
+            Vector3d offsetBA = new Vector3d(5.0, 0.0, 0.0); // B - A in primary's frame
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            Parsek.Rendering.CoBubbleBlender.ResetForTesting();
+            yield return null;
+
+            // No live anchors → §10.1 rule 5 (HR-3 ordinal tiebreaker) wins.
+            // idA < idB ordinal → A is primary, B is peer.
+            // Build traces on both sides; primary side stores PeerRecordingId=B,
+            // peer side stores PeerRecordingId=A.
+            int n = 3;
+            double[] uts = new double[n];
+            float[] dxA = new float[n], dyA = new float[n], dzA = new float[n];
+            float[] dxB = new float[n], dyB = new float[n], dzB = new float[n];
+            double step = (endUT - startUT) / (n - 1);
+            for (int i = 0; i < n; i++)
+            {
+                uts[i] = startUT + i * step;
+                dxA[i] = (float)offsetBA.x;  dyA[i] = (float)offsetBA.y;  dzA[i] = (float)offsetBA.z;
+                dxB[i] = (float)(-offsetBA.x); dyB[i] = (float)(-offsetBA.y); dzB[i] = (float)(-offsetBA.z);
+            }
+            byte[] sig = new byte[32];
+            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(idA,
+                new Parsek.Rendering.CoBubbleOffsetTrace
+                {
+                    PeerRecordingId = idB,
+                    PeerSourceFormatVersion = 8, PeerSidecarEpoch = 1, PeerContentSignature = sig,
+                    StartUT = startUT, EndUT = endUT, FrameTag = 0, PrimaryDesignation = 0,
+                    UTs = (double[])uts.Clone(), Dx = dxA, Dy = dyA, Dz = dzA,
+                });
+            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(idB,
+                new Parsek.Rendering.CoBubbleOffsetTrace
+                {
+                    PeerRecordingId = idA,
+                    PeerSourceFormatVersion = 8, PeerSidecarEpoch = 1, PeerContentSignature = sig,
+                    StartUT = startUT, EndUT = endUT, FrameTag = 0, PrimaryDesignation = 1,
+                    UTs = (double[])uts.Clone(), Dx = dxB, Dy = dyB, Dz = dzB,
+                });
+
+            // Build minimal Recording objects with no live anchor seeds.
+            var rA = new Recording { RecordingId = idA, VesselName = idA,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion };
+            var rB = new Recording { RecordingId = idB, VesselName = idB,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion };
+
+            var primaryMap = Parsek.Rendering.CoBubblePrimarySelector.Resolve(
+                new List<Recording> { rA, rB }, marker: null);
+            InGameAssert.IsTrue(primaryMap.Count == 1,
+                "Expected exactly one (peer, primary) entry; got " + primaryMap.Count);
+            // §10.1 rule 5: lower ordinal wins → A is primary.
+            string peerId = idB;
+            string primaryId = idA;
+            InGameAssert.IsTrue(primaryMap.ContainsKey(peerId),
+                "Primary map missing peer entry for " + peerId);
+            InGameAssert.IsTrue(primaryMap[peerId] == primaryId,
+                "Primary map entry mismatch: expected " + primaryId + " got " + primaryMap[peerId]);
+
+            // Install the primary assignment + emit the dedup'd Info log so
+            // the live blender path sees it.
+            Parsek.Rendering.RenderSessionState.PutPrimaryAssignmentForTesting(peerId, primaryId);
+            Parsek.Rendering.RenderSessionState.NotifyCoBubblePrimarySelection(peerId, primaryId);
+
+            yield return null;
+
+            // Sample the blender mid-window.
+            double midUT = 0.5 * (startUT + endUT);
+            bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
+                peerId, midUT,
+                out Vector3d worldOffset,
+                out Parsek.Rendering.CoBubbleBlendStatus status,
+                out string resolvedPrimary);
+            InGameAssert.IsTrue(hit,
+                "CoBubbleBlender.TryEvaluateOffset miss for ghost-ghost peer — status=" + status);
+            InGameAssert.IsTrue(resolvedPrimary == primaryId,
+                "Resolved primary id mismatch");
+            // Peer-side trace stores -offsetBA, so worldOffset ≈ -offsetBA.
+            double residual = (worldOffset + offsetBA).magnitude;
+            InGameAssert.IsTrue(residual < tolerance,
+                "Co-bubble peer offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture));
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            yield break;
+        }
+
+        #endregion
+
+        #region Pipeline-Anchor Phase 6 per-source
+
         // -------------------------------------------------------------------
         //  Phase 6 §7.4 / §7.5 / §7.6 / §7.10 per-source in-game tests
         // -------------------------------------------------------------------

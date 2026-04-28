@@ -43,6 +43,7 @@ namespace Parsek
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
+        private const string UseCoBubbleBlendKey = "useCoBubbleBlend";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
@@ -51,6 +52,7 @@ namespace Parsek
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
+        private static bool? storedUseCoBubbleBlend;
         private static bool loaded;
 
         /// <summary>
@@ -169,13 +171,25 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorTaxonomyKey} — using default");
                 }
 
+                string useCoBubbleStr = root.GetValue(UseCoBubbleBlendKey);
+                if (!string.IsNullOrEmpty(useCoBubbleStr)
+                    && bool.TryParse(useCoBubbleStr, out bool useCoBubble))
+                {
+                    storedUseCoBubbleBlend = useCoBubble;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseCoBubbleBlendKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
-                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}");
+                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
+                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -240,6 +254,16 @@ namespace Parsek
                 settings.useAnchorTaxonomy = storedUseAnchorTaxonomy.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useAnchorTaxonomy {prev} -> {storedUseAnchorTaxonomy.Value} from persistent store");
+            }
+
+            if (storedUseCoBubbleBlend.HasValue
+                && storedUseCoBubbleBlend.Value != settings.useCoBubbleBlend)
+            {
+                bool prev = settings.useCoBubbleBlend;
+                // Property setter emits Notify on change.
+                settings.useCoBubbleBlend = storedUseCoBubbleBlend.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useCoBubbleBlend {prev} -> {storedUseCoBubbleBlend.Value} from persistent store");
             }
 
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
@@ -333,6 +357,26 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"RecordUseAnchorTaxonomy: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseCoBubbleBlend(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseCoBubbleBlend: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseCoBubbleBlend.HasValue && storedUseCoBubbleBlend.Value == value) return;
+            storedUseCoBubbleBlend = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseCoBubbleBlend: Save threw SecurityException " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
@@ -439,6 +483,8 @@ namespace Parsek
                     root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
                 if (storedUseAnchorTaxonomy.HasValue)
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
+                if (storedUseCoBubbleBlend.HasValue)
+                    root.AddValue(UseCoBubbleBlendKey, storedUseCoBubbleBlend.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
@@ -446,7 +492,8 @@ namespace Parsek
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
-                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}");
+                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
+                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -467,6 +514,7 @@ namespace Parsek
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
+            storedUseCoBubbleBlend = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -528,6 +576,8 @@ namespace Parsek
 
         internal static bool? GetStoredUseAnchorTaxonomy() => storedUseAnchorTaxonomy;
 
+        internal static bool? GetStoredUseCoBubbleBlend() => storedUseCoBubbleBlend;
+
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -559,6 +609,12 @@ namespace Parsek
         internal static void SetStoredUseAnchorTaxonomyForTesting(bool? value)
         {
             storedUseAnchorTaxonomy = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseCoBubbleBlendForTesting(bool? value)
+        {
+            storedUseCoBubbleBlend = value;
             loaded = true;
         }
     }

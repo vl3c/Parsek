@@ -1018,6 +1018,55 @@ namespace Parsek
             }
 
             /// <summary>
+            /// Phase 5 helper: re-lifts a peer-relative offset from the body's
+            /// inertial frame at the trace's recording UT to the world frame
+            /// at <paramref name="playbackUT"/> via a single rotation about
+            /// the body's spin axis. Unlike <see cref="LowerFromInertialToWorld"/>
+            /// (which lowers a POSITION via <c>GetWorldSurfacePosition</c>),
+            /// this helper rotates a TRANSLATION vector — co-bubble traces
+            /// store offsets, not positions. Null body returns the input
+            /// unchanged with a Verbose log; non-finite period returns the
+            /// input unchanged (HR-9).
+            /// </summary>
+            internal static Vector3d LowerOffsetFromInertialToWorld(
+                Vector3d inertialOffset, CelestialBody body, double playbackUT)
+            {
+                if (object.ReferenceEquals(body, null))
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-Frame", "lower-offset-no-body",
+                        $"LowerOffsetFromInertialToWorld: body=null playbackUT={playbackUT} — returning input unchanged",
+                        5.0);
+                    return inertialOffset;
+                }
+                double period = ResolveRotationPeriod(body);
+                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
+                    return inertialOffset;
+                if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
+                    return inertialOffset;
+
+                // The inertial frame at recording-time and at playback-time
+                // share an axis (the body's spin axis); the only delta is
+                // the rotation phase. Compute the rotation that takes
+                // inertial-at-recording → world-at-playback. Phase 5 stores
+                // offsets at trace-build time using the recording UT for
+                // each sample; the blender re-evaluates at playbackUT, so
+                // here we apply the inverse (negative-phase) rotation
+                // around the body's transform's up axis (KSP convention).
+                //
+                // Production callers pass the live CelestialBody, which has
+                // a non-null bodyTransform. xUnit tests construct minimal
+                // CelestialBody instances; if bodyTransform is null we
+                // fall back to identity rotation (offset returned as-is).
+                if (object.ReferenceEquals(body.bodyTransform, null))
+                    return inertialOffset;
+
+                double phaseDeg = (playbackUT * 360.0) / period;
+                Vector3 axis = body.bodyTransform.up;
+                Quaternion rot = Quaternion.AngleAxis((float)(-phaseDeg), axis);
+                return rot * inertialOffset;
+            }
+
+            /// <summary>
             /// Phase 4 frame-aware dispatch (design doc §6.2 Stage 2, §18 Phase
             /// 4, §26.1 HR-9). Resolves a smoothed <c>(lat, lon, alt)</c>
             /// spline sample to a world position based on the spline's

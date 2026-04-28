@@ -15031,6 +15031,32 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
+            // Phase 5 co-bubble overlap blend (design doc §6.5, §10, §18 Phase 5).
+            // When the recording is a peer of a designated primary AND a
+            // populated co-bubble offset trace covers the current playback UT,
+            // override the standalone position with primary's standalone
+            // P_render(t) + recorded offset. HR-15: the primary's P_render
+            // reads from the primary RECORDING, not live KSP state — so a
+            // live re-fly's player input does not move the peer ghost.
+            // Any miss (status != Hit/HitCrossfade) is a silent fall-through —
+            // standalone Stages 1+2+3+4 already produced a valid position.
+            if (allowCoBubbleBlend(recordingId, targetUT,
+                    out Vector3d coBubbleOffset, out string primaryRecordingId,
+                    out Parsek.Rendering.CoBubbleBlendStatus blendStatus))
+            {
+                if (TryComputeStandaloneWorldPositionForRecording(
+                        primaryRecordingId, targetUT, bodyBefore, out Vector3d primaryWorld))
+                {
+                    interpolatedPos = primaryWorld + coBubbleOffset;
+                    RecordCoBubbleEvalForLogging();
+                }
+                else
+                {
+                    Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss(
+                        recordingId, "primary-standalone-failed");
+                }
+            }
+
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
@@ -15197,6 +15223,176 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Phase 5 co-bubble blend gate (design doc §6.5 / §10 / §18 Phase 5
+        /// / HR-9 / HR-15). Returns <c>true</c> with a populated
+        /// <paramref name="worldOffset"/> and resolved
+        /// <paramref name="primaryRecordingId"/> when the recording has a
+        /// designated primary AND a populated co-bubble offset trace covers
+        /// the supplied <paramref name="targetUT"/>. Any miss is a silent
+        /// fall-through: the consumer keeps the standalone Stages 1+2+3+4
+        /// position. <paramref name="status"/> exposes the precise miss
+        /// reason for diagnostics; per-status dedup happens inside the
+        /// blender via <see cref="Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss"/>.
+        /// </summary>
+        internal static bool allowCoBubbleBlend(string recordingId, double targetUT,
+            out Vector3d worldOffset, out string primaryRecordingId,
+            out Parsek.Rendering.CoBubbleBlendStatus status)
+        {
+            return Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
+                recordingId, targetUT, out worldOffset, out status, out primaryRecordingId);
+        }
+
+        /// <summary>
+        /// Phase 5 helper: computes the standalone Stages 1+2+3+4 world
+        /// position for an arbitrary recording id at <paramref name="ut"/>.
+        /// Uses the recording's <see cref="Recording.Points"/> +
+        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline +
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
+        /// same composition the Update path uses for its own recording.
+        /// HR-15: never reads live <see cref="Vessel"/> state. Returns false
+        /// when the recording is missing, has no sample bracketing
+        /// <paramref name="ut"/>, or the body cannot be resolved.
+        /// </summary>
+        internal static bool TryComputeStandaloneWorldPositionForRecording(
+            string recordingId, double ut, CelestialBody fallbackBody, out Vector3d worldPos)
+        {
+            worldPos = default;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+
+            Recording rec = ResolveRecordingById(recordingId);
+            if (rec == null) return false;
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+
+            // Linear-interpolate the bracketing points and lift to body
+            // surface position (mirrors the Update path's lerp + spline
+            // composition). HR-15: this reads from rec.Points only, never
+            // from live KSP state.
+            int idx = -1;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                if (rec.Points[i].ut >= ut) { idx = i; break; }
+            }
+            TrajectoryPoint before, after;
+            float t;
+            if (idx <= 0)
+            {
+                before = rec.Points[0];
+                after = before;
+                t = 0f;
+            }
+            else
+            {
+                before = rec.Points[idx - 1];
+                after = rec.Points[idx];
+                double span = after.ut - before.ut;
+                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
+            }
+
+            CelestialBody body = !object.ReferenceEquals(fallbackBody, null)
+                && string.Equals(fallbackBody.bodyName, before.bodyName, StringComparison.Ordinal)
+                ? fallbackBody
+                : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
+            if (object.ReferenceEquals(body, null)) return false;
+
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
+
+            // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
+            // through the Phase 5 blender — primaries always render
+            // standalone, design doc §6.5).
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, ut);
+            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            {
+                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
+                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
+                {
+                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                        spline.FrameTag,
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                        body, ut, recordingId, sectionIndex);
+                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                        pos = splineWorld;
+                }
+            }
+            if (allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
+                pos += eps;
+            worldPos = pos;
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves a recording by id without driving the active scene's
+        /// playback context. Walks <see cref="RecordingStore.CommittedRecordings"/>
+        /// directly — the standalone-for-primary helper needs the peer's
+        /// data even when ERS would filter it out. Phase 5 ERS-exempt path
+        /// (mirrors RenderSessionState's exemption rationale).
+        /// </summary>
+        private static Recording ResolveRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording r = committed[i];
+                        if (r == null) continue;
+                        if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
+                            return r;
+                    }
+                }
+            }
+            catch
+            {
+                // Mid-load mutation; treat as missing.
+            }
+            return null;
+        }
+
+        // -------------------------------------------------------------------
+        //  Phase 5 per-frame summary (design doc §19.2 Stage 5).
+        //  Counts every successful co-bubble offset evaluation across the
+        //  Update path and emits a single Verbose Pipeline-CoBubble line per
+        //  second with the accumulated count. Mirrors the Phase 1
+        //  RecordSplineEvalForLogging contract.
+        // -------------------------------------------------------------------
+        private static int s_coBubbleEvalCount;
+        private static long s_coBubbleEvalLogLastTicks;
+        private const long CoBubbleEvalLogIntervalTicks = TimeSpan.TicksPerSecond;
+
+        internal static void RecordCoBubbleEvalForLogging()
+        {
+            int n = ++s_coBubbleEvalCount;
+            long now = NowProviderForTesting != null
+                ? NowProviderForTesting().Ticks
+                : DateTime.UtcNow.Ticks;
+            if (s_coBubbleEvalLogLastTicks == 0)
+            {
+                s_coBubbleEvalLogLastTicks = now;
+                return;
+            }
+            if (now - s_coBubbleEvalLogLastTicks >= CoBubbleEvalLogIntervalTicks)
+            {
+                double intervalSec = (now - s_coBubbleEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
+                ParsekLog.Verbose("Pipeline-CoBubble",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "frame summary: coBubbleEvals={0} intervalSec={1:F2}", n, intervalSec));
+                s_coBubbleEvalCount = 0;
+                s_coBubbleEvalLogLastTicks = now;
+            }
+        }
+
+        /// <summary>Test-only reset of the Phase 5 per-frame summary.</summary>
+        internal static void ResetCoBubbleEvalLoggingForTesting()
+        {
+            s_coBubbleEvalCount = 0;
+            s_coBubbleEvalLogLastTicks = 0;
         }
 
         /// <summary>

@@ -1,3 +1,10 @@
+// [ERS-exempt] Phase 5 co-bubble overlap detection routes through
+// RecordingStore.CommittedRecordings at commit time (PersistAfterCommit)
+// and at per-trace peer validation (ClassifyTraceDrift on load). ERS
+// would filter the active NotCommitted provisional re-fly target out of
+// the recording list, hiding live-anchored peers from co-bubble detection
+// and preventing per-trace peer signature recomputes for the live side.
+// See scripts/ers-els-audit-allowlist.txt for the matching rationale entry.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -39,21 +46,25 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class SmoothingPipeline
     {
-        // Cached configuration hash. Computed once per (config, useAnchorTaxonomy)
-        // pair. The `useSmoothingSplines` toggle is intentionally NOT in the
-        // hash — toggling it does not invalidate fitted splines, it just
-        // controls whether the consumer reads them. The `useAnchorTaxonomy`
-        // toggle IS in the hash (Phase 6 follow-up, ultrareview P1-A): the
-        // candidate writer emits an empty AnchorCandidatesList when the flag
-        // is off, and a populated one when on, so a stale cached hash would
-        // false-positive against a freshly-flipped flag and let the load
-        // path skip the lazy-recompute. The hash is keyed on the flag value
-        // so a flip blows out the cache, and ClassifyDrift compares the
-        // probed file's hash against the current one — flag flip → drift →
-        // discard + recompute.
+        // Cached configuration hash. Computed once per (config,
+        // useAnchorTaxonomy, useCoBubbleBlend) tuple. The `useSmoothingSplines`
+        // toggle is intentionally NOT in the hash — toggling it does not
+        // invalidate fitted splines, it just controls whether the consumer
+        // reads them. The `useAnchorTaxonomy` toggle IS in the hash (Phase 6
+        // follow-up, ultrareview P1-A): the candidate writer emits an empty
+        // AnchorCandidatesList when the flag is off, and a populated one when
+        // on, so a stale cached hash would false-positive against a freshly-
+        // flipped flag and let the load path skip the lazy-recompute. The
+        // `useCoBubbleBlend` toggle (Phase 5) is in the hash for the same
+        // reason: the writer emits an empty CoBubbleOffsetTraces block when
+        // the flag is off, populated when on. The hash is keyed on the flag
+        // values so a flip blows out the cache, and ClassifyDrift compares
+        // the probed file's hash against the current one — flag flip →
+        // drift → discard + recompute.
         private static readonly object s_configHashLock = new object();
         private static byte[] s_cachedConfigurationHash;
-        private static bool s_cachedConfigurationHashFlag;
+        private static bool s_cachedConfigurationHashAnchorFlag;
+        private static bool s_cachedConfigurationHashCoBubbleFlag;
 
         // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
         // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
@@ -372,6 +383,7 @@ namespace Parsek.Rendering
                     if (PannotationsSidecarBinary.TryRead(pannPath, probe,
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
                             out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
+                            out List<CoBubbleOffsetTrace> coBubbleTraces,
                             out string readFailure))
                     {
                         // HR-10: clear any prior in-memory entries for this recording
@@ -393,12 +405,37 @@ namespace Parsek.Rendering
                             SectionAnnotationStore.PutAnchorCandidates(
                                 recordingId, anchorCandidates[i].Key, anchorCandidates[i].Value);
                         }
+                        // Phase 5: per-trace peer validation (design doc
+                        // §17.3.1 "Per-Trace Peer Validation"). Drop only
+                        // traces whose peer cache key has drifted; surviving
+                        // traces stay in the store. Whole-file drift is
+                        // already handled by ClassifyDrift above.
+                        int acceptedTraces = 0;
+                        int discardedTraces = 0;
+                        for (int i = 0; i < coBubbleTraces.Count; i++)
+                        {
+                            CoBubbleOffsetTrace t = coBubbleTraces[i];
+                            string driftReason = ClassifyTraceDrift(t);
+                            if (driftReason == null)
+                            {
+                                SectionAnnotationStore.PutCoBubbleTrace(recordingId, t);
+                                acceptedTraces++;
+                            }
+                            else
+                            {
+                                discardedTraces++;
+                                ParsekLog.Info("Pipeline-CoBubble",
+                                    $"Per-trace co-bubble invalidation: recordingId={recordingId} " +
+                                    $"peerRecordingId={t.PeerRecordingId} reason={driftReason}");
+                            }
+                        }
 
                         long bytes = SafeFileLength(pannPath);
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
                             $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
-                            $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
+                            $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
+                            $"coBubbleTracesAccepted={acceptedTraces} coBubbleTracesDiscarded={discardedTraces}");
                         return;
                     }
 
@@ -466,6 +503,39 @@ namespace Parsek.Rendering
                 return;
 
             FitAndStorePerSection(rec);
+            // Phase 5: detect co-bubble overlaps against every other
+            // committed recording at commit time. The detector gates
+            // internally on useCoBubbleBlend; off → no traces emitted.
+            // HR-9 visible failure: if the detector throws, we log Warn
+            // and continue with the spline / candidate persistence.
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    // Build a snapshot list including the recording being
+                    // persisted (the commit batch may not have appended it
+                    // to CommittedRecordings yet). Detector dedupes via
+                    // ordinal recording-id sorting.
+                    var snapshot = new List<Recording>(committed.Count + 1);
+                    bool includedRec = false;
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording other = committed[i];
+                        if (other == null) continue;
+                        snapshot.Add(other);
+                        if (string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                            includedRec = true;
+                    }
+                    if (!includedRec) snapshot.Add(rec);
+                    CoBubbleOverlapDetector.DetectAndStore(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Pipeline-CoBubble",
+                    $"DetectAndStore at commit threw {ex.GetType().Name}: {ex.Message} — co-bubble traces unavailable for this commit");
+            }
             TryWritePann(rec, pannPath, CurrentConfigurationHash());
         }
 
@@ -476,7 +546,8 @@ namespace Parsek.Rendering
             lock (s_configHashLock)
             {
                 s_cachedConfigurationHash = null;
-                s_cachedConfigurationHashFlag = false;
+                s_cachedConfigurationHashAnchorFlag = false;
+                s_cachedConfigurationHashCoBubbleFlag = false;
             }
             lock (s_frameDecisionLock)
             {
@@ -484,6 +555,7 @@ namespace Parsek.Rendering
             }
             BodyResolverForTesting = null;
             TreeResolverForTesting = null;
+            UseCoBubbleBlendResolverForTesting = null;
             AnchorCandidateBuilder.ResetForTesting();
         }
 
@@ -554,6 +626,80 @@ namespace Parsek.Rendering
             return null;
         }
 
+        /// <summary>
+        /// Test seam for the peer-recording resolver used by Phase 5
+        /// per-trace validation. xUnit injects a closure backed by a
+        /// synthetic recording list; production resolves through
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Reset via
+        /// <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static System.Func<string, Recording> CoBubblePeerResolverForTesting;
+
+        /// <summary>
+        /// Test seam for the peer content-signature recompute. xUnit can
+        /// inject a deterministic mapping; production composes the recompute
+        /// through <see cref="CoBubbleOverlapDetector.ComputePeerContentSignature"/>
+        /// against the live peer's <see cref="Recording.Points"/>.
+        /// </summary>
+        internal static System.Func<Recording, double, double, byte[]> CoBubblePeerSignatureRecomputeForTesting;
+
+        /// <summary>
+        /// Phase 5 per-trace cache-key check. Returns one of
+        /// <c>peer-missing</c> / <c>peer-format-changed</c> /
+        /// <c>peer-epoch-changed</c> / <c>peer-content-mismatch</c> when the
+        /// peer's current state has drifted from the trace's stored fields.
+        /// Returns null when every field matches and the trace is safe to
+        /// install in the in-memory store. The whole-file drift check
+        /// (binary version, alg stamp, source epoch, source format, config
+        /// hash) lives in <see cref="ClassifyDrift"/> and runs before this.
+        /// </summary>
+        internal static string ClassifyTraceDrift(CoBubbleOffsetTrace trace)
+        {
+            if (trace == null) return "trace-null";
+            if (string.IsNullOrEmpty(trace.PeerRecordingId)) return "peer-missing";
+            Recording peer = ResolvePeerRecording(trace.PeerRecordingId);
+            if (peer == null) return "peer-missing";
+            if (peer.RecordingFormatVersion != trace.PeerSourceFormatVersion)
+                return "peer-format-changed";
+            if (peer.SidecarEpoch != trace.PeerSidecarEpoch)
+                return "peer-epoch-changed";
+
+            byte[] expected = trace.PeerContentSignature;
+            byte[] actual;
+            var recomputeSeam = CoBubblePeerSignatureRecomputeForTesting;
+            if (recomputeSeam != null)
+                actual = recomputeSeam(peer, trace.StartUT, trace.EndUT);
+            else
+                actual = CoBubbleOverlapDetector.ComputePeerContentSignature(peer, trace.StartUT, trace.EndUT);
+            if (actual == null) return "peer-missing";
+            if (!ByteArraysEqual(actual, expected)) return "peer-content-mismatch";
+            return null;
+        }
+
+        private static Recording ResolvePeerRecording(string peerRecordingId)
+        {
+            if (string.IsNullOrEmpty(peerRecordingId)) return null;
+            var seam = CoBubblePeerResolverForTesting;
+            if (seam != null) return seam(peerRecordingId);
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed == null) return null;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording r = committed[i];
+                    if (r == null) continue;
+                    if (string.Equals(r.RecordingId, peerRecordingId, System.StringComparison.Ordinal))
+                        return r;
+                }
+            }
+            catch
+            {
+                // Mid-load mutation of CommittedRecordings — treat as missing.
+            }
+            return null;
+        }
+
         private static bool ByteArraysEqual(byte[] a, byte[] b)
         {
             if (a == null || b == null) return false;
@@ -565,21 +711,48 @@ namespace Parsek.Rendering
 
         private static byte[] CurrentConfigurationHash()
         {
-            // Read the flag through AnchorCandidateBuilder's resolver so the
-            // test override and the production setting flow through one
-            // path. The cache is invalidated whenever the flag flips.
-            bool flag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
+            // Read the flags through their resolver helpers so the test
+            // overrides and production settings flow through one path. The
+            // cache is invalidated whenever either flag flips.
+            bool anchorFlag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
+            bool coBubbleFlag = ResolveUseCoBubbleBlend();
             lock (s_configHashLock)
             {
                 if (s_cachedConfigurationHash == null
-                    || s_cachedConfigurationHashFlag != flag)
+                    || s_cachedConfigurationHashAnchorFlag != anchorFlag
+                    || s_cachedConfigurationHashCoBubbleFlag != coBubbleFlag)
                 {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default, flag);
-                    s_cachedConfigurationHashFlag = flag;
+                        SmoothingConfiguration.Default, anchorFlag, coBubbleFlag);
+                    s_cachedConfigurationHashAnchorFlag = anchorFlag;
+                    s_cachedConfigurationHashCoBubbleFlag = coBubbleFlag;
                 }
                 return s_cachedConfigurationHash;
             }
+        }
+
+        /// <summary>
+        /// Test seam: when set, returned in place of
+        /// <see cref="ParsekSettings.useCoBubbleBlend"/>. xUnit cannot stand
+        /// up <see cref="ParsekSettings.Current"/> without
+        /// <see cref="HighLogic.CurrentGame"/>; the seam lets tests exercise
+        /// the flag without that. Production callers leave it null and read
+        /// through <c>ParsekSettings.Current?.useCoBubbleBlend ?? true</c>.
+        /// </summary>
+        internal static System.Func<bool> UseCoBubbleBlendResolverForTesting;
+
+        /// <summary>
+        /// Resolves the Phase 5 <c>useCoBubbleBlend</c> flag through the test
+        /// seam first, then through <see cref="ParsekSettings.Current"/>.
+        /// Defaults to true when <c>Current</c> is null (matches the shipped
+        /// default and Phase 6's <c>useAnchorTaxonomy</c> resolver pattern).
+        /// </summary>
+        internal static bool ResolveUseCoBubbleBlend()
+        {
+            var seam = UseCoBubbleBlendResolverForTesting;
+            if (seam != null) return seam();
+            ParsekSettings settings = ParsekSettings.Current;
+            return settings?.useCoBubbleBlend ?? true;
         }
 
         private static long SafeFileLength(string path)
@@ -619,6 +792,25 @@ namespace Parsek.Rendering
                 }
             }
 
+            // Phase 5: gather co-bubble traces. Empty when the flag is off
+            // (CoBubbleOverlapDetector gates internally so the store will
+            // not have populated entries) or when no peers have been
+            // detected yet.
+            List<CoBubbleOffsetTrace> coBubbleTraces = null;
+            if (SectionAnnotationStore.TryGetCoBubbleTraces(recordingId, out var traces) && traces != null)
+            {
+                coBubbleTraces = new List<CoBubbleOffsetTrace>(traces.Count);
+                for (int i = 0; i < traces.Count; i++)
+                {
+                    CoBubbleOffsetTrace t = traces[i];
+                    if (t == null) continue;
+                    if (t.UTs == null || t.UTs.Length == 0) continue;
+                    if (t.PeerContentSignature == null || t.PeerContentSignature.Length != 32) continue;
+                    coBubbleTraces.Add(t);
+                }
+            }
+            int coBubbleCount = coBubbleTraces?.Count ?? 0;
+
             try
             {
                 PannotationsSidecarBinary.Write(
@@ -628,12 +820,14 @@ namespace Parsek.Rendering
                     rec.RecordingFormatVersion,
                     configHash,
                     splines,
-                    anchorCandidates);
+                    anchorCandidates,
+                    coBubbleTraces);
 
                 long bytes = SafeFileLength(pannPath);
                 ParsekLog.Verbose("Pipeline-Sidecar",
                     $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} " +
-                    $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count}");
+                    $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
+                    $"coBubbleTraceCount={coBubbleCount}");
             }
             catch (Exception ex)
             {

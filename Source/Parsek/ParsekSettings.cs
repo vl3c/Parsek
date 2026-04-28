@@ -164,6 +164,36 @@ namespace Parsek
         private bool _useAnchorTaxonomy = true;
 
         /// <summary>
+        /// Phase 5 of the ghost trajectory rendering pipeline (design doc §6.5
+        /// / §10 / §18 Phase 5). When true, ghost peers that shared a physics
+        /// bubble with a co-recorded primary at recording time render via the
+        /// stored co-bubble offset trace (sub-meter relative geometry) instead
+        /// of falling through to standalone Stages 1+2+3+4. Default true.
+        ///
+        /// <para>
+        /// The flag participates in the <c>.pann</c> ConfigurationHash (HR-10
+        /// freshness): flipping it invalidates every cached <c>.pann</c> with
+        /// co-bubble traces so a stale empty block can't masquerade as fresh.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use co-bubble blend",
+            toolTip = "When on (Phase 5), close-formation ghosts blend toward sub-meter offsets stored in the recording. Off → standalone Stages 1-4 only.")]
+        public bool useCoBubbleBlend
+        {
+            get { return _useCoBubbleBlend; }
+            set
+            {
+                if (_useCoBubbleBlend == value) return;
+                bool prev = _useCoBubbleBlend;
+                _useCoBubbleBlend = value;
+                NotifyUseCoBubbleBlendChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseCoBubbleBlend(value);
+            }
+        }
+        private bool _useCoBubbleBlend = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -460,6 +490,19 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Anchor", $"useAnchorTaxonomy: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-CoBubble log line when
+        /// <see cref="useCoBubbleBlend"/> flips. Phase 5 spec (design doc
+        /// §19.2 Stage 5 row "Settings flag flip") requires Info-level
+        /// visibility for the rollout gate so a developer can attribute a
+        /// visual artifact to the toggle moment in KSP.log.
+        /// </summary>
+        internal static void NotifyUseCoBubbleBlendChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-CoBubble", $"useCoBubbleBlend: {oldValue}->{newValue}");
         }
     }
 }

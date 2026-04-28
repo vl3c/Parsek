@@ -49,6 +49,39 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Phase 5 co-bubble blend tunables (design doc §6.5 / §10 / §22 / §17.3.1
+    /// ConfigurationHash table). The two persisted values
+    /// (<see cref="ResampleHz"/>, <see cref="BlendMaxWindowSeconds"/>) participate
+    /// in the canonical encoding so changing them invalidates every cached
+    /// <c>.pann</c>'s co-bubble traces (HR-10). The crossfade duration is
+    /// purely a render-time visual decision (no stored state depends on it)
+    /// and so is intentionally NOT in the hash.
+    /// </summary>
+    internal struct CoBubbleConfiguration
+    {
+        /// <summary>Target trace resample rate (Hz). 4 Hz matches the slowest
+        /// typical active-vessel sampling cadence; oversampling burns sidecar
+        /// bytes for sub-mm fidelity gain on common-mode-cancelled offsets.</summary>
+        public float ResampleHz;
+
+        /// <summary>Per-trace duration cap (seconds). Windows longer than
+        /// this fall back to standalone via the §10.3 boundary set.</summary>
+        public double BlendMaxWindowSeconds;
+
+        /// <summary>Crossfade duration at window exit (seconds). Short enough
+        /// to be imperceptible during exit, long enough to mask sub-meter
+        /// snap. NOT persisted — a render-time visual decision only.</summary>
+        public double CrossfadeDurationSeconds;
+
+        internal static CoBubbleConfiguration Default => new CoBubbleConfiguration
+        {
+            ResampleHz = 4.0f,
+            BlendMaxWindowSeconds = 600.0,
+            CrossfadeDurationSeconds = 1.5,
+        };
+    }
+
+    /// <summary>
     /// Reader / writer for the optional pipeline-annotation sidecar
     /// <c>&lt;id&gt;.pann</c> (design doc §17.3.1). Mirrors the
     /// probe/read/write shape of <see cref="TrajectorySidecarBinary"/>; the
@@ -122,17 +155,35 @@ namespace Parsek
         // false-cache-hit risk. The alg-stamp bump forces every existing
         // .pann to invalidate via alg-stamp-drift on first load after the
         // upgrade, regardless of the configured flag value.
-        internal const int AlgorithmStampVersion = 4;
+        // Bumped to 5 in Phase 5: CoBubbleOffsetTraces transitions from
+        // always-empty (count=0) to populated by CoBubbleOverlapDetector.
+        // Existing v4 .pann files lack the populated block and would force
+        // a runtime fallback for every consumer; the bump triggers the
+        // existing alg-stamp-drift path so stale files are discarded and
+        // recomputed on first load (HR-10).
+        internal const int AlgorithmStampVersion = 5;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +
         // outlierAccelAtm(4) + outlierAccelExo(4) + anchorPriority(10) +
         // coBubbleBlendMaxWindow(8) + coBubbleResampleHz(4) +
-        // useAnchorTaxonomy(1) = 52 bytes. Phase 6 follow-up appended the
-        // useAnchorTaxonomy flag so flag flips invalidate cached .pann
-        // files via config-hash-drift (HR-10 freshness).
-        private const int CanonicalEncodingLength = 52;
+        // useAnchorTaxonomy(1) + useCoBubbleBlend(1) = 53 bytes. Phase 5
+        // appended the useCoBubbleBlend flag at [52] so flag flips invalidate
+        // cached .pann files via config-hash-drift (HR-10 freshness): when
+        // the flag is off the writer emits an empty CoBubbleOffsetTraces
+        // block; flipping to on without invalidating would let a stale
+        // empty block masquerade as fresh.
+        private const int CanonicalEncodingLength = 53;
+
+        // Per-trace UT-array size cap (Phase 5). With 4 Hz resample × 600s
+        // max-window the realistic ceiling per trace is 2400 samples; the
+        // 100K cap is a defense-in-depth bound, not a tight steady-state
+        // limit. ValidateCount uses min-bytes-per-entry (8 + 12 = 20 bytes
+        // per UT row: double UT + 3×float dx/dy/dz) to gate stream-length
+        // sanity.
+        internal const int MaxCoBubbleSamplesPerTrace = 100_000;
+        private const int BytesPerCoBubbleSampleRow = 20;
 
         /// <summary>
         /// Probes the file header. Returns <c>true</c> with
@@ -253,11 +304,30 @@ namespace Parsek
             out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
             out string failureReason)
         {
+            return TryRead(path, probe, out splines, out anchorCandidates,
+                out _, out failureReason);
+        }
+
+        /// <summary>
+        /// Phase 5 overload: also reads the <c>CoBubbleOffsetTraces</c>
+        /// block. Existing two-out callers (kept as the legacy overload
+        /// above) still work; new callers should use this overload to access
+        /// the per-trace data persisted by Phase 5.
+        /// </summary>
+        internal static bool TryRead(
+            string path,
+            PannotationsSidecarProbe probe,
+            out List<KeyValuePair<int, SmoothingSpline>> splines,
+            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
+            out List<CoBubbleOffsetTrace> coBubbleTraces,
+            out string failureReason)
+        {
             if (!probe.Success || !probe.Supported)
                 throw new InvalidOperationException("Pannotations sidecar probe must succeed before read.");
 
             splines = new List<KeyValuePair<int, SmoothingSpline>>();
             anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
+            coBubbleTraces = new List<CoBubbleOffsetTrace>();
             failureReason = null;
 
             try
@@ -357,14 +427,67 @@ namespace Parsek
                         }
                         anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(sectionIndex, arr));
                     }
+                    // Phase 5 CoBubbleOffsetTraces block (design doc §17.3.1).
+                    // Per-entry: peerRecordingId (length-prefixed UTF-8) +
+                    // peerSourceFormatVersion (int32) + peerSidecarEpoch (int32) +
+                    // peerContentSignature (32 bytes) + startUT (double) +
+                    // endUT (double) + frameTag (byte) + sampleCount (int32) +
+                    // uts[sampleCount] (double) + dx/dy/dz[sampleCount] (float) +
+                    // primaryDesignation (byte). Per-entry minimum cost is
+                    // header (1 + 4 + 4 + 32 + 8 + 8 + 1 + 4 + 1) = 63 bytes
+                    // assuming an empty peerRecordingId; ValidateCount uses 63
+                    // as the per-entry minimum so a count whose payload would
+                    // exceed remaining stream bytes is rejected before
+                    // allocation. The per-trace sample-count gate uses the
+                    // dedicated MaxCoBubbleSamplesPerTrace.
+                    const int MinBytesPerCoBubbleTraceEntry = 63;
                     int coBubbleCount = reader.ReadInt32();
                     if (!ValidateCount(stream, coBubbleCount, MaxCoBubbleTraceEntries,
-                            1, "co-bubble-trace", out failureReason))
+                            MinBytesPerCoBubbleTraceEntry, "co-bubble-trace", out failureReason))
                         return false;
-                    if (coBubbleCount != 0)
+                    for (int i = 0; i < coBubbleCount; i++)
                     {
-                        failureReason = $"unexpected co-bubble-trace count {coBubbleCount} for binary version {probe.BinaryVersion}";
-                        return false;
+                        string peerRecordingId = reader.ReadString();
+                        int peerFormatVersion = reader.ReadInt32();
+                        int peerEpoch = reader.ReadInt32();
+                        byte[] peerSignature = reader.ReadBytes(32);
+                        if (peerSignature == null || peerSignature.Length != 32)
+                        {
+                            failureReason = $"co-bubble-trace[{i}] truncated peer signature";
+                            return false;
+                        }
+                        double startUT = reader.ReadDouble();
+                        double endUT = reader.ReadDouble();
+                        byte frameTag = reader.ReadByte();
+                        int sampleCount = reader.ReadInt32();
+                        if (!ValidateCount(stream, sampleCount, MaxCoBubbleSamplesPerTrace,
+                                BytesPerCoBubbleSampleRow, $"co-bubble-trace[{i}].samples", out failureReason))
+                            return false;
+                        double[] uts = new double[sampleCount];
+                        for (int u = 0; u < sampleCount; u++) uts[u] = reader.ReadDouble();
+                        float[] dx = new float[sampleCount];
+                        for (int u = 0; u < sampleCount; u++) dx[u] = reader.ReadSingle();
+                        float[] dy = new float[sampleCount];
+                        for (int u = 0; u < sampleCount; u++) dy[u] = reader.ReadSingle();
+                        float[] dz = new float[sampleCount];
+                        for (int u = 0; u < sampleCount; u++) dz[u] = reader.ReadSingle();
+                        byte primaryDesignation = reader.ReadByte();
+
+                        coBubbleTraces.Add(new CoBubbleOffsetTrace
+                        {
+                            PeerRecordingId = peerRecordingId,
+                            PeerSourceFormatVersion = peerFormatVersion,
+                            PeerSidecarEpoch = peerEpoch,
+                            PeerContentSignature = peerSignature,
+                            StartUT = startUT,
+                            EndUT = endUT,
+                            FrameTag = frameTag,
+                            UTs = uts,
+                            Dx = dx,
+                            Dy = dy,
+                            Dz = dz,
+                            PrimaryDesignation = primaryDesignation,
+                        });
                     }
                 }
             }
@@ -412,7 +535,8 @@ namespace Parsek
             int sourceRecordingFormatVersion,
             byte[] configurationHash,
             IList<KeyValuePair<int, SmoothingSpline>> splines,
-            IList<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates = null)
+            IList<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates = null,
+            IList<CoBubbleOffsetTrace> coBubbleTraces = null)
         {
             if (configurationHash == null || configurationHash.Length != 32)
                 throw new ArgumentException("configurationHash must be a 32-byte SHA-256 digest.", nameof(configurationHash));
@@ -479,7 +603,49 @@ namespace Parsek
                     }
                 }
 
-                writer.Write(0); // CoBubbleOffsetTraces
+                // Phase 5 CoBubbleOffsetTraces block (design doc §17.3.1).
+                // Each trace fully self-describes its peer cache key via
+                // (peerSourceFormatVersion, peerSidecarEpoch, peerContentSignature)
+                // so the per-trace validation pass in SmoothingPipeline can
+                // drop a single stale trace without invalidating the whole
+                // .pann file.
+                int coBubbleEntryCount = coBubbleTraces?.Count ?? 0;
+                writer.Write(coBubbleEntryCount);
+                if (coBubbleTraces != null)
+                {
+                    for (int i = 0; i < coBubbleTraces.Count; i++)
+                    {
+                        CoBubbleOffsetTrace t = coBubbleTraces[i];
+                        if (t == null)
+                            throw new InvalidOperationException(
+                                $"CoBubbleOffsetTraces[{i}] is null — caller must drop empty entries before write");
+                        if (t.PeerContentSignature == null || t.PeerContentSignature.Length != 32)
+                            throw new ArgumentException(
+                                $"CoBubbleOffsetTraces[{i}] has invalid PeerContentSignature (must be 32 bytes)");
+                        int sampleCount = t.UTs?.Length ?? 0;
+                        int dxCount = t.Dx?.Length ?? 0;
+                        int dyCount = t.Dy?.Length ?? 0;
+                        int dzCount = t.Dz?.Length ?? 0;
+                        if (sampleCount != dxCount || sampleCount != dyCount || sampleCount != dzCount)
+                            throw new ArgumentException(
+                                $"CoBubbleOffsetTraces[{i}] sample arrays length mismatch: " +
+                                $"uts={sampleCount} dx={dxCount} dy={dyCount} dz={dzCount}");
+
+                        writer.Write(t.PeerRecordingId ?? string.Empty);
+                        writer.Write(t.PeerSourceFormatVersion);
+                        writer.Write(t.PeerSidecarEpoch);
+                        writer.Write(t.PeerContentSignature);
+                        writer.Write(t.StartUT);
+                        writer.Write(t.EndUT);
+                        writer.Write(t.FrameTag);
+                        writer.Write(sampleCount);
+                        for (int u = 0; u < sampleCount; u++) writer.Write(t.UTs[u]);
+                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dx[u]);
+                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dy[u]);
+                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dz[u]);
+                        writer.Write(t.PrimaryDesignation);
+                    }
+                }
 
                 writer.Flush();
                 FileIOUtils.SafeWriteBytes(stream.ToArray(), path, "Pipeline-Sidecar");
@@ -498,22 +664,39 @@ namespace Parsek
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
             // Backward-compatible overload: tests that don't care about the
-            // Phase 6 flag default it to true (matches Phase 6's shipped
-            // default). Production callers should use the two-argument
-            // overload below so a flag flip invalidates cached .pann files.
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true);
+            // Phase 6 / Phase 5 flags default them to true (matches the
+            // shipped defaults). Production callers should use the
+            // three-argument overload below so a flag flip invalidates
+            // cached .pann files.
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true, useCoBubbleBlend: true);
         }
 
         /// <summary>
-        /// Phase 6 follow-up (ultrareview P1-A): the canonical encoding now
-        /// includes the <see cref="ParsekSettings.useAnchorTaxonomy"/> flag
-        /// as a single byte at offset 51. Flipping the flag changes the
-        /// derived <c>AnchorCandidatesList</c> output (writer emits an
-        /// empty block when off, populated when on), so HR-10 freshness
-        /// requires the flag to participate in the cache key.
+        /// Phase 6 follow-up: two-argument overload kept for any caller that
+        /// was wired before Phase 5. Defaults <c>useCoBubbleBlend</c> to
+        /// true (matches the shipped default). Production callers should
+        /// migrate to the three-argument overload so a Phase-5 flag flip
+        /// invalidates the cache key.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg, bool useAnchorTaxonomy)
+        {
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy, useCoBubbleBlend: true);
+        }
+
+        /// <summary>
+        /// Phase 5: the canonical encoding now wires the co-bubble blend
+        /// tunables (<see cref="CoBubbleConfiguration.Default"/>) into bytes
+        /// [39..46] (BlendMaxWindowSeconds) and [47..50] (ResampleHz), and
+        /// appends the <see cref="ParsekSettings.useCoBubbleBlend"/> flag
+        /// as a single byte at offset 52. Flipping the flag changes the
+        /// derived <c>CoBubbleOffsetTraces</c> output (writer emits an
+        /// empty block when off, populated when on), so HR-10 freshness
+        /// requires the flag to participate in the cache key. The Phase 6
+        /// <c>useAnchorTaxonomy</c> byte stays at offset 51.
+        /// </summary>
+        internal static byte[] ComputeConfigurationHash(
+            SmoothingConfiguration cfg, bool useAnchorTaxonomy, bool useCoBubbleBlend)
         {
             byte[] buffer = new byte[CanonicalEncodingLength];
             using (var ms = new MemoryStream(buffer, writable: true))
@@ -528,9 +711,10 @@ namespace Parsek
                 w.Write((float)0);                         // [21..24] outlierAccelAtmospheric (reserved)
                 w.Write((float)0);                         // [25..28] outlierAccelExo (reserved)
                 for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] anchorPriorityVector (reserved)
-                w.Write((double)0);                        // [39..46] coBubbleBlendMaxWindow (reserved)
-                w.Write((float)0);                         // [47..50] coBubbleResampleHz (reserved)
+                w.Write((double)CoBubbleConfiguration.Default.BlendMaxWindowSeconds); // [39..46] coBubbleBlendMaxWindow
+                w.Write((float)CoBubbleConfiguration.Default.ResampleHz);             // [47..50] coBubbleResampleHz
                 w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [51] useAnchorTaxonomy (Phase 6)
+                w.Write((byte)(useCoBubbleBlend ? 1 : 0));  // [52] useCoBubbleBlend (Phase 5)
             }
 
             using (var sha = SHA256.Create())
