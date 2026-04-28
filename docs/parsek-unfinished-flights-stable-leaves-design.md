@@ -97,7 +97,7 @@ This section fixes the vocabulary. "Recording" (lowercase) is the concept; **Rec
 - **Prior tip** — the slot's current effective recording id at re-fly invocation time, before any new supersede relation has been appended for the current re-fly. Equals `slot.OriginChildRecordingId` on the first re-fly into a slot; equals the previous re-fly's recording id on chain extension.
 - **Site A** — `RecordingStore.ApplyRewindProvisionalMergeStates`. The MergeState-promotion call site that runs at original tree commit.
 - **Site B-1** — `SupersedeCommit.FlipMergeStateAndClearTransient`. The MergeState-promotion call site that runs at re-fly merge.
-- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. After Site B-1 runs, this path currently overrides the classifier's verdict with an unconditional `provisional.MergeState = MergeState.Immutable`. This feature requires removing that override.
+- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. After Site B-1 runs, this path currently overrides the classifier's verdict with an unconditional `provisional.MergeState = MergeState.Immutable`. The override exists because the in-place path has no separate provisional (the same recording is both slot effective AND supersede target), and leaving it CP would create a duplicate / un-reapable UF row. Site B-2's job in this feature is to handle the in-place CP case correctly per §6.3 — three candidate options (B2-A force-Immutable / B2-B fresh-provisional / B2-C auto-Seal), decision deferred to §11.3.
 
 ---
 
@@ -355,15 +355,27 @@ TerminalOutcomeQualifies(chainTip, slot, RP) :=
     if !terminal.HasValue:
         return false                          // no terminal recorded
 
+    // Crashed always qualifies, regardless of kerbal/focus/everything.
+    // This branch runs FIRST so a dead EVA kerbal (EvaCrewName != null
+    // AND terminal == Destroyed) routes here -- not through the kerbal
+    // branch below -- so the reason logging says reason=crashed and the
+    // §7.8 narrative matches the code.
+    if terminal.Value == Destroyed:
+        return true                           // Crashed
+
     if kerbal:
-        return terminal.Value != Boarded
+        // At this point terminal is guaranteed not Destroyed (handled above).
+        // Any non-Boarded stable terminal is a stranded EVA: surface
+        // (Landed/Splashed), drift (Orbiting/SubOrbital), or Docked
+        // edge cases. Returns true. Boarded would mean the kerbal was
+        // reboarded -- but the BoardBP makes the recording non-leaf via
+        // the structural gate before we ever reach here, so this branch's
+        // "!= Boarded" is effectively redundant. Listed for completeness.
+        //
         // EVA branch returns BEFORE the noFocusSignal short-circuit:
         // stranded kerbals surface even from legacy / no-focus-signal RPs.
-        // Dead EVA kerbals hit terminal == Destroyed and route through
-        // the Crashed branch below; they are NOT routed here.
-
-    if terminal.Value == Destroyed:
-        return true                           // Crashed -- regardless of focus
+        // Intentional retroactive carve-out (see §9.1).
+        return terminal.Value != Boarded
 
     // Stable in-flight terminals: only non-focus slots on RPs with a
     // defined focus signal qualify. noFocusSignal short-circuits to false.
@@ -456,9 +468,17 @@ log [Supersede] Info: provisional=<rid> mergeState=<state> qualifies=<b>
     slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex>
 ```
 
-**Site B-2: in-place continuation override removal.** `MergeDialog.TryCommitReFlySupersede` currently calls `FlipMergeStateAndClearTransient` and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier verdict. **This override must be removed.** The Site B-1 verdict is authoritative for in-place merges too. The formal design doc accepts that this changes v0.9 in-place behavior for the existing Crashed case (which previously got force-Immutabled by this override); the new behavior is "Crashed in-place re-fly stays CP for chain extension," which is consistent with v0.9 §7.43 and Site B-1.
+**Site B-2: in-place continuation merge handling.** `MergeDialog.TryCommitReFlySupersede` currently calls `FlipMergeStateAndClearTransient` and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier verdict. The override exists for a real invariant: on the in-place path there is **no separate provisional**. The same `Recording` instance plays both roles — it IS the slot's effective recording AND the supersede target. If we let it stay `CommittedProvisional` after merge, the row never drops from Unfinished Flights (the recording is its own effective; the slot stays CP; the predicate keeps qualifying it), creating a duplicate / un-reapable state.
 
-If the override existed for an unstated invariant (a legacy hack the team has forgotten), the implementation PR's reviewer must surface the original reason. The migration risk if the override turns out to be load-bearing for some non-supersede reason is documented in §7 as a build-phase open question.
+Removing the override naively therefore introduces a regression. Site B-2 must produce one of these end states for in-place re-flies that Site B-1 would otherwise classify as CP (Orbiting/SubOrbital/EVA-stranded non-focus):
+
+- **(B2-A) Force Immutable** — current v0.9 behavior preserved. The slot closes; chain extension via the in-place path on stable terminals is unavailable. The player must use a separate RP (a different split) to re-fly again. Simplest; lowest implementation risk; matches the v0.9 invariant exactly.
+- **(B2-B) Switch the in-place path to use a fresh provisional** — architectural change. The supersede chain has distinct old/new endpoints; chain extension works the same as the fresh-provisional path. Cleanest semantically; non-trivial code change to the in-place merge code path.
+- **(B2-C) Auto-Seal the slot on in-place CP merge** — set `slot.Sealed = true` whenever Site B-1 returned CP for an in-place merge whose recording is its own effective. Row drops post-merge; chain extension blocked. Hack-feeling because Seal is a player-explicit action elsewhere.
+
+**Decision deferred to the §11.3 investigation.** The implementation PR picks one of (B2-A) / (B2-B) / (B2-C) only after the §11.3 code-archaeology pass establishes (a) the actual end state v0.9 produces, (b) what code paths consume that state downstream, and (c) which option is safest. Default if the investigation is inconclusive: **(B2-A)** — preserve v0.9 behavior exactly for in-place merges, accept the chain-extension limitation, document it in CHANGELOG. The §10 risk + §13 test-plan entries are written against the (B2-A) baseline; if (B2-B) or (B2-C) is picked, the test plan extends accordingly.
+
+The over-arching shared-classifier rule still holds: Site A and Site B-1 always route through `UnfinishedFlightClassifier.Qualifies` for the predicate verdict. Site B-2 is about what to DO with that verdict on the in-place path, not whether to compute it.
 
 ### 6.4 Closure-helper split + invocation linearization (PREREQUISITE)
 
@@ -639,10 +659,10 @@ Buttons: `Seal Permanently` (destructive style, fires the seal handler), `Cancel
 No RP. No slot. Predicate fails on the matching-RP filter. Not UF. ✓
 
 ### 7.2 Three or more controllable children at one split
-One RP with N ChildSlots. `FocusSlotIndex` points at the focus slot (typically the active vessel's continuation). Each non-focus slot is independently considered by the predicate. **Shipped (test): ApplyRewindProvisionalMergeStatesTests + UnfinishedFlightClassifierTests.**
+One RP with N ChildSlots. `FocusSlotIndex` points at the focus slot (typically the active vessel's continuation). Each non-focus slot is independently considered by the predicate. **Planned test: extend `ApplyRewindProvisionalMergeStatesTests` + new `UnfinishedFlightClassifierTests`.**
 
 ### 7.3 4-probe deploy from a Mun mothership (the canonical case)
-Mothership is focus → Immutable. 4 probes are non-focus, terminal Orbiting → 4 CP slots → 4 UF rows. RP stays alive while any probe slot is unsealed. **Shipped (in-game test).**
+Mothership is focus → Immutable. 4 probes are non-focus, terminal Orbiting → 4 CP slots → 4 UF rows. RP stays alive while any probe slot is unsealed. **Planned in-game test.**
 
 ### 7.4 Auto-parachute booster, focus on upper stage
 Booster non-focus, terminal Landed → not UF (Landed always returns false from `TerminalOutcomeQualifies`) → Immutable. Upper stage is focus, terminal Orbiting → not UF (focus exclusion) → Immutable. RP reaps cleanly. **Critical regression guard test.**
@@ -681,7 +701,7 @@ Re-fly merge: Site B-1 sees Landed → not UF → Immutable. Slot closes. Supers
 Re-fly merge produces a Board BP. Provisional has `ChildBranchPointId = boardBp.Id`. `TerminalOutcomeQualifies` returns false (Boarded → kerbal branch returns false). Site B-1 → Immutable. Slot closes. Stranded-kerbal-recovery path complete.
 
 ### 7.16 Player Seals a UF row
-`slot.Sealed = true`; row drops from group; reaper runs (RP deleted if all sibling slots also closed, NotCommitted-not-allowed). Recording unchanged; ghost playback unchanged on subsequent rewinds. **Shipped (test).**
+`slot.Sealed = true`; row drops from group; reaper runs (RP deleted if all sibling slots also closed, NotCommitted-not-allowed). Recording unchanged; ghost playback unchanged on subsequent rewinds. **Planned test.**
 
 ### 7.17 Player Seals a Crashed row (not a stable leaf)
 Same Seal handler. The Crashed terminal originally qualified the row; Sealing closes it as "I accept the crash as canonical." Provides v0.9 users with a cleanup affordance they didn't have before.
@@ -707,8 +727,14 @@ RP captures with explicit `FocusSlotIndex = -1` (player was focused on an unrela
 ### 7.24 BG-only multi-controllable split with all controllable Orbiting siblings
 RP captures with `FocusSlotIndex = -1` (no focus involved). All sibling slots stay Immutable post-commit. No UF rows. RP reaps. Same outcome as legacy save case.
 
-### 7.25 In-place re-fly merge ending Orbiting (Site B-2 regression guard)
-With Site B-2 (the unconditional Immutable override removal) in place: Site B-1 sees Orbiting + non-focus → CP. Slot stays open. Without Site B-2: the override forces Immutable; slot closes immediately. **Critical regression guard test** — drives the merge through `MergeDialog.TryCommitReFlySupersede` (NOT through the spawn-fresh-provisional path).
+### 7.25 In-place re-fly merge ending Orbiting (Site B-2 behavior)
+Player drives a re-fly merge through `MergeDialog.TryCommitReFlySupersede` (in-place path). Site B-1 classifier returns Orbiting + non-focus → CP. Site B-2's end state depends on which option (§6.3) is picked:
+
+- **(B2-A) force-Immutable**: slot closes; row drops post-merge; chain extension via in-place blocked. v0.9 behavior preserved.
+- **(B2-B) fresh-provisional**: in-place merge spawns a separate provisional, supersede chain has distinct old/new endpoints, slot stays CP, row stays in UF for further re-fly.
+- **(B2-C) auto-Seal**: same as B2-A end state, but reached via `slot.Sealed = true` rather than MergeState flip.
+
+The §11.3 investigation picks one. The test plan in §13 starts with a (B2-A) baseline and extends if (B2-B) or (B2-C) is picked.
 
 ### 7.26 Hybrid star+linear supersede graph
 Save loaded with legacy star portion `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` from a pre-§6.4 chain extension. Player invokes a new re-fly into the same slot. New invocation computes `priorTip = slot.EffectiveRecordingId(supersedes)` — the walker picks the oldest member of the star (probeReFly1) and walks linearly from there. New relation appended: `{probeReFly1 -> probeReFly3}`. Resulting graph is hybrid: star portion preserved, linear portion grows from probeReFly1. `TryResolveRewindPointForRecording(probeReFly3, ...)` returns the slot via the forward walk from slot.OriginChildRecordingId → probeReFly1 → probeReFly3. **Tolerated, no migration sweep needed.**
@@ -786,7 +812,7 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 - **Breakup-survivor with stable-orbit terminal can't be re-flown via UF** (§7.11). The single most "obvious-feeling-bug" outcome of the focus-slot exclusion. Player remembers a structural failure, looks for it under UF, doesn't find it (because they survived to orbit). **Acceptable v1 limitation.** Mitigations: player can crash the post-breakup vessel, or wait for v2 Park-from-not-UF. CHANGELOG must surface this with an FAQ-style entry; consider a forum/Discord post too.
 
-- **Site B-2 override removal might be load-bearing for an unstated reason.** The implementation PR's reviewer must surface the original reason for the v0.9 unconditional `provisional.MergeState = MergeState.Immutable` override in `TryCommitReFlySupersede`. If it exists for a non-supersede invariant we don't understand, the removal could cause a regression we haven't anticipated. Mitigation: **build-phase open question** to investigate before the override is removed.
+- **Site B-2 in-place duplicate-row invariant.** The current v0.9 `MergeDialog.TryCommitReFlySupersede` override exists because the in-place path has no separate provisional — leaving the recording CP after merge would create a duplicate / un-reapable UF row. §6.3 enumerates three candidate handlings (B2-A force-Immutable / B2-B fresh-provisional / B2-C auto-Seal); §11.3 picks one. Until the investigation completes, the design defaults to **(B2-A) force-Immutable** which preserves v0.9 behavior exactly. The chain-extension limitation under (B2-A) is documented in CHANGELOG (in-place re-flies on stable terminals seal the slot; player must use a fresh split RP to re-fly again).
 
 - **Legacy hybrid supersede graphs.** §7.26 — tolerated by the design but the §11 hybrid test must run green for confidence. If the walker behavior on hybrids differs from expectations, a migration sweep may need to be added back.
 
@@ -823,9 +849,20 @@ The implementation PR's pre-work must run that test against current `main` and d
 - (a) The test is green because of an unstated mechanism (relation insertion order, walker tie-break) that makes star-graph resolution work in practice. Document it.
 - (b) The test is silently broken and nobody has noticed. File a `docs/dev/todo-and-known-bugs.md` entry; the prerequisite PR ships as the fix for that bug.
 
-### 11.3 Build-phase open question: Site B-2 override origin
+### 11.3 Build-phase open question: Site B-2 in-place handling
 
-The implementation PR's reviewer must surface the original reason for the unconditional `provisional.MergeState = MergeState.Immutable` override in `MergeDialog.TryCommitReFlySupersede`. If it exists for a non-supersede invariant, the removal needs careful migration. Hypothesis: it's a defensive remnant from an earlier v0.9 iteration where the classifier could return wrong values; if so, removing it is safe under the new shared classifier. Confirm with code archaeology.
+`MergeDialog.TryCommitReFlySupersede`'s in-place path uses the same `Recording` instance as both the slot's effective recording AND the supersede target — there is no separate provisional. The current v0.9 unconditional `provisional.MergeState = MergeState.Immutable` override after `FlipMergeStateAndClearTransient` exists because leaving the recording CP would create a duplicate / un-reapable UF row (the recording is its own effective; the slot stays CP; the predicate keeps qualifying it).
+
+The implementation PR's pre-work must:
+
+1. Read `MergeDialog.TryCommitReFlySupersede` and confirm the duplicate-row failure mode actually occurs without the override (write a regression test that builds the in-place case and asserts the row stays in UF post-merge under naive removal).
+2. Pick one of the three handling options from §6.3:
+   - **(B2-A) Force Immutable.** Preserve v0.9 behavior. Chain extension via in-place blocked. Simplest, lowest risk.
+   - **(B2-B) Switch in-place to fresh-provisional.** Architectural change to `MergeDialog.TryCommitReFlySupersede`. Cleanest semantically; non-trivial code change. Pre-work: confirm fresh-provisional path is reachable from in-place context (vessel state, scenario state, etc.).
+   - **(B2-C) Auto-Seal on in-place CP merge.** Set `slot.Sealed = true` whenever Site B-1 returned CP for an in-place merge. Hack-feeling; trivial code change. Pre-work: confirm auto-Seal logs make sense (`reaperImpact=willReap` etc.).
+3. Document the choice + rationale in the prerequisite PR description and update §6.3 / §7.25 / §10 / §13.1 to remove the "deferred" framing.
+
+Default if the investigation is inconclusive or shows ambiguity: **(B2-A)**. Preserves v0.9 behavior exactly; CHANGELOG documents the chain-extension limitation. The other two options are post-v1 follow-ups if playtest reveals players hitting the limitation often.
 
 ### 11.4 v2 Park-from-not-UF affordance
 
@@ -943,7 +980,7 @@ Site A / Site B-1 / Site B-2 promotion:
 
 - Site A: stable-leaf non-focus controllable → CP; stable-leaf focus controllable → Immutable; stable-leaf debris → Immutable; crashed-leaf focus → CP (active-parent crash regression guard); crashed-leaf non-focus → CP. **Fails if:** the broader predicate misclassifies any case.
 - Site B-1: re-fly ending Orbiting + non-focus → CP; re-fly ending Orbiting + focus → Immutable; re-fly ending Crashed → CP (regression); re-fly ending EVA-stranded Landed → CP. **Fails if:** chain extension on stable terminals breaks.
-- Site B-2: in-place re-fly ending Orbiting/SubOrbital/EVA-stranded → CP (NOT Immutable). Negative variant: with the v0.9 unconditional Immutable override still in `TryCommitReFlySupersede`, assert the test fails. **Fails if:** Site B-2 override removal regresses.
+- Site B-2 (B2-A baseline): in-place re-fly ending Orbiting/SubOrbital/EVA-stranded → Immutable (preserves v0.9 behavior; row drops from UF post-merge; chain extension via in-place blocked). Negative variant on the assertion only if §11.3 picks B2-B (fresh-provisional, asserts CP) or B2-C (asserts slot.Sealed == true and MergeState == CP). **Fails if:** the chosen Site B-2 option regresses.
 - Shared-classifier identity test: assert that Site A, Site B-1, and Site B-2 paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value. **Fails if:** any of the three sites starts using a different classifier or skipping a gate.
 
 Seal handler:
@@ -984,7 +1021,16 @@ Seal handler:
 
 ### 13.5 Hybrid graph regression test
 
-Per §7.26: build a save with legacy star portion `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` AND a new linear portion `{probeReFly2 -> probeReFly3}`. Assert `slot.EffectiveRecordingId(supersedes)` resolves consistently. Assert `TryResolveRewindPointForRecording(probeReFly3, ...)` returns the slot via the forward walk from `slot.OriginChildRecordingId → probeReFly1 → probeReFly3`. **Fails if:** the helper can't handle hybrid topologies, in which case a migration sweep would need to be added.
+Per §7.26: build a save with a legacy star portion `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` (representing pre-§6.4 chain extension where v0.9 wrote two relations sharing the same source). Player invokes a new post-feature re-fly into the same slot. The new invocation computes `priorTip = slot.EffectiveRecordingId(supersedes)`; the v0.9 walker scans from the beginning and stops at the first match, picking probeReFly1 (the older relation in insertion order). The new linearization writes `{probeReFly1 -> probeReFly3}` per the §6.4 marker-write recipe.
+
+Resulting graph: star portion preserved (`{probeOrig -> probeReFly1, probeOrig -> probeReFly2}`) + linear extension from probeReFly1 (`{probeReFly1 -> probeReFly3}`). probeReFly2 is now an orphan branch — still in supersedes but unreachable from the dominant walk path.
+
+Assert:
+- `slot.EffectiveRecordingId(supersedes)` resolves to `probeReFly3` after the new relation is appended (walker: probeOrig → probeReFly1 [first match] → probeReFly3 [first match] → terminate).
+- `TryResolveRewindPointForRecording(probeReFly3, ...)` returns the slot via the forward walk from `slot.OriginChildRecordingId → probeReFly1 → probeReFly3`.
+- `TryResolveRewindPointForRecording(probeReFly2, ...)` ALSO returns the slot (probeReFly2 is in the slot's forward trail via `{probeOrig -> probeReFly2}`, even though the dominant walk picks the probeReFly1 branch).
+
+**Fails if:** the helper can't handle hybrid topologies — in which case a migration sweep would need to be added to flatten star relations to linear before the prerequisite PR ships.
 
 ---
 
