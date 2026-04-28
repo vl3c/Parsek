@@ -226,10 +226,10 @@ namespace Parsek
             pendingRecoveryFunds.Clear();
         }
 
-        internal static void RepairMissingRecoveryDedupKeys()
+        internal static void RepairMissingRecoveryDedupKeys(
+            IReadOnlyList<GameAction> actions,
+            IReadOnlyList<GameStateEvent> events)
         {
-            var actions = Ledger.Actions;
-            var events = GameStateStore.Events;
             if (actions == null || actions.Count == 0 || events == null || events.Count == 0)
                 return;
 
@@ -368,6 +368,7 @@ namespace Parsek
             bool fromTrackingStation,
             Func<string, double, string> pickRecoveryRecordingId,
             Func<int> allocateKscSequence,
+            IReadOnlyList<GameAction> actions,
             Action recalculateAndPatch)
         {
             if (!TryFindRecoveryFundsEvent(
@@ -390,7 +391,7 @@ namespace Parsek
                 return true;
             }
 
-            if (HasRecoveryActionForDedupKey(dedupKey))
+            if (HasRecoveryActionForDedupKey(actions, dedupKey))
             {
                 consumedRecoveryEventKeys.Add(dedupKey);
                 ParsekLog.Verbose(Tag,
@@ -428,12 +429,13 @@ namespace Parsek
             return true;
         }
 
-        private static bool HasRecoveryActionForDedupKey(string dedupKey)
+        private static bool HasRecoveryActionForDedupKey(IReadOnlyList<GameAction> actions, string dedupKey)
         {
             if (string.IsNullOrEmpty(dedupKey))
                 return false;
+            if (actions == null)
+                return false;
 
-            var actions = Ledger.Actions;
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];

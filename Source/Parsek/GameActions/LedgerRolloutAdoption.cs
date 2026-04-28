@@ -56,7 +56,11 @@ namespace Parsek
             recalculateAndPatch();
         }
 
-        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
+        internal static GameAction TryAdoptRolloutAction(
+            string recordingId,
+            double startUT,
+            Recording rec,
+            System.Collections.Generic.IReadOnlyList<GameAction> actions)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
             if (rec == null)
@@ -75,7 +79,9 @@ namespace Parsek
                 return null;
             }
 
-            var actions = Ledger.Actions;
+            if (actions == null)
+                return null;
+
             for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var a = actions[i];

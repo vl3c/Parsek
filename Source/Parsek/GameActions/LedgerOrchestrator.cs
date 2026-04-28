@@ -3346,7 +3346,7 @@ namespace Parsek
                 context,
                 AllocateKscSequence,
                 (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
-                RecalculateAndPatch);
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -3373,7 +3373,7 @@ namespace Parsek
                 context,
                 AllocateKscSequence,
                 (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
-                RecalculateAndPatch);
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -3492,7 +3492,9 @@ namespace Parsek
         /// </summary>
         private static void RepairMissingRecoveryDedupKeys()
         {
-            LedgerRecoveryFundsPairing.RepairMissingRecoveryDedupKeys();
+            LedgerRecoveryFundsPairing.RepairMissingRecoveryDedupKeys(
+                Ledger.Actions,
+                GameStateStore.Events);
         }
 
         /// <summary>
@@ -3574,7 +3576,8 @@ namespace Parsek
                 fromTrackingStation,
                 PickRecoveryRecordingId,
                 AllocateKscSequence,
-                RecalculateAndPatch);
+                Ledger.Actions,
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -3602,7 +3605,7 @@ namespace Parsek
 
         internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
         {
-            return LedgerRolloutAdoption.TryAdoptRolloutAction(recordingId, startUT, rec);
+            return LedgerRolloutAdoption.TryAdoptRolloutAction(recordingId, startUT, rec, Ledger.Actions);
         }
 
         /// <summary>
