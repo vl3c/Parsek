@@ -225,7 +225,7 @@ Regression coverage in `SessionSuppressedSubtreeTests`:
 `SessionSuppressionWiringTests` fixtures that incidentally used different
 PIDs for origin/inside descendants were updated to use the same PID so they
 still exercise the linear-continuation path the closure now scopes to.
-## 632. Pipeline Phase 1: per-frame spline-eval summary log line L4 deferred
+## ~~632. Pipeline Phase 1: per-frame spline-eval summary log line L4 deferred~~ done
 
 `ParsekFlight.cs` (around `InterpolateAndPosition` near `:14868`) carries a
 `// TODO Phase 1: per-frame spline-eval summary log L4` comment for the

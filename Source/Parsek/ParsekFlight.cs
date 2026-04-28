@@ -14943,12 +14943,9 @@ namespace Parsek
             // !IsValid) silently falls through to the legacy lerp result —
             // that is acceptable per HR-9 because "no spline yet" is a normal
             // state, not a failure.
-            // TODO Phase 1: per-frame spline-eval summary log L4 — accumulate
-            // s_frameSplineEvalCount and emit a single VerboseRateLimited line
-            // from the engine's per-frame entry point so eval counts surface
-            // in KSP.log without per-frame chatter.
             if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
             {
+                RecordSplineEvalForLogging();
                 Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
                 if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
                 {
@@ -15238,7 +15235,63 @@ namespace Parsek
                 return false;
 
             worldPos = splineWorld;
+            RecordSplineEvalForLogging();
             return true;
+        }
+
+        // -------------------------------------------------------------------
+        //  L4 — per-frame spline-eval summary (design doc §19.2 Stage 1).
+        //
+        //  Counts every successful spline evaluation across Update + LateUpdate
+        //  paths and emits a single Verbose Pipeline-Smoothing line per second
+        //  with the accumulated count, then resets. Distinct from
+        //  ParsekLog.VerboseRateLimited (which suppresses repeated lines and
+        //  loses the count); here the count is the payload, so we own the gate.
+        //  Wall-clock based (DateTime.UtcNow) so it works in tests without
+        //  Unity's Time API and across scene loads where Planetarium UT can
+        //  reset to zero.
+        // -------------------------------------------------------------------
+        private static int s_splineEvalCount;
+        private static long s_splineEvalLogLastTicks;
+        private const long SplineEvalLogIntervalTicks = TimeSpan.TicksPerSecond; // 1 s
+
+        /// <summary>
+        /// Increment the per-second spline-eval counter; flush a Verbose
+        /// summary line once per second when the counter is non-zero.
+        /// Test seam <see cref="NowProviderForTesting"/> overrides the
+        /// wall-clock for deterministic xUnit assertions.
+        /// </summary>
+        internal static void RecordSplineEvalForLogging()
+        {
+            int n = ++s_splineEvalCount;
+            long now = NowProviderForTesting != null
+                ? NowProviderForTesting().Ticks
+                : DateTime.UtcNow.Ticks;
+            if (s_splineEvalLogLastTicks == 0)
+            {
+                s_splineEvalLogLastTicks = now;
+                return;
+            }
+            if (now - s_splineEvalLogLastTicks >= SplineEvalLogIntervalTicks)
+            {
+                double intervalSec = (now - s_splineEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "frame summary: splineEvals={0} intervalSec={1:F2}", n, intervalSec));
+                s_splineEvalCount = 0;
+                s_splineEvalLogLastTicks = now;
+            }
+        }
+
+        /// <summary>Test-only wall-clock override for the L4 summary gate.</summary>
+        internal static Func<DateTime> NowProviderForTesting;
+
+        /// <summary>Test-only reset of the L4 summary state (counter + last-emit timestamp).</summary>
+        internal static void ResetSplineEvalLoggingForTesting()
+        {
+            s_splineEvalCount = 0;
+            s_splineEvalLogLastTicks = 0;
+            NowProviderForTesting = null;
         }
 
         // Keep the old signature for backward compat with tests
