@@ -58,7 +58,8 @@ namespace Parsek
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
         public const int RelativeAbsoluteShadowFormatVersion = 7;
-        public const int CurrentRecordingFormatVersion = RelativeAbsoluteShadowFormatVersion;
+        public const int BoundarySeamFlagFormatVersion = 8;
+        public const int CurrentRecordingFormatVersion = BoundarySeamFlagFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -85,6 +86,10 @@ namespace Parsek
         // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
         // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
         // v7: RELATIVE TrackSections also store absolute planet-relative shadow points
+        // v8: TrackSection.isBoundarySeam flag for the Producer-C no-payload boundary seam — mandatory
+        //     binary bump because TrajectorySidecarBinary.WriteTrackSections is positional; legacy v7
+        //     readers see a default-false flag (`v < 8` skips the byte). See
+        //     docs/dev/plans/optimizer-persistence-split.md §5.3.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
