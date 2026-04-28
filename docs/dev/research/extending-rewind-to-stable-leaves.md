@@ -1,6 +1,6 @@
 # Research: Extending Unfinished Flights to Stable, Unconcluded Leaves
 
-*Investigation doc, started 2026-04-27, R13 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R12 incorporated eight external review passes; R13 closes a ninth pass with one P1 (R12's `ComputeSubtreeClosure(rootRecordingId)` was root-only and would have lost PID-peer expansion gating that depends on `marker.InvokedUT`; R13 changes the helper to take both marker context AND a root override) and a P2 (the §9.2.1 step 2 pseudocode block still showed an unconditional `provisional.SupersedeTargetId = priorTip` assignment despite step 4 saying it must be guarded; R13 inlines the null-check). The next step is to promote this to a formal design doc.*
+*Investigation doc, started 2026-04-27, R14 on 2026-04-28. Per the dev workflow, this lives in step 1-2 territory: vision + scenario simulation. R3 closed all clarifications with the user; R4 incorporated an internal opus review pass; R5-R13 incorporated nine external review passes; R14 closes a tenth pass with two P2s (the R13 wrapper snippet was expression-bodied and dropped the existing public helper's null-guard and defensive-copy contracts; §S21's narrative still named the old origin-rooted helper for the merge path even though R12/R13 split it). The next step is to promote this to a formal design doc.*
 
 *Reads against: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth), `parsek-recording-finalization-design.md`, `parsek-flight-recorder-design.md`, `parsek-timeline-design.md`. Code spot-checks against `EffectiveState.cs`, `TerminalKindClassifier.cs`, `RecordingStore.cs`, `RewindPointReaper.cs`, `BranchPoint.cs`, `Recording.cs`, `RecordingOptimizer.cs`.*
 
@@ -20,7 +20,8 @@
 - **R10.** Sixth external review pass landed two P1s on the R9 §9.2.1 prerequisite: (a) **P1.H** -- R9 edited the wrong write site (BuildProvisionalRecording vs AtomicMarkerWrite); R10 moved the change. (b) **P1.I** -- R9 mutated `marker.OriginChildRecordingId` and would have broken every existing consumer; R10 introduced a new `marker.SupersedeTargetId` field instead.
 - **R11.** Seventh external review pass landed one P1 + a P2: (a) **P1.J** -- R10 said `AppendRelations` should bypass the closure; R11 re-rooted it instead. (b) **P2** -- "omitted when null" contract conflict with unconditional write recipe; R11 picked the unconditional contract.
 - **R12.** Eighth external review pass landed one P1 + two P2s: (a) **P1.K** -- R11 framed closure re-rooting as a one-line `AppendRelations` change, but the helper is shared with runtime suppression; R12 split into a separate root-aware helper. (b) **P2.L** -- stale "v0.9 parity exactly" wording contradicted the EVA carve-out; R12 narrowed it. (c) **P2.M** -- R10 framed the in-place continuation as outside `AtomicMarkerWrite`; R12 corrected with a precise within-method recipe.
-- **R13 (this version).** Ninth external review pass landed one P1 + a P2: (a) **P1.M** -- R12's `ComputeSubtreeClosure(rootRecordingId)` was a root-only signature, but the existing closure algorithm passes the marker into `EnqueuePidPeerSiblings`, which uses `marker.InvokedUT` to include only post-rewind same-PID peers and exclude prior same-vessel history. A root-only helper would either lose PID-peer expansion (re-introducing missed descendants/tombstones) or mis-gate against pre-rewind peers (superseding the wrong recordings). R13 changes the split: extract the existing helper's body into `ComputeSubtreeClosureInternal(marker, rootOverride)` so the marker context (InvokedUT, mixed-parent halt, chain-sibling expansion) is preserved exactly; the existing `ComputeSessionSuppressedSubtree(marker)` becomes a thin wrapper delegating with `marker.OriginChildRecordingId`. `AppendRelations` calls the internal helper with the SupersedeTargetId-or-origin fallback. Cache key inside the helper must include `rootOverride` so the two call shapes don't collide. Updated §12 recommendation to match. (b) **P2.N** -- the §9.2.1 step 2 pseudocode still wrote `provisional.SupersedeTargetId = priorTip` unconditionally even though step 4 explicitly says the assignment must be guarded; following step 2 verbatim would crash on the in-place branch where `provisional` is null. R13 inlines the `if (provisional != null)` guard into the step 2 snippet so the recipe is internally consistent.
+- **R13.** Ninth external review pass landed one P1 + a P2: (a) **P1.M** -- R12's `ComputeSubtreeClosure(rootRecordingId)` was root-only; R13 made it marker-aware with a root override (`ComputeSubtreeClosureInternal(marker, rootOverride)`). (b) **P2.N** -- step 2 pseudocode still had unconditional provisional assign; R13 inlined the null-check.
+- **R14 (this version).** Tenth external review pass landed two P2s: (a) **P2.O** -- R13's wrapper snippet was expression-bodied and would have broken the existing public helper's null-guard contract (`ComputeSessionSuppressedSubtree(null)` returns empty; the `marker.OriginChildRecordingId` access would NRE) AND its defensive-copy contract (the public method returns a fresh HashSet, not the cached one; expression-body would expose the cache to mutation by callers). R14 rewrites the wrapper as a method body that null-guards the marker, calls the internal, and returns a defensive copy of the cached HashSet. Internal call sites (the new `AppendRelations` path) get the raw cached collection so the hot suppression read path doesn't pay per-call copy cost. (b) **P2.P** -- §S21's cross-tree dock scenario still narrated `AppendRelations` as walking `EffectiveState.ComputeSessionSuppressedSubtree(marker)` for the merge subtree, but R12/R13's whole point is that merge MUST call the marker-aware root-override helper while runtime suppression keeps using `ComputeSessionSuppressedSubtree`. R14 updates §S21 to reference the new internal helper with the fallback expression so the scenario aligns with the §9.2.1 design.
 
 ---
 
@@ -474,7 +475,7 @@ This case is symmetric to S1 but inverts the roles of the two-vessel split: a BG
 
 Setup. Player picks parked probe (S1) from Unfinished Flights, hits Fly, rewinds to split UT. Probe is live; mothership is ghost. Player flies the probe to a station that belongs to a *different tree* (different launch). Docks the probe to the station.
 
-Behaviour. Dock BP fires; probe-re-fly recording gains a `ChildBranchPointId`. On merge, `SupersedeCommit.AppendRelations` walks `EffectiveState.ComputeSessionSuppressedSubtree(marker)` for the supersede subtree -- which is tree-scoped and halts at mixed-parent BranchPoints. The station's tree is unaffected; supersede stays inside the probe's tree. The probe-re-fly itself is no longer a leaf (Dock BP). `FlipMergeStateAndClearTransient` runs `TerminalOutcomeQualifies` on a Docked terminal -> returns false -> Immutable. Slot closes.
+Behaviour. Dock BP fires; probe-re-fly recording gains a `ChildBranchPointId`. On merge, `SupersedeCommit.AppendRelations` walks the marker-aware closure `ComputeSubtreeClosureInternal(marker, marker.SupersedeTargetId ?? marker.OriginChildRecordingId)` for the supersede subtree -- tree-scoped and halts at mixed-parent BranchPoints (same gates as the runtime suppression closure; only the root differs). The station's tree is unaffected; supersede stays inside the probe's tree. The probe-re-fly itself is no longer a leaf (Dock BP). `FlipMergeStateAndClearTransient` runs `TerminalOutcomeQualifies` on a Docked terminal -> returns false -> Immutable. Slot closes.
 
 Same shape as v0.9 §7.7 (cross-tree dock during re-fly). Confirmed compatible with the broadened predicate; no new code path needed. v0.9's "acceptable v1 limitation: no dedicated test for cross-tree dock" still applies; this feature should add a covering test as part of its in-game test pass.
 
@@ -714,13 +715,23 @@ This is **not just a Site B problem.** v0.9's existing Crashed chain extension d
 
    **R13 fix: marker-aware helper with explicit root override.** R12's first attempt was a single-arg `ComputeSubtreeClosure(rootRecordingId)`, but the closure algorithm needs more than just a root. `ComputeSessionSuppressedSubtreeInternal` calls `EnqueuePidPeerSiblings`, which uses `marker.InvokedUT` to include only POST-rewind same-PID peers and exclude prior same-vessel history. A root-only helper would either lose PID-peer expansion (re-introducing missed descendants/tombstones) or mis-gate against pre-rewind peers (superseding the wrong recordings).
 
-   The corrected split: extract the existing helper's body into `ComputeSubtreeClosureInternal(ReFlySessionMarker marker, string rootOverride)` -- same marker-context plumbing as today (InvokedUT, cache key, every other gate), with the **root recording** parameterized. The current helper becomes a thin wrapper:
+   The corrected split: extract the existing helper's body into `ComputeSubtreeClosureInternal(ReFlySessionMarker marker, string rootOverride)` -- same marker-context plumbing as today (InvokedUT, cache key, every other gate), with the **root recording** parameterized. The current helper becomes a thin wrapper that preserves its existing public contract (null guard + defensive copy of the cached HashSet); only the internal call sites can share the cached closure directly.
 
    ```csharp
    public static IReadOnlyCollection<string> ComputeSessionSuppressedSubtree(
        ReFlySessionMarker marker)
-       => ComputeSubtreeClosureInternal(marker, marker.OriginChildRecordingId);
+   {
+       if (marker == null)
+           return Array.Empty<string>();                          // existing public contract
+       var cached = ComputeSubtreeClosureInternal(
+                        marker, marker.OriginChildRecordingId);   // internal sees cached HashSet
+       return new HashSet<string>(cached);                        // existing public contract:
+                                                                  // defensive copy, callers
+                                                                  // cannot mutate the cache
+   }
    ```
+
+   The existing public-helper contract is preserved exactly: legacy callers get the same null-empty behaviour and the same defensive-copy guarantee. Internal callers (the new `AppendRelations` site, plus the existing wrapper) see the raw cached HashSet to avoid per-call copies on the hot ghost-suppression read path.
 
    Two consumers, two call shapes, both pass the marker context:
    - **Runtime suppression** (ghost playback engine, chain walker, ghost map presence, watch mode): continue calling `ComputeSessionSuppressedSubtree(marker)` -- delegates to the internal helper with the slot's immutable origin. **No behavioural change.**
@@ -869,7 +880,7 @@ In-game tests:
 
 ## 12. Recommendation
 
-R13 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
+R14 is ready to promote to a formal design doc, modulo one explicit unresolved item: §7.0's UI layout choice (widen column / new column / kebab menu). R10's earlier "in-place continuation enumeration" open item was closed in R12 -- the in-place branch is local to `AtomicMarkerWrite` and the recipe in §9.2.1 step 4 covers both branches without external code spelunking. The shape:
 
 - **Prerequisite v0.9 marker-write change + closure-helper split**: `RewindInvoker.AtomicMarkerWrite` (NOT `BuildProvisionalRecording`) computes `priorTip = selected.EffectiveRecordingId(supersedes)` once before the in-place vs fresh-provisional branch; stamps `marker.OriginChildRecordingId` (slot origin, unchanged contract) and `marker.SupersedeTargetId` (NEW, prior tip) in the shared marker-creation block; the `provisional.SupersedeTargetId = priorTip` overwrite is guarded with `if (provisional != null)` (the in-place branch sets provisional null). Existing `ComputeSessionSuppressedSubtree(marker)` is refactored: body extracts into `ComputeSubtreeClosureInternal(marker, rootOverride)` (preserves all marker-context gates: InvokedUT for PID-peer, mixed-parent halt, chain-sibling expansion); the existing wrapper delegates with `marker.OriginChildRecordingId`. `SupersedeCommit.AppendRelations` calls the internal helper with `marker.SupersedeTargetId ?? marker.OriginChildRecordingId`. Runtime ghost suppression is unchanged. See §9.2.1.
 - **Three new persistent fields**: `ChildSlot.Sealed` (+ diagnostic `SealedRealTime`); `RewindPoint.FocusSlotIndex` (int, -1 default); `ReFlySessionMarker.SupersedeTargetId` (string, null default). All back-compat.
@@ -886,4 +897,4 @@ Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` 
 
 ---
 
-*End of research note R13.*
+*End of research note R14.*
