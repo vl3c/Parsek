@@ -706,27 +706,13 @@ Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. 
 
 ## 9. Round-Trip Linking (Future)
 
-This section is future design intent, not v1 implementation scope. Round-trip linking is deferred to v1.1+. The v1 route model stores `LinkedRouteId` only as a reserved serialization field so the save shape can grow without replacing existing routes. v1 dispatch ignores `LinkedRouteId`.
+Round-trip linking is not v1 implementation scope. In v1, `LinkedRouteId` is a reserved serialization field only: route creation does not expose linking UI, dispatch ignores `LinkedRouteId`, and tests only verify that the field round-trips without changing behavior.
 
-### 9.1 How round trips work
+Future design intent:
 
-A round trip is two separate one-way routes, each from its own recording:
-
-1. Player flies tanker KSC → Station. Parsek spawns real tanker at station after first playback.
-2. Player flies spawned tanker Station → KSC. Second recording created.
-3. Both recordings become routes. Player links them as a round-trip pair.
-
-### 9.2 Scheduling constraint
-
-Linked routes alternate: **don't dispatch me until my partner completes.**
-
-```
-Route A completes → Route B dispatches → Route B completes → Route A dispatches → ...
-```
-
-### 9.3 Implementation
-
-Future implementation: player selects two routes in the UI and clicks "Link as Round Trip." Sets `LinkedRouteId` on both. A future dispatch evaluation step checks whether the partner is `InTransit`. Unlinking clears `LinkedRouteId` on both. Pausing a partner does NOT block the other (linked-wait only applies to `InTransit`).
+- A round trip remains two separate one-way Supply Routes, each created from its own Supply Run.
+- A later UI may link two routes as a pair so they alternate dispatch eligibility: Route A completes -> Route B may dispatch -> Route B completes -> Route A may dispatch.
+- Future dispatch rules may wait while the linked partner is `InTransit`. Pausing a partner should not block the other unless that future design explicitly changes the rule.
 
 ---
 
