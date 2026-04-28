@@ -1074,7 +1074,28 @@ namespace Parsek
             PopulateEngineInfos(state, result);
 
             if (result.deployableInfos != null)
+            {
                 state.deployableInfos = BuildDictByPid(result.deployableInfos, d => d.partPersistentId);
+
+                // Initialize every deployable to its stowed pose at spawn — without this,
+                // parts whose prefab defaults to the deployed pose (e.g. stock retractable
+                // ladders) render extended in the ghost even when the recorded vessel had
+                // them stowed. Already-deployed parts get a DeployableExtended seed event
+                // at startUT (PartStateSeeder), so ApplyFrameVisuals snaps them back to
+                // deployed when the playback loop reaches the recording start. Mirrors the
+                // loop-rewind baseline in ReapplySpawnTimeModuleBaselinesForLoopCycle.
+                int stowedCount = 0;
+                foreach (var kvp in state.deployableInfos)
+                {
+                    var stowedEvt = new PartEvent { partPersistentId = kvp.Key };
+                    if (ApplyDeployableState(state, stowedEvt, deployed: false))
+                        stowedCount++;
+                }
+                if (state.deployableInfos.Count > 0)
+                    ParsekLog.Verbose("GhostVisual",
+                        $"Spawn baseline: stowed {stowedCount}/{state.deployableInfos.Count} deployable(s) " +
+                        $"(vessel='{state.vesselName ?? "unknown"}')");
+            }
 
             PopulateHeatInfos(state, result);
             PopulateLightInfos(state, result);
