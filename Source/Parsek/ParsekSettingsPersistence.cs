@@ -246,16 +246,51 @@ namespace Parsek
 
         internal static void RecordUseSmoothingSplines(bool value)
         {
-            LoadIfNeeded();
+            // SecurityException guard mirrors EffectiveShowGhostsInTrackingStation:
+            // under xUnit, KSPUtil.ApplicationRootPath throws SecurityException.
+            // The in-memory store is still updated below — that's what the tests
+            // (and the in-process value precedence) actually depend on.
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            // Idempotent: if the persistent store already has this value,
+            // skip Save() to avoid disk I/O on the restore-then-apply
+            // round-trip (the property setter calls Record on every real
+            // change, including the one that ApplyTo triggers when it
+            // restores the stored value into the live ParsekSettings).
+            if (storedUseSmoothingSplines.HasValue && storedUseSmoothingSplines.Value == value) return;
             storedUseSmoothingSplines = value;
-            Save();
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         internal static void RecordUseAnchorCorrection(bool value)
         {
-            LoadIfNeeded();
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseAnchorCorrection.HasValue && storedUseAnchorCorrection.Value == value) return;
             storedUseAnchorCorrection = value;
-            Save();
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         /// <summary>

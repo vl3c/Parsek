@@ -555,5 +555,67 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(1, splines[1].Key);
             Assert.Equal(6, splines[1].Value.KnotsUT.Length);
         }
+
+        [Fact]
+        public void TryProbe_FileLockedByAnotherProcess_ReturnsFalse_DoesNotThrow()
+        {
+            // What makes it fail: TryProbe must absorb FileStream IO errors
+            // (file locked by another process, anti-virus scan, mid-rename
+            // collision) and return false with a populated reason. Without
+            // the catch, the exception bubbles up to LoadRecordingFiles
+            // and aborts the entire recording load over a regenerable
+            // cache — a violation of HR-9 (.pann is regenerable, never
+            // blocks .prec hydration).
+            string path = Path.Combine(tempDir, "rec_locked.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recL", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Hold an exclusive lock on the file so the open in TryProbe
+            // hits an IOException (sharing-violation on Windows).
+            bool probeResult;
+            string reason;
+            using (var holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                probeResult = PannotationsSidecarBinary.TryProbe(path, out var probe);
+                reason = probe.FailureReason;
+            }
+
+            Assert.False(probeResult);
+            Assert.NotNull(reason);
+            // Either "io error" (FileStream IOException) or another caught
+            // category — the test only asserts non-throw + populated reason.
+        }
+
+        [Fact]
+        public void TryProbe_MalformedRecordingIdLength_ReturnsFalse_DoesNotThrow()
+        {
+            // What makes it fail: BinaryReader.ReadString() throws
+            // ArgumentOutOfRangeException on a corrupt LEB128 length byte.
+            // Before the outer catch was added, that exception escaped
+            // TryProbe and aborted recording load. The fix maps any
+            // malformed-payload exception to a cache-miss + recompute.
+            string path = Path.Combine(tempDir, "rec_malformed_id.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recM", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Corrupt the recording-id length prefix. Magic(4) + binVer(4)
+            // + algStamp(4) + epoch(4) + fmt(4) + configHash(32) = 52,
+            // so byte 52 is the first byte of the LEB128-encoded string
+            // length. Plant a continuation pattern with no terminator
+            // (high bits set on every byte) — ReadString never reaches a
+            // terminator and either throws ArgumentOutOfRangeException
+            // (negative final length) or EndOfStream.
+            byte[] bytes = File.ReadAllBytes(path);
+            for (int i = 52; i < Math.Min(bytes.Length, 60); i++)
+                bytes[i] = 0xFF;
+            File.WriteAllBytes(path, bytes);
+
+            // Critical: must not throw.
+            bool ok = PannotationsSidecarBinary.TryProbe(path, out var probe);
+            Assert.False(ok);
+            Assert.NotNull(probe.FailureReason);
+        }
     }
 }

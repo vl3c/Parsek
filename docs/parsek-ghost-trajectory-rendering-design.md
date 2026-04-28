@@ -1145,7 +1145,7 @@ For each stage, the table below lists the events that must produce a log line, t
 | Event                                        | Level   | Tag                   | Data to include                                                           |
 |----------------------------------------------|---------|-----------------------|---------------------------------------------------------------------------|
 | Spline fit at commit                         | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, env, sampleCount, knotCount, fit duration ms |
-| Spline fit lazy (annotation absent / drift on load)  | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason ∈ {`file-missing`, `version-drift`, `epoch-drift`, `format-drift`, `config-hash-drift`, `alg-stamp-drift`} |
+| Spline fit lazy (annotation absent / drift on load)  | Info    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason ∈ {`file-missing`, `version-drift`, `epoch-drift`, `format-drift`, `config-hash-drift`, `alg-stamp-drift`, `recording-id-mismatch`} |
 | Fallback to legacy bracket (fit failure)     | Warn    | `Pipeline-Smoothing`  | `recordingId`, sectionIndex, reason, sampleCount                          |
 | Spline evaluation per frame (rate-limited)   | Verbose | `Pipeline-Smoothing`  | `VerboseRateLimited` shared key, count summary                            |
 | Settings flag flip (`useSmoothingSplines`)   | Info    | `Pipeline-Smoothing`  | old → new                                                                  |

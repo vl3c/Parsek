@@ -481,6 +481,16 @@ namespace Parsek.Rendering
                 return "epoch-drift";
             if (probe.SourceRecordingFormatVersion != rec.RecordingFormatVersion)
                 return "format-drift";
+            // Recording-id mismatch: a .pann from a different recording was
+            // copied or left in place under our filename. Every other field
+            // can match by chance (same epoch, format, alg stamp, config
+            // hash), but the spline sections inside index into a different
+            // recording's TrackSections list — installing them would render
+            // ghosts at wrong-recording positions. .prec already rejects id
+            // mismatches at TrajectorySidecarBinary load; .pann mirrors that
+            // defense here.
+            if (!string.Equals(probe.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                return "recording-id-mismatch";
             if (!ByteArraysEqual(probe.ConfigurationHash, expectedConfigHash))
                 return "config-hash-drift";
             return null;

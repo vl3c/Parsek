@@ -298,6 +298,38 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void LoadOrCompute_StalePann_RecordingIdMismatch_Recomputes()
+        {
+            // What makes it fail: a .pann from a different recording was
+            // copied or left in place under our filename. Every other field
+            // can match by chance (same epoch, format, alg stamp, config
+            // hash); without an id check, the foreign spline sections would
+            // be installed under the current recording's id and produce
+            // wrong-coordinate ghost positions. .prec already rejects id
+            // mismatches at TrajectorySidecarBinary load — .pann mirrors
+            // that defense.
+            string pannPath = Path.Combine(tempDir, "rec-mismatch.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            // Write the .pann under a different recording id ("foreign-rec")
+            // to a file the loader will look up under "rec-mismatch".
+            PannotationsSidecarBinary.Write(pannPath, "foreign-rec",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            var rec = MakeRecording("rec-mismatch",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=recording-id-mismatch"));
+            // Recompute path should have populated annotations under the
+            // *correct* recording id.
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-mismatch", 0, out var spline));
+            Assert.True(spline.IsValid);
+        }
+
+        [Fact]
         public void LoadOrCompute_StalePann_EpochDrift_Recomputes()
         {
             // What makes it fail: HR-10 — a .prec rewrite (supersede commit,

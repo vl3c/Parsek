@@ -125,6 +125,39 @@ namespace Parsek
                 return false;
             }
 
+            try
+            {
+                return TryProbeCore(path, ref probe);
+            }
+            catch (IOException ex)
+            {
+                // FileStream open errors (file locked by another process,
+                // permission issue, mid-rename collision). The .pann is
+                // regenerable — surface the failure as cache-miss rather
+                // than letting it abort the recording load.
+                probe.FailureReason = $"io error opening pannotations: {ex.Message}";
+                return false;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                probe.FailureReason = $"access denied opening pannotations: {ex.Message}";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // BinaryReader.ReadString() can throw ArgumentOutOfRangeException
+                // on a negative LEB128 length byte; ReadBytes can throw on
+                // truncated streams that the prelude length-check missed
+                // because of slack space. Treat any malformed-payload
+                // exception as cache-miss + recompute (matches TryRead's
+                // broad catch and HR-9 visible-failure contract).
+                probe.FailureReason = $"malformed pannotations header: {ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool TryProbeCore(string path, ref PannotationsSidecarProbe probe)
+        {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var reader = new BinaryReader(stream, Encoding.UTF8))
             {

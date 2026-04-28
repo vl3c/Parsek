@@ -258,7 +258,24 @@ namespace Parsek
             {
                 string pannPath = RecordingPaths.ResolveSaveScopedPath(pannRelativePath);
                 if (!string.IsNullOrEmpty(pannPath))
-                    Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
+                {
+                    // Defense-in-depth: even though TryProbe and TryRead both
+                    // wrap their I/O in broad catches and return false on any
+                    // malformed/locked file, an outer guard here ensures a
+                    // never-anticipated exception inside SmoothingPipeline
+                    // can never abort recording load (HR-9: .pann is
+                    // regenerable, never blocks .prec hydration).
+                    try
+                    {
+                        Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn("Pipeline-Sidecar",
+                            $"LoadOrCompute threw unexpectedly for recordingId={rec.RecordingId}: " +
+                            $"{ex.GetType().Name}: {ex.Message} — recording load continues without .pann annotations");
+                    }
+                }
             }
 
             // #412: Run legacy-loop migration and degenerate-interval normalization as soon

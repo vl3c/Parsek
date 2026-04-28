@@ -120,5 +120,24 @@ namespace Parsek.Tests.Rendering
             Assert.DoesNotContain(logLines,
                 l => l.Contains("[Pipeline-Anchor]") && l.Contains("useAnchorCorrection:"));
         }
+
+        [Fact]
+        public void UseAnchorCorrection_DirectAssign_PersistsToStore()
+        {
+            // What makes it fail: the property setter logs but never calls
+            // RecordUseAnchorCorrection, so a user/debug flip via
+            // GameParameters or the settings UI would not persist. The
+            // value would revert on the next save/rewind load when
+            // ApplyTo restores from the store.
+            ParsekSettingsPersistence.ResetForTesting();
+            Assert.Null(ParsekSettingsPersistence.GetStoredUseAnchorCorrection());
+
+            var settings = new ParsekSettings();
+            settings.useAnchorCorrection = false;
+
+            bool? stored = ParsekSettingsPersistence.GetStoredUseAnchorCorrection();
+            Assert.True(stored.HasValue);
+            Assert.False(stored.Value);
+        }
     }
 }

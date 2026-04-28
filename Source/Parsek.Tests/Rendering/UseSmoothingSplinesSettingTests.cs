@@ -117,5 +117,25 @@ namespace Parsek.Tests.Rendering
             Assert.DoesNotContain(logLines,
                 l => l.Contains("[Pipeline-Smoothing]") && l.Contains("useSmoothingSplines:"));
         }
+
+        [Fact]
+        public void UseSmoothingSplines_DirectAssign_PersistsToStore()
+        {
+            // What makes it fail: the property setter logs but never calls
+            // RecordUseSmoothingSplines, so a user/debug flip via
+            // GameParameters or the settings UI would not persist. The
+            // value would revert on the next save/rewind load when
+            // ApplyTo restores from the store. This test enforces that
+            // the property setter reaches the persistence layer.
+            ParsekSettingsPersistence.ResetForTesting();
+            Assert.Null(ParsekSettingsPersistence.GetStoredUseSmoothingSplines());
+
+            var settings = new ParsekSettings();
+            settings.useSmoothingSplines = false;
+
+            bool? stored = ParsekSettingsPersistence.GetStoredUseSmoothingSplines();
+            Assert.True(stored.HasValue);
+            Assert.False(stored.Value);
+        }
     }
 }

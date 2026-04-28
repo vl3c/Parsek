@@ -81,6 +81,14 @@ namespace Parsek
                 bool prev = _useSmoothingSplines;
                 _useSmoothingSplines = value;
                 NotifyUseSmoothingSplinesChanged(prev, value);
+                // Persist immediately so a user/debug flip survives a
+                // save/load (or the rewind-load path that applies the
+                // persistence layer over the .sfs-restored value). The
+                // Record method is idempotent — when ApplyTo restores
+                // from the store and assigns the property, the resulting
+                // Record call short-circuits because the store already
+                // matches.
+                ParsekSettingsPersistence.RecordUseSmoothingSplines(value);
             }
         }
         private bool _useSmoothingSplines = true;
@@ -105,6 +113,10 @@ namespace Parsek
                 bool prev = _useAnchorCorrection;
                 _useAnchorCorrection = value;
                 NotifyUseAnchorCorrectionChanged(prev, value);
+                // See useSmoothingSplines comment above — persist immediately
+                // so a user/debug flip survives a save/load cycle. Record is
+                // idempotent so the ApplyTo-driven assignment is a no-op.
+                ParsekSettingsPersistence.RecordUseAnchorCorrection(value);
             }
         }
         private bool _useAnchorCorrection = true;
