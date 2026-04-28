@@ -121,6 +121,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sBE",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -151,6 +152,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sEM",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -180,6 +182,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sLR",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rA, rB },
@@ -225,6 +228,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sBR",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -260,6 +264,7 @@ namespace Parsek.Tests.Rendering
                 new ReFlySessionMarker
                 {
                     SessionId = "sOR",
+                    ActiveReFlyRecordingId = rOrigin.RecordingId,
                     OriginChildRecordingId = rOrigin.RecordingId
                 },
                 new List<Recording> { rOrigin },

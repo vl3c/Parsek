@@ -247,6 +247,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = sessionId,
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rOrigin.RecordingId,
                 OriginChildRecordingId = rOrigin.RecordingId
             };
 

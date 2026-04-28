@@ -72,17 +72,23 @@ namespace Parsek.Rendering
         // Phase 3 (design doc §6.4 / §8 / §19.2 Stage 4): per-session dedup
         // sets so the Pipeline-Lerp Warn / Verbose lines fire once per
         // (recordingId, sectionIndex) instead of per-frame. The keys cover
-        // three distinct events:
-        //   - DegenerateLerpSpans:   Warn   "degenerate-span"
-        //   - DivergentLerpKeys:     Warn   "epsilon-divergence"
-        //   - SingleAnchorLerpKeys:  Verbose"Single-anchor case"
-        // All three are cleared by Clear() and ResetForTesting() so a new
-        // session starts with a fresh emission budget.
+        // four distinct events:
+        //   - DegenerateLerpSpans:   Warn    "degenerate-span"
+        //   - DivergentLerpKeys:     Warn    "epsilon-divergence"
+        //   - SingleAnchorLerpKeys:  Verbose "Single-anchor case"
+        //   - ClampOutLerpKeys:      Verbose "EvaluateAt-clamp-out" (HR-7
+        //     boundary should never trigger in production; this surfaces
+        //     unexpected clamp-outs once per session per key for diagnosis).
+        // All four are cleared by Clear(), ResetForTesting(), and every
+        // RebuildFromMarker entry (via ResetSessionDedupSetsLocked) so a
+        // new session starts with a fresh emission budget.
         private static readonly HashSet<AnchorKey> DegenerateLerpSpans
             = new HashSet<AnchorKey>();
         private static readonly HashSet<AnchorKey> DivergentLerpKeys
             = new HashSet<AnchorKey>();
         private static readonly HashSet<AnchorKey> SingleAnchorLerpKeys
+            = new HashSet<AnchorKey>();
+        private static readonly HashSet<AnchorKey> ClampOutLerpKeys
             = new HashSet<AnchorKey>();
 
         /// <summary>Number of anchors in the current session map.</summary>
@@ -223,13 +229,7 @@ namespace Parsek.Rendering
                 sessionId = s_currentSessionId;
                 Anchors.Clear();
                 s_currentSessionId = null;
-                // Phase 3: drop the per-session Pipeline-Lerp dedup sets so
-                // the next session emits its single Verbose / Warn lines
-                // afresh (otherwise a long-lived process would surface no
-                // diagnostics for sessions 2..N).
-                DegenerateLerpSpans.Clear();
-                DivergentLerpKeys.Clear();
-                SingleAnchorLerpKeys.Clear();
+                ResetSessionDedupSetsLocked();
             }
             ParsekLog.Info("Pipeline-Session",
                 $"Clear: reason={reason ?? "<unspecified>"} previousSessionId={sessionId ?? "<none>"} clearedCount={count}");
@@ -242,11 +242,25 @@ namespace Parsek.Rendering
             {
                 Anchors.Clear();
                 s_currentSessionId = null;
-                DegenerateLerpSpans.Clear();
-                DivergentLerpKeys.Clear();
-                SingleAnchorLerpKeys.Clear();
+                ResetSessionDedupSetsLocked();
             }
             SurfaceLookupOverrideForTesting = null;
+        }
+
+        /// <summary>
+        /// Drop the per-session Pipeline-Lerp dedup sets so the next session
+        /// emits its single Verbose / Warn lines afresh. Caller must hold
+        /// <see cref="Lock"/>. Reused from Clear, ResetForTesting, and every
+        /// RebuildFromMarker entry path so a stale session (orphan, no
+        /// siblings, live-vessel-missing, normal rebuild) does not poison
+        /// diagnostics in the next session.
+        /// </summary>
+        private static void ResetSessionDedupSetsLocked()
+        {
+            DegenerateLerpSpans.Clear();
+            DivergentLerpKeys.Clear();
+            SingleAnchorLerpKeys.Clear();
+            ClampOutLerpKeys.Clear();
         }
 
         // -------------------------------------------------------------------
@@ -481,6 +495,7 @@ namespace Parsek.Rendering
                 {
                     Anchors.Clear();
                     s_currentSessionId = marker.SessionId;
+                    ResetSessionDedupSetsLocked();
                 }
                 ParsekLog.Info("Pipeline-Session",
                     $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
@@ -489,14 +504,25 @@ namespace Parsek.Rendering
                 return;
             }
 
-            // Live world read — HR-15 frozen single-shot.
+            // Live world read — HR-15 frozen single-shot. Key off
+            // ActiveReFlyRecordingId, not OriginChildRecordingId: the
+            // marker's OriginChildRecordingId is the supersede target (the
+            // recording the player chose to re-fly). AtomicMarkerWrite
+            // creates a NotCommitted provisional recording for the active
+            // live vessel and stores its id in ActiveReFlyRecordingId. The
+            // origin recording has been retired and its persistent-vessel-id
+            // no longer resolves to a live KSP Vessel; only the provisional
+            // does. Branch and sibling lookup still key off
+            // OriginChildRecordingId — that is where the canonical
+            // pre-re-fly trajectory and the parent BranchPoint live.
             Vector3d? maybeLive = liveWorldPositionProvider != null
-                ? liveWorldPositionProvider(marker.OriginChildRecordingId)
+                ? liveWorldPositionProvider(marker.ActiveReFlyRecordingId)
                 : (Vector3d?)null;
             if (!maybeLive.HasValue)
             {
                 ParsekLog.Warn("Pipeline-Anchor",
                     $"RebuildFromMarker: live-vessel-missing " +
+                    $"activeReFlyRecordingId={marker.ActiveReFlyRecordingId ?? "<none>"} " +
                     $"originChildRecordingId={marker.OriginChildRecordingId} sessionId={marker.SessionId ?? "<no-id>"} " +
                     $"branchPointId={bp.Id ?? "<no-id>"}");
                 Clear("live-vessel-missing");
@@ -505,10 +531,16 @@ namespace Parsek.Rendering
             Vector3d live_world_at_spawn = maybeLive.Value;
             // L18 — pin the frozen live position once per session. Tests
             // assert exactly one of these lines per session (HR-15 audit).
+            // Both ids are logged so the audit trail captures which provider
+            // key was used and which origin / parent BranchPoint drove the
+            // sibling enumeration.
             ParsekLog.Verbose("Pipeline-Anchor",
                 string.Format(CultureInfo.InvariantCulture,
-                    "Live anchor read: sessionId={0} originChildRecordingId={1} anchorUT={2} frozenWorldPos=({3},{4},{5})",
-                    marker.SessionId ?? "<no-id>", marker.OriginChildRecordingId,
+                    "Live anchor read: sessionId={0} activeReFlyRecordingId={1} originChildRecordingId={2} " +
+                    "anchorUT={3} frozenWorldPos=({4},{5},{6})",
+                    marker.SessionId ?? "<no-id>",
+                    marker.ActiveReFlyRecordingId ?? "<none>",
+                    marker.OriginChildRecordingId,
                     bp.UT.ToString("R", CultureInfo.InvariantCulture),
                     live_world_at_spawn.x.ToString("R", CultureInfo.InvariantCulture),
                     live_world_at_spawn.y.ToString("R", CultureInfo.InvariantCulture),
@@ -535,6 +567,7 @@ namespace Parsek.Rendering
             {
                 Anchors.Clear();
                 s_currentSessionId = marker.SessionId;
+                ResetSessionDedupSetsLocked();
             }
 
             // Resolve liveFirstPoint once — every sibling pairs against the

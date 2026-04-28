@@ -181,6 +181,7 @@ namespace Parsek.Tests.Rendering
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess-orphan",
+                ActiveReFlyRecordingId = rOrigin.RecordingId,
                 OriginChildRecordingId = rOrigin.RecordingId
             };
 
@@ -212,6 +213,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-destroyed",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rOrigin.RecordingId,
                 OriginChildRecordingId = rOrigin.RecordingId
             };
 
@@ -259,6 +261,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-1",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
 
@@ -306,6 +309,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-2",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
 
@@ -335,6 +339,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-idem",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
 
@@ -373,6 +378,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-A",
                 TreeId = treeA.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
             RenderSessionState.RebuildFromMarker(
@@ -389,6 +395,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-B",
                 TreeId = treeB.Id,
+                ActiveReFlyRecordingId = rLive2.RecordingId,
                 OriginChildRecordingId = rLive2.RecordingId
             };
             RenderSessionState.RebuildFromMarker(
@@ -416,6 +423,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-clear",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
             RenderSessionState.RebuildFromMarker(
@@ -443,6 +451,7 @@ namespace Parsek.Tests.Rendering
             {
                 SessionId = "sess-tlc",
                 TreeId = tree.Id,
+                ActiveReFlyRecordingId = rLive.RecordingId,
                 OriginChildRecordingId = rLive.RecordingId
             };
             RenderSessionState.RebuildFromMarker(
@@ -495,6 +504,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "s11",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rA, rB, rC },
@@ -526,6 +536,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "s12",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -600,6 +611,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sess-inertial",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -641,6 +653,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sess-inertial-log",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -684,6 +697,7 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sess-bodyfixed",
                     TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rLive.RecordingId,
                     OriginChildRecordingId = rLive.RecordingId
                 },
                 new List<Recording> { rLive, rSib },
@@ -695,6 +709,92 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("splineHit=true"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[Pipeline-Anchor]") && l.Contains("skipping inertial spline"));
+        }
+
+        [Fact]
+        public void RebuildFromMarker_LiveLookupKeysOffActiveReFlyRecordingId()
+        {
+            // What makes it fail: AtomicMarkerWrite creates a NotCommitted
+            // provisional recording for the active live vessel and stores
+            // its id in ActiveReFlyRecordingId. OriginChildRecordingId is
+            // the supersede target whose persistent-vessel-id no longer
+            // resolves to a live KSP Vessel. If the live read keyed off
+            // OriginChildRecordingId, the provider would return null and
+            // the anchor map would be cleared as live-vessel-missing.
+            // Per design §7.1: live read keys off ActiveReFlyRecordingId;
+            // OriginChildRecordingId still drives DAG / sibling lookup.
+            var rOrigin = MakeRecording("origin-child", "Kerbin", 0, 100, 50, (0.0, 0.0, 70.0));
+            var rSib    = MakeRecording("sib",          "Kerbin", 0, 100, 50, (1.0, 2.0, 70.0));
+
+            int liveProviderCalls = 0;
+            string idSeen = null;
+            Func<string, Vector3d?> liveProvider = id =>
+            {
+                liveProviderCalls++;
+                idSeen = id;
+                return new Vector3d(100.0, 200.0, 300.0);
+            };
+
+            var (tree, bp) = MakeTreeWithSplit("t-active", 50.0, rOrigin, rSib);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-active",
+                TreeId = tree.Id,
+                ActiveReFlyRecordingId = "provisional-live",
+                OriginChildRecordingId = rOrigin.RecordingId
+            };
+
+            RenderSessionState.RebuildFromMarker(
+                marker,
+                new List<Recording> { rOrigin, rSib },
+                TreeLookupFor(tree, bp),
+                liveProvider);
+
+            Assert.Equal(1, liveProviderCalls);
+            Assert.Equal("provisional-live", idSeen);
+            Assert.Equal(1, RenderSessionState.Count);
+        }
+
+        [Fact]
+        public void RebuildFromMarker_ClearsLerpDedupSets()
+        {
+            // What makes it fail: per-session lerp dedup sets
+            // (Degenerate / Divergent / SingleAnchor / ClampOut) leak
+            // across re-fly sessions if RebuildFromMarker doesn't reset
+            // them — a new session reusing the same (recordingId,
+            // sectionIndex) key would silently suppress its first Warn /
+            // Verbose. Design §19.2 Pipeline-Lerp rows describe these as
+            // per-session diagnostics.
+            //
+            // Drive a degenerate-span Warn (Start.UT == End.UT) once,
+            // then trigger a fresh RebuildFromMarker, then drive the same
+            // Warn again — both must fire (proving the dedup was reset).
+            var ac1 = new AnchorCorrection("rec1", 0, AnchorSide.Start, 100.0, Vector3d.zero, AnchorSource.LiveSeparation);
+            var ac2 = new AnchorCorrection("rec1", 0, AnchorSide.End,   100.0, new Vector3d(1, 0, 0), AnchorSource.LiveSeparation);
+            var both = AnchorCorrectionInterval.Both(ac1, ac2);
+            int firstWarnCount = 0, secondWarnCount = 0;
+
+            ParsekLog.TestSinkForTesting = line =>
+            {
+                if (line.Contains("[Pipeline-Lerp]") && line.Contains("degenerate-span"))
+                    firstWarnCount++;
+            };
+            both.EvaluateAt(100.0);
+            both.EvaluateAt(100.0);
+            Assert.Equal(1, firstWarnCount);
+
+            // Trigger a fresh RebuildFromMarker. The simplest path: a
+            // null-marker rebuild (still hits the rebuild entry point and
+            // resets dedup via the early-return Clear path).
+            RenderSessionState.RebuildFromMarker(null);
+
+            ParsekLog.TestSinkForTesting = line =>
+            {
+                if (line.Contains("[Pipeline-Lerp]") && line.Contains("degenerate-span"))
+                    secondWarnCount++;
+            };
+            both.EvaluateAt(100.0);
+            Assert.Equal(1, secondWarnCount);
         }
     }
 }
