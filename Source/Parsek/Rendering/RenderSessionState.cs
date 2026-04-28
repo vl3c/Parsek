@@ -963,5 +963,32 @@ namespace Parsek.Rendering
                     "Single-anchor case recordingId={0} sectionIndex={1} side={2}",
                     recId, sectionIdx, side));
         }
+
+        /// <summary>
+        /// Called by <see cref="AnchorCorrectionInterval.EvaluateAt"/> when a
+        /// Both-end interval is queried with <c>ut</c> outside
+        /// <c>[Start.UT, End.UT]</c> and the lerp's <c>tNorm</c> clamps to 0
+        /// or 1. Per HR-7 the consumer never queries outside the section's
+        /// range in production; if a clamp does fire, surface it once per
+        /// session per <c>(recordingId, sectionIndex)</c> so a boundary bug
+        /// does not silently mask itself. Verbose level (not Warn) — the
+        /// math is still sound (clamped, not extrapolated).
+        /// </summary>
+        internal static void NotifyLerpClampOut(
+            string recordingId, int sectionIndex, double evalUT, double startUT, double endUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            var key = new AnchorKey(recordingId, sectionIndex, AnchorSide.Start);
+            bool first;
+            lock (Lock) { first = ClampOutLerpKeys.Add(key); }
+            if (!first) return;
+            ParsekLog.Verbose("Pipeline-Lerp",
+                string.Format(CultureInfo.InvariantCulture,
+                    "EvaluateAt-clamp-out recordingId={0} sectionIndex={1} ut={2} startUT={3} endUT={4}",
+                    recordingId, sectionIndex,
+                    evalUT.ToString("F3", CultureInfo.InvariantCulture),
+                    startUT.ToString("F3", CultureInfo.InvariantCulture),
+                    endUT.ToString("F3", CultureInfo.InvariantCulture)));
+        }
     }
 }

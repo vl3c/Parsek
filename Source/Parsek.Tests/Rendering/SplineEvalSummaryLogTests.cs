@@ -19,7 +19,10 @@ namespace Parsek.Tests.Rendering
 
         public SplineEvalSummaryLogTests()
         {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;  // L4 emits at Verbose
             ParsekFlight.ResetSplineEvalLoggingForTesting();
         }
 
@@ -27,6 +30,7 @@ namespace Parsek.Tests.Rendering
         {
             ParsekFlight.ResetSplineEvalLoggingForTesting();
             ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
         }
 
         [Fact]

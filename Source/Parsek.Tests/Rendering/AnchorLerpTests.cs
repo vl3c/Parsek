@@ -477,5 +477,48 @@ namespace Parsek.Tests.Rendering
                 l.Contains("[Pipeline-Lerp]") && l.Contains("Single-anchor case"));
             Assert.Equal(2, secondCount);  // 1 from before reset, 1 after
         }
+
+        [Fact]
+        public void EvaluateAt_OutsideRange_LogsClampOutOnce()
+        {
+            // What makes it fail: HR-7 implies the consumer never queries
+            // outside [Start.UT, End.UT] in production (per-section dispatch).
+            // If a boundary bug ever does query out-of-range, the silent
+            // clamp must surface a Verbose Pipeline-Lerp line once per
+            // session per (recordingId, sectionIndex). Without the
+            // notifier the boundary bug masks itself.
+            var ac1 = new AnchorCorrection("rec-clamp", 5, AnchorSide.Start, 100.0, Vector3d.zero, AnchorSource.LiveSeparation);
+            var ac2 = new AnchorCorrection("rec-clamp", 5, AnchorSide.End,   200.0, new Vector3d(2, 0, 0), AnchorSource.LiveSeparation);
+            var both = AnchorCorrectionInterval.Both(ac1, ac2);
+
+            // Multiple out-of-range evals — per-session dedup must collapse
+            // them to one Verbose line.
+            both.EvaluateAt(50.0);   // below Start.UT — clamps to 0
+            both.EvaluateAt(40.0);   // below Start.UT — already deduped
+            both.EvaluateAt(250.0);  // above End.UT — same key, dedup holds
+
+            int clampLines = logLines.Count(l =>
+                l.Contains("[Pipeline-Lerp]") && l.Contains("EvaluateAt-clamp-out")
+                && l.Contains("recordingId=rec-clamp") && l.Contains("sectionIndex=5"));
+            Assert.Equal(1, clampLines);
+        }
+
+        [Fact]
+        public void EvaluateAt_InsideRange_NoClampOutLog()
+        {
+            // What makes it fail: a misplaced clamp-out emit would fire on
+            // every in-range query and spam the log per-frame. The notifier
+            // must only fire when tNorm actually clamps.
+            var ac1 = new AnchorCorrection("rec-norm", 0, AnchorSide.Start, 100.0, Vector3d.zero, AnchorSource.LiveSeparation);
+            var ac2 = new AnchorCorrection("rec-norm", 0, AnchorSide.End,   200.0, new Vector3d(2, 0, 0), AnchorSource.LiveSeparation);
+            var both = AnchorCorrectionInterval.Both(ac1, ac2);
+
+            both.EvaluateAt(100.0);  // exactly at Start
+            both.EvaluateAt(150.0);  // midpoint
+            both.EvaluateAt(200.0);  // exactly at End
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Pipeline-Lerp]") && l.Contains("EvaluateAt-clamp-out"));
+        }
     }
 }

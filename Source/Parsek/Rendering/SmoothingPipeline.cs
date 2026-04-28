@@ -230,11 +230,30 @@ namespace Parsek.Rendering
             {
                 return FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == bodyName);
             }
-            catch
+            catch (Exception ex)
             {
+                // Surface the swallowed exception so a degenerate FlightGlobals
+                // state (e.g. mid-load Bodies list mutation) is diagnosable
+                // without crashing the orchestrator. Rate-limited so a save
+                // with many bad bodyNames cannot spam KSP.log.
+                ParsekLog.VerboseRateLimited("Pipeline-Frame", "resolve-body-exception",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ResolveBody threw {0}: {1}", ex.GetType().Name, ex.Message),
+                    5.0);
                 return null;
             }
         }
+
+        // Cap the dedup set so a long-running session that recomputes many
+        // recordings (config drift, algorithm-stamp bumps, repeated
+        // re-fits) cannot grow s_frameDecisionLogged unbounded. Realistic
+        // ceiling per save is low thousands; the cap is a safety bound, not
+        // a tight steady-state limit. When exceeded, the set is cleared so
+        // the next round of decisions will re-emit (acceptable: each log
+        // line is per (recordingId, sectionIndex), so a flush re-reports
+        // already-known decisions but does not produce duplicates within
+        // the next bucket).
+        private const int FrameDecisionLoggedCap = 4096;
 
         private static void LogFrameDecisionOnce(string recordingId, int sectionIndex,
             SegmentEnvironment env, byte frameTag, string bodyName)
@@ -244,6 +263,15 @@ namespace Parsek.Rendering
             {
                 if (!s_frameDecisionLogged.Add(key))
                     return;
+                if (s_frameDecisionLogged.Count >= FrameDecisionLoggedCap)
+                {
+                    int prevSize = s_frameDecisionLogged.Count;
+                    s_frameDecisionLogged.Clear();
+                    s_frameDecisionLogged.Add(key);  // preserve current key
+                    ParsekLog.Info("Pipeline-Frame",
+                        $"Frame-decision dedup set exceeded cap ({prevSize}/{FrameDecisionLoggedCap}); cleared. " +
+                        $"Next emissions for already-seen (recordingId, sectionIndex) keys will re-fire.");
+                }
             }
             ParsekLog.Verbose("Pipeline-Frame",
                 $"Section lift to inertial decision: recordingId={recordingId} sectionIndex={sectionIndex} " +

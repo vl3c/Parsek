@@ -291,9 +291,20 @@ namespace Parsek.Rendering
                             Start.RecordingId, Start.SectionIndex, ut, Start.UT, End.UT);
                         return Start.Epsilon;
                     }
-                    double tNorm = (ut - Start.UT) / span;
+                    double tRaw = (ut - Start.UT) / span;
+                    double tNorm = tRaw;
                     if (tNorm < 0.0) tNorm = 0.0;
                     else if (tNorm > 1.0) tNorm = 1.0;
+                    if (tNorm != tRaw)
+                    {
+                        // HR-7 implies the consumer never queries outside
+                        // [Start.UT, End.UT] in production (per-section
+                        // dispatch). If a clamp does fire, surface it once
+                        // per session per (recordingId, sectionIndex) so a
+                        // boundary bug does not silently mask itself.
+                        RenderSessionState.NotifyLerpClampOut(
+                            Start.RecordingId, Start.SectionIndex, ut, Start.UT, End.UT);
+                    }
                     return Start.Epsilon + (End.Epsilon - Start.Epsilon) * tNorm;
                 }
                 default:
