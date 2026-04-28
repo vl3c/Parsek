@@ -123,26 +123,43 @@ For a candidate boundary at section index `s` in `rec.TrackSections` (the
 transition from `prev = sections[s-1]` to `next = sections[s]`):
 
 ```
-1. If body changed:                          → split  (#251 unchanged)
+1. If prev.IsBoundarySeam OR next.IsBoundarySeam:
+                                             → not a split candidate  (Producer-C
+                                                                       seam,
+                                                                       see §5).
+                                                                       Hard
+                                                                       override
+                                                                       — wins
+                                                                       even on
+                                                                       body /
+                                                                       Surface /
+                                                                       ExoPropulsive.
 2. If env class unchanged AND body unchanged:→ not a boundary, skip
-3. If prev or next is Surface (class 2):     → split  (already gated upstream
+3. If body changed:                          → split  (#251 unchanged)
+4. If prev or next is Surface (class 2):     → split  (already gated upstream
                                                        by Vessel.Situations +
                                                        debounce — keep
                                                        always-meaningful)
-4. If prev or next is ExoPropulsive:         → split  (engine firing at the
+5. If prev or next is ExoPropulsive:         → split  (engine firing at the
                                                        crossing — direct
                                                        gameplay event,
                                                        keep S3 short-circuit)
-5. If prev.IsBoundarySeam OR next.IsBoundarySeam:
-                                             → not a split candidate  (Producer-C
-                                                                       seam,
-                                                                       see §5)
 6. Apply the persistence predicate (§3.1).   → split or suppress
 ```
 
-Body change, Surface, and ExoPropulsive remain hard short-circuits. Only the
-otherwise-noisy `Atmospheric ↔ ExoBallistic` and `Approach ↔ ExoBallistic`
-pairs go through the persistence predicate.
+The seam check is step 1 — a hard "always wins" override regardless of
+env class on either side. The contract for `IsBoundarySeam` is "this section
+is a recorder bookkeeping artifact, never a split candidate, full stop." The
+later sections (§5, §13, todo #632) are written to that contract; placing
+the seam check below body-change or Surface short-circuits would silently
+narrow the contract for any future producer that sets the flag across one of
+those transitions. Producer C today only emits seams on a loaded→on-rails
+transition where the body and Surface state cannot change at the seam, but
+the ordering must stay correct for future producers that might.
+
+Body change, Surface, and ExoPropulsive remain hard short-circuits for the
+non-seam path. Only the otherwise-noisy `Atmospheric ↔ ExoBallistic` and
+`Approach ↔ ExoBallistic` pairs reach the persistence predicate.
 
 ### 3.1 Persistence predicate
 
@@ -168,20 +185,39 @@ holds:
 If either bracket condition holds, the boundary is a graze pattern → suppress.
 Otherwise → split.
 
-**`K = MeaningfulPersistenceWindowSeconds = 120.0`**, exposed as
-`internal const double` for tests. Rationale:
+**`K = BriefSectionMaxSeconds = 120.0`**, exposed as `internal const double`
+for tests. The name reads with the predicate ("the section is brief if its
+duration < K"), not against it. Rationale for 120 s:
 
-- Aerobraking passes typically last 30–90 s of atmo time → captured.
-- Eccentric Pe dips on Kerbin grazing orbits last 30–60 s → captured.
-- Karman-line tourist hops typically have <60 s of Exo above 70 km → captured.
+- Aerobraking passes typically last 30–90 s of atmo time → suppressed (graze).
+- Eccentric Pe dips on Kerbin grazing orbits last 30–60 s → suppressed.
 - LKO orbital periods are ~30 min, well above K → grazing exits never
   bracket-match across orbits.
 - A real suborbital arc that holds Exo above 70 km for >120 s before reentry
-  splits cleanly (the apogee Exo segment is sustained, not brief).
+  splits cleanly (the apogee Exo segment is not brief).
+- **Tourist-hop boundary case (calibration check):** Karman-line tourist hops
+  cross 70 km going up and again coming down. Exo dwell is governed by
+  `t = 2 * v_y(70km) / g` where `v_y(70km) = sqrt(2 * g * (apogee - 70 km))`.
+  On Kerbin (`g ≈ 9.81 m/s²`):
+
+  | apogee | Exo dwell | Predicate result |
+  |---|---|---|
+  | 90 km  | ~56 s   | suppressed (one segment, intuitive) |
+  | 120 km | ~88 s   | suppressed |
+  | 150 km | ~113 s  | suppressed (just under K) |
+  | 175 km | ~134 s  | **split** (Exo phase becomes its own segment) |
+  | 200 km | ~152 s  | split |
+
+  Stock contracts often request 100–200 km altitude, so a meaningful slice
+  of "tourist hops" will fall on either side of K. This is acceptable — a
+  hop with a sustained Exo phase reasonably IS a real flight phase from the
+  player's perspective. **`K = 120 s` is a starting point. Revisit with
+  playtest data per §12 if the split point feels wrong.**
 
 The 120 s window is wider than the 5 s window in PR #625 by design — the
-predicate is asking "does this section persist long enough to feel like a
-phase to the player?", not "is there a discrete event near the crossing?".
+predicate asks "is this section brief enough to be a recorder bookkeeping
+artifact rather than a phase?", not "is there a discrete event near the
+crossing?".
 
 ### 3.2 Bracket lookup is single-step, not a forward scan
 
@@ -190,11 +226,20 @@ forward, `sections[s-2]` for backward). A multi-step forward scan ("does the
 vessel ever return to `prev` env class within K seconds?") is tempting but
 strictly weaker:
 
-- The recorder hysteresis (`EnvironmentHysteresis`,
-  [EnvironmentDetector.cs:140-251](../../../Source/Parsek/EnvironmentDetector.cs:140))
-  already debounces sub-second flicker before any TrackSection is emitted.
-  Two consecutive sections with the same class never appear; the brief
-  intermediate section is always *exactly one* section.
+- TrackSections are by construction emitted at confirmed env-class
+  transitions: `FlightRecorder.UpdateEnvironmentTracking` and
+  `BackgroundRecorder.OnBackgroundPhysicsFrame` only close the current
+  section and open a new one when `EnvironmentHysteresis.Step` confirms a
+  transition, so two consecutive same-class sections cannot exist in
+  `rec.TrackSections` regardless of the underlying flicker rate. **This is a
+  recorder-side invariant, not a hysteresis property** — `GetDebounceFor` in
+  [EnvironmentDetector.cs:222-255](../../../Source/Parsek/EnvironmentDetector.cs:222)
+  returns `0.0` (no debounce) for the dominant `Atmospheric ↔ ExoBallistic`
+  and `Atmospheric ↔ ExoPropulsive` pairs, so flicker on the 70 km boundary
+  is *not* pre-collapsed to a single section by hysteresis. The "exactly one
+  brief section between two bracketing sections" property holds because
+  TrackSections-by-construction can never have two consecutive same-class
+  entries, not because hysteresis filtered them out.
 - A multi-step scan would also fold in multiple distinct phases (e.g.
   Atmo → Exo → Atmo → Surface within K seconds — a rapid suborbital that
   ends in landing) into a "graze" decision when the player almost certainly
@@ -203,6 +248,20 @@ strictly weaker:
 Single-step bracket matching keeps the predicate aligned with the recorder's
 state-machine semantics: brief sections ARE the graze evidence, and the
 neighbours on either side are the bracket.
+
+**Three-section graze caveat.** A 3-section graze pattern would require two
+consecutive sections of the same env class, which the construction invariant
+above forbids — *but* a future change that introduces a non-class-driven
+section break (e.g. a forced break on `source` change, vessel-switch seam,
+or refresh marker) could produce `Exo[long, src=Active], Atmo[20s], Atmo[1
+frame, src=Background], Atmo[20s], Exo[long]` — three Atmo sections in a
+row from the same env class. Single-step lookup at the first Exo→Atmo would
+look at `sections[s+1]` = Atmo, NOT Exo, and the bracket would fail. If
+recorder changes ever introduce such a forced break, either (a) widen the
+bracket lookup to skip same-class neighbours, or (b) collapse same-class
+adjacent sections at the optimizer's pre-scan stage. Add a
+[`docs/dev/todo-and-known-bugs.md`](../todo-and-known-bugs.md) entry if such
+a refactor lands. Today's recorder pathway does not produce this shape.
 
 ### 3.3 Edge of recording
 
@@ -270,21 +329,32 @@ since `TrackSection` is a `struct`.)
 
 ### 5.2 Optimizer treatment
 
-In `IsSplittableEnvOrBodyBoundary` (a new helper inside `RecordingOptimizer`,
-or inline in `FindSplitCandidatesForOptimizer`):
+The seam check is **step 1** of the §3 ordering — a hard "always wins"
+override regardless of env class on either side:
 
 ```csharp
 if (prev.isBoundarySeam || next.isBoundarySeam)
     return false;   // bookkeeping artifact, never split here
 ```
 
-This precedes the persistence predicate. The seam is also not split-worthy
-on a body change or Surface involvement — but those cases shouldn't arise
-from Producer C in practice (the seam is emitted only on a loaded→on-rails
-transition for a non-payload state, never on SOI traversal or surface
-contact).
+It precedes the body-change short-circuit, the Surface short-circuit, and
+the ExoPropulsive short-circuit. See §3 for the rationale: the contract
+for `IsBoundarySeam` is "this section is a recorder bookkeeping artifact,
+never a split candidate, full stop." Today's Producer-C cannot emit seams
+across body changes or Surface transitions, but the contract must hold for
+future producers.
 
-### 5.3 Serialization
+### 5.3 Serialization (text + binary, both mandatory)
+
+Production writes both text and binary sidecars for every committed
+recording with `RecordingFormatVersion >= 2` via
+`RecordingStore.WriteTrajectorySidecar`. The binary codec is positional
+(no key/value layer), so adding a `bool` field to the binary `TrackSection`
+record requires a **mandatory** binary format version bump — without the
+bump, normal saves drop `isBoundarySeam` on round-trip and Producer-C seams
+split again after reload (which is exactly the bug this plan fixes).
+
+#### Text codec (sparse, forward-tolerant)
 
 `SerializeTrackSections`
 ([TrajectoryTextSidecarCodec.cs:1337](../../../Source/Parsek/TrajectoryTextSidecarCodec.cs:1337))
@@ -304,17 +374,47 @@ if (tsNode.HasValue("seam") && tsNode.GetValue("seam") == "1")
     section.isBoundarySeam = true;
 ```
 
-`TrajectorySidecarBinary` writers/readers
-([TrajectorySidecarBinary.cs:627](../../../Source/Parsek/TrajectorySidecarBinary.cs:627))
-need a parallel update if the binary codec is used in production for
-`TrackSection` payloads.
+No format version bump needed for the text codec — old loaders silently
+ignore unknown keys.
 
-**Format version bump?** Probably not. A binary codec field addition is
-breaking and would need a `BinaryFormatVersion` bump; a text codec field
-addition is forward-tolerant (old loaders ignore the unknown key). Plan to
-audit the binary codec during implementation and only bump format version
-if the binary serialization can't preserve forward-compat with default-false
-semantics. Default-false has zero behaviour change for legacy recordings.
+#### Binary codec (positional, requires mandatory version bump)
+
+Bump the binary format version. Suggested name and value (final names
+chosen during implementation; pick whichever fits existing constants in
+[`RecordingStore.cs:57-61`](../../../Source/Parsek/RecordingStore.cs:57)
+naming style):
+
+```csharp
+internal const int BoundarySeamFlagBinaryVersion = 8;     // gated read/write
+internal const int CurrentBinaryFormatVersion    = 8;     // bumped from 7
+```
+
+`WriteTrackSections`
+([TrajectorySidecarBinary.cs:627](../../../Source/Parsek/TrajectorySidecarBinary.cs:627))
+emits the byte only on `binaryVersion >= 8`:
+
+```csharp
+if (binaryVersion >= BoundarySeamFlagBinaryVersion)
+    writer.Write(track.isBoundarySeam);   // 1 byte
+```
+
+`ReadTrackSections`
+([TrajectorySidecarBinary.cs:653](../../../Source/Parsek/TrajectorySidecarBinary.cs:653))
+reads the byte on `>= 8`, defaults to `false` on `< 8`:
+
+```csharp
+section.isBoundarySeam = (binaryVersion >= BoundarySeamFlagBinaryVersion)
+    ? reader.ReadBoolean()
+    : false;
+```
+
+Default-false on legacy reads has zero behaviour change for legacy
+recordings — but new saves carry the flag forward correctly, which is the
+whole point of the change. Any code that pins the binary format version
+elsewhere (e.g. a probe / signature byte) needs a parallel update; the
+implementation phase audits the call sites.
+
+**Test #25 (binary round-trip) is mandatory**, not conditional. See §9.3.
 
 ### 5.4 Why a flag, not a heuristic
 
@@ -361,12 +461,14 @@ PR #625 had.
 
 | Type | Field | Type | Default | Serialized |
 |---|---|---|---|---|
-| `TrackSection` | `isBoundarySeam` | `bool` | `false` | sparse text key `seam=1`; binary codec audit pending |
+| `TrackSection` | `isBoundarySeam` | `bool` | `false` | text: sparse `seam=1` key (no version bump); binary: 1 byte at v8, gated by `BoundarySeamFlagBinaryVersion = 8` (mandatory bump from v7) |
 
+Binary `CurrentBinaryFormatVersion` bumps from 7 to 8.
 `MeaningfulBoundaryWindowSeconds` from PR #625 is gone (revert removed it).
-This plan introduces `MeaningfulPersistenceWindowSeconds = 120.0` —
-deliberately a different name to make grep-search on the old gate's symbol
-return zero hits (no leftover references / stale comments).
+This plan introduces `BriefSectionMaxSeconds = 120.0` — the name reads with
+the predicate ("section is brief if duration < K"), is not a substring of
+the reverted symbol so grep stays clean, and avoids the misleading
+"meaningful" prefix that confused the PR #625 design.
 
 ## 8. Diagnostic logging
 
@@ -449,7 +551,7 @@ expected to fire, and what regression it guards against.
 14. **`Persistence_EndOfRecording_BriefNextNoFollowup_Splits`** — `Exo[1500],Atmo[40,EOR]` (only 2 sections, recording ends in Atmo). s=1 falls through to split (no s+1 to bracket-match, conservative default). **Guards** the §3.3 edge-of-recording rule.
 15. **`Persistence_EndOfRecording_BriefNextWithSeamFlag_Suppressed`** — same as 14 but with `isBoundarySeam=true` on the brief Atmo. Seam short-circuit. **Guards** the §5 explicit override of the §3.3 fallback.
 16. **`Persistence_BoundaryAtIndexOne_NoBackwardLookup_DoesntCrash`** — recording with sections `[Atmo[300],Exo[600]]`, boundary at s=1. `s-2 < 0` so clause B can't fire; only clause A is evaluated. **Guards** array-index safety on minimal recordings.
-17. **`Persistence_HysteresisAlreadyDebounced_NoSubSecondFlicker`** — explicitly construct a recording with two sections at 0.4 s apart (impossible under hysteresis but defensive). Predicate behaves correctly: the brief section satisfies clause A or B and suppresses. **Guards** that the predicate doesn't second-guess the recorder's debounce.
+17. **`Persistence_BriefSectionFromConstructionInvariant_Suppresses`** — explicitly construct a recording with a 0.4 s middle section (impossible under the recorder's "no two consecutive same-class sections" construction invariant, but defensive against accidental changes). Predicate behaves correctly: the brief section satisfies clause A or B and suppresses. **Guards** that the predicate doesn't second-guess the recorder's section-emit contract — see §3.2 for why the construction invariant (not hysteresis) provides the "exactly one brief section between two bracketing sections" property.
 18. **`Persistence_AggregateSuppressionLog_FiresOncePerRecording`** — log-assertion test: 4 grazing boundaries in one recording → exactly one `Split suppressed: rec=…` aggregate line, no per-boundary suppression spam. **Guards** the CLAUDE.md "Batch counting convention" pattern.
 19. **`Persistence_AcceptanceLog_EmitsDiscriminator`** — log-assertion test: one accepted Atmo→Exo (long, long) → one `Split candidate (PersistedPhaseChange): …` line. **Guards** that the new acceptance reason is wired into the log.
 
@@ -463,18 +565,25 @@ end-to-end-verify chain shape:
 21. **`OptimizationPass_EccentricGrazing_StaysOneSegment`** — synthetic recording: 4 atmo↔exo oscillations, no Surface. After pass, chain length 1 (no splits).
 22. **`OptimizationPass_ProducerCSeam_NotSplit_NoChainGrowth`** — synthetic recording with the seam-flag Producer-C shape. After pass, single recording (no chain expansion).
 
-### 9.3 Serialization round-trip
+### 9.3 Serialization round-trip (mandatory)
 
-23. **`TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec`** — write a recording with a seam-flagged section, save, load, verify the flag survives.
-24. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyLoad`** — load a recording without the `seam` key, verify `isBoundarySeam == false` (forward-tolerance check).
-25. **`TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec`** (only if §5.3 audit determines the binary codec needs the field).
+Both text and binary codec coverage is mandatory because production writes
+both sidecars (`RecordingStore.WriteTrajectorySidecar` runs both for every
+recording with `RecordingFormatVersion >= 2`). A single-codec test would
+let the binary codec silently drop the flag and Producer-C seams would
+split again after reload — exactly the bug this plan fixes.
+
+23. **`TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec`** — write a recording with a seam-flagged section through `TrajectoryTextSidecarCodec`, load, verify the flag survives. **Guards** the text codec sparse-field write/read path.
+24. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyTextLoad`** — load a text-codec recording without the `seam` key, verify `isBoundarySeam == false`. **Guards** forward-tolerance for legacy text recordings.
+25. **`TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec`** — **mandatory.** Write through `TrajectorySidecarBinary` at `binaryVersion = BoundarySeamFlagBinaryVersion`, read back, verify flag survives. **Guards** the binary codec positional write/read path — without this test, a regression in binary version gating would silently drop the flag on every save and the bug-fix property would not hold.
+26. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyBinaryLoad`** — write a recording at `binaryVersion = 7`, read with the new code, verify `isBoundarySeam == false` and that the next field (`anchorVesselId`) deserializes at the correct offset. **Guards** the binary version-gate read path — catches the worst-case regression where a v7 reader on a v8 file would desynchronize positionally.
 
 ### 9.4 In-game smoke test
 
 One `[InGameTest(Category = "Optimizer", Scene = GameScenes.FLIGHT)]` test in
 `Source/Parsek/InGameTests/RuntimeTests.cs` (or a new file under that dir):
 
-26. **`RealAscentReentry_ProducesPerPhaseChain_InGame`** — automate a stock craft launch through 70 km with engines firing through the boundary (forces ExoPropulsive → S3 short-circuit case), circularize, deorbit (passive coast through 70 km on the way down), parachute, land. After landing, call `RecordingStore.RunOptimizationPass()`. Assert the chain has at least 4 segments (pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing). **Guards** against future recorder changes that produce TrackSection boundary UTs the predicate doesn't expect.
+27. **`RealAscentReentry_ProducesPerPhaseChain_InGame`** — automate a stock craft launch through 70 km with engines firing through the boundary (forces ExoPropulsive → S3 short-circuit case), circularize, deorbit (passive coast through 70 km on the way down), parachute, land. After landing, call `RecordingStore.RunOptimizationPass()`. Assert the chain has at least 4 segments (pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing). **Guards** against future recorder changes that produce TrackSection boundary UTs the predicate doesn't expect.
 
 ### 9.5 Tests to remove / update
 
@@ -487,28 +596,50 @@ The work splits cleanly into three independently-reviewable phases on a
 single branch. Each phase is one commit; each commit must pass `dotnet
 build` and `dotnet test` before the next is started.
 
-### Phase 1 — `TrackSection.IsBoundarySeam` field + producer wiring
+### Phase 1 — `TrackSection.IsBoundarySeam` field, producer wiring, codec updates
 
-- Add field to `TrackSection` struct, default `false`.
+- Add `bool isBoundarySeam` field to `TrackSection` struct, default `false`.
 - Wire `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` to set the
-  flag on the no-payload boundary section. Update its log line.
-- Update `SerializeTrackSections` / `DeserializeTrackSections` (text codec).
-- Audit `TrajectorySidecarBinary.Write/ReadTrackSections`; add binary
-  field if needed; bump `BinaryFormatVersion` only if forward-compat
-  cannot be preserved.
-- Tests: 23, 24, 25 (serialization round-trip).
+  flag on the no-payload boundary section (§5.1). Update its log line to
+  include `(seam=1)`.
+- Text codec: `SerializeTrackSections` / `DeserializeTrackSections` add
+  sparse `seam` key (§5.3). No format version bump for the text codec —
+  forward-tolerant.
+- **Binary codec: mandatory format version bump.** Add
+  `BoundarySeamFlagBinaryVersion = 8`, bump `CurrentBinaryFormatVersion`
+  to 8. Gate write on `>= 8`, gate read on `>= 8` (default-false on `< 8`).
+  Audit any other code that pins the binary format version (probes,
+  signatures) for parallel updates (§5.3).
+- Test generator: extend `Source/Parsek.Tests/Generators/RecordingBuilder.cs`
+  to accept an optional `bool isBoundarySeam` per section, so synthetic
+  Producer-C-seam recordings can be constructed in xUnit fixtures.
+- Verify `Recording.DeepCopyTrackSections` and `SessionMerger.CloneTrackSections`
+  propagate the new struct field (default struct-copy semantics should
+  carry it, but explicit verification belongs in this phase, not as a
+  closeout assumption).
+- ParsekScenario audit: `TrackSection.isBoundarySeam` lives inside the
+  `TrackSections` list, which is `.prec` sidecar-serialized (not `.sfs`-
+  serialized), so `ParsekScenario.OnSave/OnLoad` does not need an update.
+  Note this in the commit message so reviewers don't need to re-derive it.
+- Tests: 23 (text round-trip), 24 (legacy text default), 25 (binary
+  round-trip — **mandatory**), 26 (legacy binary default + positional
+  desync check — **mandatory**).
 
-This phase ships as a behaviour-neutral data-model change. The optimizer
-doesn't yet read the flag, so existing optimizer behaviour is preserved.
-Validates the serialization story before any logic change depends on it.
+This phase changes serialized byte size for new recordings (the v8 binary
+format includes one extra byte per `TrackSection`) and changes the
+`CurrentBinaryFormatVersion` constant. Otherwise behaviour-neutral: the
+optimizer does not yet read the flag, so existing optimizer behaviour is
+preserved. Validates both serialization stories before any logic change
+depends on them.
 
 ### Phase 2 — Persistence predicate in `RecordingOptimizer`
 
-- Add `MeaningfulPersistenceWindowSeconds = 120.0` const.
+- Add `BriefSectionMaxSeconds = 120.0` const (semantic name — see §3.1).
 - Add `SplitBoundaryReason` enum with the 8 values from §8.
 - Add helper `IsSplittableEnvOrBodyBoundary(rec, s, out reason)` that
-  encodes §3 in order (body → not-a-boundary → Surface → ExoPropulsive →
-  Seam → persistence).
+  encodes the §3 ordering (**seam → not-a-boundary → body → Surface →
+  ExoPropulsive → persistence**). The seam check is step 1, ahead of all
+  always-split short-circuits, per §3 / §5.2.
 - Add helper `IsGrazePattern(rec, s, out grazeReason)` that implements
   the §3.1 (A) and (B) bracket clauses.
 - Wire `FindSplitCandidatesForOptimizer` to call the helper, accumulate
@@ -521,17 +652,22 @@ Validates the serialization story before any logic change depends on it.
 ### Phase 3 — Integration tests + closeout
 
 - Add tests 20, 21, 22 (round-trip through `RunOptimizationPass`).
-- Add in-game smoke test 26.
+- Add in-game smoke test 27.
 - Update `CHANGELOG.md` (`0.9.1 / Bug Fixes`, replacing the revert bullet
-  with the redesign bullet).
+  with the redesign bullet). Call out the binary format bump (`v7 → v8`)
+  and the upgrade-time effects (legacy Producer-C seam recordings will see
+  one extra spurious split per seam on first load after upgrade — same
+  behaviour they have today, no regression, but visible enough to mention).
 - Update `docs/dev/todo-and-known-bugs.md` — mark #632 as ~~done~~,
   reference this plan and the implementation PR.
 - Update `docs/dev/research/optimizer-meaningful-split-rule.md` — change
   the "Conclusion reverted" callout to "Superseded by
   `docs/dev/plans/optimizer-persistence-split.md`".
 - Update `.claude/CLAUDE.md` "On-rails BG vessels emit no env-classified
-  TrackSections" note if a new invariant emerges from the implementation
-  (e.g. "Producer-C seams carry `isBoundarySeam=true`").
+  TrackSections" note to add the new invariant: "Producer-C seams carry
+  `isBoundarySeam=true`; the optimizer skips boundaries on either side of
+  a flagged section as a hard `IsSplittableEnvOrBodyBoundary` step-1
+  override."
 
 ## 11. What this plan does NOT change
 
@@ -587,10 +723,13 @@ Validates the serialization story before any logic change depends on it.
 - **Risk:** the persistence-window predicate suppresses a real phase change
   the player wants split.
   **Likelihood:** low. §4's worked examples cover the obvious cases. K=120s
-  is far above all the brief-pattern durations and far below any sustained
-  phase duration.
+  is far above all the brief-pattern durations and far below most sustained
+  phase durations. **Known soft case:** Karman-line tourist hops with apogee
+  >150 km cross the K threshold and do split — the §3.1 calibration table
+  documents this; it is acceptable because a sustained Exo phase IS a real
+  flight phase from the player's perspective.
   **Mitigation:** logging; unit tests 1–19 cover the discriminator clauses
-  exhaustively; in-game smoke test 26 covers the end-to-end real-flight
+  exhaustively; in-game smoke test 27 covers the end-to-end real-flight
   path.
 
 - **Risk:** the `IsBoundarySeam` flag is set on a section that *should* be a
@@ -602,18 +741,24 @@ Validates the serialization story before any logic change depends on it.
   mode is the player having fewer chain segments, which is recoverable
   (manual split UI exists).
 
-- **Risk:** binary codec format break.
-  **Likelihood:** medium — `TrajectorySidecarBinary` is positional. Adding
-  a field needs a version bump unless it's positionally optional.
-  **Mitigation:** Phase 1 audits the binary codec specifically. If a bump
-  is needed, name it `BoundarySeamFlagFormatVersion = 8` and gate write
-  on `>=8`, read with default-false fallback for `<8`.
+- **Decision (committed, not a risk):** binary format version bump from v7
+  to v8. `TrajectorySidecarBinary` is positional and cannot preserve
+  forward-compat for an added field without a bump. Phase 1 ships
+  `BoundarySeamFlagBinaryVersion = 8` as a mandatory part of the
+  serialization story; tests 25 and 26 lock down both write and read paths.
+  Audit any other code that pins the binary format version (probes,
+  signatures, `RecordingStore.cs:57-61` named constants) for parallel
+  updates during implementation.
 
 - **Risk:** a graze pattern that the predicate suppresses turns out to be
   a real phase change the player wanted to loop separately (e.g. a player
-  who specifically wants their aerobrake passes as separate loop segments).
+  who specifically wants their aerobrake passes as separate loop segments;
+  an aborted Mun landing that the predicate folds back into a "graze flyby"
+  pattern).
   **Likelihood:** very low — the design intent (per-phase loop) is for the
-  *common* gameplay flow, not connoisseur edge cases.
+  *common* gameplay flow, not connoisseur edge cases. Aborted Mun landings
+  are the most plausible miss; players expecting a separate chain segment
+  for the abort phase can use the manual split UI.
   **Mitigation:** the manual split UI lets a player force a split. If
   playtest reveals demand, add a setting to widen `K` or disable the
   predicate per-recording.
