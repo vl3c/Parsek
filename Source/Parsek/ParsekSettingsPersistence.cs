@@ -445,8 +445,27 @@ namespace Parsek
         /// of a stale per-save value cannot clobber the user's persisted
         /// intent before <c>ApplyTo</c> has had a chance to restore it
         /// (PR #328 P2-A).
+        ///
+        /// <see cref="ParsekSettings.OnLoad"/> resets this flag to false
+        /// BEFORE calling <c>base.OnLoad</c> so the per-load cycle starts
+        /// fresh — the latch is not a one-way process-wide flip.
         /// </summary>
         internal static bool IsReconciled => reconciledWithLiveSettings;
+
+        /// <summary>
+        /// Reset the reconciliation latch to false. Called by
+        /// <see cref="ParsekSettings.OnLoad"/> at the start of each KSP
+        /// settings-load cycle so the property setters' persistence gate
+        /// closes again before <c>base.OnLoad</c> deserializes the .sfs
+        /// node. Otherwise a long-running KSP process would keep the
+        /// latch true after the first <see cref="ApplyTo"/> and the
+        /// second + subsequent loads would let stale .sfs values clobber
+        /// the persistent store.
+        /// </summary>
+        internal static void InvalidateReconciliation()
+        {
+            reconciledWithLiveSettings = false;
+        }
 
         /// <summary>
         /// Test-only: returns the current stored readable-mirror value (null if unset).

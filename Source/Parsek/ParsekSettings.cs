@@ -230,6 +230,18 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // Reset the reconciliation latch BEFORE base.OnLoad. KSP's
+            // GameParameters.OnLoad deserializes the .sfs node into our
+            // property-decorated members, including the persistent
+            // useSmoothingSplines / useAnchorCorrection setters. Those
+            // setters check ParsekSettingsPersistence.IsReconciled to
+            // decide whether to call Record*; if the latch is left over
+            // from a prior load cycle (true), the stale .sfs value would
+            // clobber the persistent store. Closing the gate here makes
+            // every per-load cycle start fresh — ApplyTo flips it back
+            // to true after ParsekScenario.OnLoad runs (PR #328 P2-A).
+            ParsekSettingsPersistence.InvalidateReconciliation();
+
             base.OnLoad(node);
 
             SamplingDensity level = ResolveSamplingDensityFromConfig(

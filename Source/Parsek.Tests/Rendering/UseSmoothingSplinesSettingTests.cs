@@ -146,6 +146,38 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void UseSmoothingSplines_OnLoad_ResetsReconciliationLatchBeforeKspDeserialize()
+        {
+            // What makes it fail: the reviewer-flagged regression — without
+            // resetting the latch per OnLoad cycle, the second + subsequent
+            // KSP saves/rewinds in the same process keep IsReconciled=true
+            // from the first ApplyTo. base.OnLoad then deserialises the
+            // stale .sfs value into the property; the setter sees
+            // IsReconciled=true and calls Record, clobbering the
+            // persistent store before the next ApplyTo can restore it.
+            // The fix invalidates the latch at the top of
+            // ParsekSettings.OnLoad so every load cycle starts fresh.
+            ParsekSettingsPersistence.ResetForTesting();
+            ParsekSettingsPersistence.SetStoredUseSmoothingSplinesForTesting(false);
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            Assert.True(ParsekSettingsPersistence.IsReconciled);
+
+            // Simulate a second OnLoad cycle. Even an empty ConfigNode
+            // triggers the latch reset before base.OnLoad — that's the
+            // critical invariant the test pins.
+            var settings = new ParsekSettings();
+            settings.OnLoad(new ConfigNode("PARSEK_SETTINGS"));
+
+            Assert.False(ParsekSettingsPersistence.IsReconciled);
+            // Persistent intent (false) survives the load cycle even
+            // though base.OnLoad's default-deserialisation flipped the
+            // property back to its default (true).
+            bool? stored = ParsekSettingsPersistence.GetStoredUseSmoothingSplines();
+            Assert.True(stored.HasValue);
+            Assert.False(stored.Value);
+        }
+
+        [Fact]
         public void UseSmoothingSplines_DirectAssign_PreReconciliation_DoesNotClobberStore()
         {
             // What makes it fail: PR #328 P2-A regression — KSP's
