@@ -419,6 +419,27 @@ namespace Parsek
             public string relativeBodyName;        // body name for altitude computation
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
+
+            // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
+            // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
+            // The LateUpdate FloatingOrigin re-positioning recomputes the
+            // ghost's world position from lat/lon/alt. Without re-evaluation
+            // here, two regressions return:
+            //   1. Phase 2+3 anchor ε would snap back to the un-corrected
+            //      lerp position (LateUpdate must re-add ε every late frame).
+            //      Phase 3 makes ε time-varying along a both-end lerp interval
+            //      (§6.4), so caching a single Vector3d at registration time
+            //      would freeze the lerp progression for every late-frame
+            //      within the segment.
+            //   2. Phase 1+4 spline positioning would be discarded — the raw
+            //      latBefore/After lerp would overwrite the spline-positioned
+            //      transform every LateUpdate. The same lookup key drives the
+            //      spline re-eval and the anchor re-add, so both are stored
+            //      together. An empty recordingId or negative sectionIndex
+            //      means the registration-time guards (no recording context
+            //      passed in, or both gates closed) skipped both paths.
+            public string anchorRecordingId;
+            public int anchorSectionIndex;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1073,11 +1094,45 @@ namespace Parsek
                     case GhostPosMode.PointInterp:
                     {
                         if (e.bodyBefore == null || e.bodyAfter == null) break;
-                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                            e.latAfter, e.lonAfter, e.altAfter);
-                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+
+                        // Phase 1 + Phase 4 spline re-evaluation (design doc
+                        // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
+                        // re-eval, the raw lat/lon/alt bracket lerp on the
+                        // fallback path would overwrite the spline-positioned
+                        // transform on every LateUpdate — Phase 1's smoothing
+                        // would only survive a single Update frame before
+                        // FloatingOrigin re-positioning snapped it back.
+                        // Frame-tag dispatch matches the Update path: tag 0 →
+                        // body-fixed surface lookup, tag 1 → inertial re-lower
+                        // at the playback UT, unknown → NaN (silent fallthrough
+                        // here; the Warn fires from the Update path's
+                        // unknownFrameTagWarned dedup so LateUpdate doesn't
+                        // double-emit).
+                        Vector3d pos;
+                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        {
+                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                                e.latBefore, e.lonBefore, e.altBefore);
+                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                                e.latAfter, e.lonAfter, e.altAfter);
+                            pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        }
+                        // Phase 2 + Phase 3 anchor correction (design doc
+                        // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
+                        // space ε so the FloatingOrigin frame-velocity shift
+                        // cannot snap the ghost back to the un-corrected
+                        // lerped position. Phase 3: the lookup is re-fetched
+                        // each LateUpdate so the lerp interval (§6.4 Both
+                        // case) progresses with the playback UT instead of
+                        // freezing to the value captured at Update time.
+                        // The ε is additive on top of either the spline-
+                        // positioned or the raw-lerp position above.
+                        if (allowAnchorCorrectionInterval(
+                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                out Vector3d lateEps))
+                        {
+                            pos += lateEps;
+                        }
                         e.ghost.transform.position = pos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         break;
@@ -1520,6 +1575,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
 
             ui?.Cleanup();
@@ -12714,6 +12770,10 @@ namespace Parsek
                 {
                     // Position from trajectory points (same interpolation as existing ghost positioning)
                     bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
+                    // Phase 1: background path bypasses splines pending section
+                    // indexing — the BackgroundRecorder does not yet emit
+                    // TrackSections, so there is no body-fixed section index
+                    // to feed the spline gate. Tracked in the Phase 1 plan.
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip);
@@ -13541,6 +13601,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
         }
 
@@ -14362,9 +14423,16 @@ namespace Parsek
             }
 
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            // Phase 1: pass section index so the body-fixed spline lookup can
+            // gate per-section. Falls through to legacy lerp when sections
+            // are absent (-1) — older flat-point recordings remain bit-exact.
+            int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
+                ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
+                : -1;
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
-                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
+                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
+                recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -14809,7 +14877,8 @@ namespace Parsek
         // CreateGhostSphere moved to GhostVisualBuilder.CreateGhostSphere (T25 Phase 4 prep)
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
-            double targetUT, bool allowActivation, out InterpolationResult interpResult)
+            double targetUT, bool allowActivation, out InterpolationResult interpResult,
+            string recordingId = null, int sectionIndex = -1)
         {
             TrajectoryPoint before, after;
             float t;
@@ -14865,10 +14934,70 @@ namespace Parsek
                 interpolatedPos = posBefore;
             }
 
+            // Phase 1 smoothing splines (design doc §6.1, §17.3.1, §18 Phase 1).
+            // Replace the lerped lat/lon/alt-derived world position with a
+            // Catmull-Rom spline evaluation when the section has a valid spline
+            // and the rollout flag is on. Rotation continues to come from the
+            // existing slerp — Phase 1 is position-only. Any precondition miss
+            // (no recordingId, no sectionIndex, flag off, store miss, or
+            // !IsValid) silently falls through to the legacy lerp result —
+            // that is acceptable per HR-9 because "no spline yet" is a normal
+            // state, not a failure.
+            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            {
+                RecordSplineEvalForLogging();
+                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
+                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
+                {
+                    // Phase 4 frame-aware dispatch (design doc §6.2 Stage 2,
+                    // §18 Phase 4, §26.1 HR-9). FrameTag pins the coordinate
+                    // contract of the spline's controls — body-fixed (0) hands
+                    // straight to GetWorldSurfacePosition; inertial-longitude
+                    // (1) re-lowers via FrameTransform.LowerFromInertialToWorld
+                    // at the playback UT so the body's rotation between
+                    // recording and playback is correctly cancelled out. An
+                    // unrecognised tag emits Warn (per HR-9) gated by
+                    // unknownFrameTagWarned so a degenerate recording can't
+                    // flood the log — see DispatchSplineWorldByFrameTag.
+                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                        spline.FrameTag,
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                        bodyBefore, targetUT,
+                        recordingId, sectionIndex,
+                        unknownFrameTagWarned);
+                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                        interpolatedPos = splineWorld;
+                }
+            }
+
+            // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
+            // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
+            // Additive world-space ε translation pinned once at session entry;
+            // the lookup reads the cached AnchorCorrection.Epsilon values and
+            // never touches live vessel state. Phase 3 evaluates ε at the
+            // current playback UT — a both-end interval lerps linearly per
+            // §6.4, single-side intervals return constant ε. Any miss (no
+            // recordingId, no section, flag off, no anchor in the store) is
+            // a silent fall-through — re-fly sessions with no marker yet are
+            // normal state, not failure.
+            bool hasAnchorEps = allowAnchorCorrectionInterval(
+                recordingId, sectionIndex, targetUT, out Vector3d anchorEps);
+            if (hasAnchorEps)
+                interpolatedPos += anchorEps;
+
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
-            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            // Register for LateUpdate re-positioning after FloatingOrigin shift.
+            // Phase 3 / Phase 4: store the lookup key (recordingId + sectionIndex)
+            // so LateUpdate can re-evaluate BOTH the spline (Phase 1+4) and the
+            // anchor interval (Phase 2+3) at the same playback UT. Storing the
+            // key only when an anchor exists (the prior contract) discarded the
+            // spline result on every LateUpdate — the raw lerp on lines below
+            // would overwrite the spline-positioned transform. The key is
+            // always-stored when (recordingId, sectionIndex) is valid; the gates
+            // (settings flag, store presence) are re-checked at LateUpdate.
+            bool hasLookupKey = !string.IsNullOrEmpty(recordingId) && sectionIndex >= 0;
             ghostPosEntries.Add(new GhostPosEntry
             {
                 ghost = ghost,
@@ -14880,12 +15009,289 @@ namespace Parsek
                 t = t,
                 pointUT = targetUT,
                 interpolatedRot = interpolatedRot,
+                anchorRecordingId = hasLookupKey ? recordingId : null,
+                anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
             });
 
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+        }
+
+        /// <summary>
+        /// Phase 1 spline-positioning gate (design doc §6.1, §17.3.1).
+        /// Returns <c>true</c> with a populated <paramref name="spline"/>
+        /// when (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useSmoothingSplines</c> rollout flag is
+        /// on, and (c) <see cref="SectionAnnotationStore"/> holds a valid
+        /// spline for the (recordingId, sectionIndex) pair. Any miss is a
+        /// silent fall-through to legacy lerp positioning (HR-9 — "no spline
+        /// yet" is a normal state, not a failure).
+        /// </summary>
+        private static bool allowSplinePositioning(string recordingId, int sectionIndex,
+            out Parsek.Rendering.SmoothingSpline spline)
+        {
+            spline = default(Parsek.Rendering.SmoothingSpline);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out spline))
+                return false;
+
+            return spline.IsValid;
+        }
+
+        /// <summary>
+        /// Phase 2 start-side anchor-correction gate (design doc §6.3 /
+        /// §6.4 single-anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15).
+        /// Returns <c>true</c> with a populated <paramref name="ac"/> when
+        /// (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useAnchorCorrection</c> rollout flag is
+        /// on, and (c) <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// holds a start-side anchor for the (recordingId, sectionIndex)
+        /// pair.
+        ///
+        /// <para>
+        /// HR-15 — the lookup reads the cached <see cref="Parsek.Rendering.AnchorCorrection.Epsilon"/>
+        /// frozen at session entry; no live vessel state is read. Any miss is
+        /// a silent fall-through (HR-9: a missing anchor is a normal state for
+        /// non-re-fly sessions and for siblings that have not yet had their
+        /// ε computed, not a failure).
+        /// </para>
+        ///
+        /// <para>
+        /// Phase 3 superseded the in-renderer call site with
+        /// <see cref="allowAnchorCorrectionInterval"/> (which returns the
+        /// time-varying lerp result per §6.4). This start-side helper is
+        /// retained for the unit-test surface
+        /// (<c>AnchorCorrectionConsumerHookTests</c>) — production rendering
+        /// no longer calls it directly.
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrection(string recordingId, int sectionIndex,
+            out Parsek.Rendering.AnchorCorrection ac)
+        {
+            ac = default(Parsek.Rendering.AnchorCorrection);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            return Parsek.Rendering.RenderSessionState.TryLookup(
+                recordingId, sectionIndex, Parsek.Rendering.AnchorSide.Start, out ac);
+        }
+
+        /// <summary>
+        /// Phase 3 multi-anchor-lerp gate (design doc §6.4 / §8 / §18 Phase 3
+        /// / §19.2 Stage 4 log table). Returns <c>true</c> with a populated
+        /// <paramref name="epsilon"/> when (a) the caller supplied both a
+        /// recording id and a non-negative section index, (b) the
+        /// <c>useAnchorCorrection</c> rollout flag is on, and (c)
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> holds at least
+        /// one anchor (start or end side) for the (recordingId, sectionIndex)
+        /// pair. The returned ε is evaluated at <paramref name="targetUT"/>
+        /// per §6.4 — constant for one-sided intervals, linear lerp for
+        /// both-end intervals.
+        ///
+        /// <para>
+        /// Side effects on hit: emits one of two <c>[Pipeline-Lerp]</c> log
+        /// lines (single-anchor Verbose, both-end divergence Warn) ONCE per
+        /// session per (recordingId, sectionIndex) — the dedup is owned by
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> so per-frame
+        /// queries here cost only a HashSet lookup. The
+        /// <c>degenerate-span</c> Warn fires from the math evaluator
+        /// (<see cref="Parsek.Rendering.AnchorCorrectionInterval.EvaluateAt"/>)
+        /// when the interval is malformed — keeping per-key dedup in one
+        /// place. HR-7 is naturally enforced because the consumer always
+        /// queries with the section that owns <paramref name="targetUT"/>; a
+        /// lerp cannot cross a hard discontinuity by construction.
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrectionInterval(string recordingId, int sectionIndex,
+            double targetUT, out Vector3d epsilon)
+        {
+            epsilon = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval? maybeInterval =
+                Parsek.Rendering.RenderSessionState.LookupForSegmentInterval(
+                    recordingId, sectionIndex);
+            if (!maybeInterval.HasValue)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval interval = maybeInterval.Value;
+            epsilon = interval.EvaluateAt(targetUT);
+
+            // Per-session-per-key dedup'd diagnostics (§19.2 Stage 4):
+            //   Both-end + divergence > threshold  → Warn  "epsilon-divergence"
+            //   StartOnly / EndOnly                 → Verb  "Single-anchor case"
+            // The Warn for degenerate spans (End.UT <= Start.UT) is emitted
+            // from the evaluator itself so any caller of EvaluateAt picks it
+            // up uniformly.
+            if (interval.Kind == Parsek.Rendering.AnchorIntervalKind.Both)
+            {
+                Parsek.Rendering.RenderSessionState.NotifyLerpDivergenceCheck(in interval);
+            }
+            else
+            {
+                Parsek.Rendering.RenderSessionState.NotifySingleAnchorLerpCase(in interval);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 1 + Phase 4 LateUpdate spline re-evaluation helper (design
+        /// doc §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Instance shim that
+        /// supplies the per-session <see cref="unknownFrameTagWarned"/> dedup
+        /// set; the gate-then-dispatch logic itself lives in
+        /// <see cref="TryComputeLateUpdateSplineWorldPositionPure"/> so xUnit
+        /// can exercise every branch without driving Unity's LateUpdate.
+        ///
+        /// <para>
+        /// Without re-evaluating the spline here, the LateUpdate PointInterp
+        /// branch would overwrite the spline-positioned <c>transform.position</c>
+        /// with the raw <c>(latBefore..latAfter)</c> bracket lerp on every
+        /// late frame, discarding Phase 1's smoothing and Phase 4's frame
+        /// transformation in the steady state.
+        /// </para>
+        /// </summary>
+        private bool TryComputeLateUpdateSplineWorldPosition(in GhostPosEntry e, out Vector3d worldPos)
+        {
+            return TryComputeLateUpdateSplineWorldPositionPure(
+                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT, e.bodyBefore,
+                unknownFrameTagWarned, out worldPos);
+        }
+
+        /// <summary>
+        /// Pure-static core of <see cref="TryComputeLateUpdateSplineWorldPosition"/>.
+        /// Returns <c>true</c> with a populated <paramref name="worldPos"/>
+        /// when (a) the lookup key is valid (non-empty recordingId + non-
+        /// negative sectionIndex), (b) the <c>useSmoothingSplines</c> rollout
+        /// flag is on, (c) <see cref="Parsek.Rendering.SectionAnnotationStore"/>
+        /// holds a valid spline for the pair, (d) the body reference is non-
+        /// null, and (e) the spline's FrameTag dispatches to a finite world
+        /// position. Any miss falls through silently — the caller uses the
+        /// legacy raw-lerp bracket. Unknown FrameTag values also return false;
+        /// the Warn fires through <paramref name="unknownFrameTagWarnedKeys"/>
+        /// so the Update path's prior Add suppresses a LateUpdate double-emit.
+        ///
+        /// <para>
+        /// Tested via <c>LateUpdateSplineDispatchTests</c> — every gate's
+        /// failure branch and both successful FrameTag paths are exercised
+        /// without standing up a real <see cref="GhostPosEntry"/> or Unity's
+        /// LateUpdate (which xUnit cannot drive).
+        /// </para>
+        /// </summary>
+        internal static bool TryComputeLateUpdateSplineWorldPositionPure(
+            string recordingId, int sectionIndex, double pointUT, CelestialBody body,
+            HashSet<string> unknownFrameTagWarnedKeys, out Vector3d worldPos)
+        {
+            worldPos = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                || !spline.IsValid)
+                return false;
+
+            // ReferenceEquals to bypass Unity's overloaded `==`, which would
+            // treat a TestBodyRegistry-built uninitialised CelestialBody as
+            // null. Production callers route through FlightGlobals.Bodies; the
+            // test suite delivers genuine CLR objects whose Unity-cached pointer
+            // is zero. Same pattern as SmoothingPipeline.FitAndStorePerSection.
+            if (object.ReferenceEquals(body, null))
+                return false;
+
+            Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, pointUT);
+            if (double.IsNaN(splineLatLonAlt.x) || double.IsNaN(splineLatLonAlt.y) || double.IsNaN(splineLatLonAlt.z))
+                return false;
+
+            Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                spline.FrameTag,
+                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                body, pointUT,
+                recordingId, sectionIndex,
+                unknownFrameTagWarnedKeys);
+            if (double.IsNaN(splineWorld.x) || double.IsNaN(splineWorld.y) || double.IsNaN(splineWorld.z))
+                return false;
+
+            worldPos = splineWorld;
+            RecordSplineEvalForLogging();
+            return true;
+        }
+
+        // -------------------------------------------------------------------
+        //  L4 — per-frame spline-eval summary (design doc §19.2 Stage 1).
+        //
+        //  Counts every successful spline evaluation across Update + LateUpdate
+        //  paths and emits a single Verbose Pipeline-Smoothing line per second
+        //  with the accumulated count, then resets. Distinct from
+        //  ParsekLog.VerboseRateLimited (which suppresses repeated lines and
+        //  loses the count); here the count is the payload, so we own the gate.
+        //  Wall-clock based (DateTime.UtcNow) so it works in tests without
+        //  Unity's Time API and across scene loads where Planetarium UT can
+        //  reset to zero.
+        // -------------------------------------------------------------------
+        private static int s_splineEvalCount;
+        private static long s_splineEvalLogLastTicks;
+        private const long SplineEvalLogIntervalTicks = TimeSpan.TicksPerSecond; // 1 s
+
+        /// <summary>
+        /// Increment the per-second spline-eval counter; flush a Verbose
+        /// summary line once per second when the counter is non-zero.
+        /// Test seam <see cref="NowProviderForTesting"/> overrides the
+        /// wall-clock for deterministic xUnit assertions.
+        /// </summary>
+        internal static void RecordSplineEvalForLogging()
+        {
+            int n = ++s_splineEvalCount;
+            long now = NowProviderForTesting != null
+                ? NowProviderForTesting().Ticks
+                : DateTime.UtcNow.Ticks;
+            if (s_splineEvalLogLastTicks == 0)
+            {
+                s_splineEvalLogLastTicks = now;
+                return;
+            }
+            if (now - s_splineEvalLogLastTicks >= SplineEvalLogIntervalTicks)
+            {
+                double intervalSec = (now - s_splineEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "frame summary: splineEvals={0} intervalSec={1:F2}", n, intervalSec));
+                s_splineEvalCount = 0;
+                s_splineEvalLogLastTicks = now;
+            }
+        }
+
+        /// <summary>Test-only wall-clock override for the L4 summary gate.</summary>
+        internal static Func<DateTime> NowProviderForTesting;
+
+        /// <summary>Test-only reset of the L4 summary state (counter + last-emit timestamp).</summary>
+        internal static void ResetSplineEvalLoggingForTesting()
+        {
+            s_splineEvalCount = 0;
+            s_splineEvalLogLastTicks = 0;
+            NowProviderForTesting = null;
         }
 
         // Keep the old signature for backward compat with tests
@@ -15143,6 +15549,11 @@ namespace Parsek
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         private readonly HashSet<string> recordedAnchorSeenRecordingIds =
             new HashSet<string>(StringComparer.Ordinal);
+        // Phase 4 HR-9: per-(recordingId, sectionIndex) dedup so an unrecognised
+        // FrameTag warns once per session instead of every per-frame dispatch.
+        // Cleared in the same Cleanup hooks as the other per-session log state.
+        private readonly HashSet<string> unknownFrameTagWarned =
+            new HashSet<string>(StringComparer.Ordinal);
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
@@ -15300,13 +15711,20 @@ namespace Parsek
                     allowActivation,
                     out interpResult))
             {
+                // Phase 1: pass section context. Checkpoint sections are
+                // OrbitalCheckpoint reference frame, which ShouldFitSection
+                // filters out — the spline gate will naturally fall through
+                // to legacy lerp here. Threaded so a future spline-on-
+                // checkpoint extension wouldn't need to revisit the call site.
                 InterpolateAndPosition(
                     ghost,
                     section.frames,
                     ref playbackIdx,
                     playbackUT,
                     allowActivation,
-                    out interpResult);
+                    out interpResult,
+                    recordingId: traj?.RecordingId,
+                    sectionIndex: sectionIdx);
             }
 
             int logIndex = playbackIdx;
@@ -17088,9 +17506,16 @@ namespace Parsek
             }
 
             // Absolute positioning fallback
+            // Phase 1: pass section context for spline lookup. The fallback is
+            // the body-fixed loop path, which is exactly where ABSOLUTE
+            // ExoPropulsive / ExoBallistic splines are meant to apply.
+            int splineSectionIdx = rec.TrackSections != null && rec.TrackSections.Count > 0
+                ? TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT)
+                : -1;
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
-                allowActivation: allowActivation);
+                allowActivation: allowActivation,
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
         }
 
         /// <summary>
@@ -17325,7 +17750,8 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false)
+            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
+            string recordingId = null, int sectionIndex = -1)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -17369,7 +17795,8 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
+                recordingId, sectionIndex);
         }
 
         #endregion

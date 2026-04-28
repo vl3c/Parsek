@@ -63,6 +63,69 @@ namespace Parsek
         public bool showGhostsInTrackingStation = true;
 
         /// <summary>
+        /// Phase 1 of the ghost trajectory rendering pipeline (design doc
+        /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, ABSOLUTE-frame
+        /// body-fixed ghost playback evaluates a Catmull-Rom smoothing
+        /// spline instead of the legacy <c>BracketPointAtUT</c>. Default
+        /// true; the flag exists so Phase 1 can ship behind a single rollout
+        /// gate and so tests can exercise the legacy fall-through.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use smoothing splines",
+            toolTip = "When on (Phase 1), absolute-frame ghost playback uses Catmull-Rom splines instead of bracketed nearest-sample lookup")]
+        public bool useSmoothingSplines
+        {
+            get { return _useSmoothingSplines; }
+            set
+            {
+                if (_useSmoothingSplines == value) return;
+                bool prev = _useSmoothingSplines;
+                _useSmoothingSplines = value;
+                NotifyUseSmoothingSplinesChanged(prev, value);
+                // Persist only after ParsekSettingsPersistence.ApplyTo has
+                // reconciled the store with live settings (PR #328 P2-A).
+                // Pre-reconciliation, a setter call most likely comes from
+                // KSP's GameParameters infrastructure deserializing the
+                // .sfs node; recording that stale value would clobber the
+                // user's persisted intent before ApplyTo can restore it.
+                // ApplyTo's restoration assignment also lands here; it
+                // happens after reconciledWithLiveSettings is set, so the
+                // gate lets it through and the idempotent guard inside
+                // RecordUseSmoothingSplines makes it a no-op.
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseSmoothingSplines(value);
+            }
+        }
+        private bool _useSmoothingSplines = true;
+
+        /// <summary>
+        /// Phase 2 of the ghost trajectory rendering pipeline (design doc
+        /// §6.3 Stage 3, §7.1, §18 Phase 2). When true, ghost siblings of an
+        /// active re-fly target are rendered with an additive
+        /// <c>AnchorCorrection</c> ε computed once at session-entry and held
+        /// constant across the segment (Phase 2's single-anchor case).
+        /// Default true; the flag exists so Phase 2 ships behind a single
+        /// rollout gate parallel to <see cref="useSmoothingSplines"/>.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use anchor correction",
+            toolTip = "When on (Phase 2), ghost siblings during a re-fly are rigid-translated by the recorded separation offset so they spawn aligned with the live vessel")]
+        public bool useAnchorCorrection
+        {
+            get { return _useAnchorCorrection; }
+            set
+            {
+                if (_useAnchorCorrection == value) return;
+                bool prev = _useAnchorCorrection;
+                _useAnchorCorrection = value;
+                NotifyUseAnchorCorrectionChanged(prev, value);
+                // See useSmoothingSplines comment above for the
+                // reconciliation gate rationale (PR #328 P2-A).
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseAnchorCorrection(value);
+            }
+        }
+        private bool _useAnchorCorrection = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -167,6 +230,18 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // Reset the reconciliation latch BEFORE base.OnLoad. KSP's
+            // GameParameters.OnLoad deserializes the .sfs node into our
+            // property-decorated members, including the persistent
+            // useSmoothingSplines / useAnchorCorrection setters. Those
+            // setters check ParsekSettingsPersistence.IsReconciled to
+            // decide whether to call Record*; if the latch is left over
+            // from a prior load cycle (true), the stale .sfs value would
+            // clobber the persistent store. Closing the gate here makes
+            // every per-load cycle start fresh — ApplyTo flips it back
+            // to true after ParsekScenario.OnLoad runs (PR #328 P2-A).
+            ParsekSettingsPersistence.InvalidateReconciliation();
+
             base.OnLoad(node);
 
             SamplingDensity level = ResolveSamplingDensityFromConfig(
@@ -305,5 +380,33 @@ namespace Parsek
             => (actual - preset) / range;
 
         private static double Square(double value) => value * value;
+
+        /// <summary>
+        /// Emits a single Pipeline-Smoothing log line when
+        /// <see cref="useSmoothingSplines"/> flips. Phase 1 spec (design doc
+        /// §19.2 Stage 1 row "Settings flag flip") requires Info-level
+        /// visibility for the toggle so a developer can see the rollout-gate
+        /// state in KSP.log. UI / settings code should call this at the
+        /// assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseSmoothingSplinesChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Smoothing", $"useSmoothingSplines: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Anchor log line when
+        /// <see cref="useAnchorCorrection"/> flips. Phase 2 spec (design doc
+        /// §19.2 Stage 3 row, §18 Phase 2) requires Info-level visibility for
+        /// the rollout gate so a developer can attribute a visual artifact to
+        /// the toggle moment in KSP.log. UI / settings code should call this
+        /// at the assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseAnchorCorrectionChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Anchor", $"useAnchorCorrection: {oldValue}->{newValue}");
+        }
     }
 }

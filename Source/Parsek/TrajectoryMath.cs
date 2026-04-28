@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using Parsek.Rendering;
 using UnityEngine;
 
 namespace Parsek
@@ -695,6 +697,411 @@ namespace Parsek
         internal static double InterpolateAltitude(double altBefore, double altAfter, float t)
         {
             return altBefore + (altAfter - altBefore) * t;
+        }
+
+        /// <summary>
+        /// Phase 1 smoothing-spline math (design doc §6.1, §17.3.1). Pure
+        /// uniform Catmull-Rom in (latitude, longitude, altitude) space — the
+        /// same coordinate system as <see cref="TrajectoryPoint"/> for
+        /// ABSOLUTE-frame body-fixed segments. <see cref="Evaluate"/> returns
+        /// a <c>Vector3d(latDeg, lonDeg, altMetres)</c> that the caller hands
+        /// to <c>body.GetWorldSurfacePosition</c>.
+        ///
+        /// <para>
+        /// Longitude wrap at +/-180 deg is unwrapped before fitting and
+        /// re-wrapped on evaluation — fitting through an unwrapped sequence
+        /// avoids the "long way around" interpolation that would otherwise
+        /// occur when consecutive samples straddle the antimeridian.
+        /// </para>
+        /// </summary>
+        internal static class CatmullRomFit
+        {
+            /// <summary>
+            /// Fits a uniform Catmull-Rom spline through the supplied samples'
+            /// (lat, lon, alt) tuples keyed by sample UT. Rejects samples
+            /// fewer than 4, non-monotonic UTs, or non-finite components and
+            /// returns <c>default(SmoothingSpline)</c> with
+            /// <see cref="SmoothingSpline.IsValid"/> = false plus a populated
+            /// <paramref name="failureReason"/>.
+            /// </summary>
+            internal static SmoothingSpline Fit(
+                IList<TrajectoryPoint> samples, double tension, out string failureReason)
+            {
+                failureReason = null;
+
+                if (samples == null)
+                {
+                    failureReason = "samples list is null";
+                    return default(SmoothingSpline);
+                }
+                if (samples.Count < 4)
+                {
+                    failureReason = $"need at least 4 samples; got {samples.Count}";
+                    return default(SmoothingSpline);
+                }
+
+                int count = samples.Count;
+                double[] knots = new double[count];
+                float[] ctrlX = new float[count]; // latitude (deg)
+                float[] ctrlY = new float[count]; // longitude (deg, unwrapped)
+                float[] ctrlZ = new float[count]; // altitude (m)
+
+                double prevUT = double.NegativeInfinity;
+                double prevLon = double.NaN;
+                for (int i = 0; i < count; i++)
+                {
+                    var p = samples[i];
+                    if (!IsFinite(p.ut) || !IsFinite(p.latitude) || !IsFinite(p.longitude) || !IsFinite(p.altitude))
+                    {
+                        failureReason = $"sample {i} contains NaN or non-finite component (ut={p.ut} lat={p.latitude} lon={p.longitude} alt={p.altitude})";
+                        return default(SmoothingSpline);
+                    }
+                    if (i > 0 && p.ut <= prevUT)
+                    {
+                        failureReason = $"non-monotonic UT at sample {i}: {p.ut} <= {prevUT}";
+                        return default(SmoothingSpline);
+                    }
+
+                    double lon = p.longitude;
+                    if (i > 0)
+                    {
+                        // Unwrap longitude: keep consecutive deltas within +/-180 deg so
+                        // a sequence crossing the antimeridian fits as a continuous
+                        // monotone progression instead of jumping by ~360 deg.
+                        double delta = lon - prevLon;
+                        if (delta > 180.0) lon -= 360.0;
+                        else if (delta < -180.0) lon += 360.0;
+                    }
+
+                    knots[i] = p.ut;
+                    ctrlX[i] = (float)p.latitude;
+                    ctrlY[i] = (float)lon;
+                    ctrlZ[i] = (float)p.altitude;
+
+                    prevUT = p.ut;
+                    prevLon = lon;
+                }
+
+                return new SmoothingSpline
+                {
+                    SplineType = 0, // Catmull-Rom
+                    Tension = (float)tension,
+                    KnotsUT = knots,
+                    ControlsX = ctrlX,
+                    ControlsY = ctrlY,
+                    ControlsZ = ctrlZ,
+                    FrameTag = 0, // body-fixed
+                    IsValid = true,
+                };
+            }
+
+            /// <summary>
+            /// Evaluates the spline at <paramref name="ut"/>. Clamps to the
+            /// endpoint sample (bit-exact at <c>ut == knots[0]</c> and
+            /// <c>ut == knots[Last]</c>); never extrapolates. Returns
+            /// <c>(latDeg, lonDeg, altMetres)</c> in body-fixed coordinates,
+            /// re-wrapped to <c>[-180, 180]</c> for longitude.
+            /// </summary>
+            internal static Vector3d Evaluate(in SmoothingSpline spline, double ut)
+            {
+                if (!spline.IsValid || spline.KnotsUT == null || spline.KnotsUT.Length < 2)
+                    return Vector3d.zero;
+
+                int n = spline.KnotsUT.Length;
+
+                // Endpoint clamps: return raw control values bit-exact so
+                // anchor placement at section boundaries does not drift.
+                if (ut <= spline.KnotsUT[0])
+                {
+                    return new Vector3d(
+                        spline.ControlsX[0],
+                        WrapLongitude(spline.ControlsY[0]),
+                        spline.ControlsZ[0]);
+                }
+                if (ut >= spline.KnotsUT[n - 1])
+                {
+                    return new Vector3d(
+                        spline.ControlsX[n - 1],
+                        WrapLongitude(spline.ControlsY[n - 1]),
+                        spline.ControlsZ[n - 1]);
+                }
+
+                // Locate the segment [i, i+1] containing ut via linear scan
+                // (annotation tables are short — typical recording sections
+                // hold tens to a few hundred samples).
+                int i = 0;
+                for (int k = 0; k < n - 1; k++)
+                {
+                    if (ut >= spline.KnotsUT[k] && ut < spline.KnotsUT[k + 1])
+                    {
+                        i = k;
+                        break;
+                    }
+                }
+
+                int i0 = i - 1; if (i0 < 0) i0 = 0;
+                int i1 = i;
+                int i2 = i + 1;
+                int i3 = i + 2; if (i3 >= n) i3 = n - 1;
+
+                double segDuration = spline.KnotsUT[i2] - spline.KnotsUT[i1];
+                double t = segDuration > 0 ? (ut - spline.KnotsUT[i1]) / segDuration : 0.0;
+                if (t < 0) t = 0; else if (t > 1) t = 1;
+
+                float tension = spline.Tension;
+                double x = CatmullRomScalar(spline.ControlsX[i0], spline.ControlsX[i1], spline.ControlsX[i2], spline.ControlsX[i3], t, tension);
+                double y = CatmullRomScalar(spline.ControlsY[i0], spline.ControlsY[i1], spline.ControlsY[i2], spline.ControlsY[i3], t, tension);
+                double z = CatmullRomScalar(spline.ControlsZ[i0], spline.ControlsZ[i1], spline.ControlsZ[i2], spline.ControlsZ[i3], t, tension);
+
+                return new Vector3d(x, WrapLongitude(y), z);
+            }
+
+            // Standard uniform Catmull-Rom on a single segment with tangents
+            // m1 = tension * (P2 - P0) and m2 = tension * (P3 - P1). For the
+            // canonical Catmull-Rom curve, tension = 0.5 (so m1 = (P2-P0)/2).
+            // Hermite basis: h00=2t^3-3t^2+1, h10=t^3-2t^2+t, h01=-2t^3+3t^2,
+            // h11=t^3-t^2.
+            private static double CatmullRomScalar(double p0, double p1, double p2, double p3, double t, double tension)
+            {
+                double t2 = t * t;
+                double t3 = t2 * t;
+                double m1 = tension * (p2 - p0);
+                double m2 = tension * (p3 - p1);
+                double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+                double h10 = t3 - 2.0 * t2 + t;
+                double h01 = -2.0 * t3 + 3.0 * t2;
+                double h11 = t3 - t2;
+                return h00 * p1 + h10 * m1 + h01 * p2 + h11 * m2;
+            }
+
+            private static double WrapLongitude(double lonDeg)
+            {
+                // Map any longitude back into (-180, 180]. Robust against
+                // multiple wraps if the unwrap accumulated more than +/-360.
+                double wrapped = lonDeg % 360.0;
+                if (wrapped > 180.0) wrapped -= 360.0;
+                else if (wrapped <= -180.0) wrapped += 360.0;
+                return wrapped;
+            }
+
+            private static bool IsFinite(double value)
+            {
+                return !double.IsNaN(value) && !double.IsInfinity(value);
+            }
+        }
+
+        /// <summary>
+        /// Phase 4 frame transformation (design doc §6.2 Stage 2 frame table,
+        /// §18 Phase 4, §26.1 HR-9). Lifts body-fixed (lat, lon, alt) at the
+        /// recording UT into "inertial-longitude" coordinates by adding the
+        /// body's sidereal rotation phase, and lowers the inverse at the
+        /// playback UT by subtracting the playback-time phase before handing
+        /// to <c>body.GetWorldSurfacePosition</c>.
+        ///
+        /// <para>
+        /// Formulation B: longitude unwrap by body rotation phase. Reuses
+        /// the existing <c>IncompleteBallisticSceneExitFinalizer</c> formula
+        /// (<c>longitude offset = (ut - referenceUT) * 360 / rotationPeriod</c>).
+        /// <c>body.initialRotation</c> is intentionally omitted — both Lift
+        /// and Lower add/subtract the same offset, so it cancels.
+        /// </para>
+        ///
+        /// <para>
+        /// Pure functions (HR-3): same inputs → same outputs, no hidden state.
+        /// Null body / non-finite or zero <c>rotationPeriod</c> degrade
+        /// gracefully (HR-9): Lift returns body-fixed unchanged and emits a
+        /// <c>Pipeline-Frame</c> Warn so the failure is visible in KSP.log.
+        /// EXO sections on tidally-locked / anomalous bodies render as
+        /// body-fixed in that case.
+        /// </para>
+        /// </summary>
+        internal static class FrameTransform
+        {
+            /// <summary>Test seam: when set, returned in place of
+            /// <c>body.rotationPeriod</c>. xUnit can't realistically construct
+            /// fully-initialised <see cref="CelestialBody"/> instances, so
+            /// tests inject a synthetic period via this hook. Production
+            /// callers leave it null and read the live field. Reset in test
+            /// Dispose via <see cref="ResetForTesting"/>.</summary>
+            internal static System.Func<CelestialBody, double> RotationPeriodForTesting;
+
+            /// <summary>Test seam: when set, returned in place of
+            /// <c>body.GetWorldSurfacePosition(lat, lon, alt)</c>. xUnit can't
+            /// drive the live PQS lookup, so tests inject a deterministic
+            /// surface-to-world mapping via this hook. Reset in Dispose via
+            /// <see cref="ResetForTesting"/>.</summary>
+            internal static System.Func<CelestialBody, double, double, double, Vector3d> WorldSurfacePositionForTesting;
+
+            /// <summary>Test-only: clears any injected seams.</summary>
+            internal static void ResetForTesting()
+            {
+                RotationPeriodForTesting = null;
+                WorldSurfacePositionForTesting = null;
+            }
+
+            /// <summary>
+            /// Sidereal phase advance in degrees from <c>UT == 0</c>:
+            /// <c>(ut * 360 / rotationPeriod)</c>. Returns <c>0</c> when the
+            /// body is null or its rotation period is non-finite / zero —
+            /// callers treat that as "no inertial lift needed" (HR-9).
+            /// </summary>
+            internal static double RotationAngleAtUT(CelestialBody body, double ut)
+            {
+                if (object.ReferenceEquals(body, null))
+                    return 0.0;
+                double period = ResolveRotationPeriod(body);
+                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
+                    return 0.0;
+                if (double.IsNaN(ut) || double.IsInfinity(ut))
+                    return 0.0;
+                return (ut * 360.0) / period;
+            }
+
+            /// <summary>
+            /// Lifts body-fixed <c>(lat, lon, alt)</c> at <paramref name="recordedUT"/>
+            /// to inertial-longitude <c>(lat, inertialLon, alt)</c>. Inertial
+            /// longitude is wrapped to <c>(-180, 180]</c>. Null body or
+            /// non-finite / zero rotation period is a no-op (returns the
+            /// body-fixed input) and emits a <c>Pipeline-Frame</c> Warn (HR-9).
+            /// </summary>
+            internal static Vector3d LiftToInertial(double latDeg, double lonDeg, double altMeters,
+                CelestialBody body, double recordedUT)
+            {
+                if (object.ReferenceEquals(body, null))
+                {
+                    ParsekLog.Warn("Pipeline-Frame",
+                        $"LiftToInertial degraded to body-fixed: body=null recordedUT={recordedUT}");
+                    return new Vector3d(latDeg, WrapLongitudeDegrees(lonDeg), altMeters);
+                }
+                double period = ResolveRotationPeriod(body);
+                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
+                {
+                    ParsekLog.Warn("Pipeline-Frame",
+                        $"LiftToInertial degraded to body-fixed: body={body.bodyName} rotationPeriod={period} recordedUT={recordedUT}");
+                    return new Vector3d(latDeg, WrapLongitudeDegrees(lonDeg), altMeters);
+                }
+
+                double phase = (recordedUT * 360.0) / period;
+                double inertialLon = WrapLongitudeDegrees(lonDeg + phase);
+                return new Vector3d(latDeg, inertialLon, altMeters);
+            }
+
+            /// <summary>
+            /// Lowers <c>(lat, inertialLon, alt)</c> at <paramref name="playbackUT"/>
+            /// back to a world position via <c>body.GetWorldSurfacePosition</c>.
+            /// The inverse of <see cref="LiftToInertial"/>: subtracts the
+            /// playback-time rotation phase from the inertial longitude (with
+            /// wrap to <c>(-180, 180]</c>) before the surface lookup. Null
+            /// body returns <c>Vector3d.zero</c> and emits a
+            /// <c>Pipeline-Frame</c> Warn (HR-9).
+            /// </summary>
+            internal static Vector3d LowerFromInertialToWorld(double latDeg, double inertialLonDeg, double altMeters,
+                CelestialBody body, double playbackUT)
+            {
+                if (object.ReferenceEquals(body, null))
+                {
+                    ParsekLog.Warn("Pipeline-Frame",
+                        $"LowerFromInertialToWorld degraded to zero: body=null playbackUT={playbackUT}");
+                    return Vector3d.zero;
+                }
+
+                double period = ResolveRotationPeriod(body);
+                double phase = 0.0;
+                if (!double.IsNaN(period) && !double.IsInfinity(period) && System.Math.Abs(period) > double.Epsilon
+                    && !double.IsNaN(playbackUT) && !double.IsInfinity(playbackUT))
+                {
+                    phase = (playbackUT * 360.0) / period;
+                }
+
+                double bodyFixedLon = WrapLongitudeDegrees(inertialLonDeg - phase);
+                return ResolveWorldSurfacePosition(body, latDeg, bodyFixedLon, altMeters);
+            }
+
+            /// <summary>
+            /// Phase 4 frame-aware dispatch (design doc §6.2 Stage 2, §18 Phase
+            /// 4, §26.1 HR-9). Resolves a smoothed <c>(lat, lon, alt)</c>
+            /// spline sample to a world position based on the spline's
+            /// <c>FrameTag</c> contract:
+            /// <list type="bullet">
+            ///   <item>Tag 0 (body-fixed) — straight <c>GetWorldSurfacePosition</c>.</item>
+            ///   <item>Tag 1 (inertial-longitude) — re-lower via
+            ///     <see cref="LowerFromInertialToWorld"/> at the playback UT.</item>
+            ///   <item>Anything else — HR-9 visible failure: emits a
+            ///     <c>Pipeline-Smoothing</c> Warn (gated by <paramref name="warnedKeys"/>
+            ///     when supplied so a degenerate recording can't flood the log)
+            ///     and returns NaN so the caller's outer guard falls back to
+            ///     the legacy lerp.</item>
+            /// </list>
+            /// Extracted from <c>ParsekFlight.InterpolateAndPosition</c> so
+            /// the unknown-tag branch can be exercised in xUnit without Unity.
+            /// </summary>
+            internal static Vector3d DispatchSplineWorldByFrameTag(byte frameTag,
+                double latDeg, double lonDeg, double altMeters,
+                CelestialBody body, double playbackUT,
+                string recordingId, int sectionIndex,
+                System.Collections.Generic.HashSet<string> warnedKeys = null)
+            {
+                switch (frameTag)
+                {
+                    case 0:
+                        return ResolveWorldSurfacePosition(body, latDeg, lonDeg, altMeters);
+                    case 1:
+                        return LowerFromInertialToWorld(latDeg, lonDeg, altMeters, body, playbackUT);
+                    default:
+                    {
+                        // HR-9: visible failure for an unrecognised tag.
+                        // Emits Warn (not VerboseRateLimited) so a programmer
+                        // error or a v1 .pann slipping past the gates surfaces
+                        // in stock logs. The optional warnedKeys dedup gates
+                        // a single (recordingId, sectionIndex) pair to one Warn
+                        // per session — a degenerate recording with an unknown
+                        // tag at every frame can't flood the log, but each
+                        // distinct unknown-tag occurrence is still visible.
+                        bool emit = true;
+                        if (warnedKeys != null)
+                        {
+                            string key = recordingId + ":" + sectionIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            emit = warnedKeys.Add(key);
+                        }
+                        if (emit)
+                        {
+                            ParsekLog.Warn("Pipeline-Smoothing",
+                                $"unknown frameTag={frameTag} recordingId={recordingId} sectionIndex={sectionIndex} -- falling back to legacy bracket interpolation");
+                        }
+                        return new Vector3d(double.NaN, double.NaN, double.NaN);
+                    }
+                }
+            }
+
+            private static double ResolveRotationPeriod(CelestialBody body)
+            {
+                var seam = RotationPeriodForTesting;
+                if (seam != null)
+                    return seam(body);
+                return body.rotationPeriod;
+            }
+
+            private static Vector3d ResolveWorldSurfacePosition(CelestialBody body,
+                double latDeg, double lonDeg, double altMeters)
+            {
+                var seam = WorldSurfacePositionForTesting;
+                if (seam != null)
+                    return seam(body, latDeg, lonDeg, altMeters);
+                return body.GetWorldSurfacePosition(latDeg, lonDeg, altMeters);
+            }
+
+            private static double WrapLongitudeDegrees(double lonDeg)
+            {
+                // Match the existing CatmullRomFit.WrapLongitude contract so
+                // body-fixed and inertial longitudes share a single canonical
+                // (-180, 180] range.
+                if (double.IsNaN(lonDeg) || double.IsInfinity(lonDeg))
+                    return lonDeg;
+                double wrapped = lonDeg % 360.0;
+                if (wrapped > 180.0) wrapped -= 360.0;
+                else if (wrapped <= -180.0) wrapped += 360.0;
+                return wrapped;
+            }
         }
 
         /// <summary>

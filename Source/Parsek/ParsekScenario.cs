@@ -883,6 +883,12 @@ namespace Parsek
             LedgerTombstones = new List<LedgerTombstone>();
             ActiveReFlySessionMarker = null;
             ActiveMergeJournal = null;
+            // Phase 2 (ghost rendering pipeline): drop any prior session's
+            // anchor ε map. If the just-loaded save carries a marker the
+            // post-load Rebuild below repopulates; if it does not, this
+            // Clear keeps stale anchors from a previous game leaking into
+            // the new load (HR-9 visibility).
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
 
             ConfigNode rpParent = node.GetNode("REWIND_POINTS");
             if (rpParent != null)
@@ -912,6 +918,24 @@ namespace Parsek
             ConfigNode markerNode = node.GetNode(ReFlySessionMarker.NodeName);
             if (markerNode != null)
                 ActiveReFlySessionMarker = ReFlySessionMarker.LoadFrom(markerNode);
+
+            // Phase 2 (ghost rendering pipeline, design doc §17.2 / §18 Phase
+            // 2): rebuild the in-memory anchor ε map from the just-loaded
+            // marker so the OnLoad path matches the post-AtomicMarkerWrite
+            // path in RewindInvoker.ConsumePostLoad. HR-9 visible-failure —
+            // a throw inside the rebuild must not abort save load.
+            if (ActiveReFlySessionMarker != null)
+            {
+                try
+                {
+                    Parsek.Rendering.RenderSessionState.RebuildFromMarker(ActiveReFlySessionMarker);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Pipeline-Session",
+                        $"OnLoad RebuildFromMarker threw (non-fatal): {ex.Message}");
+                }
+            }
 
             ConfigNode journalNode = node.GetNode(MergeJournal.NodeName);
             if (journalNode != null)
@@ -5454,6 +5478,10 @@ namespace Parsek
             // (Fix 8). The cache is 60s-TTL'd anyway but long-lived scene loops
             // can accumulate entries faster than TTL cleanup.
             RewindInvoker.PreconditionCache.ClearAll();
+            // Phase 2 (ghost rendering pipeline, design doc §18 Phase 2):
+            // drop the in-memory anchor ε map on scenario teardown so a
+            // subsequent scenario load starts with a clean slate.
+            Parsek.Rendering.RenderSessionState.Clear("scenario-destroyed");
             // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
             // EffectiveState does not read stale scenario state after destruction.
             if (ReferenceEquals(s_instance, this))

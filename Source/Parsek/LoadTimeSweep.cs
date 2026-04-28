@@ -74,6 +74,7 @@ namespace Parsek
                 clearedMarkerSessionId = marker.SessionId;
                 LogMarkerInvalid(marker, validation.Reason, validation.Details);
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             }
             else if (markerValid)
             {

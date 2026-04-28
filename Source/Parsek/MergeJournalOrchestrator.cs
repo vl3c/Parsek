@@ -237,6 +237,7 @@ namespace Parsek
 
             // Step 7: clear marker (§6.6 step 11).
             scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ParsekLog.Info("ReFlySession",
                 $"End reason=merged sess={sessionId} provisional={provisionalId}");
@@ -337,6 +338,7 @@ namespace Parsek
 
             bool hadMarker = scenario.ActiveReFlySessionMarker != null;
             scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
 
@@ -375,6 +377,7 @@ namespace Parsek
                         $"End reason=merged sess={sessionId} provisional={provisionalId}");
                 }
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
                 stepsDriven++;

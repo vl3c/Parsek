@@ -396,6 +396,8 @@ namespace Parsek.Tests
         [InlineData("abc123.prec.txt", "abc123")]
         [InlineData("abc123_vessel.craft.txt", "abc123")]
         [InlineData("abc123_ghost.craft.txt", "abc123")]
+        [InlineData("abc123.pann", "abc123")]                          // pipeline-annotation sidecar (PR #626 P2#1)
+        [InlineData("abc123.PANN", "abc123")]                          // case-insensitive
         [InlineData("abc123.pcrf", null)]                              // .pcrf no longer recognized (#260)
         [InlineData("a1b2c3d4e5f6.prec", "a1b2c3d4e5f6")]           // GUID-style ID
         [InlineData("id.with.dots.prec", "id.with.dots")]             // dots in ID

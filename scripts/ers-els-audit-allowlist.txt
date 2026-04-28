@@ -157,3 +157,14 @@ Source/Parsek/LoadTimeSweep.cs
 # The raw read is the only way to resolve the provisional to a Recording
 # reference for removal.
 Source/Parsek/RevertInterceptor.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 2) ---
+# RenderSessionState.RebuildFromMarker (ghost-trajectory-rendering-design
+# §7.1 / §6.3 / §18 Phase 2) reads marker.OriginChildRecordingId — the
+# active NotCommitted provisional re-fly target — and the recording's
+# in-tree siblings from CommittedRecordings to compute the recorded
+# offset between them at the branch-point UT. ERS would filter the
+# NotCommitted provisional out by construction, hiding the very
+# recording the anchor builder is parametrized on. The walk is read-
+# only against trajectory data (HR-1 / HR-5).
+Source/Parsek/Rendering/RenderSessionState.cs

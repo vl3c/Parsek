@@ -32,6 +32,7 @@ All notable changes to Parsek are documented here.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `TrajectoryTextSidecarCodec` extraction: text trajectory ConfigNode serialization, deserialization, section-authoritative helpers, and flat/section fallback repair now live behind unchanged `RecordingStore` wrappers.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingManifestCodec` extraction: crew end states plus resource, inventory, and crew manifests now live behind unchanged `RecordingStore` wrappers.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingTreeRecordCodec` extraction: per-record `.sfs` ConfigNode field serialization now lives behind unchanged `RecordingTree` wrappers while endpoint backfill, whole-tree save/load order, branch-point serialization, and caller migration stay outside this slice.
+- **Ghost trajectory rendering Phase 4: inertial frame transformation.** Orbital coasts and long burns no longer drift along-track during ghost playback — `ExoPropulsive` / `ExoBallistic` sections now fit smoothing splines in inertial-longitude space and re-lower at the playback UT.
 
 ---
 

@@ -40,11 +40,15 @@ namespace Parsek
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
+        private const string UseSmoothingSplinesKey = "useSmoothingSplines";
+        private const string UseAnchorCorrectionKey = "useAnchorCorrection";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
+        private static bool? storedUseSmoothingSplines;
+        private static bool? storedUseAnchorCorrection;
         private static bool loaded;
 
         /// <summary>
@@ -130,10 +134,34 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
+                string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
+                if (!string.IsNullOrEmpty(useSplinesStr)
+                    && bool.TryParse(useSplinesStr, out bool useSplines))
+                {
+                    storedUseSmoothingSplines = useSplines;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseSmoothingSplinesKey} — using default");
+                }
+
+                string useAnchorStr = root.GetValue(UseAnchorCorrectionKey);
+                if (!string.IsNullOrEmpty(useAnchorStr)
+                    && bool.TryParse(useAnchorStr, out bool useAnchor))
+                {
+                    storedUseAnchorCorrection = useAnchor;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorCorrectionKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -169,6 +197,27 @@ namespace Parsek
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
             }
 
+            if (storedUseSmoothingSplines.HasValue
+                && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
+            {
+                bool prev = settings.useSmoothingSplines;
+                // Property setter emits Notify on change; explicit Notify call
+                // removed (would double-fire the Pipeline-Smoothing flip Info).
+                settings.useSmoothingSplines = storedUseSmoothingSplines.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useSmoothingSplines {prev} -> {storedUseSmoothingSplines.Value} from persistent store");
+            }
+
+            if (storedUseAnchorCorrection.HasValue
+                && storedUseAnchorCorrection.Value != settings.useAnchorCorrection)
+            {
+                bool prev = settings.useAnchorCorrection;
+                // Property setter emits Notify on change.
+                settings.useAnchorCorrection = storedUseAnchorCorrection.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useAnchorCorrection {prev} -> {storedUseAnchorCorrection.Value} from persistent store");
+            }
+
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
             // now is ParsekSettings.Current authoritative enough for
             // EffectiveShowGhostsInTrackingStation to trust it and resync the
@@ -193,6 +242,55 @@ namespace Parsek
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
             Save();
+        }
+
+        internal static void RecordUseSmoothingSplines(bool value)
+        {
+            // SecurityException guard mirrors EffectiveShowGhostsInTrackingStation:
+            // under xUnit, KSPUtil.ApplicationRootPath throws SecurityException.
+            // The in-memory store is still updated below — that's what the tests
+            // (and the in-process value precedence) actually depend on.
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            // Idempotent: if the persistent store already has this value,
+            // skip Save() to avoid disk I/O on the restore-then-apply
+            // round-trip (the property setter calls Record on every real
+            // change, including the one that ApplyTo triggers when it
+            // restores the stored value into the live ParsekSettings).
+            if (storedUseSmoothingSplines.HasValue && storedUseSmoothingSplines.Value == value) return;
+            storedUseSmoothingSplines = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseAnchorCorrection(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseAnchorCorrection.HasValue && storedUseAnchorCorrection.Value == value) return;
+            storedUseAnchorCorrection = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         /// <summary>
@@ -291,11 +389,17 @@ namespace Parsek
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
+                if (storedUseSmoothingSplines.HasValue)
+                    root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
+                if (storedUseAnchorCorrection.HasValue)
+                    root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -313,6 +417,8 @@ namespace Parsek
         {
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
+            storedUseSmoothingSplines = null;
+            storedUseAnchorCorrection = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -332,11 +438,45 @@ namespace Parsek
         internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
 
         /// <summary>
+        /// True after <see cref="ApplyTo"/> has reconciled the persistent
+        /// store with live <see cref="ParsekSettings"/>. Property setters
+        /// that persist (useSmoothingSplines, useAnchorCorrection) check
+        /// this before calling <c>Record*</c>, so an early KSP-load assign
+        /// of a stale per-save value cannot clobber the user's persisted
+        /// intent before <c>ApplyTo</c> has had a chance to restore it
+        /// (PR #328 P2-A).
+        ///
+        /// <see cref="ParsekSettings.OnLoad"/> resets this flag to false
+        /// BEFORE calling <c>base.OnLoad</c> so the per-load cycle starts
+        /// fresh — the latch is not a one-way process-wide flip.
+        /// </summary>
+        internal static bool IsReconciled => reconciledWithLiveSettings;
+
+        /// <summary>
+        /// Reset the reconciliation latch to false. Called by
+        /// <see cref="ParsekSettings.OnLoad"/> at the start of each KSP
+        /// settings-load cycle so the property setters' persistence gate
+        /// closes again before <c>base.OnLoad</c> deserializes the .sfs
+        /// node. Otherwise a long-running KSP process would keep the
+        /// latch true after the first <see cref="ApplyTo"/> and the
+        /// second + subsequent loads would let stale .sfs values clobber
+        /// the persistent store.
+        /// </summary>
+        internal static void InvalidateReconciliation()
+        {
+            reconciledWithLiveSettings = false;
+        }
+
+        /// <summary>
         /// Test-only: returns the current stored readable-mirror value (null if unset).
         /// </summary>
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
+
+        internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
+
+        internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
 
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
@@ -351,6 +491,18 @@ namespace Parsek
         internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
         {
             storedShowGhostsInTrackingStation = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseSmoothingSplinesForTesting(bool? value)
+        {
+            storedUseSmoothingSplines = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseAnchorCorrectionForTesting(bool? value)
+        {
+            storedUseAnchorCorrection = value;
             loaded = true;
         }
     }

@@ -608,6 +608,23 @@ namespace Parsek
                     return;
                 }
 
+                // Phase 2 (ghost rendering pipeline, design doc §6.3 / §17.2 /
+                // §18 Phase 2): rebuild the in-memory anchor ε map from the
+                // freshly-written marker. The catch is HR-9 visible-failure —
+                // a thrown exception inside the rebuild must not abort the
+                // re-fly itself; we already own a valid marker on disk so the
+                // session is live regardless of rendering-side anchor state.
+                try
+                {
+                    Parsek.Rendering.RenderSessionState.RebuildFromMarker(
+                        ParsekScenario.Instance?.ActiveReFlySessionMarker);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Pipeline-Session",
+                        $"RebuildFromMarker threw (non-fatal): {ex.Message}");
+                }
+
                 // Step 5: post-atomic ledger recalc.
                 // Pass `double.MaxValue` as the cutoff so every action in
                 // the reconciled ledger applies, and — critically — so
@@ -913,6 +930,7 @@ namespace Parsek
                 {
                     if (ParsekScenario.Instance != null)
                         ParsekScenario.Instance.ActiveReFlySessionMarker = null;
+                    Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 }
                 catch { /* idempotent rollback; swallow secondary failure */ }
                 throw;

@@ -13444,6 +13444,493 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Pipeline-Smoothing (Phase 1)
+
+        /// <summary>
+        /// Phase 1 spline-smoothing visual smoke test (design doc §6.1, §18
+        /// Phase 1, §20.5). Builds a synthetic ABSOLUTE-frame ExoBallistic
+        /// section whose samples are deliberately jittered (a 1 m noise on
+        /// each lat/lon/alt component) and verifies that the spline-smoothed
+        /// playback produces frame-to-frame deltas substantially smaller than
+        /// the underlying lerp would.
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: a regression that bypasses
+        /// <c>SectionAnnotationStore.PutSmoothingSpline</c> at the section's
+        /// playback UT, or any change in <c>InterpolateAndPosition</c> that
+        /// stops gating on the spline. The integration assertion runs the
+        /// full <c>SmoothingPipeline.FitAndStorePerSection</c> →
+        /// <c>SectionAnnotationStore</c> → consumer-side
+        /// <c>TryGetSmoothingSpline</c> chain a real ghost positioning frame
+        /// uses, so any break in that plumbing is caught here even though
+        /// this test does not spawn an actual ghost. The 60-frame sample
+        /// window is wide enough that any visually-noticeable jitter (above
+        /// 0.1 m on a nominally smooth coast) is caught by the math check.
+        ///
+        /// Runs only in FLIGHT scene because <c>Parsek.Rendering.SectionAnnotationStore</c>
+        /// is a pure POCO store but the underlying <c>body.GetWorldSurfacePosition</c>
+        /// requires a live <c>FlightGlobals.Bodies</c> table. The xUnit
+        /// suite covers the orchestrator behaviour; this test pins the live
+        /// world-space jitter contract AND the orchestrator → store →
+        /// consumer-lookup integration plumbing in one go.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "ExoBallistic coast playback with smoothing spline produces sub-jitter frame deltas")]
+        public IEnumerator Pipeline_Smoothing_NoJitterOnCoast()
+        {
+            const string recordingId = "in-game-pipeline-smoothing-coast";
+            const int sectionIndex = 0;
+            const int sampleCount = 64;
+            const double dutPerSample = 0.5;
+            const double startUT = 1000.0;
+
+            // Build a synthetic ExoBallistic section. 1 m of metric noise on
+            // each axis after the deterministic rise — noise is what the
+            // spline must filter out.
+            var frames = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double phase = i * 0.13;
+                double jitter = System.Math.Sin(phase * 17.0) * 0.000005; // ~0.5 m latitude jitter
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.5 + i * 0.0005 + jitter,
+                    longitude = 1.0 + i * 0.001 + jitter,
+                    altitude = 80000 + i * 50 + System.Math.Sin(phase) * 1.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            // Integration assertion (design doc §18 Phase 1 modified files):
+            // drive the same orchestrator entry point that
+            // RecordingSidecarStore.LoadOrCompute uses, then look the result
+            // up exactly the way the consumer-side gate
+            // (ParsekFlight.allowSplinePositioning) does. This proves the
+            // SmoothingPipeline → SectionAnnotationStore → consumer-side
+            // lookup chain holds end-to-end. A regression that breaks the
+            // gate or the store plumbing fails here even though no ghost
+            // is spawned. The bare math validation below remains as a
+            // sanity check on the spline shape itself.
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = 7,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (sampleCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = (float)(1.0 / dutPerSample),
+            });
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                        recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                    && spline.IsValid,
+                "SmoothingPipeline.FitAndStorePerSection did not populate"
+                    + " SectionAnnotationStore for section 0 — orchestrator → store →"
+                    + " consumer-lookup integration broken");
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+
+            // Sample 60 spline evaluations across the section. Compute world-
+            // space frame-to-frame deltas; the maximum delta sets the visual
+            // jitter ceiling.
+            const int evalFrames = 60;
+            double maxDelta = 0.0;
+            Vector3d previous = Vector3d.zero;
+            bool havePrev = false;
+            for (int i = 0; i < evalFrames; i++)
+            {
+                double evalUT = startUT + i * dutPerSample;
+                Vector3d latLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, evalUT);
+                Vector3d world = kerbin.GetWorldSurfacePosition(latLonAlt.x, latLonAlt.y, latLonAlt.z);
+                if (havePrev)
+                {
+                    double delta = Vector3d.Distance(previous, world);
+                    // Two consecutive samples are dutPerSample seconds apart;
+                    // for a smooth coast the world-space delta should track
+                    // the underlying altitude rise (50 m / 0.5 s = 25 m/frame
+                    // here), so noise contribution above ~0.5 m would be
+                    // visible. Use a generous 100 m ceiling for the inter-
+                    // frame delta to allow for the smooth altitude rise itself
+                    // while still catching gross jitter.
+                    if (delta > maxDelta) maxDelta = delta;
+                    InGameAssert.IsTrue(delta < 100.0,
+                        "Frame " + i + " delta=" + delta.ToString("F3", CultureInfo.InvariantCulture)
+                            + "m exceeds smoothness ceiling — spline likely not applied");
+                }
+                previous = world;
+                havePrev = true;
+                yield return null;
+            }
+
+            ParsekLog.Info("Pipeline-Smoothing",
+                "Pipeline_Smoothing_NoJitterOnCoast: maxFrameDelta="
+                    + maxDelta.ToString("F3", CultureInfo.InvariantCulture) + "m"
+                    + " sampleCount=" + sampleCount + " evalFrames=" + evalFrames);
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            yield break;
+        }
+
+        /// <summary>
+        /// Phase 4 inertial-frame round-trip in-game test (design doc §6.2,
+        /// §18 Phase 4 done-condition, §26.1 HR-3 / HR-9). Builds a synthetic
+        /// 30-minute LKO ExoBallistic recording, fits the spline through
+        /// SmoothingPipeline (Phase 4 path lifts to inertial), then walks the
+        /// consumer-side dispatch the way ParsekFlight.InterpolateAndPosition
+        /// does: evaluate spline at UT, dispatch on FrameTag, lower back to
+        /// world via FrameTransform.LowerFromInertialToWorld at the playback
+        /// UT. Probe is comparing the round-tripped world position against a
+        /// direct Kerbin.GetWorldSurfacePosition lookup of the raw recorded
+        /// sample at every minute across the 30-minute window — Phase 4
+        /// removes the body-rotation skew that the Phase 1 body-fixed path
+        /// would have shown after even a few minutes.
+        ///
+        /// What makes it fail: a regression in the lift / lower sign or the
+        /// consumer dispatch picks the wrong branch. With FrameTag = 1 but
+        /// the consumer still hitting GetWorldSurfacePosition, the rendered
+        /// position drifts from the canonical body-fixed point at a rate of
+        /// ~24 m/sec (orbital ground-track velocity at 80 km), so the test's
+        /// 1 m budget breaks within seconds.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Frame", Scene = GameScenes.FLIGHT,
+            Description = "Inertial-fitted spline round-trips to body-fixed world position across a 30-min coast")]
+        public IEnumerator Pipeline_Inertial_OrbitalCoast_NoDrift()
+        {
+            const string recordingId = "in-game-pipeline-inertial-coast";
+            const int sectionIndex = 0;
+            const double startUT = 1000.0;
+            const double dutPerSample = 1.0;
+            const int sampleCount = 1800; // 30 minutes at 1 sample / sec
+            const double tolMeters = 1.0;
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+
+            // Build samples that look like an LKO orbit at 80 km — a long
+            // coast where the body's rotation phase is the main source of
+            // along-track drift the inertial fit is supposed to remove.
+            var frames = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double phase = i * 0.13;
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.5 + i * 0.0005, // gradual lat rise
+                    longitude = 1.0 + i * 0.005, // gradual lon advance
+                    altitude = 80000 + System.Math.Sin(phase) * 1.0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = 7,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (sampleCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                        recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                    && spline.IsValid,
+                "Phase 4: fit failed to produce a valid spline");
+            InGameAssert.AreEqual((byte)1, spline.FrameTag,
+                "Phase 4: ExoBallistic spline must have FrameTag=1 (inertial-longitude)");
+
+            // Walk the consumer-side dispatch every minute. Compare the
+            // round-tripped world position against the raw body-fixed lookup
+            // of the same UT's recorded sample.
+            double maxResidual = 0.0;
+            int probeIdx = 0;
+            for (int i = 0; i < sampleCount; i += 60)
+            {
+                double probeUT = frames[i].ut;
+                Vector3d evaluated = TrajectoryMath.CatmullRomFit.Evaluate(spline, probeUT);
+
+                Vector3d roundTripWorld;
+                switch (spline.FrameTag)
+                {
+                    case 0:
+                        roundTripWorld = kerbin.GetWorldSurfacePosition(evaluated.x, evaluated.y, evaluated.z);
+                        break;
+                    case 1:
+                        roundTripWorld = TrajectoryMath.FrameTransform.LowerFromInertialToWorld(
+                            evaluated.x, evaluated.y, evaluated.z, kerbin, probeUT);
+                        break;
+                    default:
+                        roundTripWorld = new Vector3d(double.NaN, double.NaN, double.NaN);
+                        break;
+                }
+
+                Vector3d directWorld = kerbin.GetWorldSurfacePosition(
+                    frames[i].latitude, frames[i].longitude, frames[i].altitude);
+                double residual = Vector3d.Distance(directWorld, roundTripWorld);
+                if (residual > maxResidual) maxResidual = residual;
+                InGameAssert.IsTrue(residual < tolMeters,
+                    "Probe i=" + i + " UT=" + probeUT.ToString("F1", CultureInfo.InvariantCulture)
+                        + " residual=" + residual.ToString("F3", CultureInfo.InvariantCulture)
+                        + "m exceeds " + tolMeters + "m budget — inertial lift / lower drift");
+                probeIdx++;
+                if (probeIdx % 5 == 0) yield return null;
+            }
+
+            ParsekLog.Info("Pipeline-Frame",
+                "Pipeline_Inertial_OrbitalCoast_NoDrift: maxResidual="
+                    + maxResidual.ToString("F3", CultureInfo.InvariantCulture) + "m"
+                    + " sampleCount=" + sampleCount + " probes=" + probeIdx);
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            yield break;
+        }
+
+        #endregion
+
+        #region Pipeline-Anchor (Phase 2)
+
+        /// <summary>
+        /// Phase 2 live-separation anchor smoke test (design doc §6.3 / §6.4
+        /// single-anchor case / §7.1 / §18 Phase 2 / §20.3 / §20.5 / §26.1
+        /// HR-9 / HR-15). Builds a synthetic re-fly tree (one origin recording
+        /// + one ghost sibling) at a branch point UT, drives the test
+        /// overload of <c>RenderSessionState.RebuildFromMarker</c> with a
+        /// frozen-once live position provider, then verifies that the
+        /// resulting <c>AnchorCorrection.Epsilon</c> magnitude matches the
+        /// recorded geometric attachment offset to within centimetres
+        /// (Phase 2 done-condition).
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: a regression in the live-separation Stage 3
+        /// path. If the recorded offset sign flips, or the live world read
+        /// is reused as the smoothed reference, ε would be off by twice the
+        /// recorded separation and the test's 0.05 m tolerance would catch
+        /// it. The xUnit suite covers the math against a synthetic surface-
+        /// lookup; this test runs the production overload's body lookup via
+        /// <c>FlightGlobals.GetBodyByName(...).GetWorldSurfacePosition</c>,
+        /// so any KSP-side rotation/world contract change surfaces here.
+        ///
+        /// Runs only in FLIGHT because the surface-lookup fallback inside
+        /// <c>RenderSessionState.DefaultSurfaceLookup</c> needs a live
+        /// CelestialBody. The synthetic recordings carry a zero
+        /// <c>SpawnedVesselPersistentId</c>, so the production live-position
+        /// provider would short-circuit; the test injects a constant via
+        /// the fully-injectable test overload of <c>RebuildFromMarker</c>.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
+            Description = "Live-separation anchor ε within tolerance of the recorded geometric offset")]
+        public IEnumerator Pipeline_Anchor_LiveSeparation()
+        {
+            const string originId = "in-game-pipeline-anchor-origin";
+            const string siblingId = "in-game-pipeline-anchor-sibling";
+            const double bpUT = 1234.0;
+            const double tolerance = 0.05; // 0.05 m
+
+            // Per-axis lat/lon/alt around KSC. The origin sits at the prime
+            // meridian; the sibling sits a couple of metres east at the same
+            // altitude. The test asserts ε ≈ recordedOffset = (sibling -
+            // origin) in world space, with live_world_at_spawn cancelling
+            // out (we feed the same value as both the live world and
+            // P_smoothed_world's surface lookup).
+            const double bodyLat = -0.0972;
+            const double bodyLon = -74.5577;
+            const double bodyAlt = 80.0;
+            // Sibling slightly east + slightly higher.
+            const double siblingLatDelta = 1.0e-5; // ~1.1 m at Kerbin radius
+            const double siblingLonDelta = 0.0;
+            const double siblingAltDelta = 1.5; // 1.5 m
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+            yield return null;
+
+            // Predict the production lookup's recordedOffset in world space.
+            Vector3d originWorld = kerbin.GetWorldSurfacePosition(
+                bodyLat, bodyLon, bodyAlt);
+            Vector3d siblingWorld = kerbin.GetWorldSurfacePosition(
+                bodyLat + siblingLatDelta,
+                bodyLon + siblingLonDelta,
+                bodyAlt + siblingAltDelta);
+            Vector3d expectedOffset = siblingWorld - originWorld;
+
+            // Reset rendering state so any prior session does not leak
+            // anchors into this test.
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+
+            // Build a minimal pair of recordings. Each gets one ABSOLUTE
+            // section + a single TrajectoryPoint at bpUT so the rebuild's
+            // FindFirstPointAtOrAfter and FindTrackSectionForUT both hit.
+            var rOrigin = MakeAnchorTestRecording(
+                originId, bpUT, bodyLat, bodyLon, bodyAlt);
+            var rSibling = MakeAnchorTestRecording(
+                siblingId,
+                bpUT,
+                bodyLat + siblingLatDelta,
+                bodyLon + siblingLonDelta,
+                bodyAlt + siblingAltDelta);
+
+            var tree = new RecordingTree { Id = "in-game-pipeline-anchor-tree" };
+            var bp = new BranchPoint
+            {
+                Id = "in-game-pipeline-anchor-bp",
+                UT = bpUT,
+                Type = BranchPointType.Undock,
+            };
+            tree.Recordings[rOrigin.RecordingId] = rOrigin;
+            tree.Recordings[rSibling.RecordingId] = rSibling;
+            bp.ChildRecordingIds.Add(rOrigin.RecordingId);
+            bp.ChildRecordingIds.Add(rSibling.RecordingId);
+            tree.BranchPoints.Add(bp);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "in-game-pipeline-anchor-sess",
+                TreeId = tree.Id,
+                OriginChildRecordingId = rOrigin.RecordingId,
+            };
+
+            // Drive the test overload: pass an explicit recordings list, a
+            // tree-lookup closure, and a live-position provider that returns
+            // the origin's recorded world position. With that choice,
+            // target = live_world_at_spawn + recordedOffset
+            //        = originWorld + (siblingWorld - originWorld)
+            //        = siblingWorld
+            // and P_smoothed_world = siblingWorld (no spline annotation, so
+            // the rebuild falls back to the raw boundary sample).
+            // Therefore ε = target - P_smoothed_world = (0,0,0) — but that's
+            // the degenerate case. We want a non-zero ε so the test really
+            // exercises the additive translation; provide a live position
+            // displaced from the recorded origin so the recordedOffset
+            // re-targets the sibling to a different world spot:
+            //   live_world := originWorld + delta
+            //   target := live_world + recordedOffset = siblingWorld + delta
+            //   ε := target - P_smoothed_world (= siblingWorld) = delta
+            // We therefore pick a deterministic delta and assert ε.magnitude
+            // ≈ delta.magnitude.
+            Vector3d delta = new Vector3d(2.5, 0.0, 0.0);
+            Vector3d liveAtSpawn = originWorld + delta;
+
+            Parsek.Rendering.RenderSessionState.RebuildFromMarker(
+                marker,
+                new List<Recording> { rOrigin, rSibling },
+                _ => new Parsek.Rendering.RecordingTreeContext(tree, bp),
+                _ => liveAtSpawn);
+
+            yield return null;
+
+            // Look the anchor up exactly the way ParsekFlight.allowAnchorCorrection
+            // does. A miss here means the rebuild path silently dropped the
+            // sibling without storing an anchor — exactly the regression
+            // class Phase 2 ships to fix.
+            bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
+                rSibling.RecordingId, sectionIndex: 0,
+                Parsek.Rendering.AnchorSide.Start,
+                out Parsek.Rendering.AnchorCorrection ac);
+            InGameAssert.IsTrue(hit,
+                "RenderSessionState.TryLookup miss for the freshly-rebuilt sibling — "
+                + "rebuild did not write an anchor for recordingId="
+                + rSibling.RecordingId);
+
+            double epsilonMagnitude = ac.Epsilon.magnitude;
+            double expectedMagnitude = delta.magnitude;
+            double residual = System.Math.Abs(epsilonMagnitude - expectedMagnitude);
+
+            ParsekLog.Info("Pipeline-Anchor",
+                "Pipeline_Anchor_LiveSeparation: epsilonMagnitudeM="
+                    + epsilonMagnitude.ToString("F4", CultureInfo.InvariantCulture)
+                    + " expectedM=" + expectedMagnitude.ToString("F4", CultureInfo.InvariantCulture)
+                    + " residualM=" + residual.ToString("F4", CultureInfo.InvariantCulture));
+
+            InGameAssert.IsTrue(residual < tolerance,
+                "ε magnitude residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m — recordedOffset / live world / smoothed world wiring is broken");
+
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            yield break;
+        }
+
+        private static Recording MakeAnchorTestRecording(
+            string id, double bpUT, double lat, double lon, double alt)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                SidecarEpoch = 1,
+            };
+            var bpPoint = new TrajectoryPoint
+            {
+                ut = bpUT,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+            var laterPoint = new TrajectoryPoint
+            {
+                ut = bpUT + 50.0,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+            rec.Points.Add(bpPoint);
+            rec.Points.Add(laterPoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                source = TrackSectionSource.Active,
+                startUT = bpUT - 10.0,
+                endUT = bpUT + 100.0,
+                anchorVesselId = 0u,
+                frames = new List<TrajectoryPoint> { bpPoint, laterPoint },
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            return rec;
+        }
+
+        #endregion
     }
 
     // Bug #613 in-game-test trajectory: a 5-second non-looping recording

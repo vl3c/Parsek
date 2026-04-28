@@ -179,6 +179,7 @@ namespace Parsek.InGameTests
                 if (addedProvisional != null)
                     RecordingStore.RemoveCommittedInternal(addedProvisional);
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("ingame-test-teardown");
             }
 
             ParsekLog.Info("RewindTest",

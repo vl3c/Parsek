@@ -192,6 +192,7 @@ namespace Parsek.InGameTests
             try
             {
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("ingame-test-teardown");
 
                 bool hookFired = false;
                 ReFlyRevertDialog.ShowHookForTesting = _ => hookFired = true;
