@@ -7,7 +7,7 @@
 **Status:** design draft, not yet implemented. Primarily targets the rendering layer (Stages 1-5 in Section 5 are render-time-only). Persistence additions are the minimum needed for cache invalidation, raw-data capture for the surface-terrain and structural-event-snapshot phases, and offset traces for the co-bubble case:
 
 - A new **annotation sidecar `<id>.pann`** (Section 17.3.1) — separate binary file, optional, regenerable. Holds smoothing splines, outlier flags, anchor-candidate UT lists, and co-bubble offset traces. Recordings without it lazy-compute on first use.
-- Two **`.prec` schema bumps** (Section 17.3.2) gated by Phase 7 and Phase 9 only — additive per-point fields (`recordedGroundClearance`, `flags`) handled by extending the existing `TrajectorySidecarBinary` version chain (current `RelativeAbsoluteShadowFormatVersion = 7` → `TerrainGroundClearanceBinaryVersion = 8` → `StructuralEventFlagBinaryVersion = 9`).
+- Two **`.prec` schema bumps** (Section 17.3.2) gated by Phase 7 and Phase 9 only — additive per-point fields (`recordedGroundClearance`, `flags`) handled by extending the existing `TrajectorySidecarBinary` version chain. The current chain ends at `BoundarySeamFlagFormatVersion = 8` (already shipped on `main`); Phase 7 reserves v9 (`TerrainGroundClearanceBinaryVersion`) and Phase 9 reserves v10 (`StructuralEventFlagBinaryVersion`).
 
 No `.sfs` save-file shape changes. Recordings of every prior format (v4-v7) remain loadable and playable; pipeline features that depend on absent raw fields degrade gracefully (Section 21.2).
 
@@ -880,8 +880,8 @@ Two pipeline phases require *raw* per-point fields and therefore need a `.prec` 
 
 | Phase | New raw field           | Placement                                | Format-version bump |
 |-------|-------------------------|------------------------------------------|---------------------|
-| 7     | `recordedGroundClearance : float32` (NaN sentinel for legacy points) | Per-point in `WritePointList` and per-section frames | `TerrainGroundClearanceBinaryVersion = 8` |
-| 9     | `flags : byte`           | Per-point bit-packed (default 0; bit 0 = `StructuralEventSnapshot`) | `StructuralEventFlagBinaryVersion = 9` |
+| 7     | `recordedGroundClearance : float32` (NaN sentinel for legacy points) | Per-point in `WritePointList` and per-section frames | `TerrainGroundClearanceBinaryVersion = 9` |
+| 9     | `flags : byte`           | Per-point bit-packed (default 0; bit 0 = `StructuralEventSnapshot`) | `StructuralEventFlagBinaryVersion = 10` |
 
 These bumps follow the exact pattern used today for v3, v5, v6, v7 (see `TrajectorySidecarBinary.cs:38-43`). Each adds a private const, extends `IsSupportedBinaryVersion` (`:341`), and gates the new field's read/write on a version comparison. The existing `.prec` file shape is otherwise untouched — Stages 1-5 and Phase 8 (outlier rejection) require no `.prec` changes.
 
@@ -893,7 +893,7 @@ After all phases ship:
 
 | File                       | Existing / new | Purpose                                                  |
 |----------------------------|----------------|----------------------------------------------------------|
-| `<id>.prec`                | existing       | Canonical trajectory + sections + events (binary; `TrajectorySidecarBinary.cs`). Schema bumped to v8 in Phase 7, v9 in Phase 9 (see 17.3.2). |
+| `<id>.prec`                | existing       | Canonical trajectory + sections + events (binary; `TrajectorySidecarBinary.cs`). Currently at v8 (`BoundarySeamFlagFormatVersion`); schema bumped to v9 in Phase 7, v10 in Phase 9 (see 17.3.2). |
 | `<id>.prec.txt`            | existing       | Optional debug-only readable mirror of `.prec`. Not consumed at load time. |
 | `<id>_vessel.craft`        | existing       | Vessel proto for spawn. Untouched.                       |
 | `<id>_vessel.craft.txt`    | existing       | Optional debug-only readable mirror.                     |
@@ -903,7 +903,7 @@ After all phases ship:
 
 (Note: `<id>.pcrf`, mentioned in earlier drafts of `.claude/CLAUDE.md`, was retired in the `refactor-4-pass2` series and now lives in `RecordingStore.LegacyRecordingFileSuffixes` for cleanup. New code does not write it.)
 
-Older recordings without `.pann` and with `.prec` ≤ v7 remain fully loadable. The pipeline lazy-computes whatever annotations are missing (Section 21.3); per-point raw fields added in v8/v9 read as `NaN` / `0` for older recordings, which the pipeline interprets as "data not captured" and falls back accordingly.
+Older recordings without `.pann` and with `.prec` ≤ v8 remain fully loadable. The pipeline lazy-computes whatever annotations are missing (Section 21.3); per-point raw fields added in v9 / v10 read as `NaN` / `0` for older recordings, which the pipeline interprets as "data not captured" and falls back accordingly.
 
 All new readers/writers route through `FileIOUtils.SafeWrite*` (atomic tmp + rename, HR-12) and through `RecordingPaths.Build*RelativePath` helpers (path-traversal validation).
 
@@ -1050,8 +1050,8 @@ The first four phases together address the three naive-rendering failure modes (
 **Modified files:**
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive field `public double recordedGroundClearance` (default `double.NaN` for legacy points; readers fill NaN when the field is absent in older binaries).
-- `Source/Parsek/RecordingStore.cs` — append a new format constant `TerrainGroundClearanceFormatVersion = 8` to the version block at `:57-61`; bump `CurrentRecordingFormatVersion` to it.
-- `Source/Parsek/TrajectorySidecarBinary.cs` — append `TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new field's read/write inside `WritePointList` (`:358`) / `ReadPointList` on `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Trajectory data is binary-only (post `refactor-4-pass2`); the `.prec.txt` debug mirror is regenerated from the binary representation and inherits the new field automatically — no parallel text-codec changes required.
+- `Source/Parsek/RecordingStore.cs` — append a new format constant `TerrainGroundClearanceFormatVersion = 9` to the version block (currently ends at `BoundarySeamFlagFormatVersion = 8`); bump `CurrentRecordingFormatVersion` to it.
+- `Source/Parsek/TrajectorySidecarBinary.cs` — append `TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion` to the version constants block. Extend `IsSupportedBinaryVersion` and `GetBinaryEncoding`. Gate the new field's read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Trajectory data is binary-only (post `refactor-4-pass2`); the `.prec.txt` debug mirror is regenerated from the binary representation and inherits the new field automatically — no parallel text-codec changes required.
 - `Source/Parsek/FlightRecorder.cs` — populate `recordedGroundClearance` for every sample in a `SurfaceMobile` section. Use `body.pqsController.GetSurfaceHeight(...)` minus the recorded altitude at recording time (or the equivalent KSP-API distance to surface).
 - `Source/Parsek/ParsekFlight.cs` — `PositionAtPoint` and `InterpolateAndPosition` for `SurfaceMobile` sections use `body.pqsController.GetSurfaceHeight` plus `recordedGroundClearance` instead of stored `altitude` when `recordedGroundClearance` is non-NaN; otherwise fall through to today's altitude path.
 - `Source/Parsek/Rendering/TerrainCacheBuckets.cs` — lat/lon-bucketed cache, evicted at scene transition.
@@ -1083,11 +1083,11 @@ The first four phases together address the three naive-rendering failure modes (
 **Modified files:**
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive `flags` byte (default 0 for legacy points; bit 0 = `StructuralEventSnapshot`). A new `[Flags] enum TrajectoryPointFlags : byte` documents the bit assignments.
-- `Source/Parsek/RecordingStore.cs` — append `StructuralEventFlagFormatVersion = 9` to the version block at `:57-61`; bump `CurrentRecordingFormatVersion` to it.
-- `Source/Parsek/TrajectorySidecarBinary.cs` — append `StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion` to the version constants at `:38-43`. Extend `IsSupportedBinaryVersion` (`:341`) and `GetBinaryEncoding` (`:351`). Gate the new `flags` byte read/write inside `WritePointList` (`:358`) / `ReadPointList` on `binaryVersion >= StructuralEventFlagBinaryVersion`. No parallel text-codec change (trajectory is binary-only post-refactor; `.prec.txt` is the debug mirror only).
+- `Source/Parsek/RecordingStore.cs` — append `StructuralEventFlagFormatVersion = 10` to the version block; bump `CurrentRecordingFormatVersion` to it.
+- `Source/Parsek/TrajectorySidecarBinary.cs` — append `StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion` to the version constants. Extend `IsSupportedBinaryVersion` and `GetBinaryEncoding`. Gate the new `flags` byte read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= StructuralEventFlagBinaryVersion`. No parallel text-codec change (trajectory is binary-only post-refactor; `.prec.txt` is the debug mirror only).
 - `Source/Parsek/FlightRecorder.cs` — at the dock / undock / EVA / `onPartJointBreak` (`PartJoint joint, float breakForce`) handlers, call a new `AppendStructuralEventSnapshot(double eventUT, IEnumerable<Vessel> involved)` that interpolates each vessel's per-tick state to the exact event UT and writes one `TrajectoryPoint` per involved vessel into the corresponding section, with `flags |= TrajectoryPointFlags.StructuralEventSnapshot`. Both vessels' snapshots are taken from the same physics state (Section 12).
 - `Source/Parsek/Rendering/AnchorCandidateBuilder.cs` — prefer `StructuralEventSnapshot`-flagged points over interpolated samples when computing event ε. Recordings without the flag fall through to today's interpolation behaviour.
-- `Source/Parsek.Tests/Generators/RecordingBuilder.cs` — extend with `WithStructuralEventSnapshot(double ut, ...)` so test fixtures can produce v9 recordings.
+- `Source/Parsek.Tests/Generators/RecordingBuilder.cs` — extend with `WithStructuralEventSnapshot(double ut, ...)` so test fixtures can produce v10 recordings.
 
 **Done condition:** post-Phase-9 recordings show physics-precision ε at every structural event in `BranchPoint`-driven anchors. Older recordings (format ≤ 8) load without the `flags` byte and the pipeline falls back to interpolated event ε (Section 15.17).
 
@@ -1095,7 +1095,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 - Phases 1-4 are sequential and high-leverage. Each builds on the previous and unlocks a visible failure-mode fix.
 - Phases 5-9 are independent and can ship in any order once 1-4 land. None block each other.
-- Format-version landings: Phase 1 introduces the `.pann` annotation sidecar at its own initial version `PannotationsBinaryVersion = 1`; later phases that touch `.pann` bump only the `AlgorithmStampVersion` inside the file, never `PannotationsBinaryVersion`. Phases 7 and 9 bump the canonical `.prec` `CurrentRecordingFormatVersion` to 8 (`TerrainGroundClearanceFormatVersion`) and 9 (`StructuralEventFlagFormatVersion`) respectively (Section 17.3.2). Phases 2-6 and 8 do not touch `.prec`.
+- Format-version landings: Phase 1 introduces the `.pann` annotation sidecar at its own initial version `PannotationsBinaryVersion = 1`; later phases that touch `.pann` bump only the `AlgorithmStampVersion` inside the file, never `PannotationsBinaryVersion`. The canonical `.prec` chain currently ends at `BoundarySeamFlagFormatVersion = 8` on `main`; Phases 7 and 9 reserve v9 (`TerrainGroundClearanceFormatVersion`) and v10 (`StructuralEventFlagFormatVersion`) respectively (Section 17.3.2). Phases 2-6 and 8 do not touch `.prec`.
 - Each phase ends with a CHANGELOG entry under the current Parsek version (per `.claude/CLAUDE.md` → "Documentation Updates — Per Commit, Not Per PR") and the corresponding `docs/dev/todo-and-known-bugs.md` strikethroughs.
 
 ---
@@ -1317,9 +1317,9 @@ Test fixtures use the existing generators (`Source/Parsek.Tests/Generators/`):
 | Co-bubble per-trace peer format-version validation      | Peer `.prec` migrated to a newer format; existing trace must be discarded                                   | same                                                   |
 | Co-bubble per-trace `peerContentSignature` mismatch     | Peer raw bytes in `[startUT, endUT]` window changed under same epoch (defence-in-depth) → trace discarded   | same                                                   |
 | Co-bubble peer-missing fallback                         | Peer recording deleted; trace must discard and consumer falls back to standalone, with HR-9 Warn log        | same                                                   |
-| `.prec` v8 / v9 schema round-trip                       | New per-point fields (`recordedGroundClearance`, `flags`) corrupt on save / load of newer recordings        | `PrecBinaryRoundTripTests.cs`                          |
-| `.prec` v7 read under v8 code                           | Older recording missing `recordedGroundClearance` reads as NaN; pipeline must fall back gracefully          | same                                                   |
-| `.prec` v8 read under pre-v8 code                       | Older Parsek build encounters newer `.prec` and refuses cleanly (`probe.Supported = false`) — no silent corruption | same                                              |
+| `.prec` v9 / v10 schema round-trip                      | New per-point fields (`recordedGroundClearance`, `flags`) corrupt on save / load of newer recordings        | `PrecBinaryRoundTripTests.cs`                          |
+| `.prec` v8 read under v9 code                           | Older recording missing `recordedGroundClearance` reads as NaN; pipeline must fall back gracefully          | same                                                   |
+| `.prec` v9 read under pre-v9 code                       | Older Parsek build encounters newer `.prec` and refuses cleanly (`probe.Supported = false`) — no silent corruption | same                                              |
 | `RenderSessionState.RebuildFromMarker` deterministic    | Same marker + same recordings → different ε map between runs → HR-3 violated                                | `RenderSessionStateTests.cs`                           |
 | `RenderSessionState.Clear` invalidation                 | Anchor lookup after `Clear` returns stale value → would cause ghost to spawn at last-session position       | same                                                   |
 
@@ -1399,9 +1399,9 @@ Maps to Section 18's phase ordering. A phase is not done until every box ticks.
 | 4     | Lift / lower round-trip, distributivity | Frame mismatch Warn | `Pipeline-Anchor-OrbitalCheckpoint` | (none new) | (reuse) |
 | 5     | Primary selection, P_render frame coupling, crossfade | Co-bubble enter / exit pair | `Pipeline-CoBubble-Live` + `-GhostGhost` | `.pann` `CoBubbleOffsetTraces` | `pipeline-cobubble-formation` |
 | 6     | Three-stage propagation, suppressed predecessor | DAG walk summary | `Pipeline-DAG-Three-Stage` | `.pann` `AnchorCandidatesList` | (reuse) |
-| 7     | Terrain bucket cache hit / miss, eviction | Terrain Warn on raycast miss | `Pipeline-Terrain-Continuous` | `.prec` v8 round-trip + v7→v8 read | `pipeline-terrain-rover` |
+| 7     | Terrain bucket cache hit / miss, eviction | Terrain Warn on raycast miss | `Pipeline-Terrain-Continuous` | `.prec` v9 round-trip + v8→v9 read | `pipeline-terrain-rover` |
 | 8     | Classifier accept / reject, cluster threshold | Outlier rejection summary, cluster Warn | `Pipeline-Outlier-Kraken` | `.pann` `OutlierFlagsList` | `pipeline-outlier-kraken` |
-| 9     | Structural-event snapshot tagged correctly | Recorder snapshot Info line | (recorder-side, in-game test verifies precision) | `.prec` v9 round-trip + v8→v9 read (`TrajectoryPoint.flags` byte) | (regenerate fixtures with v9 flag) |
+| 9     | Structural-event snapshot tagged correctly | Recorder snapshot Info line | (recorder-side, in-game test verifies precision) | `.prec` v10 round-trip + v9→v10 read (`TrajectoryPoint.flags` byte) | (regenerate fixtures with v10 flag) |
 
 ### 20.6 Test Anti-Patterns the Pipeline Avoids
 
@@ -1429,8 +1429,9 @@ Two version chains are relevant to the pipeline. Keep them distinct in any revie
 | `PredictedOrbitSegmentFormatVersion`                             | 5     | `OrbitSegment.isPredicted` is serialized                                      |
 | `RelativeLocalFrameFormatVersion`                                | 6     | RELATIVE-section frames carry anchor-local offsets in `TrajectoryPoint` lat/lon/alt |
 | `RelativeAbsoluteShadowFormatVersion`                            | 7     | RELATIVE-section adds `absoluteFrames` shadow                                  |
-| `TerrainGroundClearanceFormatVersion` *(new, Phase 7)*           | 8     | Per-point `recordedGroundClearance : double` for `SurfaceMobile` samples       |
-| `StructuralEventFlagFormatVersion` *(new, Phase 9)*              | 9     | Per-point `flags : byte` (bit 0 = `StructuralEventSnapshot`)                   |
+| `BoundarySeamFlagFormatVersion`                                  | 8     | `TrackSection.isBoundarySeam` flag for the Producer-C no-payload boundary seam (already shipped on `main`) |
+| `TerrainGroundClearanceFormatVersion` *(new, Phase 7)*           | 9     | Per-point `recordedGroundClearance : double` for `SurfaceMobile` samples       |
+| `StructuralEventFlagFormatVersion` *(new, Phase 9)*              | 10    | Per-point `flags : byte` (bit 0 = `StructuralEventSnapshot`)                   |
 
 `CurrentRecordingFormatVersion` advances to 8 in Phase 7 and 9 in Phase 9. Phases 1-6 and 8 do *not* bump it. Any new behaviour gated on a version comparison uses the named constants — raw integer comparisons rot when the next version lands (per `.claude/CLAUDE.md` → "Format-v7 enums").
 
@@ -1441,7 +1442,7 @@ Two version chains are relevant to the pipeline. Keep them distinct in any revie
 | `PannotationsBinaryVersion` *(new, Phase 1)*      | 1     | Initial `.pann` schema (Section 17.3.1) — `SmoothingSplineList`, `OutlierFlagsList`, `AnchorCandidatesList`, `CoBubbleOffsetTraces` blocks. Phases 1, 6, 8, 5 each populate one block; the file's binary version itself does not bump until a structural schema change. |
 | `AlgorithmStampVersion` *(file-internal int)*     | 1+    | Bumps every time a smoothing / outlier / anchor algorithm changes its output for the same input. Older `.pann` files with a non-matching stamp are discarded and recomputed (HR-10). |
 
-The two chains are independent. A recording can be at `.prec` v7 with no `.pann` (lazy compute), or at `.prec` v9 with `.pann` v1 (everything eager), or any combination. Cache-key freshness is verified by matching the `.pann` `SidecarEpoch` field against the source `.prec`'s `SidecarEpoch`.
+The two chains are independent. A recording can be at `.prec` v8 with no `.pann` (lazy compute), or at `.prec` v10 with `.pann` v1 (everything eager), or any combination. Cache-key freshness is verified by matching the `.pann` `SourceSidecarEpoch` and `SourceRecordingFormatVersion` fields against the source `.prec`'s values.
 
 ### 21.2 What Each Older Recording Produces Through the Pipeline
 
@@ -1491,7 +1492,7 @@ This mirrors the existing rule for v5 vs v6 RELATIVE handling — version dispat
 The pipeline writes nothing to `.sfs` save files. `ParsekScenario.OnSave` / `OnLoad` are unchanged. Sharing a save with a player on a pre-pipeline build:
 
 - The pre-pipeline build never opens `<id>.pann` (it has no code path for it). The file is harmless on disk — it sits unread.
-- For `.prec` v8 / v9 recordings sent to a pre-Phase-7 / pre-Phase-9 build, the older `TrajectorySidecarBinary` reader fails the version check (`IsSupportedBinaryVersion` returns false). The recipient sees `probe.FailureReason = "unsupported binary trajectory version 8"` and the recording fails to load gracefully — no silent corruption, no plausible-but-wrong data. Players should upgrade the receiving side before consuming v8/v9 recordings.
+- For `.prec` v9 / v10 recordings sent to a pre-Phase-7 / pre-Phase-9 build, the older `TrajectorySidecarBinary` reader fails the version check (`IsSupportedBinaryVersion` returns false). The recipient sees `probe.FailureReason = "unsupported binary trajectory version 9"` (or v10) and the recording fails to load gracefully — no silent corruption, no plausible-but-wrong data. Players should upgrade the receiving side before consuming v9 / v10 recordings.
 
 There is no migration tool. Recordings flow through versions by additive evolution; downgrades are a non-goal (consistent with the existing project policy).
 
