@@ -47,9 +47,37 @@ namespace Parsek.Rendering
         // directly with linear interpolation. Reset via ResetForTesting.
         internal static System.Func<Recording, double, Vector3d?> SamplePositionResolverForTesting;
 
+        // P1-B: test seam for the body-by-name resolver used by the
+        // FrameTag=1 lift in BuildTrace. Production walks
+        // FlightGlobals.Bodies; xUnit injects a CelestialBody (or null) so
+        // the lift code path can be exercised without Unity.
+        internal static System.Func<string, CelestialBody> BodyResolverForTesting;
+
         internal static void ResetForTesting()
         {
             SamplePositionResolverForTesting = null;
+            BodyResolverForTesting = null;
+        }
+
+        private static CelestialBody ResolveBodyByName(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            var seam = BodyResolverForTesting;
+            if (seam != null) return seam(bodyName);
+            try
+            {
+                var bodies = FlightGlobals.Bodies;
+                if (bodies == null) return null;
+                CelestialBody match = bodies.Find(b =>
+                    !object.ReferenceEquals(b, null)
+                    && string.Equals(b.bodyName, bodyName, System.StringComparison.Ordinal));
+                if (object.ReferenceEquals(match, null)) return null;
+                return match;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -131,6 +159,17 @@ namespace Parsek.Rendering
                 {
                     TrackSection secB = b.TrackSections[sb];
                     if (!IsBubbleEligibleSection(secB)) continue;
+
+                    // P2-A: KSP has exactly one focused vessel per scene at
+                    // any UT, so two simultaneous Active sections must come
+                    // from different sessions (a re-fly bridge, not a true
+                    // co-bubble). Re-fly chains are stitched at supersede
+                    // time via tombstones; treating two Active sections as a
+                    // co-bubble pair would record a phantom offset that the
+                    // blender would later replay as a stale position lock.
+                    if (secA.source == TrackSectionSource.Active
+                        && secB.source == TrackSectionSource.Active)
+                        continue;
 
                     double lo = Math.Max(secA.startUT, secB.startUT);
                     double hi = Math.Min(secA.endUT, secB.endUT);
@@ -385,6 +424,15 @@ namespace Parsek.Rendering
             var dy = new float[sampleCount];
             var dz = new float[sampleCount];
             int writeIdx = 0;
+            // P1-B: resolve the body once for inertial-frame lift. For
+            // FrameTag=0 (body-fixed) traces the body is unused — the world
+            // delta is itself a body-fixed-equivalent translation because
+            // both endpoints came from GetWorldSurfacePosition(lat,lon,alt)
+            // which already factors in the body's rotation phase at the
+            // SAME ut on both sides.
+            CelestialBody bodyForLift = window.FrameTag == 1
+                ? ResolveBodyByName(window.BodyName)
+                : null;
             for (int i = 0; i < sampleCount; i++)
             {
                 double t = window.StartUT + i * stepS;
@@ -392,6 +440,19 @@ namespace Parsek.Rendering
                 if (!TrySampleWorld(primary, t, out Vector3d pPrimary)) return null;
                 if (!TrySampleWorld(peer, t, out Vector3d pPeer)) return null;
                 Vector3d delta = pPeer - pPrimary;
+                // P1-B: for FrameTag=1 (ExoPropulsive / ExoBallistic), lift
+                // the world-frame delta to the body's inertial frame at the
+                // sample's recording UT. The blender re-lowers at playback
+                // UT via LowerOffsetFromInertialToWorld so the offset
+                // tracks the body's rotation phase difference between
+                // recording and playback. Without this lift, replaying the
+                // same trace at a later UT would emit a stale offset
+                // pinned to the recording-time world frame.
+                if (window.FrameTag == 1 && !object.ReferenceEquals(bodyForLift, null))
+                {
+                    delta = TrajectoryMath.FrameTransform.LiftOffsetFromWorldToInertial(
+                        delta, bodyForLift, t);
+                }
                 uts[writeIdx] = t;
                 dx[writeIdx] = (float)delta.x;
                 dy[writeIdx] = (float)delta.y;
@@ -422,6 +483,9 @@ namespace Parsek.Rendering
                 Dx = dx,
                 Dy = dy,
                 Dz = dz,
+                // P1-A: persist body name so the runtime blender can
+                // resolve the body for FrameTag=1 inertial→world lower.
+                BodyName = window.BodyName,
             };
         }
 
@@ -558,6 +622,7 @@ namespace Parsek.Rendering
                     Dx = (float[])builtTrace.Dx.Clone(),
                     Dy = (float[])builtTrace.Dy.Clone(),
                     Dz = (float[])builtTrace.Dz.Clone(),
+                    BodyName = builtTrace.BodyName,
                 };
             }
 
@@ -589,6 +654,7 @@ namespace Parsek.Rendering
                 Dx = dx,
                 Dy = dy,
                 Dz = dz,
+                BodyName = builtTrace.BodyName,
             };
         }
     }

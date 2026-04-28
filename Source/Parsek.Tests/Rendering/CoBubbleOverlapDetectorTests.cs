@@ -74,17 +74,19 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void Detect_TwoActiveAbsoluteSections_OverlappingUT_EmitsWindow()
+        public void Detect_ActivePlusBackgroundAbsoluteSections_OverlappingUT_EmitsWindow()
         {
-            // Both sides Active + Absolute + same body + sufficient overlap.
-            // Inject seam so separation stays inside bubble radius.
+            // One Active side + one Background side + Absolute + same
+            // body + sufficient overlap. P2-A bans Active+Active; this is
+            // the canonical valid pair (the focused vessel was Active, a
+            // peer in the same physics bubble was Background-recorded).
             CoBubbleOverlapDetector.SamplePositionResolverForTesting =
                 (rec, ut) => new Vector3d(0, 0, 0);
 
             var rA = MakeRecording("rec-A", 100, 120,
                 TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 105, 130,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
 
             List<CoBubbleOverlapDetector.OverlapWindow> windows =
                 CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB });
@@ -95,6 +97,30 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(105.0, w.StartUT);
             Assert.Equal(120.0, w.EndUT);
             Assert.Equal((byte)1, w.FrameTag);
+            Assert.Equal("Kerbin", w.BodyName);
+        }
+
+        [Fact]
+        public void Detect_ActivePlusActive_RejectedAsPhantomPair()
+        {
+            // P2-A: KSP has exactly one focused vessel per scene at any
+            // UT, so two simultaneous Active sections must be from
+            // different sessions (re-fly bridge), not co-bubble. Detector
+            // must reject the pair outright — accepting would record a
+            // phantom offset that the blender later replays as a stale
+            // position lock between two recordings that never shared a
+            // bubble.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+
+            var rA = MakeRecording("rec-A", 100, 120,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            var rB = MakeRecording("rec-B", 105, 130,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+
+            List<CoBubbleOverlapDetector.OverlapWindow> windows =
+                CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB });
+            Assert.Empty(windows);
         }
 
         [Fact]
@@ -108,7 +134,7 @@ namespace Parsek.Tests.Rendering
             var rA = MakeRecording("rec-A", 100, 120,
                 TrackSectionSource.Active, ReferenceFrame.Relative, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 100, 120,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             Assert.Empty(CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB }));
         }
 
@@ -153,7 +179,7 @@ namespace Parsek.Tests.Rendering
             var rA = MakeRecording("rec-A", 100.0, 100.2,
                 TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 100.0, 100.2,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             Assert.Empty(CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB }));
         }
 
@@ -172,7 +198,7 @@ namespace Parsek.Tests.Rendering
             var rA = MakeRecording("rec-A", 100, 110,
                 TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 100, 110,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             List<CoBubbleOverlapDetector.OverlapWindow> windows =
                 CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB });
             // Should yield one truncated window ending around UT=102.5
@@ -189,7 +215,7 @@ namespace Parsek.Tests.Rendering
             var rA = MakeRecording("rec-A", 100, 110,
                 TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 100, 110,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             // Mutate B's section's first frame to a different body name.
             var sec = rB.TrackSections[0];
             var pt = sec.frames[0];
@@ -204,15 +230,17 @@ namespace Parsek.Tests.Rendering
         public void Detect_OutputSortedDeterministically()
         {
             // Three recordings: detect should emit pairs (A,B), (A,C), (B,C)
-            // in that order.
+            // in that order. Per P2-A, two Active sections never form a
+            // valid pair — drive the test with one Active focus + two
+            // Background peers so all 3 pairs are eligible.
             CoBubbleOverlapDetector.SamplePositionResolverForTesting =
                 (rec, ut) => new Vector3d(0, 0, 0);
             var rA = MakeRecording("rec-A", 100, 120,
                 TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rB = MakeRecording("rec-B", 100, 120,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             var rC = MakeRecording("rec-C", 100, 120,
-                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             List<CoBubbleOverlapDetector.OverlapWindow> windows =
                 CoBubbleOverlapDetector.Detect(new List<Recording> { rC, rA, rB });
             Assert.Equal(3, windows.Count);

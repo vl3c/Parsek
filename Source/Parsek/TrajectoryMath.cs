@@ -1067,6 +1067,49 @@ namespace Parsek
             }
 
             /// <summary>
+            /// Phase 5 P1-B helper: the inverse of
+            /// <see cref="LowerOffsetFromInertialToWorld"/>. Lifts a world-
+            /// frame translation captured at <paramref name="recordedUT"/>
+            /// to the body's inertial frame so it can be persisted into a
+            /// co-bubble offset trace and re-lowered at an arbitrary playback
+            /// UT. Without lifting at detect-time, the trace stores a
+            /// world-frame delta whose validity is pinned to the recording
+            /// UT — playing the same trace at a later UT (after the body
+            /// has rotated) would emit a wrong offset for FrameTag=1
+            /// (inertial-frame) traces. Null body or non-finite period is a
+            /// no-op (returns the input unchanged).
+            /// </summary>
+            internal static Vector3d LiftOffsetFromWorldToInertial(
+                Vector3d worldOffset, CelestialBody body, double recordedUT)
+            {
+                if (object.ReferenceEquals(body, null))
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-Frame", "lift-offset-no-body",
+                        $"LiftOffsetFromWorldToInertial: body=null recordedUT={recordedUT} — returning input unchanged",
+                        5.0);
+                    return worldOffset;
+                }
+                double period = ResolveRotationPeriod(body);
+                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
+                    return worldOffset;
+                if (double.IsNaN(recordedUT) || double.IsInfinity(recordedUT))
+                    return worldOffset;
+                if (object.ReferenceEquals(body.bodyTransform, null))
+                    return worldOffset;
+
+                // Inverse of LowerOffsetFromInertialToWorld at the same UT:
+                // Lower applies AngleAxis(-phase(t), axis); Lift applies
+                // AngleAxis(+phase(t), axis). Composition over (recordedUT,
+                // playbackUT) yields a net rotation of (recordedUT-playbackUT)
+                // worth of phase, which is the desired "follow the body"
+                // behaviour for a translation pinned in inertial space.
+                double phaseDeg = (recordedUT * 360.0) / period;
+                Vector3 axis = body.bodyTransform.up;
+                Quaternion rot = Quaternion.AngleAxis((float)(+phaseDeg), axis);
+                return rot * worldOffset;
+            }
+
+            /// <summary>
             /// Phase 4 frame-aware dispatch (design doc §6.2 Stage 2, §18 Phase
             /// 4, §26.1 HR-9). Resolves a smoothed <c>(lat, lon, alt)</c>
             /// spline sample to a world position based on the spline's

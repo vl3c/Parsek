@@ -1,5 +1,13 @@
+// [ERS-exempt] CoBubbleBlender.ResolveLivePeerRecording (P2-B) reads
+// RecordingStore.CommittedRecordings to re-validate the trace's peer
+// epoch / format version against the live peer at every TryEvaluateOffset
+// call. ERS would filter the active NotCommitted provisional re-fly
+// target out, masking peer drift during the very session whose
+// supersede commit caused the drift. Read-only against trajectory
+// metadata. See scripts/ers-els-audit-allowlist.txt for rationale.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek.Rendering
@@ -25,6 +33,11 @@ namespace Parsek.Rendering
         MissPeerValidationFailed = 8,
         MissDisabledByFlag = 9,
         MissRecursionGuard = 10,
+        // P1-A: FrameTag=1 trace's BodyName cannot be resolved against
+        // FlightGlobals.Bodies (e.g. mod removed body, system definition
+        // changed). Standalone fall-through is correct — the inertial
+        // lower would silently produce a wrong offset otherwise.
+        MissBodyResolveFailed = 11,
     }
 
     /// <summary>
@@ -43,10 +56,16 @@ namespace Parsek.Rendering
         /// <see cref="FlightGlobals.Bodies"/>.</summary>
         internal static System.Func<string, CelestialBody> BodyResolverForTesting;
 
+        /// <summary>Test seam for live peer-recording lookup used by the
+        /// runtime per-trace peer validation (P2-B). Production walks
+        /// <see cref="RecordingStore.CommittedRecordings"/>.</summary>
+        internal static System.Func<string, Recording> PeerRecordingResolverForTesting;
+
         internal static void ResetForTesting()
         {
             FrameTagOverrideForTesting = null;
             BodyResolverForTesting = null;
+            PeerRecordingResolverForTesting = null;
         }
 
         /// <summary>
@@ -119,6 +138,48 @@ namespace Parsek.Rendering
                 return false;
             }
 
+            // P2-B: runtime per-trace peer validation. Re-check the cheap
+            // O(1) fields (format version, sidecar epoch) against the live
+            // peer recording before applying the offset. Mid-session peer
+            // drift (e.g., supersede commit, crew swap that bumps epoch)
+            // would otherwise feed stale offsets into the renderer. The
+            // SHA-256 content recompute stays load-time-only — too expensive
+            // for a per-frame path. The status enum and dedup'd Info log
+            // satisfy §19.2 Stage 5 "Per-trace co-bubble invalidation".
+            Recording livePeer = ResolveLivePeerRecording(primaryRecordingId);
+            if (livePeer != null)
+            {
+                if (livePeer.RecordingFormatVersion != match.PeerSourceFormatVersion)
+                {
+                    status = CoBubbleBlendStatus.MissPeerValidationFailed;
+                    RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "peer-format-changed");
+                    ParsekLog.Info("Pipeline-CoBubble", string.Format(CultureInfo.InvariantCulture,
+                        "Per-trace co-bubble invalidation: peer={0} primary={1} reason=peer-format-changed expected={2} actual={3}",
+                        peerRecordingId, primaryRecordingId,
+                        match.PeerSourceFormatVersion, livePeer.RecordingFormatVersion));
+                    return false;
+                }
+                if (livePeer.SidecarEpoch != match.PeerSidecarEpoch)
+                {
+                    status = CoBubbleBlendStatus.MissPeerValidationFailed;
+                    RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "peer-epoch-changed");
+                    ParsekLog.Info("Pipeline-CoBubble", string.Format(CultureInfo.InvariantCulture,
+                        "Per-trace co-bubble invalidation: peer={0} primary={1} reason=peer-epoch-changed expected={2} actual={3}",
+                        peerRecordingId, primaryRecordingId,
+                        match.PeerSidecarEpoch, livePeer.SidecarEpoch));
+                    return false;
+                }
+            }
+
+            // P2-C: emit window-enter Info on the FIRST hit per (peer,
+            // primary, startUT) regardless of whether it lands in the
+            // crossfade tail. Previously the enter notify was inside the
+            // non-crossfade else-branch only — windows whose first sample
+            // happened to fall past the crossfade boundary never logged.
+            // The dedup set in RenderSessionState already gates against
+            // re-emission when subsequent samples enter the steady region.
+            RenderSessionState.NotifyCoBubbleWindowEnter(peerRecordingId, primaryRecordingId, match.StartUT);
+
             // Within-window blend factor (crossfade at exit).
             double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
             double blend = 1.0;
@@ -138,10 +199,6 @@ namespace Parsek.Rendering
                 if (tail > 1.0) tail = 1.0;
                 blend = tail;
                 isCrossfade = true;
-            }
-            else
-            {
-                RenderSessionState.NotifyCoBubbleWindowEnter(peerRecordingId, primaryRecordingId, match.StartUT);
             }
 
             // Sample the trace at ut (linear interpolation between bracket UTs).
@@ -164,14 +221,80 @@ namespace Parsek.Rendering
             Vector3d worldFrameOffset = primaryFrameOffset;
             if (tag == 1)
             {
+                // P1-A: resolve body via the trace's persisted BodyName.
+                // The prior production fallback returned null and the lower
+                // silently degraded to a no-op — every FrameTag=1 trace
+                // bypassed the inertial→world rotation.
                 CelestialBody body = ResolveBodyForOffset(match);
+                if (object.ReferenceEquals(body, null))
+                {
+                    status = CoBubbleBlendStatus.MissBodyResolveFailed;
+                    RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "body-resolve-failed");
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble", "body-resolve-failed",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "body-resolve-failed: peer={0} primary={1} body={2} ut={3}",
+                            peerRecordingId, primaryRecordingId, match.BodyName ?? "<null>",
+                            ut.ToString("R", CultureInfo.InvariantCulture)),
+                        5.0);
+                    return false;
+                }
                 worldFrameOffset = TrajectoryMath.FrameTransform.LowerOffsetFromInertialToWorld(
                     primaryFrameOffset, body, ut);
             }
 
             worldOffset = worldFrameOffset * blend;
             status = isCrossfade ? CoBubbleBlendStatus.HitCrossfade : CoBubbleBlendStatus.Hit;
+
+            // P2-D: per §19.2 Stage 5, log every crossfade frame at Verbose
+            // (rate-limited so a long crossfade tail can't flood). One key
+            // shared across (peer, primary) so high-cadence playback shows
+            // the blend factor decaying without per-frame spam.
+            if (isCrossfade)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble", "cobubble-crossfade",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "crossfade peer={0} primary={1} blend={2:F3}",
+                        peerRecordingId, primaryRecordingId, blend),
+                    5.0);
+            }
             return true;
+        }
+
+        /// <summary>
+        /// P2-B: live peer recording lookup used by the per-trace runtime
+        /// validation in <see cref="TryEvaluateOffset"/>. Test seam-first
+        /// pattern (xUnit injects a deterministic mapping); production
+        /// walks <see cref="RecordingStore.CommittedRecordings"/>. ERS-exempt
+        /// (mirrors <see cref="RenderSessionState"/>'s rationale: the blender
+        /// must see the peer's freshness even when ERS would filter it).
+        /// </summary>
+        private static Recording ResolveLivePeerRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var seam = PeerRecordingResolverForTesting;
+            if (seam != null) return seam(recordingId);
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording r = committed[i];
+                        if (r == null) continue;
+                        if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
+                            return r;
+                    }
+                }
+            }
+            catch
+            {
+                // Mid-load mutation — fall through; the validation path
+                // treats null as "no live peer" and skips the check. The
+                // stale trace then drives the blend; a subsequent rebuild
+                // (which captures the new epoch) will install a fresh map.
+            }
+            return null;
         }
 
         private static bool SampleTraceAt(CoBubbleOffsetTrace trace, double ut, out Vector3d offset)
@@ -204,24 +327,36 @@ namespace Parsek.Rendering
 
         private static CelestialBody ResolveBodyForOffset(CoBubbleOffsetTrace trace)
         {
-            // Inertial offsets need a body to lower. The trace doesn't carry
-            // the body name (offset is body-relative implicitly via the
-            // primary's segment). Fall back through the test seam first;
-            // production resolves through FlightGlobals.GetBodyByName using
-            // the primary recording's section that contains the trace UTs.
-            // For Phase 5 simplicity, prefer the test seam; production
-            // callers pass the body context via the integration site so the
-            // blender returns the offset in the body's frame and the caller
-            // performs the lift if needed (see ParsekFlight integration).
+            // P1-A: the trace now persists BodyName at detect-time so the
+            // production runtime can resolve the body for the inertial→world
+            // rotation lower. The test seam still wins (xUnit cannot stand
+            // up CelestialBody instances via FlightGlobals); production
+            // walks FlightGlobals.Bodies by ordinal name match. ReferenceEquals
+            // is used to bypass Unity's overloaded `==` so a TestBodyRegistry-
+            // built CelestialBody (Unity-cached pointer zero) is treated as
+            // a real reference.
+            string bodyName = trace?.BodyName;
             var seam = BodyResolverForTesting;
-            if (seam != null) return seam(string.Empty);
-            // Without a body name on the trace, return null. The caller
-            // (ParsekFlight.InterpolateAndPosition) holds the body context
-            // already and will dispatch through DispatchSplineWorldByFrameTag
-            // for inertial-flagged traces if needed. For body-fixed traces
-            // (the common case), worldFrameOffset == primaryFrameOffset and
-            // this path is never reached.
-            return null;
+            if (seam != null) return seam(bodyName ?? string.Empty);
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            try
+            {
+                var bodies = FlightGlobals.Bodies;
+                if (bodies == null) return null;
+                CelestialBody match = bodies.Find(b =>
+                    !object.ReferenceEquals(b, null)
+                    && string.Equals(b.bodyName, bodyName, StringComparison.Ordinal));
+                if (object.ReferenceEquals(match, null)) return null;
+                return match;
+            }
+            catch
+            {
+                // FlightGlobals can throw mid-scene-transition (lookup
+                // walks an unloaded body database); treat as missing so
+                // the caller surfaces MissBodyResolveFailed and falls back
+                // to standalone.
+                return null;
+            }
         }
     }
 }

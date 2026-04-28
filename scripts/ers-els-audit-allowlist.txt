@@ -191,3 +191,12 @@ Source/Parsek/Rendering/AnchorPropagator.cs
 # Read-only against trajectory data (HR-1 / HR-5). Same rationale as
 # the RenderSessionState / AnchorPropagator exemptions.
 Source/Parsek/Rendering/SmoothingPipeline.cs
+
+# CoBubbleBlender.ResolveLivePeerRecording (Phase 5 P2-B) walks
+# CommittedRecordings at every TryEvaluateOffset call to re-validate
+# the trace's PeerSidecarEpoch / RecordingFormatVersion against the
+# live peer mid-session. ERS would filter the active NotCommitted
+# provisional re-fly target out, masking peer drift during the very
+# session whose supersede commit caused the drift. Read-only against
+# trajectory metadata; same rationale as SmoothingPipeline above.
+Source/Parsek/Rendering/CoBubbleBlender.cs

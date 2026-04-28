@@ -161,7 +161,16 @@ namespace Parsek
         // a runtime fallback for every consumer; the bump triggers the
         // existing alg-stamp-drift path so stale files are discarded and
         // recomputed on first load (HR-10).
-        internal const int AlgorithmStampVersion = 5;
+        // Bumped to 6 in Phase 5 follow-up (P1-A fix): CoBubbleOffsetTrace
+        // gained a BodyName field so the runtime blender can resolve the
+        // body for the FrameTag=1 inertial→world rotation lower. v5 traces
+        // lack the field; without invalidation, the loader would install
+        // them with BodyName=null and the lower would silently become a
+        // no-op for inertial offsets (mirroring the production bug fixed
+        // by P1-A). Bumping the alg stamp drives every v5 .pann through
+        // alg-stamp-drift on first load so the recompute writes the new
+        // field (HR-10).
+        internal const int AlgorithmStampVersion = 6;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
@@ -433,14 +442,18 @@ namespace Parsek
                     // peerContentSignature (32 bytes) + startUT (double) +
                     // endUT (double) + frameTag (byte) + sampleCount (int32) +
                     // uts[sampleCount] (double) + dx/dy/dz[sampleCount] (float) +
-                    // primaryDesignation (byte). Per-entry minimum cost is
-                    // header (1 + 4 + 4 + 32 + 8 + 8 + 1 + 4 + 1) = 63 bytes
-                    // assuming an empty peerRecordingId; ValidateCount uses 63
-                    // as the per-entry minimum so a count whose payload would
-                    // exceed remaining stream bytes is rejected before
-                    // allocation. The per-trace sample-count gate uses the
-                    // dedicated MaxCoBubbleSamplesPerTrace.
-                    const int MinBytesPerCoBubbleTraceEntry = 63;
+                    // primaryDesignation (byte) + bodyName (length-prefixed UTF-8,
+                    // P1-A fix; alg-stamp v6 ensures legacy v5 files cannot
+                    // reach this code path because alg-stamp-drift discards
+                    // them ahead of the read). Per-entry minimum cost is
+                    // header (1 + 4 + 4 + 32 + 8 + 8 + 1 + 4 + 1 + 1) = 64
+                    // bytes assuming empty peerRecordingId + empty bodyName;
+                    // ValidateCount uses 64 as the per-entry minimum so a
+                    // count whose payload would exceed remaining stream
+                    // bytes is rejected before allocation. The per-trace
+                    // sample-count gate uses the dedicated
+                    // MaxCoBubbleSamplesPerTrace.
+                    const int MinBytesPerCoBubbleTraceEntry = 64;
                     int coBubbleCount = reader.ReadInt32();
                     if (!ValidateCount(stream, coBubbleCount, MaxCoBubbleTraceEntries,
                             MinBytesPerCoBubbleTraceEntry, "co-bubble-trace", out failureReason))
@@ -472,6 +485,10 @@ namespace Parsek
                         float[] dz = new float[sampleCount];
                         for (int u = 0; u < sampleCount; u++) dz[u] = reader.ReadSingle();
                         byte primaryDesignation = reader.ReadByte();
+                        // P1-A: BodyName persisted (v6 alg-stamp). Empty
+                        // string accepted; legacy v5 files cannot land here
+                        // because alg-stamp-drift gate rejects them.
+                        string bodyName = reader.ReadString();
 
                         coBubbleTraces.Add(new CoBubbleOffsetTrace
                         {
@@ -487,6 +504,7 @@ namespace Parsek
                             Dy = dy,
                             Dz = dz,
                             PrimaryDesignation = primaryDesignation,
+                            BodyName = string.IsNullOrEmpty(bodyName) ? null : bodyName,
                         });
                     }
                 }
@@ -644,6 +662,12 @@ namespace Parsek
                         for (int u = 0; u < sampleCount; u++) writer.Write(t.Dy[u]);
                         for (int u = 0; u < sampleCount; u++) writer.Write(t.Dz[u]);
                         writer.Write(t.PrimaryDesignation);
+                        // P1-A: BodyName drives the runtime blender's body
+                        // resolution for FrameTag=1 inertial→world lower.
+                        // Empty string is acceptable on disk (length-byte 0);
+                        // the loader normalises empty back to null so the
+                        // blender's null-body branch fires consistently.
+                        writer.Write(t.BodyName ?? string.Empty);
                     }
                 }
 

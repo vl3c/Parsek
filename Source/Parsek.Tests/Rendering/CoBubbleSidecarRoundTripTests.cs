@@ -43,7 +43,8 @@ namespace Parsek.Tests.Rendering
         }
 
         private static CoBubbleOffsetTrace MakeTrace(string peerId, int sampleCount = 4,
-            byte frameTag = 0, double startUT = 100.0, double endUT = 110.0)
+            byte frameTag = 0, double startUT = 100.0, double endUT = 110.0,
+            string bodyName = "Kerbin")
         {
             var uts = new double[sampleCount];
             var dx = new float[sampleCount];
@@ -73,6 +74,7 @@ namespace Parsek.Tests.Rendering
                 Dx = dx,
                 Dy = dy,
                 Dz = dz,
+                BodyName = bodyName,
             };
         }
 
@@ -119,7 +121,43 @@ namespace Parsek.Tests.Rendering
                 Assert.Equal(traces[i].Dx, read[i].Dx);
                 Assert.Equal(traces[i].Dy, read[i].Dy);
                 Assert.Equal(traces[i].Dz, read[i].Dz);
+                // P1-A: BodyName must round-trip so the runtime body
+                // resolver can drive the FrameTag=1 inertial→world lower.
+                Assert.Equal(traces[i].BodyName, read[i].BodyName);
             }
+        }
+
+        [Fact]
+        public void AlgStampVersion_BumpedToSixOrLater_ForBodyNameField()
+        {
+            // P1-A: the BodyName field is a new on-disk schema element. v5
+            // .pann files lack it; the runtime can't lower their FrameTag=1
+            // offsets correctly. Bumping the alg stamp invalidates them via
+            // the existing alg-stamp-drift gate so they get recomputed on
+            // first load (HR-10).
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 6,
+                "AlgorithmStampVersion must be >= 6 after Phase 5 P1-A ships");
+        }
+
+        [Fact]
+        public void Write_Read_NullBodyName_RoundTripsAsNull()
+        {
+            // Empty / null bodyName must round-trip through the on-disk
+            // length-prefixed string. The reader normalises empty back to
+            // null so the blender's null-body branch fires consistently.
+            string path = Path.Combine(tempDir, "rec_null_body.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            CoBubbleOffsetTrace trace = MakeTrace("peer", bodyName: null);
+            PannotationsSidecarBinary.Write(path, "rec-nobody", 1, 8, hash,
+                splines: new List<KeyValuePair<int, SmoothingSpline>>(),
+                anchorCandidates: null,
+                coBubbleTraces: new List<CoBubbleOffsetTrace> { trace });
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
+                out _, out _, out var read, out _));
+            Assert.Single(read);
+            Assert.Null(read[0].BodyName);
         }
 
         [Fact]

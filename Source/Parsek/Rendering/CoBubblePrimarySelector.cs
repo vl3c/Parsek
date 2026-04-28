@@ -42,7 +42,41 @@ namespace Parsek.Rendering
             IReadOnlyList<Recording> recordings,
             ReFlySessionMarker marker)
         {
+            return Resolve(recordings, marker, out _);
+        }
+
+        /// <summary>
+        /// Same as <see cref="Resolve(IReadOnlyList{Recording}, ReFlySessionMarker)"/>
+        /// but also returns the deciding rule index per (peer → primary)
+        /// pair so <see cref="RenderSessionState.NotifyCoBubblePrimarySelection"/>
+        /// can include the §10.1 rule index in the Pipeline-CoBubble Info
+        /// log line (P2-E). Rule indices are 1-based and match the §10.1
+        /// numbering: 1=live, 2=DAG-hops, 3=earlier-StartUT,
+        /// 4=higher-sample-rate, 5=ordinal-id.
+        /// </summary>
+        internal static Dictionary<string, string> Resolve(
+            IReadOnlyList<Recording> recordings,
+            ReFlySessionMarker marker,
+            out Dictionary<string, int> rulesByPeer)
+        {
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            rulesByPeer = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            // P2-F: gate the entire selector on the useCoBubbleBlend flag.
+            // Without this gate, a save with stored traces loaded by a
+            // user who has the flag off would still get primaries assigned —
+            // IsPrimary would then return true for those recordings and
+            // kick them into the recursion-guard branch. With the gate the
+            // primary map stays empty and the standalone Stages 1+2+3+4
+            // path renders the recording cleanly. The Verbose log makes the
+            // skip visible (HR-9).
+            if (!SmoothingPipeline.ResolveUseCoBubbleBlend())
+            {
+                ParsekLog.Verbose("Pipeline-CoBubble",
+                    "flag-off-skip-primary-resolve: useCoBubbleBlend=false");
+                return result;
+            }
+
             if (recordings == null || recordings.Count == 0) return result;
 
             // Index recordings by id, find which ones have LiveSeparation
@@ -81,10 +115,12 @@ namespace Parsek.Rendering
 
                     if (!byId.TryGetValue(idA, out Recording recA)) continue;
                     if (!byId.TryGetValue(idB, out Recording recB)) continue;
-                    string primaryId = SelectPrimaryForPair(recA, recB, liveAnchored, hopCounts, tr);
+                    string primaryId = SelectPrimaryForPair(recA, recB, liveAnchored, hopCounts, tr,
+                        out int ruleIndex);
 
                     string peerId = string.Equals(primaryId, idA, StringComparison.Ordinal) ? idB : idA;
                     result[peerId] = primaryId;
+                    rulesByPeer[peerId] = ruleIndex;
                 }
             }
             return result;
@@ -202,36 +238,38 @@ namespace Parsek.Rendering
             return dist;
         }
 
-        private static string SelectPrimaryForPair(
+        internal static string SelectPrimaryForPair(
             Recording a, Recording b,
             HashSet<string> liveAnchored,
             Dictionary<string, int> hopCounts,
-            CoBubbleOffsetTrace trace)
+            CoBubbleOffsetTrace trace,
+            out int ruleIndex)
         {
             // Rule 1: live wins (always).
             bool aLive = liveAnchored.Contains(a.RecordingId);
             bool bLive = liveAnchored.Contains(b.RecordingId);
-            if (aLive && !bLive) return a.RecordingId;
-            if (bLive && !aLive) return b.RecordingId;
+            if (aLive && !bLive) { ruleIndex = 1; return a.RecordingId; }
+            if (bLive && !aLive) { ruleIndex = 1; return b.RecordingId; }
 
             // Rule 2: closest-to-live in DAG ancestry.
             int aHop = hopCounts.TryGetValue(a.RecordingId, out int v1) ? v1 : int.MaxValue;
             int bHop = hopCounts.TryGetValue(b.RecordingId, out int v2) ? v2 : int.MaxValue;
-            if (aHop < bHop) return a.RecordingId;
-            if (bHop < aHop) return b.RecordingId;
+            if (aHop < bHop) { ruleIndex = 2; return a.RecordingId; }
+            if (bHop < aHop) { ruleIndex = 2; return b.RecordingId; }
 
             // Rule 3: earlier StartUT.
-            if (a.StartUT < b.StartUT) return a.RecordingId;
-            if (b.StartUT < a.StartUT) return b.RecordingId;
+            if (a.StartUT < b.StartUT) { ruleIndex = 3; return a.RecordingId; }
+            if (b.StartUT < a.StartUT) { ruleIndex = 3; return b.RecordingId; }
 
             // Rule 4: higher sample rate at overlap midpoint.
             double midUT = trace != null ? 0.5 * (trace.StartUT + trace.EndUT) : 0.0;
             float aRate = ResolveSampleRateAtUT(a, midUT);
             float bRate = ResolveSampleRateAtUT(b, midUT);
-            if (aRate > bRate) return a.RecordingId;
-            if (bRate > aRate) return b.RecordingId;
+            if (aRate > bRate) { ruleIndex = 4; return a.RecordingId; }
+            if (bRate > aRate) { ruleIndex = 4; return b.RecordingId; }
 
             // Rule 5: HR-3 deterministic tiebreaker.
+            ruleIndex = 5;
             return string.CompareOrdinal(a.RecordingId, b.RecordingId) < 0
                 ? a.RecordingId : b.RecordingId;
         }

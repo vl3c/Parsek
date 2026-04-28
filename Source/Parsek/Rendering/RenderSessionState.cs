@@ -119,6 +119,17 @@ namespace Parsek.Rendering
         private static readonly Dictionary<string, string> PrimaryByPeerInternal
             = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        // P3-A: parallel set of every recording id that is a primary for
+        // at least one peer in the current session. Maintained alongside
+        // PrimaryByPeerInternal so IsPrimary is O(1) instead of O(N) (called
+        // once per peer ghost per frame from the recursion-guard hot path).
+        // INVARIANT: every value in PrimaryByPeerInternal must be in this
+        // set, and every entry in this set must be the value of at least
+        // one entry in PrimaryByPeerInternal. Cleared together everywhere
+        // PrimaryByPeerInternal is cleared.
+        private static readonly HashSet<string> PrimaryRecordingIdsInternal
+            = new HashSet<string>(StringComparer.Ordinal);
+
         /// <summary>Number of anchors in the current session map.</summary>
         internal static int Count
         {
@@ -256,7 +267,7 @@ namespace Parsek.Rendering
                 count = Anchors.Count;
                 sessionId = s_currentSessionId;
                 Anchors.Clear();
-                PrimaryByPeerInternal.Clear();
+                PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
                 s_currentSessionId = null;
                 ResetSessionDedupSetsLocked();
             }
@@ -270,7 +281,7 @@ namespace Parsek.Rendering
             lock (Lock)
             {
                 Anchors.Clear();
-                PrimaryByPeerInternal.Clear();
+                PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
                 s_currentSessionId = null;
                 ResetSessionDedupSetsLocked();
             }
@@ -299,18 +310,22 @@ namespace Parsek.Rendering
         /// checks in <see cref="CoBubbleBlender"/>: primaries always render
         /// standalone (HR-9) and never query the blender.
         /// </summary>
+        /// <remarks>
+        /// P3-A: O(1) HashSet lookup. The previous walk over
+        /// <see cref="PrimaryByPeerInternal"/> ran on every blender call
+        /// (one per peer ghost per frame); a 30-ghost session cost ~900 string
+        /// comparisons per frame for the recursion-guard alone. The
+        /// <see cref="PrimaryRecordingIdsInternal"/> set is maintained
+        /// alongside the map by <see cref="ResolvePrimaryAssignmentsAndLog"/>
+        /// and the test seam <see cref="PutPrimaryAssignmentForTesting"/>.
+        /// </remarks>
         internal static bool IsPrimary(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
             lock (Lock)
             {
-                foreach (var kv in PrimaryByPeerInternal)
-                {
-                    if (string.Equals(kv.Value, recordingId, StringComparison.Ordinal))
-                        return true;
-                }
+                return PrimaryRecordingIdsInternal.Contains(recordingId);
             }
-            return false;
         }
 
         /// <summary>
@@ -323,10 +338,46 @@ namespace Parsek.Rendering
             lock (Lock)
             {
                 if (string.IsNullOrEmpty(primaryId))
-                    PrimaryByPeerInternal.Remove(peerId);
+                {
+                    if (PrimaryByPeerInternal.TryGetValue(peerId, out string oldPrimary))
+                    {
+                        PrimaryByPeerInternal.Remove(peerId);
+                        // P3-A: rebuild the set when the removed value's
+                        // last reference goes away. The naive contains-check
+                        // would let a stale primary id linger in the set.
+                        if (!PrimaryByPeerInternalContainsValueLocked(oldPrimary))
+                            PrimaryRecordingIdsInternal.Remove(oldPrimary);
+                    }
+                }
                 else
-                    PrimaryByPeerInternal[peerId] = primaryId;
+                {
+                    if (PrimaryByPeerInternal.TryGetValue(peerId, out string oldPrimary)
+                        && !string.Equals(oldPrimary, primaryId, StringComparison.Ordinal))
+                    {
+                        PrimaryByPeerInternal[peerId] = primaryId;
+                        if (!PrimaryByPeerInternalContainsValueLocked(oldPrimary))
+                            PrimaryRecordingIdsInternal.Remove(oldPrimary);
+                        PrimaryRecordingIdsInternal.Add(primaryId);
+                    }
+                    else
+                    {
+                        PrimaryByPeerInternal[peerId] = primaryId;
+                        PrimaryRecordingIdsInternal.Add(primaryId);
+                    }
+                }
             }
+        }
+
+        // P3-A helper. Caller must hold Lock.
+        private static bool PrimaryByPeerInternalContainsValueLocked(string primaryId)
+        {
+            if (string.IsNullOrEmpty(primaryId)) return false;
+            foreach (var kv in PrimaryByPeerInternal)
+            {
+                if (string.Equals(kv.Value, primaryId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Number of entries in the Phase 5 primary map.</summary>
@@ -339,15 +390,20 @@ namespace Parsek.Rendering
         /// Phase 5 dedup notify helpers. Each emits an Info / Verbose log
         /// once per session per key — design doc §19.2 Stage 5 row.
         /// </summary>
-        internal static void NotifyCoBubblePrimarySelection(string peerId, string primaryId)
+        internal static void NotifyCoBubblePrimarySelection(string peerId, string primaryId, int ruleIndex = 0)
         {
             if (string.IsNullOrEmpty(peerId) || string.IsNullOrEmpty(primaryId)) return;
             string key = peerId + "|" + primaryId;
             bool first;
             lock (Lock) { first = CoBubblePrimarySelectionLogged.Add(key); }
             if (!first) return;
+            // P2-E: include the deciding §10.1 rule index so the operator
+            // can tell at a glance which tier of the selector decided this
+            // primary (1=live, 2=DAG-hops, 3=earlier-StartUT, 4=higher-
+            // sample-rate, 5=ordinal-id). Rule 0 is reserved for legacy
+            // callers that don't supply a rule (kept for back-compat).
             ParsekLog.Info("Pipeline-CoBubble", string.Format(CultureInfo.InvariantCulture,
-                "Primary selection: peer={0} primary={1}", peerId, primaryId));
+                "Primary selection: peer={0} primary={1} rule={2}", peerId, primaryId, ruleIndex));
         }
 
         internal static void NotifyCoBubbleWindowEnter(string peerId, string primaryId, double startUT)
@@ -714,7 +770,7 @@ namespace Parsek.Rendering
                 lock (Lock)
                 {
                     Anchors.Clear();
-                    PrimaryByPeerInternal.Clear();
+                    PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
                     s_currentSessionId = marker.SessionId;
                     ResetSessionDedupSetsLocked();
                 }
@@ -804,7 +860,7 @@ namespace Parsek.Rendering
             lock (Lock)
             {
                 Anchors.Clear();
-                PrimaryByPeerInternal.Clear();
+                PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
                 s_currentSessionId = marker.SessionId;
                 ResetSessionDedupSetsLocked();
             }
@@ -1056,20 +1112,31 @@ namespace Parsek.Rendering
         {
             try
             {
-                Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(recordings, marker);
+                Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(recordings, marker,
+                    out Dictionary<string, int> rulesByPeer);
                 int count = 0;
                 lock (Lock)
                 {
                     PrimaryByPeerInternal.Clear();
+                    PrimaryRecordingIdsInternal.Clear();
                     foreach (var kv in map)
                     {
                         PrimaryByPeerInternal[kv.Key] = kv.Value;
+                        // P3-A: maintain the parallel HashSet so IsPrimary
+                        // is O(1). Without this, IsPrimary walks the entire
+                        // PrimaryByPeerInternal dictionary on every call,
+                        // which the recursion-guard hot path hits once per
+                        // peer ghost per frame → O(G²) per frame.
+                        if (!string.IsNullOrEmpty(kv.Value))
+                            PrimaryRecordingIdsInternal.Add(kv.Value);
                         count++;
                     }
                 }
                 foreach (var kv in map)
                 {
-                    NotifyCoBubblePrimarySelection(kv.Key, kv.Value);
+                    int rule = rulesByPeer != null
+                        && rulesByPeer.TryGetValue(kv.Key, out int r) ? r : 0;
+                    NotifyCoBubblePrimarySelection(kv.Key, kv.Value, rule);
                 }
                 ParsekLog.Verbose("Pipeline-CoBubble",
                     $"Primary selection complete: assignments={count} sessionId={marker?.SessionId ?? "<no-id>"}");
@@ -1078,7 +1145,11 @@ namespace Parsek.Rendering
             {
                 ParsekLog.Warn("Pipeline-CoBubble",
                     $"CoBubblePrimarySelector.Resolve threw {ex.GetType().Name}: {ex.Message} — clearing primary map");
-                lock (Lock) { PrimaryByPeerInternal.Clear(); }
+                lock (Lock)
+                {
+                    PrimaryByPeerInternal.Clear();
+                    PrimaryRecordingIdsInternal.Clear();
+                }
             }
         }
 

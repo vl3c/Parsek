@@ -86,5 +86,16 @@ namespace Parsek.Rendering
 
         /// <summary>Per-sample z-axis offset.</summary>
         public float[] Dz;
+
+        /// <summary>Name of the celestial body the offset is centred on
+        /// (matches <see cref="CelestialBody.bodyName"/>). Captured at
+        /// detect-time from the overlap window's body and persisted in the
+        /// <c>.pann</c> CoBubbleOffsetTraces block (P1-A fix). The runtime
+        /// blender resolves this via <see cref="FlightGlobals.Bodies"/> to
+        /// drive the inertial→world rotation lower for FrameTag=1 traces;
+        /// without it the production lower silently became a no-op.
+        /// May be null only for legacy traces written before the field
+        /// landed (alg-stamp v6 invalidates them on first load).</summary>
+        public string BodyName;
     }
 }
