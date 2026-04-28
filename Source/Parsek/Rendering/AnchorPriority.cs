@@ -33,7 +33,16 @@ namespace Parsek.Rendering
             /* 5 BubbleEntry        */ 6, // §7.7
             /* 6 BubbleExit         */ 6, // §7.7
             /* 7 CoBubblePeer       */ 5, // §7.8 (Phase 5 territory; reserved)
-            /* 8 SurfaceContinuous  */ 2, // §7.9, terrain reference
+            /* 8 SurfaceContinuous  */ 6, // §7.9, terrain reference. Demoted in
+                                          // Phase 6 from rank 2 to rank 6 so a
+                                          // Phase-7-pending ε = 0 stub cannot
+                                          // outrank a real OrbitalCheckpoint /
+                                          // SoiTransition ε. Phase 7 will
+                                          // promote back to rank 2 when the
+                                          // per-frame terrain raycast lands;
+                                          // that bump must accompany an
+                                          // AlgorithmStampVersion bump so
+                                          // existing .pann files re-resolve.
             /* 9 Loop               */ 2, // §7.10
         };
 

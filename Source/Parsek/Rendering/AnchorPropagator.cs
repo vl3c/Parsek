@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek.Rendering
 {
@@ -24,11 +25,29 @@ namespace Parsek.Rendering
     /// <para>
     /// Inputs (all session-only): the live-separation anchors already in
     /// <see cref="RenderSessionState"/>'s map (Phase 2 seeds), the candidate
-    /// list per (recordingId, sectionIndex) from Phase 6 commit time, and
-    /// the active <see cref="ReFlySessionMarker"/>. Outputs: additional
-    /// entries written into <see cref="RenderSessionState"/>'s map. Phase 7
-    /// (terrain raycast) and Phase 5 (co-bubble blend) layer on top of this
-    /// at consumer time; the propagator does not touch their concerns.
+    /// list per (recordingId, sectionIndex) from Phase 6 commit time, the
+    /// active <see cref="ReFlySessionMarker"/>, and an
+    /// <see cref="IAnchorWorldFrameResolver"/> that produces the world-frame
+    /// reference position for §7.4 / §7.5 / §7.6 / §7.10. Outputs: entries
+    /// written into <see cref="RenderSessionState"/>'s map.
+    /// </para>
+    ///
+    /// <para>
+    /// Deferred sources (each emits ε = 0 and reserves the priority slot;
+    /// the corresponding world-frame resolver lands in a follow-up):
+    /// <list type="bullet">
+    ///   <item>§7.7 BubbleEntry / BubbleExit — needs a physics-active
+    ///   timeline scanner that classifies sections by their ambient
+    ///   physics-bubble state at the recording UT. The candidates are not
+    ///   even emitted at commit-time today (the Phase 6 builder only emits
+    ///   §7.2-§7.6, §7.9, §7.10), but the priority rank slot exists in
+    ///   the enum so the rank table is stable.</item>
+    ///   <item>§7.8 CoBubblePeer — Phase 5 territory; reserved enum value
+    ///   only.</item>
+    ///   <item>§7.9 SurfaceContinuous — Phase 7 terrain raycast. Phase 6
+    ///   emits the candidate marker so Phase 7 can hook the per-frame
+    ///   resolver in without touching commit-time code.</item>
+    /// </list>
     /// </para>
     ///
     /// <para>
@@ -39,6 +58,39 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class AnchorPropagator
     {
+        /// <summary>
+        /// Test seam: production resolver replacement. xUnit injects a
+        /// hand-crafted <see cref="IAnchorWorldFrameResolver"/> stub and
+        /// asserts the propagator forwarded the correct
+        /// (recording, section, side, UT) tuple. Production callers leave
+        /// this null and the propagator constructs a
+        /// <see cref="ProductionAnchorWorldFrameResolver"/>.
+        /// </summary>
+        internal static IAnchorWorldFrameResolver ResolverOverrideForTesting;
+
+        /// <summary>
+        /// Test seam: smoothed-position-at-UT lookup, used to compute
+        /// <c>ε = referenceWorldPos − P_smoothed_world(UT)</c>. xUnit
+        /// injects a deterministic mapping; production resolves through
+        /// the spline + frame-tag dispatch on the live KSP body. Reset
+        /// via <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static System.Func<Recording, int, double, Vector3d?> SmoothedPositionForTesting;
+
+        /// <summary>
+        /// Test seam: replaces <see cref="FlightGlobals.Bodies"/> lookup
+        /// inside the smoothed-position evaluator. xUnit cannot stand up
+        /// CelestialBody instances; production callers leave this null.
+        /// </summary>
+        internal static System.Func<string, CelestialBody> BodyResolverForTesting;
+
+        /// <summary>Test-only: clears injected seams.</summary>
+        internal static void ResetForTesting()
+        {
+            ResolverOverrideForTesting = null;
+            SmoothedPositionForTesting = null;
+            BodyResolverForTesting = null;
+        }
         /// <summary>
         /// Pure §9.1 propagation rule. Translates an upstream ε to a
         /// downstream ε using the recorded vs smoothed offset deltas at the
@@ -102,24 +154,27 @@ namespace Parsek.Rendering
                 return;
             }
 
-            Run(marker, recordings, trees, /* surfaceLookup */ null);
+            Run(marker, recordings, trees, /* surfaceLookup */ null,
+                resolver: ResolverOverrideForTesting ?? new ProductionAnchorWorldFrameResolver());
         }
 
         /// <summary>
         /// Test-friendly overload. All side inputs injected; xUnit can
         /// reach every code path without standing up KSP. The
-        /// <paramref name="surfaceLookup"/> argument is reserved for
-        /// future ε resolution that needs body-frame world positions
-        /// (§7.4 RELATIVE-boundary, §7.5 OrbitalCheckpoint); Phase 6
-        /// emits the candidates and propagates DockOrMerge ε but defers
-        /// the world-frame resolvers for the non-LiveSeparation sources
-        /// to a follow-up — see the README on the AnchorPropagator class.
+        /// <paramref name="surfaceLookup"/> argument is forwarded to the
+        /// smoothed-position evaluator; <paramref name="resolver"/>
+        /// supplies the world-frame reference positions for §7.4 / §7.5 /
+        /// §7.6 / §7.10. When <paramref name="resolver"/> is null and the
+        /// override seam is null too, the propagator skips the world-frame
+        /// resolution pass and leaves ε = 0 for those sources (the
+        /// priority slot is still reserved).
         /// </summary>
         internal static void Run(
             ReFlySessionMarker marker,
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingTree> trees,
-            Func<string, double, double, double, Vector3d> surfaceLookup)
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            IAnchorWorldFrameResolver resolver = null)
         {
             if (!AnchorCandidateBuilder.ResolveUseAnchorTaxonomy())
             {
@@ -155,16 +210,14 @@ namespace Parsek.Rendering
                 }
             }
 
-            // Phase 1 — emit non-DockOrMerge seed anchors directly into the
-            // session state. RELATIVE-boundary, OrbitalCheckpoint, SOI,
-            // BubbleEntry/Exit, Loop, SurfaceContinuous: Phase 6 records the
-            // candidate's UT/source/side as the anchor metadata; ε is set to
-            // zero today. The §7 ε formulas for these sources require a
-            // surface / Kepler / live-vessel resolver that Phase 6 does not
-            // wire (see the §7 references on each branch in the design doc;
-            // §7.9 is explicitly Phase 7 work). The slot is occupied so the
-            // §7.11 priority resolver still runs — a higher-priority
-            // LiveSeparation never gets clobbered.
+            // Phase 1 — emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
+            // §7.6 / §7.10 the world-frame resolver computes a real ε; for
+            // §7.7 / §7.8 / §7.9 (deferred sources — see the class docstring)
+            // the slot is reserved with ε = 0 so the §7.11 priority resolver
+            // still runs.
+            int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
+                resolvedLoop = 0, deferredNoResolver = 0, deferredNoSpline = 0;
+            IAnchorWorldFrameResolver activeResolver = ResolverOverrideForTesting ?? resolver;
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
@@ -193,17 +246,20 @@ namespace Parsek.Rendering
                             // same slot.
                             if (cand.Source == AnchorSource.DockOrMerge) continue;
 
-                            // Phase 6 ε for non-LiveSeparation, non-DockOrMerge:
-                            // record metadata only, ε = 0. The slot reserves
-                            // the priority rank so future phases that wire the
-                            // resolver can drop in real ε values without
-                            // changing slot ownership.
+                            // Resolve world-frame reference position by source.
+                            Vector3d epsilon = Vector3d.zero;
+                            bool resolved = TryResolveSeedEpsilon(
+                                activeResolver, surfaceLookup, r, sIdx, cand,
+                                ref resolvedRel, ref resolvedOrb, ref resolvedSoi,
+                                ref resolvedLoop, ref deferredNoResolver, ref deferredNoSpline,
+                                out epsilon);
+
                             var ac = new AnchorCorrection(
                                 recordingId: r.RecordingId,
                                 sectionIndex: sIdx,
                                 side: cand.Side,
                                 ut: cand.UT,
-                                epsilon: Vector3d.zero,
+                                epsilon: resolved ? epsilon : Vector3d.zero,
                                 source: cand.Source);
                             if (TryWriteAnchor(ac))
                                 seedCandidatesEmitted++;
@@ -360,9 +416,13 @@ namespace Parsek.Rendering
             ParsekLog.Info("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
                 "DAG walk summary: sessionId={0} edgesVisited={1} edgesPropagated={2} " +
                 "seedCandidatesEmitted={3} candidatesDeferredByPriority={4} " +
-                "suppressedSkipped={5} cycleSkipped={6} durationMs={7}",
+                "resolvedRel={5} resolvedOrb={6} resolvedSoi={7} resolvedLoop={8} " +
+                "deferredNoResolver={9} deferredNoSpline={10} " +
+                "suppressedSkipped={11} cycleSkipped={12} durationMs={13}",
                 sessionId, edgesVisited, edgesPropagated,
                 seedCandidatesEmitted, candidatesDeferred,
+                resolvedRel, resolvedOrb, resolvedSoi, resolvedLoop,
+                deferredNoResolver, deferredNoSpline,
                 suppressedSkipped, cycleSkipped,
                 sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
         }
@@ -378,6 +438,183 @@ namespace Parsek.Rendering
         private static bool TryWriteAnchor(AnchorCorrection candidate)
         {
             return RenderSessionState.PutAnchorWithPriority(candidate);
+        }
+
+        /// <summary>
+        /// Resolve ε for a non-LiveSeparation, non-DockOrMerge candidate.
+        /// Source dispatch ↔ resolver:
+        /// <list type="bullet">
+        ///   <item>RelativeBoundary  → <see cref="IAnchorWorldFrameResolver.TryResolveRelativeBoundaryWorldPos"/></item>
+        ///   <item>OrbitalCheckpoint → <see cref="IAnchorWorldFrameResolver.TryResolveOrbitalCheckpointWorldPos"/></item>
+        ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
+        ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
+        ///   <item>BubbleEntry / BubbleExit / SurfaceContinuous / CoBubblePeer
+        ///         → deferred (returns false, ε stays 0).</item>
+        /// </list>
+        /// Returns true with a finite world-frame ε; returns false on
+        /// resolver miss or when no smoothed-position is available
+        /// (HR-9 visible failure: emits a Verbose log with the reason).
+        /// </summary>
+        private static bool TryResolveSeedEpsilon(
+            IAnchorWorldFrameResolver resolver,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            Recording rec, int sectionIndex, AnchorCandidate cand,
+            ref int resolvedRel, ref int resolvedOrb, ref int resolvedSoi,
+            ref int resolvedLoop, ref int deferredNoResolver, ref int deferredNoSpline,
+            out Vector3d epsilon)
+        {
+            epsilon = Vector3d.zero;
+
+            // Sources that are explicitly deferred — see class docstring.
+            if (cand.Source == AnchorSource.BubbleEntry
+                || cand.Source == AnchorSource.BubbleExit
+                || cand.Source == AnchorSource.CoBubblePeer
+                || cand.Source == AnchorSource.SurfaceContinuous)
+            {
+                return false;
+            }
+
+            if (resolver == null)
+            {
+                deferredNoResolver++;
+                ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                    "skip-no-resolver recordingId={0} sectionIndex={1} side={2} source={3}",
+                    rec.RecordingId, sectionIndex, cand.Side, cand.Source));
+                return false;
+            }
+
+            Vector3d worldRef = Vector3d.zero;
+            bool ok = false;
+            switch (cand.Source)
+            {
+                case AnchorSource.RelativeBoundary:
+                    ok = resolver.TryResolveRelativeBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
+                    if (ok) resolvedRel++;
+                    break;
+                case AnchorSource.OrbitalCheckpoint:
+                    ok = resolver.TryResolveOrbitalCheckpointWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
+                    if (ok) resolvedOrb++;
+                    break;
+                case AnchorSource.SoiTransition:
+                    ok = resolver.TryResolveSoiBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
+                    if (ok) resolvedSoi++;
+                    break;
+                case AnchorSource.Loop:
+                    ok = resolver.TryResolveLoopAnchorWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
+                    if (ok) resolvedLoop++;
+                    break;
+            }
+            if (!ok)
+            {
+                ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                    "resolver-miss recordingId={0} sectionIndex={1} side={2} source={3}",
+                    rec.RecordingId, sectionIndex, cand.Side, cand.Source));
+                return false;
+            }
+
+            // Compute P_smoothed_world(UT) so ε = worldRef - P_smoothed.
+            Vector3d? maybeSmoothed = TryEvaluateSmoothedWorldPos(rec, sectionIndex, cand.UT, surfaceLookup);
+            if (!maybeSmoothed.HasValue)
+            {
+                deferredNoSpline++;
+                ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                    "skip-no-spline recordingId={0} sectionIndex={1} side={2} source={3}",
+                    rec.RecordingId, sectionIndex, cand.Side, cand.Source));
+                return false;
+            }
+
+            epsilon = worldRef - maybeSmoothed.Value;
+            return true;
+        }
+
+        /// <summary>
+        /// Evaluate the smoothed body-fixed-or-inertial world position at
+        /// <paramref name="ut"/> for a given (recordingId, sectionIndex).
+        /// Routes through the test seam first (xUnit injects a closure);
+        /// otherwise composes the existing Phase 1 + Phase 4 pipeline:
+        /// <see cref="SectionAnnotationStore.TryGetSmoothingSpline"/> →
+        /// <see cref="TrajectoryMath.CatmullRomFit.Evaluate"/> →
+        /// <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>.
+        /// Returns null when the section has no spline cached or the body
+        /// can't be resolved — caller logs the skip and falls back to
+        /// ε = 0 (reserves the priority slot).
+        /// </summary>
+        private static Vector3d? TryEvaluateSmoothedWorldPos(
+            Recording rec, int sectionIndex, double ut,
+            Func<string, double, double, double, Vector3d> surfaceLookup)
+        {
+            var seam = SmoothedPositionForTesting;
+            if (seam != null) return seam(rec, sectionIndex, ut);
+
+            if (rec == null || rec.TrackSections == null) return null;
+            if (sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count) return null;
+            if (!SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
+                || !spline.IsValid)
+            {
+                return null;
+            }
+
+            Vector3d posLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
+
+            // Resolve body via the same dispatch the playback code uses.
+            string bodyName = ResolveSectionBodyName(rec.TrackSections[sectionIndex]);
+            if (string.IsNullOrEmpty(bodyName)) return null;
+
+            CelestialBody body = ResolveBody(bodyName);
+            if (body == null)
+            {
+                // xUnit path: the surfaceLookup seam can resolve world pos
+                // directly without a CelestialBody handle. Use it for tag-0
+                // splines only — inertial splines need a real body for the
+                // rotation phase.
+                if (spline.FrameTag == 0 && surfaceLookup != null)
+                {
+                    try
+                    {
+                        return surfaceLookup(bodyName, posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z);
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                }
+                return null;
+            }
+
+            // Production / tag-aware path.
+            Vector3d worldPos = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                spline.FrameTag,
+                posLatLonAlt.x, posLatLonAlt.y, posLatLonAlt.z,
+                body, ut, rec.RecordingId, sectionIndex);
+            if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
+                return null;
+            return worldPos;
+        }
+
+        private static string ResolveSectionBodyName(in TrackSection s)
+        {
+            if (s.frames != null && s.frames.Count > 0)
+                return s.frames[0].bodyName;
+            if (s.absoluteFrames != null && s.absoluteFrames.Count > 0)
+                return s.absoluteFrames[0].bodyName;
+            if (s.checkpoints != null && s.checkpoints.Count > 0)
+                return s.checkpoints[0].bodyName;
+            return null;
+        }
+
+        private static CelestialBody ResolveBody(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            var seam = BodyResolverForTesting;
+            if (seam != null) return seam(bodyName);
+            try
+            {
+                return FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == bodyName);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         // -------------------------------------------------------------------

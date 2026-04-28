@@ -26,6 +26,7 @@ namespace Parsek.Tests.Rendering
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
             AnchorCandidateBuilder.ResetForTesting();
+            AnchorPropagator.ResetForTesting();
             AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
         }
 
@@ -34,6 +35,7 @@ namespace Parsek.Tests.Rendering
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
             AnchorCandidateBuilder.ResetForTesting();
+            AnchorPropagator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }

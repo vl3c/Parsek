@@ -42,12 +42,27 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void RankOf_Loop_AndSurfaceContinuous_AreSameAsRelativeBoundary()
+        public void RankOf_Loop_SharesRelativeBoundaryRank()
         {
-            // §7.11: real persistent references all share rank 2.
+            // §7.11: Loop has a real persistent-vessel reference, same
+            // rank as RelativeBoundary.
             int relBound = AnchorPriority.RankOf(AnchorSource.RelativeBoundary);
             Assert.Equal(relBound, AnchorPriority.RankOf(AnchorSource.Loop));
-            Assert.Equal(relBound, AnchorPriority.RankOf(AnchorSource.SurfaceContinuous));
+        }
+
+        [Fact]
+        public void RankOf_SurfaceContinuous_DoesNotOutrankOrbitalCheckpoint()
+        {
+            // What makes it fail: Phase 6 demoted SurfaceContinuous from
+            // rank 2 to rank 6 because the per-frame raycast that resolves
+            // its ε is Phase 7 work. A rank-2 ε = 0 would silently win
+            // over a real OrbitalCheckpoint ε for the rover-overlapping-
+            // checkpoint case the design doc §3 enumerates as "naive
+            // bracket" failure.
+            int surface = AnchorPriority.RankOf(AnchorSource.SurfaceContinuous);
+            int orbit = AnchorPriority.RankOf(AnchorSource.OrbitalCheckpoint);
+            Assert.True(surface > orbit,
+                $"SurfaceContinuous rank {surface} must not outrank OrbitalCheckpoint rank {orbit} until Phase 7 wires the resolver");
         }
 
         [Fact]

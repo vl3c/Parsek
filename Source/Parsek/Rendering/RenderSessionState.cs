@@ -593,7 +593,9 @@ namespace Parsek.Rendering
                 {
                     List<RecordingTree> trees0 = ResolveTreesForPropagator(treeLookup, recordings);
                     AnchorPropagator.Run(marker, recordings, trees0,
-                        SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup);
+                        SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup,
+                        resolver: AnchorPropagator.ResolverOverrideForTesting
+                            ?? new ProductionAnchorWorldFrameResolver());
                 }
                 catch (Exception ex)
                 {
@@ -888,7 +890,9 @@ namespace Parsek.Rendering
             try
             {
                 List<RecordingTree> trees = ResolveTreesForPropagator(treeLookup, recordings);
-                AnchorPropagator.Run(marker, recordings, trees, surfaceLookup);
+                AnchorPropagator.Run(marker, recordings, trees, surfaceLookup,
+                    resolver: AnchorPropagator.ResolverOverrideForTesting
+                        ?? new ProductionAnchorWorldFrameResolver());
             }
             catch (Exception ex)
             {
