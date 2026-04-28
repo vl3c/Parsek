@@ -55,6 +55,44 @@ rearchitecture than this prerequisite PR. The limitation remains documented:
 in-place re-fly merges close the slot via `MergeState.Immutable`; natural
 chain extension is supported on the fresh-provisional path.
 
+## Done — v0.9.1 Phase 6 anchor taxonomy + DAG propagation
+
+- ~~Phase 6: emit AnchorCandidate entries for §7.2–§7.10 at commit time.~~ Implemented in `Source/Parsek/Rendering/AnchorCandidateBuilder.cs`; wired into `SmoothingPipeline.FitAndStorePerSection`.
+- ~~Phase 6: DAG propagation per §9.1 across BranchPoint edges.~~ Implemented in `Source/Parsek/Rendering/AnchorPropagator.cs`; runs from `RenderSessionState.RebuildFromMarker` after the Phase 2 LiveSeparation seeds land.
+- ~~Phase 6: cross-recording propagation at chain tips (§9.3).~~ Chain edges enumerate by `Recording.ChainId` + `Recording.ChainIndex` (NOT the EVA-linkage `Recording.ParentRecordingId`, which is already covered by the `BranchPointType.EVA` loop). Members are sorted by `ChainIndex` and consecutive pairs at compatible boundary UTs (within `1e-3` s tolerance) emit a chain edge. Mismatched boundaries log a `chain-edge-boundary-mismatch` Verbose and skip — see `AnchorPropagator.cs` edge enumeration.
+- ~~Phase 6: suppressed-subtree filtering in propagation (§9.4 / HR-8).~~ Routed through `SessionSuppressionState.IsSuppressed` for both edge endpoints; a suppressed parent or child skips the edge with a `Pipeline-AnchorPropagate` Verbose `suppressed-predecessor` line.
+- ~~Phase 6: §7.11 priority resolver.~~ `Source/Parsek/Rendering/AnchorPriority.cs` with rank table; integrated via `RenderSessionState.PutAnchorWithPriority`.
+- ~~Phase 6: `.pann AnchorCandidatesList` block populated; `AlgorithmStampVersion` v2→v3, then v3→v4 in the ultrareview P1-A follow-up (HR-10).~~ The bit-pack puts `AnchorSide` into bit 7 of the persisted type byte, leaving the schema layout stable. The first bump (v2→v3) invalidated pre-Phase-6 files via the existing alg-stamp-drift path; the second bump (v3→v4) reflects the canonical-encoding gain of the `useAnchorTaxonomy` byte (P1-A) so a reader walking a v3 file with the new hash function correctly invalidates it before comparing the embedded hash against the recomputed one.
+- ~~Phase 6: `useAnchorTaxonomy` rollout flag (default on).~~ Property + persistence wired alongside `useSmoothingSplines` / `useAnchorCorrection` in `ParsekSettings` and `ParsekSettingsPersistence`.
+- ~~Phase 6: §7.4 RELATIVE-boundary ε resolver.~~ `IAnchorWorldFrameResolver.TryResolveRelativeBoundaryWorldPos` composes `TrajectoryMath.ResolveRelativePlaybackPosition` with v5/v6/v7 dispatch + v7+ absolute-shadow fallback.
+- ~~Phase 6: §7.5 OrbitalCheckpoint ε resolver.~~ `IAnchorWorldFrameResolver.TryResolveOrbitalCheckpointWorldPos` runs the analytical Kepler propagation against the adjacent checkpoint section's `OrbitSegment`.
+- ~~Phase 6: §7.6 SOI-transition ε resolver.~~ Same dispatch as §7.5 but the checkpoint stores Keplerian elements in the post-SOI body's frame; world-frame ε is computed in that body's frame.
+- ~~Phase 6: §7.10 Loop ε resolver.~~ `IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos` reads the loop anchor vessel's current world position via `FlightGlobals.Vessels.persistentId == LoopAnchorVesselId`. Phase 6's Loop ε is the *session-entry* corrective offset between the recorded loop seed and the live anchor's current pose. The per-cycle `loop_offset(loop_phase)` term in the design doc §7.10 / §15.14 ε formula is composed downstream by the existing loop playback path (`ParsekFlight.PositionLoopGhost` at `ParsekFlight.cs:17440`, which routes through `InterpolateAndPositionRelative` and reads the recorded RELATIVE-frame anchor offsets directly from the loop section's `frames` list). Phase 6 + the existing loop-relative playback together produce the design-doc formula: `ε_session_entry + recorded_loop_offset(loop_phase) + anchor_position_now` — Phase 6 owns the first term, the loop-relative playback path owns the other two.
+- ~~Phase 6: §7.9 SurfaceContinuous priority demotion.~~ Rank moved from 2 to 6 so the Phase-7-pending ε = 0 stub cannot outrank a real OrbitalCheckpoint ε. Phase 7 will promote back to rank 2 with the corresponding `AlgorithmStampVersion` bump when the per-frame terrain raycast lands.
+- ~~Phase 6: per-source in-game tests.~~ `Pipeline_Anchor_Dock`, `Pipeline_Anchor_RelativeBoundary`, `Pipeline_Anchor_OrbitalCheckpoint`, `Pipeline_Anchor_SOI`, `Pipeline_Anchor_Loop`, `Pipeline_Anchor_SuppressedSubtree` added to `RuntimeTests.cs`; each runs through the resolver test seam under the live KSP runtime to verify ε computation end-to-end.
+- ~~Phase 6: §9.1 propagation rule applies the real `(recordedOffset − smoothedOffset)` correction term.~~ Earlier Phase 6 commit landed identity propagation; reviewer P1-1 caught that pre-Phase-9 recordings have a few-tick sampling-noise offset that must be corrected. New helper `RenderSessionState.TryEvaluatePerSegmentWorldPositions` returns `(recordedWorld, smoothedWorld)` for a (recordingId, sectionIndex, ut) tuple by composing the existing `TryFindFirstPointAtOrAfter` + `TryLookupSurfacePosition` + `SectionAnnotationStore.TryGetSmoothingSpline` + `CatmullRomFit.Evaluate` chain. The propagator computes recorded/smoothed offsets on each side of an edge and feeds them through `Propagate(epsilonUpstream, recordedOffset, smoothedOffset)`. Chain edges keep identity propagation (recordedOffset = 0 by PID continuity). Either side missing a spline / sample / Absolute frame triggers a `no-spline-skip` / `no-sample-skip` / `section-not-absolute-skip` Verbose and identity fallback (HR-9).
+- ~~Phase 6: §9.4 / HR-8 suppressed-predecessor xUnit coverage.~~ New `AnchorPropagator.SuppressionPredicateForTesting` test seam routes around `SessionSuppressionState`'s `ParsekScenario.Instance` dependency; the suppressed-child and suppressed-parent test cases in `AnchorPropagationTests.cs` now actually exercise the §9.4 closure (previously the misleadingly-named `Run_SuppressedChild_*` test exercised the cycle path instead).
+- ~~Phase 6: ProductionAnchorWorldFrameResolver xUnit guard-path coverage.~~ 18 new tests in `ProductionAnchorWorldFrameResolverTests.cs` exercise null-rec / out-of-range / wrong-adjacent-frame / pid==0 / etc. early-return paths. Each test wraps the call in a `try / catch (SecurityException)` guard following the `ParsekUITests.cs` headless-Unity pattern.
+- ~~Phase 6: per-candidate Verbose at commit time.~~ Design-doc §19.2 Stage 3 row 1 calls for one Verbose per emitted candidate (not just a summary). `AnchorCandidateBuilder.BuildAndStorePerSection` now emits a `Pipeline-Anchor` Verbose per candidate with `bpType` so DockOrMerge byte aliasing of Undock/EVA/JointBreak surfaces in telemetry without bumping `AnchorSource`.
+- ~~Phase 6: Loop sentinel guard.~~ `EmitLoopMarkers` now requires `LoopPlayback == true` AND `LoopIntervalSeconds > LoopTiming.UntouchedLoopIntervalSentinel` AND `LoopAnchorVesselId != 0`. The previous `<= 0.0` guard was dead code — `Recording.LoopIntervalSeconds` initializes to the sentinel (10.0).
+- ~~Phase 6: design-doc Stage 1 / Sidecar canonical drift token set.~~ Both the §19.2 Sidecar I/O table and the inline note next to the `PannotationsSidecarProbe` description now enumerate the full token set including `recording-id-mismatch`, `payload-corrupt`, and `probe-failed`.
+- ~~Phase 6: removed dead test seam `AnchorCandidateBuilder.TreeLookupOverrideForTesting`.~~ Builder takes the tree explicitly; the static seam was unused.
+- ~~Phase 6: anchor source counters use a real `default` arm.~~ `AnchorCandidateBuilder.BuildAndStorePerSection` no longer subtracts to derive `splitCount` — a real counter increments inside the switch's `default` arm so a future `AnchorSource` value silently rolls into "other" instead of being misattributed.
+- ~~Phase 6: dead `edge.IsChain ? AnchorSide.Start : AnchorSide.Start` ternary removed.~~
+- ~~Phase 6 ultrareview P1-A: `useAnchorTaxonomy` flag participates in the `.pann ConfigurationHash`.~~ `PannotationsSidecarBinary.ComputeConfigurationHash` gained a `useAnchorTaxonomy` byte at offset 51 (length grew 51 → 52). `SmoothingPipeline.CurrentConfigurationHash` keys its cache on the live flag value via `AnchorCandidateBuilder.ResolveUseAnchorTaxonomy`. Without the flag in the hash, a `.pann` written when the flag was off would cache-hit a flag-on session and the §7.4-§7.10 anchors would never re-emit until manually deleted or alg-stamp bumped. Three new xUnit tests pin: hash differs by flag, single-arg overload defaults to flag-on (compat), and a flag-flip-write-then-read cycle surfaces `config-hash-drift` and triggers the lazy recompute. Design doc §17.3.1 Configuration Cache Key table now includes the row.
+- ~~Phase 6 ultrareview P1-B: §9.1 propagation handles inertial-frame splines (FrameTag=1).~~ The previous helper treated only `FrameTag == 0` (body-fixed) as a real spline hit; `FrameTag == 1` (ExoPropulsive / ExoBallistic — every burn / coast section in production) fell back to `smoothedWorld = recordedWorld` so the §9.1 correction term cancelled to zero. `RenderSessionState.TryEvaluatePerSegmentWorldPositions` now takes an optional `bodyResolver` parameter and dispatches FrameTag=1 through `TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag`. The propagator passes its own `ResolveBody` (which composes `BodyResolverForTesting` + `FlightGlobals.Bodies`) so production picks up the body via `FlightGlobals` and xUnit drives it via `TestBodyRegistry.CreateBody` + `FrameTransform.RotationPeriodForTesting` + `FrameTransform.WorldSurfacePositionForTesting`. The `body != null` check uses `object.ReferenceEquals(body, null)` to bypass Unity's overloaded `==` (a `TestBodyRegistry`-built body has an uninitialised Unity backing pointer that the overload would otherwise treat as null). Three new xUnit tests pin: end-to-end inertial §9.1 against a fakeKerbin fixture, direct helper-call inertial dispatch, and the no-resolver fallback contract.
+- ~~Phase 6 ultrareview P2-A: edge propagation is order-independent via worklist.~~ `RecordingTree.BranchPoints` is a public persisted list with no enforced topological order. The previous single-pass walk processed edges in list order — if a downstream edge appeared before its upstream parent had its anchor seeded, the propagator wrote zero ε and never revisited the child. The new worklist seeds with recordings that already have an anchor (Phase 2 LiveSeparation seeds + the seed pass), pops parent ids, walks outgoing edges via an O(1) `outgoingByParent` index, and re-enqueues each child whenever a new anchor is written. Cycle defense via the existing `visitedEdges` HashSet is unchanged. Two new xUnit tests pin: a 4-recording linear chain with REVERSED `BranchPoints` list order propagates ε all the way to the leaf, and a no-seed test confirms the worklist correctly does nothing when there's no starting anchor.
+- ~~Phase 6 ultrareview follow-up P1: edge propagation is section-precise via slot-keyed worklist.~~ The first P2-A iteration keyed worklist + outgoing-edge index by parent recordingId. That fixed BranchPoints list-order dependence but introduced a subtler order-dependence bug: when a recording was queued because an UNRELATED section had a seed anchor, edges whose `parentSectionIdx` was a DIFFERENT, still-unanchored section would fall through to ε = 0, write a stale child anchor, and mark the edge in `visitedEdges`. When the real upstream anchor for that section was later written, the edge was already visited and the corrected ε never flowed downstream. The follow-up keys the worklist + outgoing-edge index by `(parentRecordingId, parentSectionIdx)` ("slot" — encoded as `recordingId@sectionIdx`); seeds by walking every populated `(recordingId, sectionIdx)` pair; only walks edges whose parent slot has been seeded; and on a successful child write, enqueues the child SLOT (not just the recording). Edges depending on still-unanchored slots remain in their bucket and fire correctly when the slot is later anchored via another path. One new xUnit test pins the recovery case: a two-section recording (`recB`) with section 0 seeded and section 1 unanchored, edges `recA → recB.1` (writes recB.1) and `recB.1 → recC` (depends on recB.1), with reversed BranchPoint list and `[recB, recC, recA]` recordings iteration order — the slot-keyed walk defers `recB → recC` until `recB.1` is anchored, so recC inherits the correct ε instead of the stale zero.
+
+## Phase 6 known gaps (deferred to later phases)
+
+- §7.7 BubbleEntry / BubbleExit candidates are not emitted by the Phase 6 builder. The trigger wording in the design doc ties them to "the recording session's physics bubble", which is a session-time fact requiring a physics-active timeline scanner that classifies sections by their ambient bubble state at the recording UT. The propagator's deferred-source switch keeps the priority-rank slots reserved (no overwrite of higher-priority candidates) but emits ε = 0 if a future commit-time pass starts producing BubbleEntry/Exit candidates without a paired resolver.
+- §7.8 CoBubblePeer anchors are reserved in the enum but emit no candidates — Phase 5 territory.
+- §7.9 SurfaceContinuous emits a marker only with ε = 0; the per-frame terrain raycast that resolves ε is Phase 7 work. Phase 6 demoted the rank from 2 to 6 to prevent the zero stub from winning ties against real OrbitalCheckpoint ε; Phase 7 must promote back to rank 2 once the resolver ships and bump `AlgorithmStampVersion` so existing `.pann` re-resolve.
+- The split anchor sources (Undock / EVA / JointBreak) currently share the `DockOrMerge` enum byte (priority rank 4 either way). Logs label them by `BranchPointType` rather than by enum value to preserve telemetry granularity. If a future phase needs to differentiate split priorities from dock priorities, expand the `AnchorSource` enum and bump `AlgorithmStampVersion`.
+
+---
+
 ## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
 
 **Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.
@@ -3256,7 +3294,8 @@ line.
 
 **Status:** CLOSED 2026-04-25. Fixed for v0.9.0. Log-only fix; the
 underlying "KSP fires rate-change at 1x ~4x more often than there are
-real rate changes" concern is tracked separately as #597.
+real rate changes" concern was tracked separately as #597 and closed in
+the v0.9.1 follow-up.
 
 ---
 
@@ -4092,7 +4131,7 @@ case that reduces to equality.
 
 ---
 
-## 597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`
+## ~~597. Underlying logic: KSP's `onTimeWarpRateChanged` GameEvent fires at 1x roughly 4x more often than there are real rate changes, and `OnTimeWarpRateChanged` always re-runs `CheckpointAllVessels`~~
 
 **Source:** `logs/2026-04-25_1933_refly-bugs/KSP.log` — 1090 of 1121
 events were `1.0x`, but only 248 unique UT values appeared, and many
@@ -4100,6 +4139,18 @@ of those 248 had multiple sub-second-apart 1.0x events (e.g.
 `19:08:26.557` and `19:08:26.567` both at UT≈21526.10). KSP fires the
 event spuriously across scene transitions, warp-to-here, save/load
 boundaries, and similar transients.
+
+**Follow-up evidence (2026-04-28):** newest retained bundles
+`logs/2026-04-27_2157_stage-separation-bugs` and
+`logs/2026-04-27_1902` no longer show the original log volume after
+#592's rate-limiting, and a sidecar scan found no zero/negative orbit
+segments (`566` `.prec` files, `30` top-level orbit segments, `8`
+track-section checkpoints in the newest bundle; `22` `.prec` files,
+`10` top-level orbit segments, `10` track-section checkpoints in the
+older bundle). The code still had a direct duplicate-boundary risk:
+`CheckpointAllVessels` closed the current open orbit segment and opened
+a replacement at the checkpoint UT, so an exact duplicate same-UT event
+could append a zero-length segment before later cleanup.
 
 **Why it matters:** Bug #592 only addresses the LOG noise. The
 underlying `BackgroundRecorder.CheckpointAllVessels` call still runs
@@ -4111,21 +4162,19 @@ work scaling with `backgroundVesselCount × eventCount` and could
 mask a real correctness regression in the future ("why is this orbit
 segment getting reopened mid-flight?").
 
-**Files to investigate:**
+**Fix:** `ParsekFlight.OnTimeWarpRateChanged` now lets the warp-start /
+warp-end ledger/facility path run first, then skips only exact duplicate
+checkpoint work scoped to the same active tree, same warp rate, and same
+UT. `BackgroundRecorder.CheckpointAllVessels` is also idempotent at the
+same orbit-segment boundary, so a direct duplicate call no longer closes
+and appends a zero-length segment. Regression coverage:
+`ParsekFlightWarpCheckpointTests` pins the duplicate-event predicate and
+`BackgroundRecorderTests.CheckpointAllVessels_DuplicateBoundary_DoesNotAppendZeroLengthSegment`
+pins the recorder-level guard.
 
-- `Source/Parsek/ParsekFlight.cs:5842` — `OnTimeWarpRateChanged`. Add
-  a `lastSeenWarpRate` field and short-circuit when both the rate and
-  the UT have not advanced past the last invocation. Care needed
-  because the warp-start / warp-end branch above this call also
-  depends on the event firing.
-- `Source/Parsek/BackgroundRecorder.cs:2030` — `CheckpointAllVessels`.
-  An alternate fix is to make this method itself idempotent at the
-  same UT (skip the close+reopen if the segment is already closed
-  at this exact UT).
-
-**Status:** Open. Performance / hygiene; no observed correctness
-defect. Defer until a measurable hot-path latency or a specific
-ghost-orbit anomaly points at it.
+**Status:** CLOSED 2026-04-28. Fixed for v0.9.1. No retained-log
+correctness defect found; fixed the remaining performance / hygiene and
+duplicate-boundary hazard.
 
 ---
 
@@ -4833,10 +4882,9 @@ GameEvent. #593 covers ~1190 lines from repeatable record milestones
 `Milestone rep at UT` line on every recalc walk. #594 covers 221 KspStatePatcher
 bare-Id fallback lines. #595 widens the OrbitalCheckpoint playback and Recorder
 sample-skipped rate-limit windows from 1-2s to the default 5s. #596 gates the
-PatchFacilities INFO summary on having actual work. #597 tracks the underlying
-"KSP fires rate-change at 1x ~4x more often than real rate changes" concern as
-a separate open todo (performance / hygiene only — no observed correctness
-defect).
+PatchFacilities INFO summary on having actual work. #597 later closed the
+underlying duplicate checkpoint work with a same-tree/same-rate/same-UT guard
+plus recorder-level duplicate-boundary idempotence.
 
 2026-04-26 update (observability Phase 1 current spam hygiene): the newest
 retained package `2026-04-26_0118_refly-postfix-still-broken` surfaced a
