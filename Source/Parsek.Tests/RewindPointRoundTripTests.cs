@@ -24,6 +24,7 @@ namespace Parsek.Tests
                 Corrupted = false,
                 CreatingSessionId = null,
                 CreatedRealTime = "2026-04-17T21:35:12Z",
+                FocusSlotIndex = 1,
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot
@@ -40,7 +41,9 @@ namespace Parsek.Tests
                         OriginChildRecordingId = "rec_child1",
                         Controllable = true,
                         Disabled = true,
-                        DisabledReason = "lookup failed"
+                        DisabledReason = "lookup failed",
+                        Sealed = true,
+                        SealedRealTime = "2026-04-28T10:15:30.0000000Z"
                     },
                     new ChildSlot
                     {
@@ -78,6 +81,7 @@ namespace Parsek.Tests
             Assert.Equal(rp.Corrupted, restored.Corrupted);
             Assert.Equal(rp.CreatingSessionId, restored.CreatingSessionId);
             Assert.Equal(rp.CreatedRealTime, restored.CreatedRealTime);
+            Assert.Equal(1, restored.FocusSlotIndex);
 
             Assert.Equal(3, restored.ChildSlots.Count);
             Assert.Equal(0, restored.ChildSlots[0].SlotIndex);
@@ -85,14 +89,19 @@ namespace Parsek.Tests
             Assert.True(restored.ChildSlots[0].Controllable);
             Assert.False(restored.ChildSlots[0].Disabled);
             Assert.Null(restored.ChildSlots[0].DisabledReason);
+            Assert.False(restored.ChildSlots[0].Sealed);
+            Assert.Null(restored.ChildSlots[0].SealedRealTime);
 
             Assert.Equal(1, restored.ChildSlots[1].SlotIndex);
             Assert.Equal("rec_child1", restored.ChildSlots[1].OriginChildRecordingId);
             Assert.True(restored.ChildSlots[1].Disabled);
             Assert.Equal("lookup failed", restored.ChildSlots[1].DisabledReason);
+            Assert.True(restored.ChildSlots[1].Sealed);
+            Assert.Equal("2026-04-28T10:15:30.0000000Z", restored.ChildSlots[1].SealedRealTime);
 
             Assert.Equal(2, restored.ChildSlots[2].SlotIndex);
             Assert.Equal("rec_child2", restored.ChildSlots[2].OriginChildRecordingId);
+            Assert.False(restored.ChildSlots[2].Sealed);
 
             Assert.Equal(3, restored.PidSlotMap.Count);
             Assert.Equal(0, restored.PidSlotMap[12345678u]);
@@ -149,6 +158,29 @@ namespace Parsek.Tests
             Assert.Empty(restored.PidSlotMap);
             Assert.NotNull(restored.RootPartPidMap);
             Assert.Empty(restored.RootPartPidMap);
+        }
+
+        [Fact]
+        public void RewindPoint_LegacyMissingStableLeafFields_LoadsDefaults()
+        {
+            var parent = new ConfigNode("REWIND_POINTS");
+            var point = parent.AddNode("POINT");
+            point.AddValue("rewindPointId", "rp_legacy");
+            point.AddValue("branchPointId", "bp_legacy");
+            point.AddValue("ut", "123.5");
+            point.AddValue("quicksaveFilename", "rp_legacy.sfs");
+            point.AddValue("sessionProvisional", "False");
+            var slot = point.AddNode("CHILD_SLOT");
+            slot.AddValue("slotIndex", "0");
+            slot.AddValue("originChildRecordingId", "rec_legacy");
+            slot.AddValue("controllable", "True");
+
+            var restored = RewindPoint.LoadFrom(point);
+
+            Assert.Equal(-1, restored.FocusSlotIndex);
+            Assert.Single(restored.ChildSlots);
+            Assert.False(restored.ChildSlots[0].Sealed);
+            Assert.Null(restored.ChildSlots[0].SealedRealTime);
         }
     }
 }

@@ -292,9 +292,44 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario)) return;
 
             TerminalKind kind = TerminalKindClassifier.Classify(provisional);
-            MergeState newState = (kind == TerminalKind.Crashed)
-                ? MergeState.CommittedProvisional
-                : MergeState.Immutable;
+            MergeState newState;
+            string classifierReason = null;
+            bool classifierResolvedSlot = false;
+            bool classifierQualifies = false;
+            RewindPoint rp;
+            int slotListIndex;
+            string slotRejectReason;
+            if (UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    provisional, out rp, out slotListIndex, out slotRejectReason)
+                && rp?.ChildSlots != null
+                && slotListIndex >= 0
+                && slotListIndex < rp.ChildSlots.Count)
+            {
+                var slot = rp.ChildSlots[slotListIndex];
+                classifierResolvedSlot = true;
+                classifierQualifies = UnfinishedFlightClassifier.TryQualify(
+                    provisional, slot, rp, false, out classifierReason,
+                    treeContext: null, allowNotCommitted: true);
+                newState = classifierQualifies
+                    ? MergeState.CommittedProvisional
+                    : MergeState.Immutable;
+            }
+            else
+            {
+                ParsekLog.Error(Tag,
+                    $"Site B-1 slot lookup failed for provisional={provisional.RecordingId ?? "<no-id>"} " +
+                    $"markerOrigin={marker.OriginChildRecordingId ?? "<none>"} " +
+                    $"markerTarget={marker.SupersedeTargetId ?? "<none>"} " +
+                    $"rp={marker.RewindPointId ?? "<none>"} reason={slotRejectReason ?? "slot-index-invalid"}; " +
+                    $"falling back to v0.9 terminalKind classifier");
+                System.Diagnostics.Debug.Assert(false,
+                    "Site B-1 slot lookup failed; falling back to v0.9 terminal classifier.");
+                classifierReason = "fallback:" + kind;
+                newState = (kind == TerminalKind.Crashed)
+                    ? MergeState.CommittedProvisional
+                    : MergeState.Immutable;
+            }
+
             provisional.MergeState = newState;
 
             string priorTarget = provisional.SupersedeTargetId;
@@ -304,6 +339,11 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={newState} terminalKind={kind} " +
+                $"qualifies={classifierQualifies} " +
+                $"slot={(classifierResolvedSlot ? slotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"rp={(classifierResolvedSlot ? rp.RewindPointId ?? "<no-rp>" : "<none>")} " +
+                $"focusSlot={(classifierResolvedSlot ? rp.FocusSlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"classifierReason={classifierReason ?? "<none>"} " +
                 $"priorTarget={priorTarget ?? "<none>"}");
 
             if (preserveMarker) return;

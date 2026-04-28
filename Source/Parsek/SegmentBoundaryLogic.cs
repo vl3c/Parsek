@@ -334,6 +334,12 @@ namespace Parsek
         /// constructing a live <c>Vessel</c>.
         /// </summary>
         bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot);
+
+        /// <summary>
+        /// Returns the currently focused vessel's persistentId, or null when
+        /// there is no active vessel/focus signal.
+        /// </summary>
+        uint? GetActiveVesselPid();
     }
 
     /// <summary>
@@ -364,6 +370,15 @@ namespace Parsek
                 rootPartPid: root != null ? root.persistentId : 0u,
                 hasRootPart: root != null);
             return true;
+        }
+
+        public uint? GetActiveVesselPid()
+        {
+            Vessel active = null;
+            try { active = FlightGlobals.ActiveVessel; }
+            catch { active = null; }
+            if (active == null) return null;
+            return active.persistentId;
         }
     }
 }

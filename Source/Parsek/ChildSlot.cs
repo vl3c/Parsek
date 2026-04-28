@@ -41,6 +41,20 @@ namespace Parsek
         /// </summary>
         public string DisabledReason;
 
+        /// <summary>
+        /// True when the player explicitly closed this slot from the
+        /// Unfinished Flights row. Sealed slots no longer qualify for
+        /// Unfinished Flights and count as closed for RP reap eligibility
+        /// once their effective recording has committed.
+        /// </summary>
+        public bool Sealed;
+
+        /// <summary>
+        /// ISO-8601 UTC timestamp for the Seal action. Diagnostic only;
+        /// null when <see cref="Sealed"/> is false.
+        /// </summary>
+        public string SealedRealTime;
+
         private const string NodeName = "CHILD_SLOT";
 
         /// <summary>Appends a <c>CHILD_SLOT</c> child node to the given parent ConfigNode.</summary>
@@ -56,6 +70,10 @@ namespace Parsek
                 node.AddValue("disabled", Disabled.ToString());
             if (!string.IsNullOrEmpty(DisabledReason))
                 node.AddValue("disabledReason", DisabledReason);
+            if (Sealed)
+                node.AddValue("sealed", Sealed.ToString());
+            if (!string.IsNullOrEmpty(SealedRealTime))
+                node.AddValue("sealedRealTime", SealedRealTime);
         }
 
         /// <summary>Loads a single <c>CHILD_SLOT</c> ConfigNode into a new <see cref="ChildSlot"/>.</summary>
@@ -84,6 +102,13 @@ namespace Parsek
                 slot.Disabled = disabled;
 
             slot.DisabledReason = node.GetValue("disabledReason");
+
+            string sealedStr = node.GetValue("sealed");
+            bool sealedValue;
+            if (!string.IsNullOrEmpty(sealedStr) && bool.TryParse(sealedStr, out sealedValue))
+                slot.Sealed = sealedValue;
+
+            slot.SealedRealTime = node.GetValue("sealedRealTime");
 
             return slot;
         }

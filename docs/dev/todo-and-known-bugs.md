@@ -11,6 +11,42 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 635. Stable-leaf Unfinished Flights were forward-only after Rewind Point splits ~~done~~
+
+**Status:** ~~done~~ — fixed in the stable-leaves worktree stacked on the
+invocation-linearization prerequisite.
+
+The stable-leaves design extended Unfinished Flights beyond crash-only leaves:
+after a multi-controllable split, a non-focused controllable child that later
+ends `Orbiting` or `SubOrbital` can still be an unfinished mission because the
+player never actively flew it to a final outcome. Stranded EVA kerbals whose
+terminal state is not `Boarded` are also unfinished, including legacy rows that
+do not have a focused-slot signal. Stable terminal outcomes (`Landed`,
+`Splashed`, `Recovered`, `Docked`, `Boarded`) remain forward-only, and debris or
+non-controllable slots are excluded.
+
+Fix: `RewindPoint` now persists `FocusSlotIndex`; `RewindPointAuthor` captures
+it from the active vessel PID at split time; the Unfinished Flights predicate is
+centralized in `UnfinishedFlightClassifier`; original tree commit and fresh
+re-fly supersede commit both use the same slot-aware classifier to promote
+qualifying leaves to `CommittedProvisional`. Legacy vessel rows with
+`FocusSlotIndex=-1` stay excluded for orbiting/suborbital terminal states so old
+saves do not accidentally surface stable focused flights as unfinished.
+
+UI fix: Unfinished Flight rows now show `Fly` plus an explicit `Seal` action.
+Seal sets `ChildSlot.Sealed`/`SealedRealTime`, leaves the recording and
+`MergeState` unchanged, removes that slot from Unfinished Flights, and lets
+`RewindPointReaper` count a sealed `CommittedProvisional` slot as closed once
+every sibling slot is also closed. Sealed `NotCommitted` slots still block reap.
+
+Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
+in-place merge path may classify an unfinished outcome as
+`CommittedProvisional`, but immediately forces the same recording back to
+`Immutable` and reaps the RP because the merge confirmation is treated as the
+player's final commitment to that slot. It does not auto-seal the slot and does
+not create a fresh provisional; B2-B still requires a deeper recorder/merge
+rearchitecture.
+
 ## 634. Re-fly chain extension wrote origin-rooted star supersede rows instead of linear prior-tip rows ~~done~~
 
 **Status:** ~~done~~ — fixed in the invocation-linearization worktree.

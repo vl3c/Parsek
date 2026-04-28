@@ -603,6 +603,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_OrbitingNonFocusChildUnderRewindPoint_PromotesToCommittedProvisional()
+        {
+            var tree = MakeTreeWithBranch("stable_leaf_tree");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Orbiting;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "child2"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
+            Assert.False(rp.SessionProvisional);
+        }
+
+        [Fact]
+        public void CommitTree_OrbitingFocusChildUnderRewindPoint_RemainsImmutable()
+        {
+            var tree = MakeTreeWithBranch("stable_focus_tree");
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "child2"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+            Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
+            Assert.False(rp.SessionProvisional);
+        }
+
+        [Fact]
         public void CommitTree_DestroyedChildWithoutRewindPoint_RemainsImmutable()
         {
             var tree = MakeTreeWithBranch("plain_tree");

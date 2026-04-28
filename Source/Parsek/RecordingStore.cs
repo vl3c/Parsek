@@ -718,9 +718,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A crash-terminal child under a Rewind Point is an unfinished flight:
-        /// the recording is committed, but its rewind slot stays open until a
-        /// later successful re-fly supersedes it. Legacy/default recordings are
+        /// A child under a Rewind Point that qualifies as an unfinished flight
+        /// is committed, but its rewind slot stays open until a later successful
+        /// re-fly or explicit Seal closes it. Legacy/default recordings are
         /// born Immutable, so stamp that precise shape during the normal tree
         /// commit path.
         /// </summary>
@@ -736,19 +736,37 @@ namespace Parsek
             {
                 if (rec == null) continue;
                 if (rec.MergeState != MergeState.Immutable) continue;
-                if (TerminalKindClassifier.Classify(rec) != TerminalKind.Crashed) continue;
-                if (string.IsNullOrEmpty(rec.ParentBranchPointId)) continue;
+                if (!UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec, tree)) continue;
 
-                var parentBp = FindBranchPointById(tree, rec.ParentBranchPointId);
-                if (parentBp == null || string.IsNullOrEmpty(parentBp.RewindPointId))
+                if (string.IsNullOrEmpty(rec.ParentBranchPointId)
+                    && string.IsNullOrEmpty(rec.ChildBranchPointId))
                     continue;
 
-                if (!HasRewindPointSlotForRecording(rec, parentBp.RewindPointId, out string slotRejectReason))
+                RewindPoint rp;
+                int slotListIndex;
+                string slotRejectReason;
+                if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                        rec, out rp, out slotListIndex, out slotRejectReason))
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
-                        $"CommitTree: crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
                         $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={slotRejectReason} " +
-                        $"bp={parentBp.Id ?? "<no-bp>"} rp={parentBp.RewindPointId}");
+                        $"parentBp={rec.ParentBranchPointId ?? "<none>"} childBp={rec.ChildBranchPointId ?? "<none>"}");
+                    continue;
+                }
+
+                if (rp.ChildSlots == null || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
+                    continue;
+
+                var slot = rp.ChildSlots[slotListIndex];
+                string qualifyReason;
+                if (!UnfinishedFlightClassifier.TryQualify(
+                        rec, slot, rp, false, out qualifyReason, tree))
+                {
+                    ParsekLog.Verbose("UnfinishedFlights",
+                        $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={qualifyReason} " +
+                        $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex}");
                     continue;
                 }
 
@@ -756,9 +774,10 @@ namespace Parsek
                 rec.FilesDirty = true;
                 promoted++;
                 ParsekLog.Info("UnfinishedFlights",
-                    $"CommitTree: promoted crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
-                    $"vessel='{rec.VesselName ?? "<unnamed>"}' bp={parentBp.Id ?? "<no-bp>"} " +
-                    $"rp={parentBp.RewindPointId} to CommittedProvisional");
+                    $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
+                    $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                    $"to CommittedProvisional");
             }
 
             if (promoted > 0)

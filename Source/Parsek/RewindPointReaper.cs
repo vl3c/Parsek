@@ -90,6 +90,7 @@ namespace Parsek
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
             string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            int sealedSlotsContributingTotal = 0;
 
             // Snapshot of eligible RPs + matching indices so we don't mutate
             // while iterating.
@@ -107,8 +108,10 @@ namespace Parsek
                         $"while re-fly session {scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} is active");
                     continue;
                 }
-                if (!IsReapEligible(rp, supersedes))
+                int sealedSlotsContributing;
+                if (!IsReapEligible(rp, supersedes, out sealedSlotsContributing))
                     continue;
+                sealedSlotsContributingTotal += sealedSlotsContributing;
                 toReap.Add(rp);
                 toReapIndices.Add(i);
             }
@@ -116,7 +119,8 @@ namespace Parsek
             if (toReap.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)}");
+                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"sealedSlotsContributing=0");
                 return 0;
             }
 
@@ -155,7 +159,8 @@ namespace Parsek
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
-                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)}");
+                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
+                $"sealedSlotsContributing={sealedSlotsContributingTotal.ToString(CultureInfo.InvariantCulture)}");
 
             return toReap.Count;
         }
@@ -175,6 +180,16 @@ namespace Parsek
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
+            int sealedSlotsContributing;
+            return IsReapEligible(rp, supersedes, out sealedSlotsContributing);
+        }
+
+        private static bool IsReapEligible(
+            RewindPoint rp,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out int sealedSlotsContributing)
+        {
+            sealedSlotsContributing = 0;
             if (rp == null) return false;
             if (rp.SessionProvisional) return false;
 
@@ -201,8 +216,17 @@ namespace Parsek
                     continue;
                 }
 
-                if (rec.MergeState != MergeState.Immutable)
+                if (rec.MergeState == MergeState.NotCommitted)
                     return false;
+                if (rec.MergeState == MergeState.Immutable)
+                    continue;
+                if (slot.Sealed)
+                {
+                    sealedSlotsContributing++;
+                    continue;
+                }
+
+                return false;
             }
 
             return true;
