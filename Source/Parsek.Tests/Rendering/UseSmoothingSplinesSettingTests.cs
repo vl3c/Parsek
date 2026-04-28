@@ -119,22 +119,58 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void UseSmoothingSplines_DirectAssign_PersistsToStore()
+        public void UseSmoothingSplines_DirectAssign_PostReconciliation_PersistsToStore()
         {
-            // What makes it fail: the property setter logs but never calls
-            // RecordUseSmoothingSplines, so a user/debug flip via
-            // GameParameters or the settings UI would not persist. The
-            // value would revert on the next save/rewind load when
-            // ApplyTo restores from the store. This test enforces that
-            // the property setter reaches the persistence layer.
+            // What makes it fail: the property setter must call
+            // RecordUseSmoothingSplines after reconciliation so a
+            // user/debug flip via GameParameters or the settings UI
+            // persists. Without the call, the value would revert on the
+            // next save/rewind load when ApplyTo restores from the
+            // store.
             ParsekSettingsPersistence.ResetForTesting();
             Assert.Null(ParsekSettingsPersistence.GetStoredUseSmoothingSplines());
+
+            // Mirror the post-OnLoad reconciled state. The full ApplyTo
+            // path goes through GetFilePath → KSPUtil.ApplicationRootPath
+            // which is Unity-only; MarkReconciledForTesting is the
+            // documented xUnit hook for this.
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            Assert.True(ParsekSettingsPersistence.IsReconciled);
 
             var settings = new ParsekSettings();
             settings.useSmoothingSplines = false;
 
             bool? stored = ParsekSettingsPersistence.GetStoredUseSmoothingSplines();
             Assert.True(stored.HasValue);
+            Assert.False(stored.Value);
+        }
+
+        [Fact]
+        public void UseSmoothingSplines_DirectAssign_PreReconciliation_DoesNotClobberStore()
+        {
+            // What makes it fail: PR #328 P2-A regression — KSP's
+            // GameParameters.OnLoad deserialises the .sfs node into the
+            // property BEFORE ParsekScenario.OnLoad calls
+            // ParsekSettingsPersistence.ApplyTo. If the setter persists
+            // unconditionally, that stale .sfs value clobbers the
+            // external store's persisted user intent before ApplyTo can
+            // restore it. The reconciliation gate prevents this.
+            ParsekSettingsPersistence.ResetForTesting();
+            // Persisted user intent: false.
+            ParsekSettingsPersistence.SetStoredUseSmoothingSplinesForTesting(false);
+            Assert.False(ParsekSettingsPersistence.IsReconciled);
+
+            // Simulate KSP restoring a stale TRUE value from the .sfs
+            // node into the property before ApplyTo runs.
+            var settings = new ParsekSettings();   // default true
+            settings.useSmoothingSplines = false;  // first switch from default
+            // The above setter call should NOT have written to the store
+            // because reconciliation hasn't happened yet.
+            bool? stored = ParsekSettingsPersistence.GetStoredUseSmoothingSplines();
+            Assert.True(stored.HasValue);
+            // The persisted user intent (false) must be intact — not
+            // clobbered by the stale-default-flip from the property
+            // setter.
             Assert.False(stored.Value);
         }
     }

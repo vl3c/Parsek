@@ -438,6 +438,17 @@ namespace Parsek
         internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
 
         /// <summary>
+        /// True after <see cref="ApplyTo"/> has reconciled the persistent
+        /// store with live <see cref="ParsekSettings"/>. Property setters
+        /// that persist (useSmoothingSplines, useAnchorCorrection) check
+        /// this before calling <c>Record*</c>, so an early KSP-load assign
+        /// of a stale per-save value cannot clobber the user's persisted
+        /// intent before <c>ApplyTo</c> has had a chance to restore it
+        /// (PR #328 P2-A).
+        /// </summary>
+        internal static bool IsReconciled => reconciledWithLiveSettings;
+
+        /// <summary>
         /// Test-only: returns the current stored readable-mirror value (null if unset).
         /// </summary>
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;

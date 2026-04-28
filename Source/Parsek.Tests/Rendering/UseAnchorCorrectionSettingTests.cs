@@ -122,19 +122,43 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void UseAnchorCorrection_DirectAssign_PersistsToStore()
+        public void UseAnchorCorrection_DirectAssign_PostReconciliation_PersistsToStore()
         {
-            // What makes it fail: the property setter logs but never calls
-            // RecordUseAnchorCorrection, so a user/debug flip via
-            // GameParameters or the settings UI would not persist. The
-            // value would revert on the next save/rewind load when
-            // ApplyTo restores from the store.
+            // What makes it fail: the property setter must call
+            // RecordUseAnchorCorrection after reconciliation so a
+            // user/debug flip persists. Without the call, the value
+            // would revert on the next save/rewind load when ApplyTo
+            // restores from the store.
             ParsekSettingsPersistence.ResetForTesting();
             Assert.Null(ParsekSettingsPersistence.GetStoredUseAnchorCorrection());
+
+            // Use the test-only reconciliation hook (ApplyTo's full path
+            // requires KSPUtil.ApplicationRootPath which is Unity-only).
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            Assert.True(ParsekSettingsPersistence.IsReconciled);
 
             var settings = new ParsekSettings();
             settings.useAnchorCorrection = false;
 
+            bool? stored = ParsekSettingsPersistence.GetStoredUseAnchorCorrection();
+            Assert.True(stored.HasValue);
+            Assert.False(stored.Value);
+        }
+
+        [Fact]
+        public void UseAnchorCorrection_DirectAssign_PreReconciliation_DoesNotClobberStore()
+        {
+            // What makes it fail: PR #328 P2-A regression. KSP restores
+            // the stale .sfs value into the property before
+            // ParsekScenario.OnLoad calls ApplyTo. The reconciliation
+            // gate must keep the setter from clobbering persisted user
+            // intent during that window.
+            ParsekSettingsPersistence.ResetForTesting();
+            ParsekSettingsPersistence.SetStoredUseAnchorCorrectionForTesting(false);
+            Assert.False(ParsekSettingsPersistence.IsReconciled);
+
+            var settings = new ParsekSettings();
+            settings.useAnchorCorrection = false;
             bool? stored = ParsekSettingsPersistence.GetStoredUseAnchorCorrection();
             Assert.True(stored.HasValue);
             Assert.False(stored.Value);

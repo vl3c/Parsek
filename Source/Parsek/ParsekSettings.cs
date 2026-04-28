@@ -81,14 +81,18 @@ namespace Parsek
                 bool prev = _useSmoothingSplines;
                 _useSmoothingSplines = value;
                 NotifyUseSmoothingSplinesChanged(prev, value);
-                // Persist immediately so a user/debug flip survives a
-                // save/load (or the rewind-load path that applies the
-                // persistence layer over the .sfs-restored value). The
-                // Record method is idempotent — when ApplyTo restores
-                // from the store and assigns the property, the resulting
-                // Record call short-circuits because the store already
-                // matches.
-                ParsekSettingsPersistence.RecordUseSmoothingSplines(value);
+                // Persist only after ParsekSettingsPersistence.ApplyTo has
+                // reconciled the store with live settings (PR #328 P2-A).
+                // Pre-reconciliation, a setter call most likely comes from
+                // KSP's GameParameters infrastructure deserializing the
+                // .sfs node; recording that stale value would clobber the
+                // user's persisted intent before ApplyTo can restore it.
+                // ApplyTo's restoration assignment also lands here; it
+                // happens after reconciledWithLiveSettings is set, so the
+                // gate lets it through and the idempotent guard inside
+                // RecordUseSmoothingSplines makes it a no-op.
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseSmoothingSplines(value);
             }
         }
         private bool _useSmoothingSplines = true;
@@ -113,10 +117,10 @@ namespace Parsek
                 bool prev = _useAnchorCorrection;
                 _useAnchorCorrection = value;
                 NotifyUseAnchorCorrectionChanged(prev, value);
-                // See useSmoothingSplines comment above — persist immediately
-                // so a user/debug flip survives a save/load cycle. Record is
-                // idempotent so the ApplyTo-driven assignment is a no-op.
-                ParsekSettingsPersistence.RecordUseAnchorCorrection(value);
+                // See useSmoothingSplines comment above for the
+                // reconciliation gate rationale (PR #328 P2-A).
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseAnchorCorrection(value);
             }
         }
         private bool _useAnchorCorrection = true;
