@@ -6,7 +6,7 @@
 >
 > The Producer C no-payload boundary seam (`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) needs a separate signal at the producer (e.g. an `IsBoundarySeam` flag on the emitted `TrackSection`), not a generic post-hoc gate.
 >
-> Kept as historical record of what was considered and shipped on this attempt. See `docs/dev/todo-and-known-bugs.md` #632 for the post-revert acceptance and `docs/dev/plans/optimizer-persistence-split.md` for the persistence-based redesign plan.
+> Kept as historical record of what was considered and shipped on this attempt. The persistence-based redesign described in `docs/dev/plans/optimizer-persistence-split.md` superseded this note's PartEvent-window approach and shipped (Phase 1: data model + binary v8 bump; Phase 2: predicate; Phase 3: integration tests + closeout). See `docs/dev/todo-and-known-bugs.md` #632 for the closeout summary of what changed and the player-visible effects.
 
 ---
 

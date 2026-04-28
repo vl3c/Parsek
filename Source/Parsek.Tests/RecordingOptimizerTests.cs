@@ -4324,5 +4324,102 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Persistence-based split — integration tests through RunOptimizationPass (Phase 3, plan §9.2)
+
+        // Helper: build a synthetic recording suitable for `RunOptimizationPass` by ensuring
+        // (a) each section is ≥ 5s long so CanAutoSplit's halves-≥5s check passes, (b) the
+        // recording has the metadata RunOptimizationPass needs (RecordingId, TreeId, vessel
+        // name) without going through the full PreCommit pipeline. This is the integration
+        // counterpart to MakePersistenceRecording.
+        private static Recording MakePersistenceIntegrationRecording(
+            string recordingId,
+            string treeId,
+            double startUT,
+            params (SegmentEnvironment env, double duration, string body, bool isSeam)[] sections)
+        {
+            var rec = MakePersistenceRecording(recordingId, startUT, sections);
+            rec.TreeId = treeId;
+            rec.VesselName = "TestVessel";
+            rec.MergeState = MergeState.Immutable;
+            return rec;
+        }
+
+        // Test #23: Real ascent + reentry chain — `Surface, Atmo[long], ExoBallistic[long],
+        // Atmo[medium], Surface`. After RunOptimizationPass, each phase becomes its own chain
+        // segment. Guards the player-facing per-phase loop split that the entire feature is for.
+        [Fact]
+        public void OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakePersistenceIntegrationRecording("ascent-reentry-chain", "tree-1", 17000,
+                (SegmentEnvironment.SurfaceStationary, 30, "Kerbin", false), // pad
+                (SegmentEnvironment.Atmospheric, 300, "Kerbin", false),       // ascent
+                (SegmentEnvironment.ExoBallistic, 1800, "Kerbin", false),     // orbit
+                (SegmentEnvironment.Atmospheric, 200, "Kerbin", false),       // reentry
+                (SegmentEnvironment.SurfaceMobile, 60, "Kerbin", false));     // landing
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            RecordingStore.RunOptimizationPass();
+
+            // Four env-class boundaries → up to 4 splits → chain length 4 (or capped by
+            // RunOptimizationSplitPass.MaxSplitsPerPass; verify chain >= 4 to be tolerant).
+            int chainLength = RecordingStore.CommittedRecordings.Count;
+            Assert.True(chainLength >= 4,
+                $"Expected at least 4 chain segments (pad / ascent / orbit / reentry-and-landing); got {chainLength}.");
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // Test #24: Eccentric grazing recording stays as one segment after RunOptimizationPass.
+        // Synthetic 4-crossing oscillation, no Surface, no body change. Chain length should
+        // remain 1 (no splits). Guards the S16 chain-explosion case end-to-end.
+        [Fact]
+        public void OptimizationPass_EccentricGrazing_StaysOneSegment()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakePersistenceIntegrationRecording("eccentric-grazing-int", "tree-eg", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 40, "Kerbin", false),
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 40, "Kerbin", false),
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false));
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int initialCount = RecordingStore.CommittedRecordings.Count;
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(initialCount, RecordingStore.CommittedRecordings.Count); // no chain expansion
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // Test #25: Producer-C boundary seam case — a `Loaded[long, Exo], Absolute[1 frame,
+        // Atmo, seam=true]` recording stays as one segment after RunOptimizationPass. The seam
+        // short-circuit at §3 step 1 prevents the bookkeeping artifact from producing a split.
+        [Fact]
+        public void OptimizationPass_ProducerCSeam_NotSplit_NoChainGrowth()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rec = MakePersistenceIntegrationRecording("producer-c-seam-int", "tree-pc", 17000,
+                (SegmentEnvironment.ExoBallistic, 1500, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 0.0, "Kerbin", true)); // seam-flagged single-frame
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int initialCount = RecordingStore.CommittedRecordings.Count;
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(initialCount, RecordingStore.CommittedRecordings.Count);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        #endregion
     }
 }
