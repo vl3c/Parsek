@@ -186,6 +186,24 @@ internal struct ResourceAmount
 }
 ```
 
+### 4.1.1 InventoryPayloadItem
+
+```csharp
+internal class InventoryPayloadItem
+{
+    public string PartName;                 // stock part name from STOREDPART
+    public string VariantName;              // variant/theme identity when present
+    public int Quantity;                    // stack quantity for identical payload snapshots
+    public int SlotsTaken;                  // stock inventory slot cost
+    public double UnitDryCost;              // dry part/module cost, excluding stored resources
+    public Dictionary<string, double> StoredResources; // resources carried inside the stored part
+    public string IdentityHash;             // hash of the canonical STOREDPART snapshot
+    public ConfigNode StoredPartSnapshot;   // full stock STOREDPART node for reconstruction
+}
+```
+
+Inventory route manifests use exact stored-part payload snapshots, not part-name counts. Two stored parts with different variants, resource contents, module state, or stock snapshot data are different payload items. `Quantity` may compress identical snapshots only after the canonical `STOREDPART` payload is equal.
+
 ### 4.2 RouteEndpoint
 
 ```csharp
@@ -220,6 +238,7 @@ internal enum RouteStatus
     Active,             // dispatching on schedule
     InTransit,          // dispatched, waiting for transit duration to elapse
     WaitingForResources,// origin exists but lacks resources — delayed
+    WaitingForFunds,    // Career KSC-origin route lacks dispatch funds — delayed
     DestinationFull,    // destination can't accept delivery — skipping cycles
     EndpointLost,       // destination/origin vessel gone (orbital PID miss or no surface vessels)
     MissingSourceRecording, // route source recording chain is gone; route cannot dispatch
@@ -235,7 +254,7 @@ internal class RouteStop
     public RouteEndpoint Endpoint;                          // where this stop is
     public RouteConnectionKind ConnectionKind;               // how the Supply Run connected
     public Dictionary<string, double> DeliveryManifest;     // per-resource delivery amounts (positive only in v1)
-    public Dictionary<string, int> InventoryDeliveryManifest; // stock inventory item deliveries (positive only in v1)
+    public List<InventoryPayloadItem> InventoryDeliveryManifest; // exact stored-part payloads delivered in v1
     public int SegmentIndexBefore;                          // 0-based segment whose completion UT triggers this stop
 }
 ```
@@ -259,7 +278,7 @@ internal class Route
 
     // Resource transfer
     public Dictionary<string, double> CostManifest;       // per-resource quantities used or delivered
-    public Dictionary<string, int> InventoryCostManifest; // per-inventory-item quantities used or delivered
+    public List<InventoryPayloadItem> InventoryCostManifest; // exact stored-part payloads used or delivered
     public double KscDispatchFundsCost;                   // stock part + used/delivered cargo funds per KSC dispatch
 
     // Timing
@@ -332,7 +351,19 @@ ROUTE
         }
         INVENTORY_DELIVERY_MANIFEST
         {
-            smallSolarPanel = 2
+            ITEM
+            {
+                partName = smallSolarPanel
+                variantName =
+                quantity = 2
+                slotsTaken = 2
+                unitDryCost = 75.0
+                identityHash = 8F17...
+                STOREDPART
+                {
+                    // canonical stock STOREDPART snapshot, including variant/module/resource payload
+                }
+            }
         }
     }
     isKscOrigin = True
@@ -358,7 +389,19 @@ ROUTE
     }
     INVENTORY_COST_MANIFEST
     {
-        smallSolarPanel = 2
+        ITEM
+        {
+            partName = smallSolarPanel
+            variantName =
+            quantity = 2
+            slotsTaken = 2
+            unitDryCost = 75.0
+            identityHash = 8F17...
+            STOREDPART
+            {
+                // same canonical payload identity used for delivery and cost
+            }
+        }
     }
     // When Status == InTransit, pendingDeliveryUT/pendingStopIndex identify the next due boundary.
     // Actual deliverable amounts are recomputed at delivery time from current endpoint capacity.
@@ -389,10 +432,10 @@ public Dictionary<string, ResourceAmount> DockTransportResources;
 public Dictionary<string, ResourceAmount> UndockTransportResources;
 public Dictionary<string, ResourceAmount> DockEndpointResources;
 public Dictionary<string, ResourceAmount> UndockEndpointResources;
-public Dictionary<string, InventoryItem> DockTransportInventory;
-public Dictionary<string, InventoryItem> UndockTransportInventory;
-public Dictionary<string, InventoryItem> DockEndpointInventory;
-public Dictionary<string, InventoryItem> UndockEndpointInventory;
+public List<InventoryPayloadItem> DockTransportInventory;
+public List<InventoryPayloadItem> UndockTransportInventory;
+public List<InventoryPayloadItem> DockEndpointInventory;
+public List<InventoryPayloadItem> UndockEndpointInventory;
 public Vessel.Situations TransferEndpointSituation;           // endpoint vessel situation at docking
 public uint StartDockedOriginVesselPid;                       // non-KSC origin depot, if recording starts docked
 ```
@@ -418,9 +461,9 @@ public RouteConnectionKind TransferKind;   // DockingPort only in v1; future-pro
 
 For the first implementation, `TransferTargetVesselPid` can be populated from the existing docking-path capture that currently behaves like `DockTargetVesselPid`. The route-facing field name should be generic because the route concept is not inherently dock-only, but v1 should reject any `TransferKind` other than `DockingPort`. Claw/grapple and stock crossfeed/fuel-line support can add producers for the same connection-target contract later instead of creating separate route types.
 
-**Inventory manifests** (implemented — Phase 11):
+**Inventory manifests** (implemented — Phase 11, extended for Logistics):
 
-KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes. `InventoryItem { count, slotsTaken }` struct + vessel-level `totalInventorySlots`. Same capture sites as resources. Enables automated parts delivery (spare wheels, solar panels, etc.).
+KSP 1.12 `ModuleInventoryPart` items (stored parts in cargo containers). The base Phase 11 manifest can count part names and slot usage for diagnostics, but Logistics v1 requires exact payload snapshots. `ExtractInventoryManifest` walks MODULE > STOREDPARTS > STOREDPART nodes, preserves each canonical `STOREDPART` ConfigNode, records slot usage, variant identity, stored resources, and a stable identity hash. Delivery and cost matching operate on those payload identities, not just part names. This enables automated parts delivery without treating variants, stacked payloads, or resource-filled stored parts as fungible.
 
 **Crew manifests** (implemented — Phase 11, not consumed by Logistics v1):
 
@@ -484,25 +527,26 @@ Walk chronologically through the chain:
     endpointGain = positive deltas from endpointAfter - endpointBefore
     stop.deliveryManifest = per-resource min(transportLoss, endpointGain)
                             (delivery proof is connection-scoped, not merged-vessel aggregate)
-    stop.inventoryDeliveryManifest = per-item amount matched between transport loss and endpoint gain
+    stop.inventoryDeliveryManifest = exact InventoryPayloadItem snapshots matched between
+                                     transport loss and endpoint gain by identityHash
     stop.transitDuration = delivery boundary UT - recording start UT
 
   origin = KSC launch site, or non-KSC origin depot proven by a start-docked origin vessel
   totalTransit = last recording EndUT - first recording StartUT
   costManifest = source resource quantities used or delivered over the full run
-  inventoryCostManifest = source inventory quantities used or delivered over the full run
+  inventoryCostManifest = exact inventory payload snapshots used or delivered over the full run
 ```
 
 **Derived values:**
 - **Origin** = KSC launch site, or a non-KSC origin depot vessel if the Supply Run starts docked to that depot and records its PID
-- **Stops** = v1 first complete dock-transfer-undock sequence; later versions can expose multiple stops
+- **Stops** = the one complete dock-transfer-undock delivery window accepted by v1; multiple delivery windows make the candidate ineligible
 - **Origin vessel PID** = KSC sentinel for KSC routes; otherwise the start-docked origin depot vessel PID
 - **Stop vessel PID** = `TransferTargetVesselPid` from the stock connection boundary
 - **IsKscOrigin** = true if origin body is Kerbin and coordinates are near a launch site
 - **DeliveryManifest** = matched resource amount that both left the transport part set and appeared on the endpoint part set across the dock/undock window
-- **InventoryDeliveryManifest** = matched stock inventory items that both left the transport part set and appeared on the endpoint part set across the same window
+- **InventoryDeliveryManifest** = exact stored-part payload snapshots that both left the transport part set and appeared on the endpoint part set across the same window
 - **CostManifest** = source resource quantities used or delivered over the full Supply Run
-- **InventoryCostManifest** = source inventory quantities used or delivered over the full Supply Run
+- **InventoryCostManifest** = exact stored-part payload snapshots used or delivered over the full Supply Run
 - **KscDispatchFundsCost** = dry stock part cost plus stock resource/inventory cost for used-or-delivered quantities on Career KSC-origin routes
 - **TransitDuration** = total chain duration (last recording EndUT minus first recording StartUT)
 - **DispatchInterval** = TransitDuration (default; player can increase). For inter-body routes: defaults to synodic period of origin and destination bodies.
@@ -518,7 +562,7 @@ For v1, `CostManifest` is the positive decrease in the source transport's non-ig
 CostManifest[resource] = max(0, startTransportResources[resource] - endTransportResources[resource])
 ```
 
-This includes delivered cargo plus transit resources consumed by the flown mission. `InventoryCostManifest` uses the same principle for stock inventory items that leave the transport by the end of the run.
+This includes delivered cargo plus transit resources consumed by the flown mission. `InventoryCostManifest` uses the same principle for exact stock stored-part payload snapshots that leave the transport by the end of the run.
 
 For KSC-origin Career routes, `KscDispatchFundsCost` is:
 
@@ -528,7 +572,7 @@ dry source transport part cost
 + dry stock part cost for InventoryCostManifest items
 ```
 
-Dry part cost means the source transport's parts with stored resources emptied and inventory contents excluded, so resource and inventory values are not double-counted. Inventory-contained parts use their own dry part/module costs and their own stored resources if those are part of the delivered item snapshot. v1 does not apply recurring recovery credit.
+Dry part cost means the source transport's parts with stored resources emptied and inventory contents excluded, so resource and inventory values are not double-counted. Inventory-contained parts use `InventoryPayloadItem.UnitDryCost` plus `StoredResources` from their captured `STOREDPART` snapshot, so a solar panel variant, a stacked spare wheel, and a resource-filled stored part are costed from the same payload identity that delivery will reconstruct. v1 does not apply recurring recovery credit.
 
 Routes store `CostManifest` and `KscDispatchFundsCost` together for transparency and future re-costing. On KSC-origin routes, `CostManifest` is not physically deducted; `KscDispatchFundsCost` is derived from that same source data. If serialized values disagree after load/revalidation, treat that as a bug and recompute from the source recording rather than honoring the desync.
 
@@ -538,9 +582,9 @@ The route analysis pass validates the chain:
 
 1. At least one docking connection boundary exists (`TransferTargetVesselPid != 0` and `TransferKind == DockingPort`)
 2. A matching undock boundary exists after the docking boundary
-3. At least one resource or stock inventory item both left the original transport part PID set and appeared on the original endpoint part PID set between the dock and undock snapshots
+3. At least one resource or exact stock stored-part payload both left the original transport part PID set and appeared on the original endpoint part PID set between the dock and undock snapshots
 4. The source recording chain is present and playable
-5. v1: exactly one endpoint is exposed as a Supply Route; additional detected stops are reported but not route-enabled until multi-stop support lands
+5. v1: exactly one delivery window is present. If two or more dock-transfer-undock delivery windows are detected, validation rejects the candidate and reports that multi-stop Supply Routes are deferred
 6. v1: no pickup deltas are present in the same connection window, except ignored environmental resources such as EC/IntakeAir
 7. v1: non-KSC origins are eligible only when the recording starts docked to a real origin depot vessel and captures that vessel PID; non-KSC candidates without that proof are rejected
 
@@ -552,7 +596,7 @@ Route configuration panel shows derived values: origin, endpoint, delivery manif
 
 ### 5.5 Multi-stop routes
 
-Multi-stop routes are a natural extension but not required for v1. The analysis engine can detect multiple dock-transfer-undock windows and report them in diagnostics, but the first implementation should expose only one endpoint per Supply Route. This keeps the player model simple and avoids complex partial-failure semantics across several stops.
+Multi-stop routes are a natural extension but not required for v1. The analysis engine can detect multiple dock-transfer-undock delivery windows and report them in diagnostics, but v1 must reject the route candidate instead of exposing only the first stop. This avoids charging/deducting the full Supply Run cost while delivering only part of the run, and keeps partial-failure semantics out of v1.
 
 **Multi-stop example:**
 
@@ -575,7 +619,7 @@ Future route analysis produces:
 
 **Trigger:** The route scheduler (`RouteScheduler`) runs each physics frame (or once per second during warp) in all scenes via `RouteOrchestrator`, called from `ParsekScenario.Update`.
 
-**For each route with Status in {Active, WaitingForResources, DestinationFull} and `NextDispatchUT <= currentUT`:**
+**For each route with Status in {Active, WaitingForResources, WaitingForFunds, DestinationFull} and `NextDispatchUT <= currentUT`:**
 
 Routes with Status InTransit, Paused, EndpointLost, or MissingSourceRecording are excluded from dispatch evaluation.
 
@@ -587,7 +631,7 @@ Routes with Status InTransit, Paused, EndpointLost, or MissingSourceRecording ar
 
 **Step 3: Check destination.** Find the endpoint vessel (section 7). If NO vessel is found -> set `Status = EndpointLost`, skip cycle. If the vessel has zero capacity for all delivery resources and inventory items -> set `Status = DestinationFull`, increment `SkippedCycles`, advance `NextDispatchUT`. If capacity is available -> proceed.
 
-**Step 4: Check origin.** For non-KSC origins, find the start-docked origin depot vessel (section 7). If no vessel is found -> set `Status = EndpointLost`, skip cycle. If the vessel lacks `CostManifest` resources or `InventoryCostManifest` items -> set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check later). For KSC origins in Career, check that `KscDispatchFundsCost` is affordable under the existing ledger reservation rules.
+**Step 4: Check origin.** For non-KSC origins, find the start-docked origin depot vessel (section 7). If no vessel is found -> set `Status = EndpointLost`, skip cycle. If the vessel lacks `CostManifest` resources or `InventoryCostManifest` items -> set `Status = WaitingForResources`, do NOT advance `NextDispatchUT` (re-check later). For KSC origins in Career, check that `KscDispatchFundsCost` is affordable under the existing ledger reservation rules. If funds are insufficient, set `Status = WaitingForFunds`, do NOT advance `NextDispatchUT`, and re-check later when funds may have changed.
 
 **Step 5: Dispatch.** Deduct `CostManifest` / `InventoryCostManifest` from non-KSC origin, or charge `KscDispatchFundsCost` for KSC origin in Career. Set `CurrentSegmentIndex = 0`, compute `PendingDeliveryUT` from the first route boundary, and set `PendingStopIndex` to the stop due at that boundary or `-1`. Tell the ghost playback engine to play the first recording in `RecordingIds` when visuals are available. Set `Status = InTransit`. Create ROUTE_DISPATCHED timeline event. Advance `NextDispatchUT`.
 
@@ -612,7 +656,7 @@ Routes do NOT use the per-recording loop toggle. The route scheduler owns all ti
 1. **Re-check source recordings.** If any `RecordingIds` entry is missing, set `Status = MissingSourceRecording`, create no delivery event, and abort. No proof recording means no cargo transfer, even mid-transit.
 2. **Find endpoint vessel** at the route endpoint (section 7). If no vessel is found after dispatch, log a warning and create a ROUTE_DELIVERY_FAILED timeline event. Transit cost has already been paid; no cargo is conjured.
 3. **For each resource in the stop's `DeliveryManifest`:** apply to the endpoint vessel tanks, clamped to current `maxAmount`. v1 manifests contain positive delivery amounts only. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`. For loaded vessels: use `Part.RequestResource()`.
-4. **Deliver inventory** from the stop inventory manifest into stock `ModuleInventoryPart` slots. Items that do not fit remain undelivered and are reported in the route event/log.
+4. **Deliver inventory** by reconstructing exact `InventoryPayloadItem.StoredPartSnapshot` payloads into stock `ModuleInventoryPart` slots. Items that do not fit remain undelivered and are reported in the route event/log.
 5. **Create ROUTE_DELIVERED timeline event.** Record requested and actual amounts so the player can see partial fills instead of silent loss.
 
 ### 6.4 Single-delivery execution
@@ -667,7 +711,11 @@ ResolveEndpointVessel(endpoint):
 - **Surface endpoints:** PID primary, single nearest compatible-vessel fallback within 50m. `isSurface` is captured from the endpoint vessel situation (`Landed`, `Splashed`, or `Prelaunch`), not altitude, so Mun/Minmus surface bases remain surface endpoints. Handles base rebuilding without turning every nearby vessel into one abstract warehouse.
 - **Orbital endpoints:** PID only. Orbital coordinates change every second, so proximity fallback does not work. If an orbital station is destroyed and rebuilt, the player must re-target the route.
 
-### 7.3 Loaded vs unloaded vessels
+### 7.3 Compatible vessel definition
+
+A compatible endpoint or origin fallback vessel must be a real stock vessel, not a Parsek ghost/map-presence vessel, and must be a vessel type that can plausibly own cargo. Exclude vessels in `GhostMapPresence` tracking sets and stock `VesselType` values such as `EVA`, `Flag`, `Debris`, `SpaceObject`, and `Unknown`. For destination resolution, the vessel must contain at least one eligible tank for a delivered resource or one `ModuleInventoryPart` that can store a delivered payload type, regardless of current free capacity; full-but-compatible destinations are handled by the destination-capacity check, not treated as lost endpoints. For non-KSC origin resolution, the vessel must contain at least one eligible store for the route cost manifest. If several compatible vessels remain within the 50m surface fallback radius, choose the nearest one only.
+
+### 7.4 Loaded vs unloaded vessels
 
 If the endpoint vessel is loaded (player is within physics range), use `Part.RequestResource()` for resource operations. If unloaded, use `ProtoPartResourceSnapshot.amount` directly. Both paths apply to origin (deduction) and destination (delivery).
 
@@ -681,19 +729,22 @@ If the endpoint vessel is loaded (player is within physics range), use `Part.Req
 SynodicPeriod(originBody, destBody):
     if originBody == destBody:
         return 0  // same body, no transfer window
+    if originBody is Sun or destBody is Sun:
+        return 0  // no stable parent orbit to compare
     // Walk up to common parent
     a = originBody, b = destBody
+    while hierarchy depth of a > hierarchy depth of b: a = a.referenceBody
+    while hierarchy depth of b > hierarchy depth of a: b = b.referenceBody
     while a.referenceBody != b.referenceBody:
-        if a hierarchy depth > b: a = a.referenceBody
-        else: b = b.referenceBody
-        if a is Sun or b is Sun: return 0
+        a = a.referenceBody
+        b = b.referenceBody
     // a and b now orbit the same parent
     T1 = a.orbit.period, T2 = b.orbit.period
     if T1 == T2: return 0
     return abs(1 / (1/T1 - 1/T2))
 ```
 
-Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun. Guards against Sun-orbiting bodies and equal-period edge cases.
+Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun, then uses the Kerbin/Jool synodic period. Guards routes directly to/from the Sun and equal-period edge cases.
 
 ### 8.2 Dispatch interval rules
 
@@ -757,7 +808,7 @@ Future design intent:
 
 ### 10.10 Multiple connection windows in one recording chain
 **Scenario:** Supply Run has dock-transfer-undock-dock-transfer-undock.
-**Behavior:** v1 reports multiple detected stops but only exposes one endpoint for route creation. Multi-stop route execution is deferred.
+**Behavior:** Validation fails for v1. UI explains that multiple delivery stops were detected and multi-stop route execution is deferred. The player can re-fly or split the mission into one-stop Supply Runs.
 
 ### 10.11 Route dispatch while player is at destination
 **Scenario:** Player at Mun base when delivery arrives.
@@ -897,7 +948,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 ### 15.1 Route creation
 - `[Parsek][INFO][Route] Route created: id={id} name={name} recordings={count} endpoint={body}({lat},{lon}) connection={kind} cost={manifest} kscFunds={funds}`
 - `[Parsek][INFO][Route] Route endpoint: {body}({lat},{lon}) vesselPid={pid} delivery={manifest} inventory={manifest}`
-- `[Parsek][INFO][Route] Route analysis: chain={count} recordings, found {count} docking window(s), exposedStops=1`
+- `[Parsek][INFO][Route] Route analysis: chain={count} recordings, deliveryWindows={count}, acceptedStops={count}`
 - `[Parsek][INFO][Route] Route validation failed for chain: {reason}`
 
 ### 15.2 Dispatch evaluation
@@ -905,6 +956,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - `[Parsek][INFO][Route] Dispatch: route={name} cycle={n} deducted={amounts} from origin at {body}({lat},{lon})`
 - `[Parsek][INFO][Route] Dispatch: route={name} cycle={n} chargedKscFunds={funds}`
 - `[Parsek][INFO][Route] Dispatch delayed: route={name} — origin missing {resource}={needed} (available={have})`
+- `[Parsek][INFO][Route] Dispatch delayed: route={name} — insufficient KSC funds needed={funds} available={funds}`
 - `[Parsek][INFO][Route] Dispatch skipped: route={name} — destination full (capacity={amounts})`
 - `[Parsek][WARN][Route] Dispatch disabled: route={name} — missing source recording id={id}`
 - `[Parsek][WARN][Route] In-transit delivery aborted: route={name} — missing source recording id={id}`
@@ -942,6 +994,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Normal transfer on connection-scoped part PID sets: transport 200->50 LF and endpoint 0->150 LF -> delivery 150 LF. *Catches: wrong snapshot pair.*
 - Docked aggregate vessel unchanged while transport tank decreases and endpoint tank increases -> delivery detected from connection-scoped manifests. *Catches: merged-vessel false negative.*
 - Transport tank decreases but endpoint does not retain the cargo -> no delivery manifest entry. *Catches: docked consumption masquerading as delivery.*
+- Stored part variant/resources differ -> inventory payload identities do not collapse into one part-name count. *Catches: fungible inventory cargo.*
 - LiquidFuel increased across the connection window -> no v1 delivery, candidate rejected as pickup-only. *Catches: accidental pickup route.*
 - Mixed delivery and pickup deltas -> candidate rejected except ignored environmental resources. *Catches: silently dropping pickup cargo.*
 - EC and IntakeAir deltas -> ignored. *Catches: environmental noise route creation.*
@@ -949,7 +1002,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 **Route analysis engine**
 - Single dock-transfer-undock -> one stop extracted. *Catches: no stop found.*
-- Two dock-transfer-undock windows -> two candidates, v1 exposes one route endpoint. *Catches: only finding first/last.*
+- Two dock-transfer-undock delivery windows -> validation rejects v1 candidate. *Catches: charging full multi-stop run while delivering one stop.*
 - Dock without undock -> validation fails. *Catches: incomplete pair.*
 - No docking events -> validation fails. *Catches: false acceptance.*
 - Docking window with no delivery resource/inventory change -> validation rejects. *Catches: empty do-nothing route.*
@@ -979,6 +1032,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 **Dispatch evaluation**
 - KSC origin in Career, capacity available, funds affordable -> dispatch and funds spending emitted. *Catches: free KSC mass.*
+- KSC origin in Career, funds insufficient -> `WaitingForFunds`, `NextDispatchUT` unchanged. *Catches: dispatch without funds or busy skip loop.*
 - KSC origin in Science/Sandbox -> dispatch with no funds action. *Catches: career-only cost leaking.*
 - Non-KSC start-docked origin, sufficient resources/inventory -> dispatch, deducted from origin depot. *Catches: skipping deduction.*
 - Non-KSC start-docked origin, insufficient -> delayed. *Catches: dispatching without resources.*
@@ -989,9 +1043,10 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 **Synodic period**
 - Kerbin-Mun → ~6.4 days. *Catches: formula error.*
-- Mun-Laythe → walks to Kerbin/Jool. *Catches: cross-system hierarchy.*
+- Mun-Laythe → walks to Kerbin/Jool and returns a positive Kerbin/Jool synodic period. *Catches: cross-system hierarchy.*
+- Kerbin-Duna/Eeloo -> positive Sun-parent synodic period. *Catches: accidentally disabling interplanetary routes.*
 - Same body → 0. *Catches: division by zero.*
-- Sun-orbiting → 0. *Catches: missing guard.*
+- Origin or destination is the Sun → 0. *Catches: missing guard without breaking Sun-parent planets.*
 - Equal periods → 0. *Catches: T1==T2 division.*
 - Inter-body route after pause/load -> next dispatch stays aligned to DispatchWindowEpochUT + n * DispatchWindowPeriod. *Catches: phase drift.*
 - Player interval override -> increases minimum spacing without shifting phase. *Catches: window override misinterpreted as free phase shift.*
@@ -999,7 +1054,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 **KSC cost**
 - Dry part cost excludes loaded resources and inventory contents. *Catches: double-counting cargo.*
 - Resource cost uses `PartResourceDefinition.unitCost * CostManifest amount`. *Catches: free delivered resources.*
-- Inventory delivered part cost includes dry part/module cost and stored contents in delivered item snapshot. *Catches: free inventory parts.*
+- Inventory delivered part cost includes `InventoryPayloadItem` dry part/module cost and stored resources from the captured `STOREDPART` snapshot. *Catches: free inventory parts.*
 
 **Endpoint resolution**
 - PID exists → found. *Catches: skipping PID.*
@@ -1007,6 +1062,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - PID gone, surface, nothing nearby → empty. *Catches: false match.*
 - PID gone, orbital → empty. *Catches: orbital fallback.*
 - Multiple surface vessels within 50m -> one nearest compatible endpoint, not aggregate warehouse. *Catches: magic-radius transfer.*
+- Ghost map vessels, EVA, flags, debris, space objects, and vessels without compatible tanks/slots are excluded. *Catches: wrong fallback target.*
 
 ### 16.2 Log assertion tests
 
@@ -1023,7 +1079,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Stops list round-trip with one v1 stop. *Catches: endpoint lost.*
 - RecordingIds list round-trip → all IDs preserved in order. *Catches: chain ordering lost.*
 - ResourceManifest round-trip with full precision. *Catches: locale formatting.*
-- Inventory manifests and KscDispatchFundsCost round-trip. *Catches: stock cargo/cost data lost.*
+- InventoryPayloadItem manifests, stored STOREDPART snapshots, and KscDispatchFundsCost round-trip. *Catches: stock cargo/cost data lost.*
 - Null LinkedRouteId survives round-trip. *Catches: empty vs null.*
 - In-transit route with PendingDeliveryUT, PendingStopIndex, and CurrentSegmentIndex survives. *Catches: transit state lost.*
 - In-transit route with PauseAfterCurrentCycle survives. *Catches: pause request lost across save/load.*
@@ -1032,7 +1088,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 ### 16.4 Integration tests (synthetic recordings)
 
 - Recording chain with dock+delivery+undock -> route analysis extracts one endpoint. *Catches: chain structure mismatch.*
-- Recording chain with two docking windows -> first implementation reports multiple candidates but exposes one v1 endpoint. *Catches: accidental multi-stop behavior.*
+- Recording chain with two delivery docking windows -> validation rejects v1 route creation. *Catches: accidental multi-stop behavior.*
 - Recording chain without undock -> validation rejects. *Catches: missing chain event check.*
 - Inject route into save -> loads correctly with endpoint, manifests, KSC cost, and source ids. *Catches: ParsekScenario integration.*
 
