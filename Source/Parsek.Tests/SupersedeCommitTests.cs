@@ -94,6 +94,17 @@ namespace Parsek.Tests
             };
         }
 
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0,
+            };
+        }
+
         private static void InstallTree(string treeId, List<Recording> recordings,
             List<BranchPoint> branchPoints)
         {
@@ -132,7 +143,8 @@ namespace Parsek.Tests
 
         private static ReFlySessionMarker Marker(
             string originId, string provisionalId,
-            string sessionId = "sess_1", string treeId = "tree_1")
+            string sessionId = "sess_1", string treeId = "tree_1",
+            string supersedeTargetId = null)
         {
             return new ReFlySessionMarker
             {
@@ -140,6 +152,7 @@ namespace Parsek.Tests
                 TreeId = treeId,
                 ActiveReFlyRecordingId = provisionalId,
                 OriginChildRecordingId = originId,
+                SupersedeTargetId = supersedeTargetId,
                 RewindPointId = "rp_1",
                 InvokedUT = 0.0,
             };
@@ -357,6 +370,91 @@ namespace Parsek.Tests
             // Origin is now superseded → NOT visible.
             Assert.False(EffectiveState.IsVisible(
                 origin, scenario.RecordingSupersedes));
+        }
+
+        [Fact]
+        public void AppendRelations_ChainExtension_RootsAtSupersedeTargetPriorTip()
+        {
+            var origin = Rec("rec_origin", "tree_1");
+            var priorTip = Rec("rec_refly1", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin, priorTip },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_refly2", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_refly1");
+            var marker = Marker("rec_origin", "rec_refly2",
+                supersedeTargetId: "rec_refly1");
+            var scenario = InstallScenario(marker);
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_refly1"
+                    && r.NewRecordingId == "rec_refly2");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin"
+                    && r.NewRecordingId == "rec_refly2");
+            Assert.Equal("rec_refly2", EffectiveState.EffectiveRecordingId(
+                "rec_origin",
+                new List<RecordingSupersedeRelation>
+                {
+                    Rel("rec_origin", "rec_refly1"),
+                    scenario.RecordingSupersedes[0],
+                }));
+        }
+
+        [Fact]
+        public void HybridStarAndLinearGraph_ResolvesDominantTipAndAllSlotTrails()
+        {
+            const string bpId = "bp_probe_split";
+            var origin = Rec("probeOrig", "tree_probe", parentBranchPointId: bpId);
+            var reFly1 = Rec("probeReFly1", "tree_probe", parentBranchPointId: bpId);
+            var reFly2 = Rec("probeReFly2", "tree_probe", parentBranchPointId: bpId);
+            InstallTree("tree_probe",
+                new List<Recording> { origin, reFly1, reFly2 },
+                new List<BranchPoint>());
+            var reFly3 = AddProvisional("probeReFly3", "tree_probe",
+                TerminalState.Destroyed, supersedeTargetId: "probeReFly1");
+            reFly3.ParentBranchPointId = bpId;
+
+            var marker = Marker("probeOrig", "probeReFly3",
+                treeId: "tree_probe",
+                supersedeTargetId: "probeReFly1");
+            var scenario = InstallScenario(marker);
+            scenario.RecordingSupersedes.Add(Rel("probeOrig", "probeReFly1"));
+            scenario.RecordingSupersedes.Add(Rel("probeOrig", "probeReFly2"));
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_probe",
+                BranchPointId = bpId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "probeOrig",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            SupersedeCommit.AppendRelations(marker, reFly3, scenario);
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "probeReFly1"
+                    && r.NewRecordingId == "probeReFly3");
+            Assert.Equal("probeReFly3", EffectiveState.EffectiveRecordingId(
+                "probeOrig", scenario.RecordingSupersedes));
+
+            Assert.True(RecordingsTableUI.TryResolveRewindPointForRecording(
+                reFly3, out var rpForNewTip, out int slotForNewTip));
+            Assert.Same(scenario.RewindPoints[0], rpForNewTip);
+            Assert.Equal(0, slotForNewTip);
+
+            Assert.True(RecordingsTableUI.TryResolveRewindPointForRecording(
+                reFly2, out var rpForOrphanBranch, out int slotForOrphanBranch));
+            Assert.Same(scenario.RewindPoints[0], rpForOrphanBranch);
+            Assert.Equal(0, slotForOrphanBranch);
         }
 
         // ---------- Transient fields / marker cleanup ----------------------
@@ -1438,7 +1536,7 @@ namespace Parsek.Tests
         // SAME new in-place flight. The fix builds the skip set from the
         // full chain membership (TreeId + ChainId + ChainBranch matches
         // from RecordingStore.CommittedRecordings — the same scope
-        // EffectiveState.ComputeSessionSuppressedSubtreeInternal +
+        // EffectiveState.ComputeSubtreeClosureInternal +
         // EnqueueChainSiblings use) so no in-place chain segment ends up
         // with a row pointing at another member.
 
