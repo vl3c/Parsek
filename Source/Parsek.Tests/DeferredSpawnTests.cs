@@ -19,6 +19,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
@@ -29,6 +30,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
         }
 
         #region ShouldFlushDeferredSpawns
@@ -364,6 +366,61 @@ namespace Parsek.Tests
             {
                 ParsekScenario.SetInstanceForTesting(null);
             }
+        }
+
+        [Fact]
+        public void RetryHeldGhostSpawns_ReleasesSupersededRelationWithoutRetry()
+        {
+            var oldRec = new Recording
+            {
+                RecordingId = "rec-held-old",
+                VesselName = "Held Old Booster",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var newRec = new Recording
+            {
+                RecordingId = "rec-held-new",
+                VesselName = "Held New Booster"
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(oldRec);
+            RecordingStore.AddRecordingWithTreeForTesting(newRec);
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            int spawnCalls = 0;
+            int destroyCalls = 0;
+            string destroyReason = null;
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                CurrentRealTimeOverrideForTesting = () => 1f,
+                RelationSupersededIdsOverrideForTesting = committed =>
+                    new HashSet<string> { oldRec.RecordingId },
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
+                DestroyGhostOverrideForTesting = (index, reason) =>
+                {
+                    destroyCalls++;
+                    destroyReason = reason;
+                }
+            };
+            policy.heldGhosts[0] = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = oldRec.RecordingId,
+                vesselName = oldRec.VesselName
+            };
+
+            using (ParsekLog.SuppressScope())
+            {
+                policy.RetryHeldGhostSpawns();
+            }
+
+            Assert.Equal(0, spawnCalls);
+            Assert.Equal(1, destroyCalls);
+            Assert.Equal("held-superseded-by-relation", destroyReason);
+            Assert.Empty(policy.heldGhosts);
+            Assert.False(oldRec.VesselSpawned);
+            Assert.Equal(0u, oldRec.SpawnedVesselPersistentId);
         }
 
         [Fact]

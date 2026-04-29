@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using TrackingStationGhostSource = Parsek.GhostMapPresence.TrackingStationGhostSource;
 
@@ -34,8 +35,11 @@ namespace Parsek
         private readonly ParsekFlight host;
         internal Func<bool> IsWarpActiveOverrideForTesting;
         internal Func<double> CurrentUTOverrideForTesting;
+        internal Func<float> CurrentRealTimeOverrideForTesting;
+        internal Func<IReadOnlyList<Recording>, HashSet<string>> RelationSupersededIdsOverrideForTesting;
         internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
         internal Action<uint> DeferredActivateVesselOverrideForTesting;
+        internal Action<int, string> DestroyGhostOverrideForTesting;
         internal const int FlagReplayWarnRetryThreshold = 3;
 
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
@@ -598,7 +602,12 @@ namespace Parsek
             if (heldGhosts.Count == 0) return;
 
             var committed = RecordingStore.CommittedRecordings;
-            float now = Time.time;
+            var relationSupersededIds = RelationSupersededIdsOverrideForTesting != null
+                ? RelationSupersededIdsOverrideForTesting(committed)
+                : CurrentRelationSupersededRecordingIds(committed);
+            float now = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
 
             // Collect indices to release and retry-time updates (cannot modify dict during iteration)
             List<KeyValuePair<int, string>> toRelease = null;  // index + destroy reason
@@ -611,7 +620,8 @@ namespace Parsek
 
                 var decision = DecideHeldGhostAction(
                     index, info, committed, now, HeldGhostTimeoutSeconds,
-                    HeldGhostRetryIntervalSeconds);
+                    HeldGhostRetryIntervalSeconds,
+                    relationSupersededIds);
 
                 switch (decision)
                 {
@@ -620,7 +630,10 @@ namespace Parsek
                         DiagnosticsState.health.spawnRetries++;
                         if (retryTimeUpdates == null) retryTimeUpdates = new List<KeyValuePair<int, float>>();
                         retryTimeUpdates.Add(new KeyValuePair<int, float>(index, now));
-                        host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
+                        if (SpawnVesselOrChainTipOverrideForTesting != null)
+                            SpawnVesselOrChainTipOverrideForTesting(committed[index], index);
+                        else
+                            host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
                         if (committed[index].VesselSpawned)
                         {
                             ParsekLog.Info("Policy",
@@ -632,7 +645,12 @@ namespace Parsek
                             {
                                 uint spawnedPid = committed[index].SpawnedVesselPersistentId;
                                 if (spawnedPid != 0)
-                                    host.DeferredActivateVesselFromPolicy(spawnedPid);
+                                {
+                                    if (DeferredActivateVesselOverrideForTesting != null)
+                                        DeferredActivateVesselOverrideForTesting(spawnedPid);
+                                    else
+                                        host.DeferredActivateVesselFromPolicy(spawnedPid);
+                                }
                             }
 
                             if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
@@ -647,6 +665,14 @@ namespace Parsek
                             $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
                         if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
                         toRelease.Add(new KeyValuePair<int, string>(index, "held-already-spawned"));
+                        break;
+
+                    case HeldGhostAction.ReleaseSupersededByRelation:
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (superseded by relation): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-superseded-by-relation"));
                         break;
 
                     case HeldGhostAction.Timeout:
@@ -692,10 +718,19 @@ namespace Parsek
                 {
                     int index = toRelease[i].Key;
                     string reason = toRelease[i].Value;
-                    engine.DestroyGhost(index, reason: reason);
+                    if (DestroyGhostOverrideForTesting != null)
+                        DestroyGhostOverrideForTesting(index, reason);
+                    else
+                        engine.DestroyGhost(index, reason: reason);
                     heldGhosts.Remove(index);
                 }
             }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float CurrentUnityRealTime()
+        {
+            return Time.time;
         }
 
         /// <summary>
@@ -705,7 +740,8 @@ namespace Parsek
         internal static HeldGhostAction DecideHeldGhostAction(
             int index, HeldGhostInfo info, IReadOnlyList<Recording> committed,
             float currentTime, float timeoutSeconds,
-            float retryIntervalSeconds = 1.0f)
+            float retryIntervalSeconds = 1.0f,
+            ISet<string> relationSupersededIds = null)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -716,6 +752,11 @@ namespace Parsek
             // Verify this is still the same recording (indices can shift after deletes)
             if (rec.RecordingId != info.recordingId)
                 return HeldGhostAction.InvalidIndex;
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && relationSupersededIds != null
+                && relationSupersededIds.Contains(rec.RecordingId))
+                return HeldGhostAction.ReleaseSupersededByRelation;
 
             // Already spawned by another path
             if (rec.VesselSpawned)
@@ -1574,6 +1615,9 @@ namespace Parsek
 
         /// <summary>Recording was already spawned by another path — release ghost.</summary>
         ReleaseSpawned,
+
+        /// <summary>Recording was retired by an explicit supersede relation — release ghost.</summary>
+        ReleaseSupersededByRelation,
 
         /// <summary>Timeout exceeded — destroy ghost without spawn.</summary>
         Timeout,

@@ -5779,11 +5779,19 @@ namespace Parsek
             double currentUT,
             Dictionary<uint, GhostChain> chains)
         {
+            // [ERS-exempt] Tracking Station materialization predicates operate
+            // on raw committed recordings because action selections and map
+            // ghosts carry raw recording ids/indices. Subtract explicit
+            // supersede relations here so callers using the convenience
+            // overload get the same display-effective spawn eligibility as
+            // the batch handoff path.
+            var relationSupersededIds =
+                CurrentRelationSupersededRecordingIds(RecordingStore.CommittedRecordings);
             return ShouldSpawnAtTrackingStationEnd(
                 rec,
                 currentUT,
                 chains,
-                relationSupersededIds: null);
+                relationSupersededIds);
         }
 
         internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
