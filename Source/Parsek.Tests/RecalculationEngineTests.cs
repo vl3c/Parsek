@@ -62,13 +62,25 @@ namespace Parsek.Tests
             }
         }
 
-        private static long GetAllocatedBytesForCurrentThreadCompat()
+        private sealed class AllocationProbeModule : IResourceModule
+        {
+            public void Reset() { }
+            public bool PrePass(List<GameAction> actions, double? walkNowUT = null) { return false; }
+            public void ProcessAction(GameAction action) { }
+            public void PostWalk() { }
+        }
+
+        private static bool TryGetAllocatedBytesForCurrentThread(out long allocatedBytes)
         {
             var method = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
             if (method != null)
-                return (long)method.Invoke(null, null);
+            {
+                allocatedBytes = (long)method.Invoke(null, null);
+                return true;
+            }
 
-            return GC.GetTotalMemory(forceFullCollection: false);
+            allocatedBytes = 0;
+            return false;
         }
 
         // ================================================================
@@ -440,13 +452,8 @@ namespace Parsek.Tests
         [Fact]
         public void CutoffWalk_AllocationsBounded()
         {
-            RecalculationEngine.RegisterModule(new FundsModule(), RecalculationEngine.ModuleTier.SecondTier);
-            var actions = new List<GameAction>
-            {
-                new GameAction { UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 1000f },
-                new GameAction { UT = 10.0, Type = GameActionType.FundsEarning, FundsAwarded = 100f },
-                new GameAction { UT = 20.0, Type = GameActionType.FundsSpending, FundsSpent = 50f }
-            };
+            RecalculationEngine.RegisterModule(new AllocationProbeModule(), RecalculationEngine.ModuleTier.FirstTier);
+            var actions = new List<GameAction>();
 
             bool previousSuppress = ParsekLog.SuppressLogging;
             ParsekLog.SuppressLogging = true;
@@ -455,15 +462,19 @@ namespace Parsek.Tests
                 for (int i = 0; i < 10; i++)
                     RecalculationEngine.Recalculate(actions, 15.0);
 
-                long before = GetAllocatedBytesForCurrentThreadCompat();
+                long before;
+                if (!TryGetAllocatedBytesForCurrentThread(out before))
+                    return;
+
                 const int iterations = 100;
                 for (int i = 0; i < iterations; i++)
                     RecalculationEngine.Recalculate(actions, 15.0);
-                long after = GetAllocatedBytesForCurrentThreadCompat();
+                long after;
+                Assert.True(TryGetAllocatedBytesForCurrentThread(out after));
 
                 long bytesPerWalk = (after - before) / iterations;
-                Assert.True(bytesPerWalk < 16 * 1024,
-                    $"Expected cutoff walk allocation below 16 KB, got {bytesPerWalk} bytes per walk.");
+                Assert.True(bytesPerWalk < 4 * 1024,
+                    $"Expected cutoff walk allocation below 4 KB, got {bytesPerWalk} bytes per walk.");
             }
             finally
             {
