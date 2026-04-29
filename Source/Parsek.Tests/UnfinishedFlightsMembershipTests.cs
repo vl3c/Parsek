@@ -206,6 +206,11 @@ namespace Parsek.Tests
             Assert.Contains(members, r => r.RecordingId == "rec_probe");
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_upper") &&
+                l.Contains("reason=crashed") &&
+                l.Contains("side=active-parent-child"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
                 l.Contains("rec=rec_probe") &&
                 l.Contains("reason=crashed"));
             Assert.DoesNotContain(logLines, l =>

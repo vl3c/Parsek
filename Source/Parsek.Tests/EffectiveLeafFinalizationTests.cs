@@ -225,6 +225,50 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("consumer=FinalizeIndividualRecordingRepair") &&
                 l.Contains("future-destroyed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Flight]") &&
+                l.Contains("Finalization cache repair skipped") &&
+                l.Contains("reason=futureOrInvalidTerminalUT"));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed, "existingTerminalNotSubOrbital")]
+        [InlineData(TerminalState.Splashed, "existingTerminalNotSubOrbital")]
+        [InlineData(TerminalState.Orbiting, "existingTerminalNotSubOrbital")]
+        [InlineData(TerminalState.Docked, "existingTerminalNotSubOrbital")]
+        [InlineData(TerminalState.Destroyed, "alreadyDestroyed")]
+        public void ShouldRepairExistingTerminalFromDestroyedCache_RejectsNonSubOrbitalTerminals(
+            TerminalState existing,
+            string expectedReason)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "stable-terminal-" + existing,
+                VesselName = "Stable Terminal",
+                VesselPersistentId = 4242,
+                TerminalStateValue = existing
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0, altitude = 0.0, bodyName = "Kerbin" });
+
+            var cache = TestFinalizationCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                TerminalState.Destroyed,
+                terminalUT: 40.0,
+                TestOrbitSegment(10.0, 40.0, isPredicted: true));
+
+            bool shouldRepair = ParsekFlight.ShouldRepairExistingTerminalFromDestroyedCache(
+                rec,
+                cache,
+                commitUT: 50.0);
+
+            Assert.False(shouldRepair);
+            Assert.Equal(existing, rec.TerminalStateValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Flight]") &&
+                l.Contains("Finalization cache repair skipped") &&
+                l.Contains("existingTerminal=" + existing) &&
+                l.Contains("reason=" + expectedReason));
         }
 
         [Fact]
