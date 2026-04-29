@@ -282,7 +282,7 @@ The pre-implementation spec that drove v0.9 is archived at
 
 ---
 
-## Phase 12.5: Unfinished Flights stable-leaf extension (planned, v0.10)
+## Phase 12.5: Unfinished Flights stable-leaf extension (planned, 0.9.x)
 
 Broadens the v0.9 Unfinished Flights group beyond Crashed-only siblings to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved. Full design: [`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md). Pre-implementation research note (R17) at [`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
 
