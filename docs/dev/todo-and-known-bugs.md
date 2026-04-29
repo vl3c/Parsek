@@ -11,6 +11,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done — v0.9.1 test harness hardening
+
+- ~~AtomicMarkerWrite xUnit flake on first/full runs.~~ `AtomicMarkerWrite_InPlaceContinuation_ExceptionDoesNotRemoveOrigin` could fail with `storedOrigin == null` during full-suite execution even though 50 standalone targeted runs were clean. The named `"Sequential"` collection serialized its own members but had no `CollectionDefinition`, so xUnit could still run it beside other collections. Fix: add `SequentialCollectionDefinition` with `DisableParallelization = true` plus a meta-test pinning that harness contract.
+
+---
+
 ## Done — v0.9.1 Phase 6 anchor taxonomy + DAG propagation
 
 - ~~Phase 6: emit AnchorCandidate entries for §7.2–§7.10 at commit time.~~ Implemented in `Source/Parsek/Rendering/AnchorCandidateBuilder.cs`; wired into `SmoothingPipeline.FitAndStorePerSection`.
