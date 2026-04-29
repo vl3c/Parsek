@@ -219,5 +219,77 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(atLast.y, after.y);
             Assert.Equal(atLast.z, after.z);
         }
+
+        // --- Phase 8: Fit-with-flags ---
+
+        [Fact]
+        public void Fit_WithFlags_SkipsRejectedSamples()
+        {
+            // What makes it fail: rejected samples leak into knot/control
+            // arrays and the spline interpolates through them, defeating
+            // the entire Phase 8 outlier-rejection mechanism.
+            var samples = new List<TrajectoryPoint>();
+            for (int i = 0; i < 10; i++)
+                samples.Add(MakePoint(ut: i, lat: i * 0.1, lon: i * 0.2, alt: 1000 + i * 50));
+            // Mark sample index 5 as rejected.
+            bool[] perSample = new bool[samples.Count];
+            perSample[5] = true;
+            var flags = new OutlierFlags
+            {
+                SectionIndex = 0,
+                ClassifierMask = 1,
+                PackedBitmap = OutlierFlags.BuildPackedBitmap(perSample),
+                RejectedCount = 1,
+                SampleCount = samples.Count,
+            };
+
+            var spline = TrajectoryMath.CatmullRomFit.Fit(samples, tension: 0.5,
+                out string failure, rejected: flags);
+            Assert.Null(failure);
+            Assert.True(spline.IsValid);
+            // Knot count should be sampleCount - 1 (one rejected sample dropped).
+            Assert.Equal(samples.Count - 1, spline.KnotsUT.Length);
+            // The rejected sample's UT must NOT be in the knots list.
+            for (int k = 0; k < spline.KnotsUT.Length; k++)
+                Assert.NotEqual(samples[5].ut, spline.KnotsUT[k]);
+        }
+
+        [Fact]
+        public void Fit_WithFlags_AfterRejectionTooFewSamples_ReturnsInvalid()
+        {
+            var samples = new List<TrajectoryPoint>();
+            for (int i = 0; i < 5; i++)
+                samples.Add(MakePoint(ut: i, lat: i, lon: i, alt: 1000 + i));
+            // Reject indices 1,2,3 → 2 kept ≥ 4? No.
+            bool[] perSample = new bool[5];
+            perSample[1] = true; perSample[2] = true; perSample[3] = true;
+            var flags = new OutlierFlags
+            {
+                SectionIndex = 0,
+                ClassifierMask = 1,
+                PackedBitmap = OutlierFlags.BuildPackedBitmap(perSample),
+                RejectedCount = 3,
+                SampleCount = 5,
+            };
+
+            var spline = TrajectoryMath.CatmullRomFit.Fit(samples, tension: 0.5,
+                out string failure, rejected: flags);
+            Assert.False(spline.IsValid);
+            Assert.NotNull(failure);
+            Assert.Contains("after-rejection", failure);
+        }
+
+        [Fact]
+        public void Fit_WithoutFlags_LegacyBehaviorUnchanged()
+        {
+            // Backward-compat regression pin.
+            var samples = new List<TrajectoryPoint>();
+            for (int i = 0; i < 10; i++)
+                samples.Add(MakePoint(ut: i, lat: i, lon: i, alt: 1000 + i));
+            var spline = TrajectoryMath.CatmullRomFit.Fit(samples, tension: 0.5, out string failure);
+            Assert.Null(failure);
+            Assert.True(spline.IsValid);
+            Assert.Equal(samples.Count, spline.KnotsUT.Length);
+        }
     }
 }

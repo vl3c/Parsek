@@ -542,5 +542,97 @@ namespace Parsek.Tests.Rendering
                 ParsekLog.SuppressLogging = true;
             }
         }
+
+        [Fact]
+        public void DetectAndStore_PrimaryDesignation_MatchesSchemaContract()
+        {
+            // Phase 8 review-pass-2 P3 regression: schema §17.3.1 contract
+            // pins PrimaryDesignation = 0 (self is primary) / 1 (self is
+            // peer) RELATIVE to the recording the trace is stored under.
+            // The selector doesn't read the field today, but the persisted
+            // bytes were inverted on both stored sides — break the moment
+            // a future consumer starts trusting the field.
+            //
+            // With aIsPrimaryHint=true (lower ordinal id wins; "rec-A" <
+            // "rec-B"):
+            //   - trace under recA: self=primary → designation=0
+            //   - trace under recB: self=peer    → designation=1
+            // With aIsPrimaryHint=false: opposite.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name => null;
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            SectionAnnotationStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                // aIsPrimaryHint=true case: id ordering rec-A < rec-B.
+                var aPrimary = MakeRecording("rec-A", 100, 110,
+                    TrackSectionSource.Active, ReferenceFrame.Absolute,
+                    SegmentEnvironment.ExoBallistic);
+                var aPeer = MakeRecording("rec-B", 100, 110,
+                    TrackSectionSource.Background, ReferenceFrame.Absolute,
+                    SegmentEnvironment.ExoBallistic);
+                RecordingStore.AddCommittedInternal(aPrimary);
+                RecordingStore.AddCommittedInternal(aPeer);
+
+                int emitted = CoBubbleOverlapDetector.DetectAndStore(
+                    new List<Recording> { aPrimary, aPeer });
+                Assert.Equal(2, emitted);
+
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces("rec-A", out var aTraces));
+                Assert.NotNull(aTraces);
+                Assert.Single(aTraces);
+                // recA is the hinted primary; trace under recA records
+                // self=primary → designation=0.
+                Assert.Equal((byte)0, aTraces[0].PrimaryDesignation);
+
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces("rec-B", out var bTraces));
+                Assert.NotNull(bTraces);
+                Assert.Single(bTraces);
+                // recB is the hinted peer; trace under recB records
+                // self=peer → designation=1.
+                Assert.Equal((byte)1, bTraces[0].PrimaryDesignation);
+
+                // aIsPrimaryHint=false case: flip ids so id ordering
+                // gives rec-Z > rec-Y, i.e. recA-side recording is the
+                // hinted PEER, recB-side is the hinted PRIMARY.
+                SectionAnnotationStore.ResetForTesting();
+                RecordingStore.ResetForTesting();
+                var bPrimary = MakeRecording("rec-Y", 200, 210,
+                    TrackSectionSource.Background, ReferenceFrame.Absolute,
+                    SegmentEnvironment.ExoBallistic);
+                var bPeer = MakeRecording("rec-Z", 200, 210,
+                    TrackSectionSource.Active, ReferenceFrame.Absolute,
+                    SegmentEnvironment.ExoBallistic);
+                RecordingStore.AddCommittedInternal(bPrimary);
+                RecordingStore.AddCommittedInternal(bPeer);
+
+                int emitted2 = CoBubbleOverlapDetector.DetectAndStore(
+                    new List<Recording> { bPrimary, bPeer });
+                Assert.Equal(2, emitted2);
+
+                // Detector sorts by ordinal id, so internally
+                // recA-position = "rec-Y" (lower id) and
+                // recB-position = "rec-Z" (higher id), giving
+                // aIsPrimaryHint=true at the source — but the detector
+                // uses sorted ordering, so "rec-Y" gets the
+                // self=primary (designation=0) trace.
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces("rec-Y", out var yTraces));
+                Assert.Equal((byte)0, yTraces[0].PrimaryDesignation);
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces("rec-Z", out var zTraces));
+                Assert.Equal((byte)1, zTraces[0].PrimaryDesignation);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RenderSessionState.ResetForTesting();
+                SectionAnnotationStore.ResetForTesting();
+                SmoothingPipeline.ResetForTesting();
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
     }
 }

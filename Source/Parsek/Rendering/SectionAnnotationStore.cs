@@ -42,6 +42,17 @@ namespace Parsek.Rendering
         private static readonly Dictionary<string, List<CoBubbleOffsetTrace>> CoBubbleTraces
             = new Dictionary<string, List<CoBubbleOffsetTrace>>(StringComparer.Ordinal);
 
+        // Phase 8 (design doc §14, §17.3.1, §18 Phase 8). Per-section outlier
+        // bitmap built by OutlierClassifier before the spline fit, consumed
+        // by TrajectoryMath.CatmullRomFit.Fit to skip rejected samples, and
+        // persisted to / loaded from the .pann OutlierFlagsList block.
+        // Sections without rejected samples are NOT inserted (the absence of
+        // an entry is the canonical "no krakens here" representation —
+        // mirrors the AnchorCandidates "drop empty arrays at write time"
+        // pattern).
+        private static readonly Dictionary<string, Dictionary<int, OutlierFlags>> OutlierFlagsByRecording
+            = new Dictionary<string, Dictionary<int, OutlierFlags>>(StringComparer.Ordinal);
+
         /// <summary>
         /// Stores or overwrites the spline for a (recordingId, sectionIndex) pair.
         /// Silent overwrite — caller is expected to gate on cache-key freshness
@@ -189,6 +200,63 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
+        /// Phase 8: stores or overwrites the outlier-flag bitmap for a
+        /// (recordingId, sectionIndex) pair. Caller passes a non-null
+        /// <see cref="OutlierFlags"/>; silent overwrite mirrors
+        /// <see cref="PutSmoothingSpline"/>.
+        /// </summary>
+        internal static void PutOutlierFlags(
+            string recordingId, int sectionIndex, OutlierFlags flags)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (flags == null) return;
+
+            lock (Lock)
+            {
+                if (!OutlierFlagsByRecording.TryGetValue(recordingId, out var perSection))
+                {
+                    perSection = new Dictionary<int, OutlierFlags>();
+                    OutlierFlagsByRecording[recordingId] = perSection;
+                }
+                perSection[sectionIndex] = flags;
+            }
+        }
+
+        /// <summary>
+        /// Phase 8: looks up the outlier-flag bitmap for a (recordingId,
+        /// sectionIndex) pair. Returns false (with <paramref name="flags"/>
+        /// = null) when either key is absent — that's the "no krakens
+        /// detected in this section" canonical state.
+        /// </summary>
+        internal static bool TryGetOutlierFlags(
+            string recordingId, int sectionIndex, out OutlierFlags flags)
+        {
+            flags = null;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            lock (Lock)
+            {
+                if (!OutlierFlagsByRecording.TryGetValue(recordingId, out var perSection))
+                    return false;
+                return perSection.TryGetValue(sectionIndex, out flags);
+            }
+        }
+
+        /// <summary>
+        /// Test-only / diagnostics: number of sections with outlier flags
+        /// stored for a recording (0 when the recording has none).
+        /// </summary>
+        internal static int GetOutlierFlagsCountForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return 0;
+            lock (Lock)
+            {
+                if (!OutlierFlagsByRecording.TryGetValue(recordingId, out var perSection))
+                    return 0;
+                return perSection.Count;
+            }
+        }
+
+        /// <summary>
         /// Phase 5: removes every co-bubble trace stored under
         /// <paramref name="recordingId"/>. Symmetric with
         /// <see cref="RemoveRecording"/>; called from the same recompute
@@ -267,6 +335,7 @@ namespace Parsek.Rendering
                 Splines.Remove(recordingId);
                 Candidates.Remove(recordingId);
                 CoBubbleTraces.Remove(recordingId);
+                OutlierFlagsByRecording.Remove(recordingId);
             }
         }
 
@@ -278,6 +347,7 @@ namespace Parsek.Rendering
                 Splines.Clear();
                 Candidates.Clear();
                 CoBubbleTraces.Clear();
+                OutlierFlagsByRecording.Clear();
             }
         }
 

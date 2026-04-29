@@ -637,11 +637,21 @@ namespace Parsek.Rendering
                 // optimize prematurely).
                 //
                 // Side A storage: trace under recA, PeerRecordingId = recB.
+                // Phase 8 review-pass-2 P3: PrimaryDesignation per §17.3.1
+                // means "0 = self is primary, 1 = self is peer" relative to
+                // the recording the trace is stored under. When
+                // aIsPrimaryHint=true, recA is the hinted primary, so the
+                // trace stored under recA records self=primary → 0; the
+                // trace stored under recB records self=peer → 1. Pre-fix
+                // both bytes were inverted (the selector doesn't read the
+                // field today so no in-game regression, but the persisted
+                // bytes contradicted the schema contract — break the
+                // moment a future consumer starts trusting it).
                 CoBubbleOffsetTrace traceForA = BuildTrace(
                     w,
                     primary: recB,    // primary side for the offset reference
                     peer: recA,       // owner side (the rendered ghost)
-                    primaryDesignation: aIsPrimaryHint ? (byte)1 : (byte)0);
+                    primaryDesignation: aIsPrimaryHint ? (byte)0 : (byte)1);
                 if (traceForA != null)
                 {
                     RebrandTraceForPrimary(traceForA, primaryRec: recB);
@@ -653,7 +663,7 @@ namespace Parsek.Rendering
                     w,
                     primary: recA,
                     peer: recB,
-                    primaryDesignation: aIsPrimaryHint ? (byte)0 : (byte)1);
+                    primaryDesignation: aIsPrimaryHint ? (byte)1 : (byte)0);
                 if (traceForB != null)
                 {
                     RebrandTraceForPrimary(traceForB, primaryRec: recA);

@@ -205,47 +205,74 @@ namespace Parsek
         // the alg-stamp bump drives them through alg-stamp-drift on
         // first load (HR-10).
         //
-        // §7.7 BubbleEntry/BubbleExit (merged in from main): the
-        // AnchorCandidateBuilder now emits a seventh candidate type at
-        // every Active|Background ↔ Checkpoint source-class transition.
-        // The on-disk schema is unchanged (BubbleEntry/BubbleExit fit in
-        // the existing type-byte taxonomy bits 0-6), but the byte content
-        // for any recording that has those transitions changes. Mainline
-        // shipped this at AlgorithmStampVersion=5; on the Phase 5 stack
-        // it lands inside the v8 alg-stamp window — v5 mainline .pann
-        // files invalidate via alg-stamp-drift (5 ≠ 8) and recompute
-        // with both Phase 5 co-bubble traces and §7.7 candidates active
-        // (HR-10).
+        // Bumped to 9 in Phase 8 (rebased onto Phase 5 review-pass-5
+        // tip): OutlierFlagsList block transitions from always-empty
+        // (writer emitted count=0; reader rejected any non-zero count)
+        // to populated by OutlierClassifier. The new ConfigurationHash
+        // also gains real outlier threshold bytes plus the
+        // `useOutlierRejection` flag at offset [85]. v8 .pann files
+        // (Phase 5 tip) lack populated OutlierFlagsList entries — they
+        // would be silently treated as "no outliers" on load and the
+        // renderer would never see the new flags. The bump triggers
+        // alg-stamp-drift on first load so v8 files are discarded and
+        // recomputed with the populated outlier block (HR-10). Phase 8
+        // pre-rebase coordination notes called out 7 → 8 (and a later
+        // amendment 7 → 9 once Phase 5 review-pass-5 landed); the
+        // current value reflects the actual rebase landing.
         //
-        // PHASE 8 STACK COORDINATION (PR #644 rebase fixup): Phase 8
-        // already bumped AlgorithmStampVersion to 7 in commit 8b9f623d
-        // for OutlierFlagsList AND grew CanonicalEncodingLength 53 → 86
-        // for additional ConfigurationHash bytes. After Phase 5 lands at
-        // 8 here (was 7 before review-pass-5), the Phase 8 rebase needs
-        // BOTH bumps adjusted:
-        //   • AlgorithmStampVersion 7 → 9 (was 8 in the prior plan,
-        //     bumped a step further because Phase 5 itself moved 7 → 8).
-        //   • CanonicalEncodingLength stays at the Phase-8 value (86),
-        //     since Phase 5 didn't grow the hash payload — it only
-        //     reuses bytes already reserved at Phase 5.
-        // Failing to bump AlgorithmStampVersion in the rebase fixup
-        // would make Phase 8's OutlierFlagsList block read as cache-hit
-        // against pre-Phase-8 (or Phase-5-only) .pann files (HR-10
-        // freshness violation).
-        internal const int AlgorithmStampVersion = 8;
+        // §7.7 BubbleEntry/BubbleExit (merged in from main via the post-
+        // #643 main merge): AnchorCandidateBuilder now emits a seventh
+        // candidate type at every Active|Background ↔ Checkpoint source-
+        // class transition. The on-disk schema is unchanged (BubbleEntry/
+        // BubbleExit fit in the existing type-byte taxonomy bits 0-6),
+        // but the byte content for any recording that has those
+        // transitions changes. Mainline shipped this at v5; with the
+        // Phase 8 v9 stamp here, v5 mainline .pann files invalidate via
+        // alg-stamp-drift (5 ≠ 9) and recompute with co-bubble traces,
+        // §7.7 candidates, AND outlier flags all active (HR-10).
+        //
+        // Phase 8 review-pass-2 (P2 deferred recompute, P3
+        // PrimaryDesignation byte semantics fix) does NOT bump the
+        // stamp:
+        //   • P2 is validation-flow correctness (lazy recompute defers
+        //     when peers haven't yet hydrated and a post-tree-hydration
+        //     sweep does the work) — no change to persisted content
+        //     semantics.
+        //   • P3 swaps the two byte literals for `PrimaryDesignation`
+        //     in CoBubbleOverlapDetector.DetectAndStore so the
+        //     persisted bytes match the §17.3.1 contract (0 = self is
+        //     primary, 1 = self is peer relative to the trace's
+        //     owning recording). This DOES change one persisted byte
+        //     per trace, but the field is reserved for future selector
+        //     use and the current selector ignores it entirely. v9
+        //     files written before this commit have the inverted
+        //     designation byte; they're still functionally correct
+        //     (selector doesn't read the field), and the next
+        //     AlgStamp bump for any other reason will sweep them up.
+        //     Bumping for every PrimaryDesignation flip would be churn.
+        internal const int AlgorithmStampVersion = 9;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +
-        // outlierAccelAtm(4) + outlierAccelExo(4) + anchorPriority(10) +
-        // coBubbleBlendMaxWindow(8) + coBubbleResampleHz(4) +
-        // useAnchorTaxonomy(1) + useCoBubbleBlend(1) = 53 bytes. Phase 5
-        // appended the useCoBubbleBlend flag at [52] so flag flips invalidate
-        // cached .pann files via config-hash-drift (HR-10 freshness): when
-        // the flag is off the writer emits an empty CoBubbleOffsetTraces
-        // block; flipping to on without invalidating would let a stale
-        // empty block masquerade as fresh.
-        private const int CanonicalEncodingLength = 53;
+        // outlierAccelAtm(4) + outlierAccelExoPropulsive(4) +
+        // anchorPriority(10) + coBubbleBlendMaxWindow(8) +
+        // coBubbleResampleHz(4) + useAnchorTaxonomy(1) + useCoBubbleBlend(1) +
+        // outlierAccelExoBallistic(4) + outlierAccelSurfaceMobile(4) +
+        // outlierAccelSurfaceStationary(4) + outlierAccelApproach(4) +
+        // outlierBubbleRadius(4) + outlierAltitudeFloor(4) +
+        // outlierAltitudeCeilingMargin(4) + outlierClusterRate(4) +
+        // useOutlierRejection(1) = 86 bytes. Phase 8 promoted the previously-
+        // reserved outlier accel bytes at [21..28] to real fields backed by
+        // OutlierThresholds.Default (Atmospheric / ExoPropulsive) and
+        // appended the remaining four environment ceilings, the bubble-radius
+        // and altitude bounds, the cluster-rate threshold, and the
+        // useOutlierRejection rollout-gate byte at [85]. Any change to the
+        // outlier thresholds or to the rollout flag drifts the cache key
+        // (HR-10 freshness): the writer emits an empty OutlierFlagsList when
+        // the flag is off; flipping to on without invalidating would let a
+        // stale empty block masquerade as fresh.
+        private const int CanonicalEncodingLength = 86;
 
         // Per-trace UT-array size cap (Phase 5). With 4 Hz resample × 600s
         // max-window the realistic ceiling per trace is 2400 samples; the
@@ -376,14 +403,14 @@ namespace Parsek
             out string failureReason)
         {
             return TryRead(path, probe, out splines, out anchorCandidates,
-                out _, out failureReason);
+                out _, out _, out failureReason);
         }
 
         /// <summary>
         /// Phase 5 overload: also reads the <c>CoBubbleOffsetTraces</c>
         /// block. Existing two-out callers (kept as the legacy overload
-        /// above) still work; new callers should use this overload to access
-        /// the per-trace data persisted by Phase 5.
+        /// above) still work; new callers should use the four-out overload
+        /// (Phase 8) to access the OutlierFlagsList block as well.
         /// </summary>
         internal static bool TryRead(
             string path,
@@ -393,12 +420,32 @@ namespace Parsek
             out List<CoBubbleOffsetTrace> coBubbleTraces,
             out string failureReason)
         {
+            return TryRead(path, probe, out splines, out anchorCandidates,
+                out coBubbleTraces, out _, out failureReason);
+        }
+
+        /// <summary>
+        /// Phase 8 overload: also reads the <c>OutlierFlagsList</c> block.
+        /// Returns the per-section <see cref="OutlierFlags"/> entries the
+        /// writer persisted (sections without rejected samples are not
+        /// emitted by the writer and so do not appear here).
+        /// </summary>
+        internal static bool TryRead(
+            string path,
+            PannotationsSidecarProbe probe,
+            out List<KeyValuePair<int, SmoothingSpline>> splines,
+            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
+            out List<CoBubbleOffsetTrace> coBubbleTraces,
+            out List<KeyValuePair<int, OutlierFlags>> outlierFlags,
+            out string failureReason)
+        {
             if (!probe.Success || !probe.Supported)
                 throw new InvalidOperationException("Pannotations sidecar probe must succeed before read.");
 
             splines = new List<KeyValuePair<int, SmoothingSpline>>();
             anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
             coBubbleTraces = new List<CoBubbleOffsetTrace>();
+            outlierFlags = new List<KeyValuePair<int, OutlierFlags>>();
             failureReason = null;
 
             try
@@ -457,18 +504,52 @@ namespace Parsek
                         splines.Add(new KeyValuePair<int, SmoothingSpline>(sectionIndex, spline));
                     }
 
-                    // Reserved blocks — Phase 1 writes count = 0 for each;
-                    // tighter caps still apply so a future-version reader
-                    // can't be tricked into a giant allocation by claiming
-                    // a Phase-1 file has populated reserved blocks.
+                    // Phase 8 OutlierFlagsList block (design doc §17.3.1).
+                    // Schema: per-entry sectionIndex (int32) + classifierMask
+                    // (byte) + packedBitmap (length-prefixed byte[]) +
+                    // rejectedCount (int32). Per-entry minimum cost is 13
+                    // bytes (4+1+4+0+4) when the bitmap is empty; a populated
+                    // bitmap adds (sampleCount + 7) / 8 bytes.
+                    const int MinBytesPerOutlierEntry = 13;
                     int outlierCount = reader.ReadInt32();
                     if (!ValidateCount(stream, outlierCount, MaxOutlierFlagsEntries,
-                            1, "outlier-flags", out failureReason))
+                            MinBytesPerOutlierEntry, "outlier-flags", out failureReason))
                         return false;
-                    if (outlierCount != 0)
+                    for (int i = 0; i < outlierCount; i++)
                     {
-                        failureReason = $"unexpected outlier-flags count {outlierCount} for binary version {probe.BinaryVersion}";
-                        return false;
+                        int sectionIndex = reader.ReadInt32();
+                        byte classifierMask = reader.ReadByte();
+                        int bitmapLength = reader.ReadInt32();
+                        // The packed bitmap is at most (MaxKnotsPerSpline+7)/8
+                        // = 12500 bytes — generous upper bound so a corrupt
+                        // length cannot force a multi-MB allocation.
+                        int bitmapByteCap = (MaxKnotsPerSpline + 7) / 8;
+                        if (!ValidateCount(stream, bitmapLength, bitmapByteCap,
+                                1, $"outlier-flags[{i}].bitmap", out failureReason))
+                            return false;
+                        byte[] bitmap = bitmapLength > 0
+                            ? reader.ReadBytes(bitmapLength)
+                            : new byte[0];
+                        if (bitmap == null || bitmap.Length != bitmapLength)
+                        {
+                            failureReason = $"outlier-flags[{i}] truncated bitmap (expected {bitmapLength} bytes)";
+                            return false;
+                        }
+                        int rejectedCount = reader.ReadInt32();
+                        outlierFlags.Add(new KeyValuePair<int, OutlierFlags>(
+                            sectionIndex,
+                            new OutlierFlags
+                            {
+                                SectionIndex = sectionIndex,
+                                ClassifierMask = classifierMask,
+                                PackedBitmap = bitmap,
+                                RejectedCount = rejectedCount,
+                                // SampleCount is not persisted; the loader
+                                // (SmoothingPipeline.LoadOrCompute) refills
+                                // it from the live section's frame count
+                                // after install.
+                                SampleCount = 0,
+                            }));
                     }
                     // Phase 6 AnchorCandidatesList block (design doc §17.3.1).
                     // Schema: per-entry sectionIndex (int) + utCount (int) +
@@ -616,7 +697,8 @@ namespace Parsek
             byte[] configurationHash,
             IList<KeyValuePair<int, SmoothingSpline>> splines,
             IList<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates = null,
-            IList<CoBubbleOffsetTrace> coBubbleTraces = null)
+            IList<CoBubbleOffsetTrace> coBubbleTraces = null,
+            IList<KeyValuePair<int, OutlierFlags>> outlierFlags = null)
         {
             if (configurationHash == null || configurationHash.Length != 32)
                 throw new ArgumentException("configurationHash must be a 32-byte SHA-256 digest.", nameof(configurationHash));
@@ -658,10 +740,33 @@ namespace Parsek
                     }
                 }
 
-                // Reserved blocks: Phase 1 emits count = 0 for each. Layout is
-                // append-only (HR-11) so future phases bolt new blocks on
-                // without bumping PannotationsBinaryVersion.
-                writer.Write(0); // OutlierFlagsList
+                // Phase 8 OutlierFlagsList block (design doc §17.3.1).
+                // Per-entry: sectionIndex (int32) + classifierMask (byte) +
+                // packedBitmap length-prefixed byte[] + rejectedCount (int32).
+                // Caller-side gathering (in SmoothingPipeline.TryWritePann)
+                // drops sections whose RejectedCount is zero so the block is
+                // compact in the steady-state "no krakens detected" case.
+                int outlierEntryCount = outlierFlags?.Count ?? 0;
+                writer.Write(outlierEntryCount);
+                if (outlierFlags != null)
+                {
+                    for (int i = 0; i < outlierFlags.Count; i++)
+                    {
+                        OutlierFlags f = outlierFlags[i].Value;
+                        if (f == null)
+                            throw new InvalidOperationException(
+                                $"OutlierFlagsList[{i}] is null — caller must drop empty entries before write");
+                        if (f.PackedBitmap == null)
+                            throw new ArgumentException(
+                                $"OutlierFlagsList[{i}].PackedBitmap is null");
+                        writer.Write(outlierFlags[i].Key); // sectionIndex
+                        writer.Write(f.ClassifierMask);
+                        writer.Write(f.PackedBitmap.Length);
+                        if (f.PackedBitmap.Length > 0)
+                            writer.Write(f.PackedBitmap);
+                        writer.Write(f.RejectedCount);
+                    }
+                }
 
                 // Phase 6 AnchorCandidatesList block (design doc §17.3.1).
                 // Per-section: sectionIndex (int) + utCount (int) +
@@ -749,40 +854,71 @@ namespace Parsek
         /// </summary>
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
-            // Backward-compatible overload: tests that don't care about the
-            // Phase 6 / Phase 5 flags default them to true (matches the
-            // shipped defaults). Production callers should use the
-            // three-argument overload below so a flag flip invalidates
-            // cached .pann files.
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true, useCoBubbleBlend: true);
+            // Backward-compatible overload: tests that don't care about
+            // Phase 5 / Phase 6 / Phase 8 flags default them to true (matches
+            // the shipped defaults). Production callers should use the
+            // four-argument overload below so a flag flip invalidates cached
+            // .pann files.
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true,
+                useCoBubbleBlend: true, useOutlierRejection: true);
         }
 
         /// <summary>
         /// Phase 6 follow-up: two-argument overload kept for any caller that
-        /// was wired before Phase 5. Defaults <c>useCoBubbleBlend</c> to
-        /// true (matches the shipped default). Production callers should
-        /// migrate to the three-argument overload so a Phase-5 flag flip
-        /// invalidates the cache key.
+        /// was wired before Phase 5. Defaults remaining flags to true
+        /// (matches the shipped defaults).
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg, bool useAnchorTaxonomy)
         {
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy, useCoBubbleBlend: true);
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy,
+                useCoBubbleBlend: true, useOutlierRejection: true);
         }
 
         /// <summary>
-        /// Phase 5: the canonical encoding now wires the co-bubble blend
-        /// tunables (<see cref="CoBubbleConfiguration.Default"/>) into bytes
-        /// [39..46] (BlendMaxWindowSeconds) and [47..50] (ResampleHz), and
-        /// appends the <see cref="ParsekSettings.useCoBubbleBlend"/> flag
-        /// as a single byte at offset 52. Flipping the flag changes the
-        /// derived <c>CoBubbleOffsetTraces</c> output (writer emits an
-        /// empty block when off, populated when on), so HR-10 freshness
-        /// requires the flag to participate in the cache key. The Phase 6
-        /// <c>useAnchorTaxonomy</c> byte stays at offset 51.
+        /// Phase 5 three-argument overload: defaults
+        /// <c>useOutlierRejection</c> to true.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg, bool useAnchorTaxonomy, bool useCoBubbleBlend)
+        {
+            return ComputeConfigurationHash(cfg, useAnchorTaxonomy,
+                useCoBubbleBlend, useOutlierRejection: true);
+        }
+
+        /// <summary>
+        /// Phase 8: extends the canonical encoding to include outlier
+        /// thresholds and the <c>useOutlierRejection</c> rollout flag. The
+        /// previously-reserved outlier accel bytes at [21..28] are promoted
+        /// to <c>OutlierThresholds.Default</c>'s Atmospheric and
+        /// ExoPropulsive ceilings; bytes [53..84] add the remaining four
+        /// environment ceilings, the bubble radius, the altitude floor /
+        /// ceiling margin, and the cluster-rate threshold; byte [85] holds
+        /// <c>useOutlierRejection</c>. Flipping the flag changes the
+        /// derived <c>OutlierFlagsList</c> output (writer emits an empty
+        /// block when off, populated when on), so HR-10 freshness requires
+        /// the flag to participate in the cache key.
+        /// </summary>
+        internal static byte[] ComputeConfigurationHash(
+            SmoothingConfiguration cfg,
+            bool useAnchorTaxonomy,
+            bool useCoBubbleBlend,
+            bool useOutlierRejection)
+        {
+            return ComputeConfigurationHash(cfg, OutlierThresholds.Default,
+                useAnchorTaxonomy, useCoBubbleBlend, useOutlierRejection);
+        }
+
+        /// <summary>
+        /// Phase 8 explicit-thresholds overload — used by tests that perturb
+        /// individual outlier thresholds to verify HR-10 cache-key freshness.
+        /// </summary>
+        internal static byte[] ComputeConfigurationHash(
+            SmoothingConfiguration cfg,
+            OutlierThresholds outlier,
+            bool useAnchorTaxonomy,
+            bool useCoBubbleBlend,
+            bool useOutlierRejection)
         {
             byte[] buffer = new byte[CanonicalEncodingLength];
             using (var ms = new MemoryStream(buffer, writable: true))
@@ -794,13 +930,23 @@ namespace Parsek
                 w.Write(cfg.Tension);                      // [9..12]
                 w.Write(cfg.MinSamplesPerSection);         // [13..16]
                 w.Write(cfg.MaxKnotCount);                 // [17..20]
-                w.Write((float)0);                         // [21..24] outlierAccelAtmospheric (reserved)
-                w.Write((float)0);                         // [25..28] outlierAccelExo (reserved)
+                w.Write(outlier.AccelCeilingAtmospheric);  // [21..24] outlierAccelAtmospheric (Phase 8)
+                w.Write(outlier.AccelCeilingExoPropulsive); // [25..28] outlierAccelExoPropulsive (Phase 8)
                 for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] anchorPriorityVector (reserved)
                 w.Write((double)CoBubbleConfiguration.Default.BlendMaxWindowSeconds); // [39..46] coBubbleBlendMaxWindow
                 w.Write((float)CoBubbleConfiguration.Default.ResampleHz);             // [47..50] coBubbleResampleHz
                 w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [51] useAnchorTaxonomy (Phase 6)
                 w.Write((byte)(useCoBubbleBlend ? 1 : 0));  // [52] useCoBubbleBlend (Phase 5)
+                // Phase 8 additions
+                w.Write(outlier.AccelCeilingExoBallistic);     // [53..56]
+                w.Write(outlier.AccelCeilingSurfaceMobile);    // [57..60]
+                w.Write(outlier.AccelCeilingSurfaceStationary); // [61..64]
+                w.Write(outlier.AccelCeilingApproach);         // [65..68]
+                w.Write(outlier.MaxSingleTickPositionDeltaMeters); // [69..72]
+                w.Write(outlier.AltitudeFloorMeters);          // [73..76]
+                w.Write(outlier.AltitudeCeilingMargin);        // [77..80]
+                w.Write(outlier.ClusterRateThreshold);         // [81..84]
+                w.Write((byte)(useOutlierRejection ? 1 : 0));  // [85]
             }
 
             using (var sha = SHA256.Create())

@@ -2625,22 +2625,16 @@ namespace Parsek
                         }
                     }
 
-                    // Phase 5 review-pass-4: post-tree-hydration sweep
-                    // for deferred co-bubble peer-content-signature
-                    // validations. ClassifyTraceDrift defers signature
-                    // recomputes when peer.Points was empty during the
-                    // sequential hydration above; the runtime per-trace
-                    // check in CoBubbleBlender only validates format /
-                    // epoch, so without this sweep a stale trace whose
-                    // peer hydrated to different points than at commit
-                    // time stays installed for the entire session.
-                    int dropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
-                    if (dropped > 0)
-                    {
-                        ParsekLog.Info("Pipeline-CoBubble",
-                            $"Post-hydration revalidation: dropped {dropped} stale co-bubble trace(s) in tree {tree.Id}");
-                    }
-
+                    // Phase 8 review-pass-3: deferred co-bubble sweeps
+                    // moved out of the per-tree loop. Cross-tree co-bubble
+                    // traces are possible because commit-time DetectAndStore
+                    // scans CommittedRecordings (which spans trees), so a
+                    // deferred entry in tree T1 may reference a peer in
+                    // tree T2. Per-tree sweeps fired before T2 was visible
+                    // and silently dropped cross-tree recomputes. The
+                    // global sweep runs ONCE after the loop with the full
+                    // union of just-hydrated committed recordings — handles
+                    // intra-tree AND cross-tree correctly.
                     committedTrees.Add(tree);
 
                     // Add tree recordings to CommittedRecordings for ghost playback
@@ -2660,6 +2654,48 @@ namespace Parsek
                     EmitSidecarHydrationRollup(
                         tree.TreeName, sidecarHydrationFailures, syntheticFixtureFailures);
                 }
+
+                // Phase 8 review-pass-3: post-ALL-COMMITTED-TREES
+                // hydration sweeps. Cross-tree co-bubble traces are
+                // possible because commit-time DetectAndStore scans
+                // CommittedRecordings (which spans trees), so a
+                // deferred entry in tree T1 may reference a peer in
+                // tree T2. Running once here, with the union of every
+                // just-hydrated committed recording, handles intra-tree
+                // AND cross-tree correctly. Recompute runs FIRST so the
+                // freshly-detected traces — whose stored signature
+                // matches the live peer by construction — don't risk
+                // interaction with the validation sweep below.
+                var allCommittedRecordings = new Dictionary<string, Recording>(StringComparer.Ordinal);
+                for (int ti = 0; ti < committedTrees.Count; ti++)
+                {
+                    RecordingTree ct = committedTrees[ti];
+                    if (ct == null || ct.Recordings == null) continue;
+                    foreach (var rec in ct.Recordings.Values)
+                    {
+                        if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                            allCommittedRecordings[rec.RecordingId] = rec;
+                    }
+                }
+
+                int recomputed = Parsek.Rendering.SmoothingPipeline.RecomputeDeferredCoBubbleTraces(
+                    allCommittedRecordings);
+                if (recomputed > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-all-trees-hydration recompute: ran deferred co-bubble detection for {recomputed} recording(s) " +
+                        $"unionedRecordingCount={allCommittedRecordings.Count} treeCount={committedTrees.Count}");
+                }
+
+                int dropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(
+                    allCommittedRecordings);
+                if (dropped > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-all-trees-hydration revalidation: dropped {dropped} stale co-bubble trace(s) " +
+                        $"unionedRecordingCount={allCommittedRecordings.Count} treeCount={committedTrees.Count}");
+                }
+
                 ParsekLog.Verbose("Scenario",
                     $"Loaded {treeNodes.Length} tree nodes ({treeRecCount} committed recordings + " +
                     $"{activeTreeCount} active-tree marker(s)): {treeTotalPoints} points, " +
@@ -2769,14 +2805,47 @@ namespace Parsek
                     }
                 }
 
-                // Phase 5 review-pass-4: post-tree-hydration sweep for
-                // deferred co-bubble peer-content-signature validations
-                // (mirrors the committed-tree branch above).
-                int activeTreeDropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
+                // Phase 8 review-pass-3: post-hydration sweeps run
+                // against the union of (every previously-committed
+                // recording from RecordingStore.CommittedRecordings,
+                // populated earlier in OnLoad's committed-tree loop)
+                // PLUS this active tree's recordings. Cross-tree peers
+                // that landed in the committed list earlier are now
+                // visible to deferred entries from this active tree —
+                // and vice versa. Recompute runs FIRST so freshly-built
+                // traces (signatures match the live peer by construction)
+                // don't risk interaction with the validation sweep below.
+                var activeUnion = new Dictionary<string, Recording>(StringComparer.Ordinal);
+                IReadOnlyList<Recording> committedList = RecordingStore.CommittedRecordings;
+                if (committedList != null)
+                {
+                    for (int ci = 0; ci < committedList.Count; ci++)
+                    {
+                        Recording cr = committedList[ci];
+                        if (cr != null && !string.IsNullOrEmpty(cr.RecordingId))
+                            activeUnion[cr.RecordingId] = cr;
+                    }
+                }
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                        activeUnion[rec.RecordingId] = rec;
+                }
+
+                int activeTreeRecomputed = Parsek.Rendering.SmoothingPipeline.RecomputeDeferredCoBubbleTraces(activeUnion);
+                if (activeTreeRecomputed > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-all-trees-hydration recompute (active tree): ran deferred co-bubble detection for {activeTreeRecomputed} recording(s) " +
+                        $"unionedRecordingCount={activeUnion.Count} activeTreeId={tree.Id}");
+                }
+
+                int activeTreeDropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(activeUnion);
                 if (activeTreeDropped > 0)
                 {
                     ParsekLog.Info("Pipeline-CoBubble",
-                        $"Post-hydration revalidation: dropped {activeTreeDropped} stale co-bubble trace(s) in active tree {tree.Id}");
+                        $"Post-all-trees-hydration revalidation (active tree): dropped {activeTreeDropped} stale co-bubble trace(s) " +
+                        $"unionedRecordingCount={activeUnion.Count} activeTreeId={tree.Id}");
                 }
 
                 if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))

@@ -65,6 +65,18 @@ namespace Parsek.Rendering
         private static byte[] s_cachedConfigurationHash;
         private static bool s_cachedConfigurationHashAnchorFlag;
         private static bool s_cachedConfigurationHashCoBubbleFlag;
+        // Phase 8 (design doc §14, §17.3.1 ConfigurationHash table). The
+        // useOutlierRejection flag participates in the cache key so a flip
+        // invalidates every cached .pann via config-hash-drift (HR-10).
+        private static bool s_cachedConfigurationHashOutlierFlag;
+
+        // Phase 8 cluster-warn dedup (design doc §19.2 Outlier Rejection
+        // "Cluster threshold exceeded → low-fidelity tag" Warn). Per-session
+        // dedup keyed by "recordingId|sectionIndex" so a flag-flip recompute
+        // during the same session doesn't double-emit. Cleared by
+        // ResetForTesting. Same FrameDecisionLoggedCap-style bound as Phase 4.
+        private static readonly object s_clusterWarnLock = new object();
+        private static readonly HashSet<string> s_clusterWarnLogged = new HashSet<string>();
 
         // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
         // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
@@ -89,6 +101,32 @@ namespace Parsek.Rendering
         private static readonly object s_deferredValidationLock = new object();
         private static readonly HashSet<DeferredCoBubbleValidation> s_deferredValidations
             = new HashSet<DeferredCoBubbleValidation>();
+
+        // Phase 8 review-pass-2 P2: recordings whose LoadOrCompute hit the
+        // recompute path (file-missing / version-drift / alg-stamp-drift /
+        // config-hash-drift / epoch-drift / format-drift / payload-corrupt)
+        // mid-tree-load — i.e. with treeLocalLoadSet != null — get their
+        // co-bubble detection deferred until every same-tree recording has
+        // hydrated. ParsekScenario.OnLoad iterates tree.Recordings.Values
+        // and calls LoadRecordingFiles for each; when LoadOrCompute fires
+        // for the FIRST recording in a tree, later same-tree peers in
+        // treeLocalLoadSet still have empty Points, so an inline
+        // DetectAndStoreCoBubbleTracesForRecording call would scan them,
+        // find no overlap-eligible samples, emit no co-bubble trace, and
+        // TryWritePann would persist an empty CoBubbleOffsetTraces block.
+        // If the later peer's own .pann is already fresh (cache-hit, no
+        // recompute triggered), the missing owner-side trace stays missing
+        // for the session. The deferred set is drained by
+        // RecomputeDeferredCoBubbleTraces from OnLoad after every tree
+        // recording has hydrated; the sweep runs DetectAndStore +
+        // PersistPeerPannFiles per entry against the now-fully-hydrated
+        // load set so both sides of every overlap pair are persisted
+        // symmetrically. Keyed by recording-id so duplicate enqueues
+        // dedup; value carries the Recording reference so the sweep can
+        // rerun the same logic LoadOrCompute would have run synchronously.
+        private static readonly object s_deferredCoBubbleRecomputeLock = new object();
+        private static readonly Dictionary<string, Recording> s_deferredCoBubbleRecomputes
+            = new Dictionary<string, Recording>(StringComparer.Ordinal);
 
         // Test seam: when set, returned in place of FlightGlobals.Bodies?.Find.
         // xUnit cannot stand up FlightGlobals.Bodies, so the suite injects a
@@ -191,11 +229,38 @@ namespace Parsek.Rendering
                 if (inertial)
                     samplesForFit = LiftFramesToInertial(section.frames, body);
 
+                // Phase 8 (design doc §14, §18 Phase 8): classify samples
+                // before the spline is fit so kraken-event single-frame
+                // teleports do not deflect the spline through their
+                // implausible coordinates. The classifier is gated on the
+                // useOutlierRejection rollout flag; off → null flags →
+                // legacy fit-everything behaviour.
+                OutlierFlags outliers = null;
+                if (ResolveUseOutlierRejection())
+                {
+                    OutlierThresholds thresholds = OutlierThresholds.Default;
+                    Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
+                    outliers = OutlierClassifier.Classify(
+                        rec, i, thresholds, classifierBodyResolver);
+                    if (outliers != null && outliers.RejectedCount > 0)
+                    {
+                        SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
+                        // Cluster warn (§19.2 "Cluster threshold exceeded →
+                        // low-fidelity tag"). Per-session dedup so a flag-
+                        // flip recompute does not double-log.
+                        bool clusterBitSet = (outliers.ClassifierMask
+                            & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
+                        if (clusterBitSet)
+                            EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
+                    }
+                }
+
                 var sw = Stopwatch.StartNew();
                 SmoothingSpline spline = TrajectoryMath.CatmullRomFit.Fit(
                     samplesForFit,
                     SmoothingConfiguration.Default.Tension,
-                    out string failureReason);
+                    out string failureReason,
+                    rejected: outliers);
                 sw.Stop();
 
                 if (!spline.IsValid)
@@ -331,6 +396,37 @@ namespace Parsek.Rendering
         // the next bucket).
         private const int FrameDecisionLoggedCap = 4096;
 
+        // Phase 8 cluster-warn dedup cap (mirrors FrameDecisionLoggedCap).
+        // Realistic ceiling per save is low thousands of (recording, section)
+        // tuples; the cap protects long-running sessions from unbounded
+        // growth.
+        private const int ClusterWarnLoggedCap = 4096;
+
+        private static void EmitClusterWarnOnce(string recordingId, int sectionIndex,
+            OutlierFlags outliers, OutlierThresholds thresholds)
+        {
+            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            lock (s_clusterWarnLock)
+            {
+                if (!s_clusterWarnLogged.Add(key)) return;
+                if (s_clusterWarnLogged.Count >= ClusterWarnLoggedCap)
+                {
+                    int prevSize = s_clusterWarnLogged.Count;
+                    s_clusterWarnLogged.Clear();
+                    s_clusterWarnLogged.Add(key);
+                    ParsekLog.Info("Pipeline-Outlier",
+                        $"Cluster-warn dedup set exceeded cap ({prevSize}/{ClusterWarnLoggedCap}); cleared. " +
+                        $"Next cluster trips for already-seen (recordingId, sectionIndex) keys will re-fire.");
+                }
+            }
+            double rate = outliers.SampleCount > 0
+                ? (double)outliers.RejectedCount / outliers.SampleCount
+                : 0.0;
+            ParsekLog.Warn("Pipeline-Outlier", string.Format(CultureInfo.InvariantCulture,
+                "Cluster threshold exceeded → low-fidelity tag: recordingId={0} sectionIndex={1} rejectionRate={2:F3} threshold={3:F3}",
+                recordingId, sectionIndex, rate, thresholds.ClusterRateThreshold));
+        }
+
         private static void LogFrameDecisionOnce(string recordingId, int sectionIndex,
             SegmentEnvironment env, byte frameTag, string bodyName)
         {
@@ -415,6 +511,7 @@ namespace Parsek.Rendering
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
                             out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
                             out List<CoBubbleOffsetTrace> coBubbleTraces,
+                            out List<KeyValuePair<int, OutlierFlags>> outlierFlags,
                             out string readFailure))
                     {
                         // HR-10: clear any prior in-memory entries for this recording
@@ -473,12 +570,33 @@ namespace Parsek.Rendering
                             }
                         }
 
+                        // Phase 8: install OutlierFlags from the read list.
+                        // The reader does not persist SampleCount; backfill
+                        // from the live section's frames count so IsRejected
+                        // bounds-checks correctly.
+                        int outlierFlagsInstalled = 0;
+                        for (int i = 0; i < outlierFlags.Count; i++)
+                        {
+                            int sIdx = outlierFlags[i].Key;
+                            OutlierFlags f = outlierFlags[i].Value;
+                            if (f == null) continue;
+                            if (rec.TrackSections != null
+                                && sIdx >= 0 && sIdx < rec.TrackSections.Count
+                                && rec.TrackSections[sIdx].frames != null)
+                            {
+                                f.SampleCount = rec.TrackSections[sIdx].frames.Count;
+                            }
+                            SectionAnnotationStore.PutOutlierFlags(recordingId, sIdx, f);
+                            outlierFlagsInstalled++;
+                        }
+
                         long bytes = SafeFileLength(pannPath);
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
                             $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
                             $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
-                            $"coBubbleTracesAccepted={acceptedTraces} coBubbleTracesDiscarded={discardedTraces}");
+                            $"coBubbleTracesAccepted={acceptedTraces} coBubbleTracesDiscarded={discardedTraces} " +
+                            $"outlierFlagsCount={outlierFlagsInstalled}");
                         return;
                     }
 
@@ -525,25 +643,54 @@ namespace Parsek.Rendering
 
             // Compute fresh splines and persist to .pann.
             FitAndStorePerSection(rec);
-            // P1-B: regenerate co-bubble traces on the recompute path. Without
-            // this, lazy compute (file-missing / drift) rewrites a fresh
-            // .pann with an EMPTY CoBubbleOffsetTraces block — saves with a
-            // bumped AlgorithmStampVersion or config-hash drift would silently
-            // fall back to standalone playback until every recording is
-            // recommitted. PersistAfterCommit(rec) at commit time is the
-            // happy path; this branch covers load-time freshness (HR-10).
+
+            // Phase 8 review-pass-2 P2: defer co-bubble detection +
+            // peer-pann persistence when LoadOrCompute is running mid-
+            // tree-load (treeLocalLoadSet != null). ParsekScenario
+            // hydrates each recording's .prec sequentially, so when this
+            // recompute fires for the FIRST recording in a tree, later
+            // same-tree peers in treeLocalLoadSet still have empty
+            // Points. An inline DetectAndStore would emit no traces,
+            // TryWritePann would persist an empty CoBubbleOffsetTraces
+            // block, and if the later peer's own .pann is already fresh
+            // (no recompute triggered for them), the missing owner-side
+            // trace stays missing for the entire session — same root
+            // cause as the deferred-signature P1 the post-hydration
+            // sweep was built for, just in a different code path.
+            //
+            // Deferred path: enqueue rec for the OnLoad post-hydration
+            // recompute sweep; skip the inline DetectAndStore +
+            // PersistPeerPannFiles. FitAndStorePerSection + TryWritePann
+            // still run (the spline + outlier work isn't peer-dependent),
+            // and TryWritePann writes whatever co-bubble traces are
+            // already in the in-memory store — typically none for a
+            // fresh-recompute, which is fine: the sweep will rewrite
+            // the .pann via PersistPeerPannFiles once peers hydrate.
+            //
+            // Inline path (treeLocalLoadSet == null): non-tree-load
+            // lazy compute (e.g., manual cache-bust outside OnLoad).
+            // No later peers waiting to hydrate, so DetectAndStore
+            // sees CommittedRecordings and produces correct traces
+            // immediately. Mirrors review-pass-3 P3-1 unchanged.
+            if (treeLocalLoadSet != null)
+            {
+                EnqueueDeferredCoBubbleRecompute(rec);
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "deferred-cobubble-recompute-enqueued",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "LoadOrCompute deferred co-bubble detection: recordingId={0} reason=mid-tree-load",
+                        rec.RecordingId),
+                    5.0);
+                TryWritePann(rec, pannPath, expectedHash);
+                return;
+            }
+
+            // Non-tree-load lazy compute path. Mirrors review-pass-3
+            // P3-1: detect + write rec, then persist peer .pann files
+            // symmetrically.
             List<Recording> recomputePeerPersist = DetectAndStoreCoBubbleTracesForRecording(
                 rec, treeLocalLoadSet);
             TryWritePann(rec, pannPath, expectedHash);
-
-            // Phase 5 review-pass-3 P3-1: also persist peer .pann files
-            // from the recompute path. P2-A's eager peer persistence ran
-            // only at PersistAfterCommit; without mirroring it here, an
-            // alg-stamp drift bump leaves rec.pann updated and peer.pann
-            // stale until the peer's own LoadOrCompute eventually fires
-            // — and even then, only the side iterated last has both
-            // halves of the pair persisted. Mirror PersistAfterCommit's
-            // behaviour so both sides are written symmetrically.
             if (recomputePeerPersist != null && recomputePeerPersist.Count > 0)
                 PersistPeerPannFiles(rec, recomputePeerPersist, expectedHash);
         }
@@ -835,6 +982,7 @@ namespace Parsek.Rendering
                 s_cachedConfigurationHash = null;
                 s_cachedConfigurationHashAnchorFlag = false;
                 s_cachedConfigurationHashCoBubbleFlag = false;
+                s_cachedConfigurationHashOutlierFlag = false;
             }
             lock (s_frameDecisionLock)
             {
@@ -844,10 +992,19 @@ namespace Parsek.Rendering
             {
                 s_deferredValidations.Clear();
             }
+            lock (s_deferredCoBubbleRecomputeLock)
+            {
+                s_deferredCoBubbleRecomputes.Clear();
+            }
+            lock (s_clusterWarnLock)
+            {
+                s_clusterWarnLogged.Clear();
+            }
             BodyResolverForTesting = null;
             TreeResolverForTesting = null;
             UseCoBubbleBlendResolverForTesting = null;
             PeerPannPathResolverForTesting = null;
+            UseOutlierRejectionResolverForTesting = null;
             AnchorCandidateBuilder.ResetForTesting();
         }
 
@@ -1125,6 +1282,142 @@ namespace Parsek.Rendering
             }
         }
 
+        // -- Phase 8 review-pass-2 P2: deferred co-bubble RECOMPUTE --
+
+        private static void EnqueueDeferredCoBubbleRecompute(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+            lock (s_deferredCoBubbleRecomputeLock)
+            {
+                s_deferredCoBubbleRecomputes[rec.RecordingId] = rec;
+            }
+        }
+
+        /// <summary>
+        /// Phase 8 review-pass-2 P2 test seam: snapshot of the deferred
+        /// co-bubble recompute set size, for xUnit assertions. Mirrors
+        /// <see cref="DeferredCoBubbleValidationsCountForTesting"/>.
+        /// Production callers do not use this; the production sweep
+        /// <see cref="RecomputeDeferredCoBubbleTraces"/> drains the
+        /// dictionary in place.
+        /// </summary>
+        internal static int DeferredCoBubbleRecomputesCountForTesting
+        {
+            get
+            {
+                lock (s_deferredCoBubbleRecomputeLock)
+                {
+                    return s_deferredCoBubbleRecomputes.Count;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Phase 8 review-pass-2 P2: post-tree-hydration recompute sweep
+        /// for recordings whose <see cref="LoadOrCompute"/> recompute path
+        /// fired mid-tree-load and deferred co-bubble detection. Drains
+        /// <see cref="s_deferredCoBubbleRecomputes"/>; for each entry,
+        /// runs <see cref="DetectAndStoreCoBubbleTracesForRecording"/>
+        /// against the now-fully-hydrated tree, then writes peer <c>.pann</c>
+        /// files via <see cref="PersistPeerPannFiles"/> so both sides of
+        /// every overlap pair are persisted symmetrically — same
+        /// behaviour as the inline review-pass-3 P3-1 path, just deferred
+        /// until peers are loaded.
+        ///
+        /// <para>
+        /// Drained-as-it-processes — safe to call multiple times (the
+        /// second call sees an empty set).
+        /// </para>
+        ///
+        /// <para>
+        /// Order against <see cref="RevalidateDeferredCoBubbleTraces"/>:
+        /// production OnLoad invokes this FIRST, then the validation
+        /// sweep. Recompute creates fresh traces whose stored signature
+        /// matches the live peer by construction (the detector reads
+        /// peer.Points to compute the signature it stores), so there's
+        /// no risk of the validation sweep dropping a freshly-built
+        /// trace; and any pre-existing deferred-validation entry refers
+        /// to a different (owner, peer, UT) tuple than what the
+        /// recompute writes (the validation set keys on traces read
+        /// from disk, the recompute set keys on recordings whose
+        /// <c>.pann</c> was discarded).
+        /// </para>
+        /// </summary>
+        /// <param name="hydratedRecordings">
+        /// The fully-hydrated tree-local load set (or any equivalent
+        /// dictionary with non-empty <see cref="Recording.Points"/>
+        /// values). The sweep passes this to
+        /// <see cref="DetectAndStoreCoBubbleTracesForRecording"/> as the
+        /// load-set parameter so cross-tree peers stay visible too via
+        /// the existing committed-recordings fallback.
+        /// </param>
+        /// <returns>Count of recordings whose deferred recompute ran.</returns>
+        internal static int RecomputeDeferredCoBubbleTraces(
+            IReadOnlyDictionary<string, Recording> hydratedRecordings)
+        {
+            // Snapshot + drain so callers calling twice are idempotent.
+            KeyValuePair<string, Recording>[] snapshot;
+            lock (s_deferredCoBubbleRecomputeLock)
+            {
+                if (s_deferredCoBubbleRecomputes.Count == 0)
+                    return 0;
+                snapshot = new KeyValuePair<string, Recording>[s_deferredCoBubbleRecomputes.Count];
+                int idx = 0;
+                foreach (var kv in s_deferredCoBubbleRecomputes)
+                    snapshot[idx++] = kv;
+                s_deferredCoBubbleRecomputes.Clear();
+            }
+
+            byte[] expectedHash = CurrentConfigurationHash();
+            int processed = 0;
+            int peerWritesAttempted = 0;
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                Recording rec = snapshot[i].Value;
+                if (rec == null) continue;
+                List<Recording> peers = DetectAndStoreCoBubbleTracesForRecording(
+                    rec, hydratedRecordings);
+                // Re-write owner.pann so the freshly-detected traces are
+                // persisted (LoadOrCompute's earlier deferred write
+                // emitted an empty CoBubbleOffsetTraces block).
+                string ownerPannPath = ResolveOwnerPannPathForDeferredRecompute(rec);
+                if (!string.IsNullOrEmpty(ownerPannPath))
+                {
+                    TryWritePann(rec, ownerPannPath, expectedHash);
+                }
+                if (peers != null && peers.Count > 0)
+                {
+                    PersistPeerPannFiles(rec, peers, expectedHash);
+                    peerWritesAttempted += peers.Count;
+                }
+                processed++;
+            }
+
+            ParsekLog.Verbose("Pipeline-CoBubble",
+                string.Format(CultureInfo.InvariantCulture,
+                    "RecomputeDeferredCoBubbleTraces summary: deferredCount={0} processed={1} peerWritesAttempted={2}",
+                    snapshot.Length, processed, peerWritesAttempted));
+            return processed;
+        }
+
+        /// <summary>
+        /// Phase 8 review-pass-2 P2 helper: resolves the owner-side
+        /// <c>.pann</c> path for the deferred-recompute owner-write step.
+        /// Production routes through <see cref="RecordingPaths"/>; the
+        /// existing <see cref="PeerPannPathResolverForTesting"/> seam is
+        /// reused so xUnit can direct owner writes to a temp directory
+        /// alongside peer writes.
+        /// </summary>
+        private static string ResolveOwnerPannPathForDeferredRecompute(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
+            var seam = PeerPannPathResolverForTesting;
+            if (seam != null) return seam(rec.RecordingId);
+            string rel = RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId);
+            if (string.IsNullOrEmpty(rel)) return null;
+            return RecordingPaths.ResolveSaveScopedPath(rel);
+        }
+
         /// <summary>
         /// Phase 5 review-pass-4: post-tree-hydration revalidation pass
         /// for traces whose peer-content signature validation was
@@ -1162,19 +1455,46 @@ namespace Parsek.Rendering
 
             int dropped = 0;
             int kept = 0;
+            int peerNotInLoadSet = 0;
             for (int i = 0; i < snapshot.Length; i++)
             {
                 DeferredCoBubbleValidation entry = snapshot[i];
                 Recording peer = null;
-                if (hydratedRecordings != null)
-                    hydratedRecordings.TryGetValue(entry.PeerRecordingId, out peer);
+                bool peerInLoadSet = false;
+                if (hydratedRecordings != null
+                    && hydratedRecordings.TryGetValue(entry.PeerRecordingId, out peer)
+                    && peer != null)
+                {
+                    peerInLoadSet = true;
+                }
                 if (peer == null && hydratedRecordings != null)
                 {
+                    // Phase 8 review-pass-3 HR-9 visibility: per-entry
+                    // Verbose when the peer is genuinely missing from
+                    // the supplied load set (deleted from the save
+                    // between sessions, peer-tree never loaded, etc).
+                    // Distinct from the existing peer-still-not-hydrated
+                    // Info: "not-in-load-set" pins the cross-tree /
+                    // missing-tree case BEFORE the committed-list
+                    // fallback runs; if the fallback finds the peer in
+                    // CommittedRecordings the trace is still kept.
+                    peerNotInLoadSet++;
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "peer-not-in-load-set",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "RevalidateDeferredCoBubbleTraces: peer not in supplied load set owner={0} peer={1} startUT={2} endUT={3} loadSetCount={4}",
+                            entry.OwnerRecordingId,
+                            entry.PeerRecordingId,
+                            entry.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                            entry.EndUT.ToString("R", CultureInfo.InvariantCulture),
+                            hydratedRecordings.Count),
+                        5.0);
                     // Tree-local lookup missed; fall back to committed
                     // store (covers mid-revalidation tree commits and
                     // cross-tree peers that the sweep was invoked for).
                     peer = ResolvePeerRecording(entry.PeerRecordingId, null);
                 }
+                _ = peerInLoadSet;
 
                 if (peer == null || peer.Points == null || peer.Points.Count == 0)
                 {
@@ -1220,8 +1540,8 @@ namespace Parsek.Rendering
 
             ParsekLog.Verbose("Pipeline-CoBubble",
                 string.Format(CultureInfo.InvariantCulture,
-                    "RevalidateDeferredCoBubbleTraces summary: deferredCount={0} kept={1} dropped={2}",
-                    snapshot.Length, kept, dropped));
+                    "RevalidateDeferredCoBubbleTraces summary: deferredCount={0} kept={1} dropped={2} peerNotInLoadSet={3}",
+                    snapshot.Length, kept, dropped, peerNotInLoadSet));
             return dropped;
         }
 
@@ -1283,19 +1603,22 @@ namespace Parsek.Rendering
         {
             // Read the flags through their resolver helpers so the test
             // overrides and production settings flow through one path. The
-            // cache is invalidated whenever either flag flips.
+            // cache is invalidated whenever any flag flips.
             bool anchorFlag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
             bool coBubbleFlag = ResolveUseCoBubbleBlend();
+            bool outlierFlag = ResolveUseOutlierRejection();
             lock (s_configHashLock)
             {
                 if (s_cachedConfigurationHash == null
                     || s_cachedConfigurationHashAnchorFlag != anchorFlag
-                    || s_cachedConfigurationHashCoBubbleFlag != coBubbleFlag)
+                    || s_cachedConfigurationHashCoBubbleFlag != coBubbleFlag
+                    || s_cachedConfigurationHashOutlierFlag != outlierFlag)
                 {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default, anchorFlag, coBubbleFlag);
+                        SmoothingConfiguration.Default, anchorFlag, coBubbleFlag, outlierFlag);
                     s_cachedConfigurationHashAnchorFlag = anchorFlag;
                     s_cachedConfigurationHashCoBubbleFlag = coBubbleFlag;
+                    s_cachedConfigurationHashOutlierFlag = outlierFlag;
                 }
                 return s_cachedConfigurationHash;
             }
@@ -1325,6 +1648,27 @@ namespace Parsek.Rendering
             return settings?.useCoBubbleBlend ?? true;
         }
 
+        /// <summary>
+        /// Phase 8 test seam: when set, returned in place of
+        /// <see cref="ParsekSettings.useOutlierRejection"/>. Mirrors
+        /// <see cref="UseCoBubbleBlendResolverForTesting"/>'s shape.
+        /// </summary>
+        internal static System.Func<bool> UseOutlierRejectionResolverForTesting;
+
+        /// <summary>
+        /// Resolves the Phase 8 <c>useOutlierRejection</c> flag through the
+        /// test seam first, then through <see cref="ParsekSettings.Current"/>.
+        /// Defaults to true when <c>Current</c> is null (matches the shipped
+        /// default).
+        /// </summary>
+        internal static bool ResolveUseOutlierRejection()
+        {
+            var seam = UseOutlierRejectionResolverForTesting;
+            if (seam != null) return seam();
+            ParsekSettings settings = ParsekSettings.Current;
+            return settings?.useOutlierRejection ?? true;
+        }
+
         private static long SafeFileLength(string path)
         {
             try { return new FileInfo(path).Length; }
@@ -1345,6 +1689,7 @@ namespace Parsek.Rendering
             string recordingId = rec.RecordingId;
             var splines = new List<KeyValuePair<int, SmoothingSpline>>();
             var anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
+            var outlierFlagsList = new List<KeyValuePair<int, OutlierFlags>>();
             if (rec.TrackSections != null)
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
@@ -1358,6 +1703,14 @@ namespace Parsek.Rendering
                         && cands != null && cands.Length > 0)
                     {
                         anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(i, cands));
+                    }
+                    // Phase 8: collect outlier flags. Empty / null entries
+                    // are skipped — the absence of an entry is the canonical
+                    // "no krakens detected in this section" representation.
+                    if (SectionAnnotationStore.TryGetOutlierFlags(recordingId, i, out OutlierFlags flags)
+                        && flags != null && flags.PackedBitmap != null && flags.RejectedCount > 0)
+                    {
+                        outlierFlagsList.Add(new KeyValuePair<int, OutlierFlags>(i, flags));
                     }
                 }
             }
@@ -1391,13 +1744,14 @@ namespace Parsek.Rendering
                     configHash,
                     splines,
                     anchorCandidates,
-                    coBubbleTraces);
+                    coBubbleTraces,
+                    outlierFlagsList);
 
                 long bytes = SafeFileLength(pannPath);
                 ParsekLog.Verbose("Pipeline-Sidecar",
                     $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} " +
                     $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
-                    $"coBubbleTraceCount={coBubbleCount}");
+                    $"coBubbleTraceCount={coBubbleCount} outlierFlagsCount={outlierFlagsList.Count}");
             }
             catch (Exception ex)
             {
