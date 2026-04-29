@@ -337,7 +337,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void RecordingEndsWithCheckpoint_NoBubbleExit()
+        public void RecordingEndsWithCheckpoint_BubbleExitOnly_NoTrailingBubbleEntry()
         {
             // §7.7 emits BubbleExit at Active→Checkpoint transitions; this
             // recording has the transition (so a BubbleExit DOES land on

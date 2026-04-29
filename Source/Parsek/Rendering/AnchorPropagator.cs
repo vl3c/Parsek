@@ -813,31 +813,15 @@ namespace Parsek.Rendering
             // resolve via the analytical Kepler propagation instead. This
             // is the path §7.7 BubbleEntry/Exit candidates take (they land
             // on the Checkpoint segment's own index, where the Kepler
-            // segment is the "smoothed" reference).
+            // segment is the "smoothed" reference). The shared helper
+            // covers the partial-last-checkpoint endpoint-fallback case
+            // that previously left ε = 0 when the candidate UT equalled
+            // the section's endUT but the last sampled checkpoint's
+            // endUT was a hair below — see TrajectoryMath.EvaluateOrbitSegmentAtUT.
             if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
             {
-                if (section.checkpoints == null || section.checkpoints.Count == 0)
-                    return null;
-                OrbitSegment? maybeSeg = TrajectoryMath.FindOrbitSegment(section.checkpoints, ut);
-                if (!maybeSeg.HasValue) return null;
-                OrbitSegment seg = maybeSeg.Value;
-                CelestialBody ckBody = ResolveBody(seg.bodyName);
-                if (ckBody == null) return null;
-                try
-                {
-                    Orbit orbit = new Orbit(
-                        seg.inclination, seg.eccentricity, seg.semiMajorAxis,
-                        seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
-                        seg.meanAnomalyAtEpoch, seg.epoch, ckBody);
-                    Vector3d ckPos = orbit.getPositionAtUT(ut);
-                    if (double.IsNaN(ckPos.x) || double.IsNaN(ckPos.y) || double.IsNaN(ckPos.z))
-                        return null;
-                    return ckPos;
-                }
-                catch
-                {
-                    return null;
-                }
+                return TrajectoryMath.EvaluateOrbitSegmentAtUT(
+                    section.checkpoints, ut, ResolveBody);
             }
 
             if (!SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)

@@ -220,40 +220,14 @@ namespace Parsek.Rendering
             TrackSection ckSection = rec.TrackSections[ckIdx];
             if (ckSection.referenceFrame != ReferenceFrame.OrbitalCheckpoint) return false;
 
-            // Pick the OrbitSegment that brackets the boundary UT. When the
-            // boundary is the section's startUT (ABSOLUTE→Checkpoint, side=End
-            // on ABSOLUTE side), the first checkpoint covers it. When the
-            // boundary is the section's endUT (Checkpoint→ABSOLUTE, side=Start
-            // on ABSOLUTE side), the last checkpoint covers it. FindOrbitSegment
-            // already does the right thing for any UT in [start,end].
-            if (ckSection.checkpoints == null || ckSection.checkpoints.Count == 0)
-                return false;
-
-            OrbitSegment? maybeSeg = TrajectoryMath.FindOrbitSegment(ckSection.checkpoints, boundaryUT);
-            if (!maybeSeg.HasValue)
-            {
-                // Fall back to nearest endpoint by side.
-                maybeSeg = side == AnchorSide.End
-                    ? ckSection.checkpoints[0]
-                    : ckSection.checkpoints[ckSection.checkpoints.Count - 1];
-            }
-            OrbitSegment seg = maybeSeg.Value;
-
-            CelestialBody body = ResolveBody(seg.bodyName);
-            if (body == null) return false;
-
-            try
-            {
-                Orbit orbit = new Orbit(
-                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
-                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
-                    seg.meanAnomalyAtEpoch, seg.epoch, body);
-                worldPos = orbit.getPositionAtUT(boundaryUT);
-            }
-            catch
-            {
-                return false;
-            }
+            // Pick the OrbitSegment that brackets the boundary UT and
+            // evaluate Kepler at it. The shared helper handles the
+            // partial-first / partial-last checkpoint endpoint fallback
+            // for both §7.5 and §7.7 — see TrajectoryMath.EvaluateOrbitSegmentAtUT.
+            Vector3d? maybePos = TrajectoryMath.EvaluateOrbitSegmentAtUT(
+                ckSection.checkpoints, boundaryUT, ResolveBody);
+            if (!maybePos.HasValue) return false;
+            worldPos = maybePos.Value;
             return IsFinite(worldPos);
         }
 
