@@ -12,7 +12,7 @@ namespace Parsek
     /// <para>
     /// A <see cref="RewindPoint"/> becomes reap-eligible when every child
     /// slot's effective recording is closed: <see cref="MergeState.Immutable"/>
-    /// unless the slot is unsealed, parked, and still qualifies as an
+    /// unless the slot is unsealed, stashed, and still qualifies as an
     /// Unfinished Flight, or a sealed
     /// <see cref="MergeState.CommittedProvisional"/>. At that point no slot
     /// can be re-flown any more, so the on-disk quicksave and the scenario
@@ -172,7 +172,7 @@ namespace Parsek
         /// A <see cref="RewindPoint"/> is reap-eligible when <b>all</b> of:
         /// <list type="bullet">
         ///   <item><description><see cref="RewindPoint.SessionProvisional"/> is false (the owning session has merged).</description></item>
-        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed, parked, and still qualifies as an Unfinished Flight, or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
+        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed, stashed, and still qualifies as an Unfinished Flight, or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
         /// </list>
         /// A slot whose OriginChildRecordingId is null/blank is treated as
         /// terminal-Immutable (there is no recording that could still be
@@ -223,7 +223,7 @@ namespace Parsek
                     return false;
                 if (rec.MergeState == MergeState.Immutable)
                 {
-                    if (slot.Parked
+                    if (slot.Stashed
                         && !slot.Sealed
                         && UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed: true))
                         return false;

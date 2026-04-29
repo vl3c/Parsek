@@ -44,8 +44,8 @@ namespace Parsek.Tests
                         DisabledReason = "lookup failed",
                         Sealed = true,
                         SealedRealTime = "2026-04-28T10:15:30.0000000Z",
-                        Parked = true,
-                        ParkedRealTime = "2026-04-29T08:09:10.0000000Z"
+                        Stashed = true,
+                        StashedRealTime = "2026-04-29T08:09:10.0000000Z"
                     },
                     new ChildSlot
                     {
@@ -93,8 +93,8 @@ namespace Parsek.Tests
             Assert.Null(restored.ChildSlots[0].DisabledReason);
             Assert.False(restored.ChildSlots[0].Sealed);
             Assert.Null(restored.ChildSlots[0].SealedRealTime);
-            Assert.False(restored.ChildSlots[0].Parked);
-            Assert.Null(restored.ChildSlots[0].ParkedRealTime);
+            Assert.False(restored.ChildSlots[0].Stashed);
+            Assert.Null(restored.ChildSlots[0].StashedRealTime);
 
             Assert.Equal(1, restored.ChildSlots[1].SlotIndex);
             Assert.Equal("rec_child1", restored.ChildSlots[1].OriginChildRecordingId);
@@ -102,13 +102,13 @@ namespace Parsek.Tests
             Assert.Equal("lookup failed", restored.ChildSlots[1].DisabledReason);
             Assert.True(restored.ChildSlots[1].Sealed);
             Assert.Equal("2026-04-28T10:15:30.0000000Z", restored.ChildSlots[1].SealedRealTime);
-            Assert.True(restored.ChildSlots[1].Parked);
-            Assert.Equal("2026-04-29T08:09:10.0000000Z", restored.ChildSlots[1].ParkedRealTime);
+            Assert.True(restored.ChildSlots[1].Stashed);
+            Assert.Equal("2026-04-29T08:09:10.0000000Z", restored.ChildSlots[1].StashedRealTime);
 
             Assert.Equal(2, restored.ChildSlots[2].SlotIndex);
             Assert.Equal("rec_child2", restored.ChildSlots[2].OriginChildRecordingId);
             Assert.False(restored.ChildSlots[2].Sealed);
-            Assert.False(restored.ChildSlots[2].Parked);
+            Assert.False(restored.ChildSlots[2].Stashed);
 
             Assert.Equal(3, restored.PidSlotMap.Count);
             Assert.Equal(0, restored.PidSlotMap[12345678u]);
@@ -188,8 +188,8 @@ namespace Parsek.Tests
             Assert.Single(restored.ChildSlots);
             Assert.False(restored.ChildSlots[0].Sealed);
             Assert.Null(restored.ChildSlots[0].SealedRealTime);
-            Assert.False(restored.ChildSlots[0].Parked);
-            Assert.Null(restored.ChildSlots[0].ParkedRealTime);
+            Assert.False(restored.ChildSlots[0].Stashed);
+            Assert.Null(restored.ChildSlots[0].StashedRealTime);
         }
     }
 }

@@ -18,7 +18,7 @@ namespace Parsek
     /// pipeline. Cached snapshot is computed at most once per 10s wall-clock
     /// per code path, logged once, and reused. Cache is keyed by the resolved
     /// directory path and the lightweight state-version counters that affect
-    /// the live RP buckets, so switching saves or sealing/parking/merging slots
+    /// the live RP buckets, so switching saves or sealing/stashing/merging slots
     /// invalidates naturally.
     /// </para>
     ///

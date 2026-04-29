@@ -1079,9 +1079,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_ParkedStableLeaf_ClearsParkedAndReaps()
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_ClearsStashedAndReaps()
         {
-            const string kBpId = "bp_inplace_parked_leaf";
+            const string kBpId = "bp_inplace_stashed_leaf";
             var origin = Rec("rec_rover", "tree_1",
                 parentBranchPointId: kBpId,
                 state: MergeState.NotCommitted,
@@ -1114,12 +1114,12 @@ namespace Parsek.Tests
                 SlotIndex = 1,
                 OriginChildRecordingId = "rec_rover",
                 Controllable = true,
-                Parked = true,
-                ParkedRealTime = "2026-04-29T12:00:00.0000000Z",
+                Stashed = true,
+                StashedRealTime = "2026-04-29T12:00:00.0000000Z",
             };
             scenario.RewindPoints.Add(new RewindPoint
             {
-                RewindPointId = "rp_inplace_parked_leaf",
+                RewindPointId = "rp_inplace_stashed_leaf",
                 BranchPointId = kBpId,
                 UT = 0.0,
                 FocusSlotIndex = 0,
@@ -1153,26 +1153,26 @@ namespace Parsek.Tests
             }
 
             Assert.Equal(MergeState.Immutable, origin.MergeState);
-            Assert.False(roverSlot.Parked);
-            Assert.Null(roverSlot.ParkedRealTime);
+            Assert.False(roverSlot.Stashed);
+            Assert.Null(roverSlot.StashedRealTime);
             Assert.False(roverSlot.Sealed);
             Assert.Empty(scenario.RewindPoints);
             Assert.Null(scenario.ActiveReFlySessionMarker);
             Assert.Equal(1, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("classifierReason=parkedStableLeaf")
+                && l.Contains("classifierReason=stashedStableLeaf")
                 && l.Contains("mergeState=CommittedProvisional"));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("in-place continuation cleared Parked")
+                && l.Contains("in-place continuation cleared stashed")
                 && l.Contains("rec=rec_rover"));
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_ParkedClearResolverMiss_LogsVerbose()
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedClearResolverMiss_LogsVerbose()
         {
-            const string kBpId = "bp_inplace_parked_miss";
+            const string kBpId = "bp_inplace_stashed_miss";
             var origin = Rec("rec_rover", "tree_1",
                 parentBranchPointId: kBpId,
                 state: MergeState.NotCommitted,
@@ -1202,7 +1202,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(marker);
             scenario.RewindPoints.Add(new RewindPoint
             {
-                RewindPointId = "rp_inplace_parked_miss",
+                RewindPointId = "rp_inplace_stashed_miss",
                 BranchPointId = kBpId,
                 UT = 0.0,
                 FocusSlotIndex = 0,
@@ -1214,8 +1214,8 @@ namespace Parsek.Tests
                         SlotIndex = 0,
                         OriginChildRecordingId = "rec_other",
                         Controllable = true,
-                        Parked = true,
-                        ParkedRealTime = "2026-04-29T12:00:00.0000000Z",
+                        Stashed = true,
+                        StashedRealTime = "2026-04-29T12:00:00.0000000Z",
                     },
                 },
             });
@@ -1242,7 +1242,7 @@ namespace Parsek.Tests
             Assert.Equal(1, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("could not resolve Parked slot to clear")
+                && l.Contains("could not resolve stashed slot to clear")
                 && l.Contains("rec=rec_rover")
                 && l.Contains("reason=noMatchingRpSlot"));
         }

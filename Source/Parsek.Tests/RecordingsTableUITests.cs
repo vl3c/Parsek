@@ -63,7 +63,7 @@ namespace Parsek.Tests
             string recId,
             bool disabled = false,
             string disabledReason = null,
-            bool parked = false)
+            bool stashed = false)
         {
             return new ChildSlot
             {
@@ -72,8 +72,8 @@ namespace Parsek.Tests
                 Controllable = true,
                 Disabled = disabled,
                 DisabledReason = disabledReason,
-                Parked = parked,
-                ParkedRealTime = parked ? "2026-04-29T11:12:13.0000000Z" : null
+                Stashed = stashed,
+                StashedRealTime = stashed ? "2026-04-29T11:12:13.0000000Z" : null
             };
         }
 
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveParkableUnfinishedFlightRewindPoint_LandedChildFindsRpSlot()
+        public void TryResolveStashableUnfinishedFlightRewindPoint_LandedChildFindsRpSlot()
         {
             var landed = new Recording
             {
@@ -229,7 +229,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRp(rp);
 
-            bool resolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+            bool resolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
                 landed, out RewindPoint resolvedRp, out int slotListIndex, out string reason);
 
             Assert.True(resolved);
@@ -239,7 +239,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedLandedChildResolvesAsUnfinishedFlightAndNoLongerParkable()
+        public void StashedLandedChildResolvesAsUnfinishedFlightAndNoLongerStashable()
         {
             var landed = new Recording
             {
@@ -253,26 +253,26 @@ namespace Parsek.Tests
             {
                 RewindPointId = "rp_stage",
                 BranchPointId = "bp_stage",
-                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed", parked: true) }
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed", stashed: true) }
             };
             InstallScenarioWithRp(rp);
 
             bool ufResolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
                 landed, out RewindPoint ufRp, out int ufSlot);
-            bool parkResolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
-                landed, out RewindPoint parkRp, out int parkSlot, out string reason);
+            bool stashResolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
+                landed, out RewindPoint stashRp, out int stashSlot, out string reason);
 
             Assert.True(ufResolved);
             Assert.Same(rp, ufRp);
             Assert.Equal(0, ufSlot);
-            Assert.False(parkResolved);
-            Assert.Null(parkRp);
-            Assert.Equal(-1, parkSlot);
-            Assert.Equal("alreadyParked", reason);
+            Assert.False(stashResolved);
+            Assert.Null(stashRp);
+            Assert.Equal(-1, stashSlot);
+            Assert.Equal("alreadyStashed", reason);
         }
 
         [Fact]
-        public void TryResolveParkableUnfinishedFlightRewindPoint_AlreadyUnfinishedFlightReturnsFalse()
+        public void TryResolveStashableUnfinishedFlightRewindPoint_AlreadyUnfinishedFlightReturnsFalse()
         {
             var crash = new Recording
             {
@@ -289,7 +289,7 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_crash") }
             });
 
-            bool resolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+            bool resolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
                 crash, out RewindPoint rp, out int slotListIndex, out string reason);
 
             Assert.False(resolved);
@@ -656,7 +656,7 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
@@ -673,7 +673,7 @@ namespace Parsek.Tests
         [Fact]
         public void TemporalButtons_RemainIndependentFromWatchState_PinnedBySourceInspection()
         {
-            // T60: the watch button uses ghost presence/body/range, but R/FF must stay
+            // T60: the watch button uses ghost presence/body/range, but Rewind/Forward must stay
             // coupled only to recording timing/save/runtime state. Pin that separation
             // in both row and group call sites so a future refactor can't silently wire
             // watch-distance variables into the temporal controls.
@@ -683,7 +683,7 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
@@ -694,7 +694,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain("sameBody", rowBlock);
             Assert.DoesNotContain("inRange", rowBlock);
 
-            int groupStart = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", StringComparison.Ordinal);
+            int groupStart = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", StringComparison.Ordinal);
             int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
             string groupBlock = uiSrc.Substring(groupStart, groupEnd - groupStart);
 
@@ -814,14 +814,14 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
             int rowWatchStart = uiSrc.IndexOf("// Watch button (flight only)", StringComparison.Ordinal);
-            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button", rowWatchStart, StringComparison.Ordinal);
+            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Forward button", rowWatchStart, StringComparison.Ordinal);
             string rowWatchBlock = uiSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
 
             Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
             int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
-            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
+            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
             string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
