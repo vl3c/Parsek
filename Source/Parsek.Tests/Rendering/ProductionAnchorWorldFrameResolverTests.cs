@@ -25,6 +25,7 @@ namespace Parsek.Tests.Rendering
     /// the limits of xUnit's runtime). The pattern matches
     /// <see cref="ParsekUITests"/>'s headless Unity teardown.
     /// </summary>
+    [Collection("Sequential")]
     public class ProductionAnchorWorldFrameResolverTests
     {
         private readonly ProductionAnchorWorldFrameResolver resolver = new ProductionAnchorWorldFrameResolver();
@@ -304,6 +305,172 @@ namespace Parsek.Tests.Rendering
                 resolver.TryResolveLoopAnchorWorldPos(
                     rec, sectionIndex: 0, side: AnchorSide.Start,
                     sampleUT: 0, out w));
+        }
+
+        // --- §7.7 BubbleEntry / BubbleExit guard paths --------------------
+
+        private static Recording MakePhysicsAndCheckpoint(string id, bool physFramesEmpty)
+        {
+            // Section 0 = physics-active (Active, Absolute), section 1 =
+            // Checkpoint. BubbleEntry candidate (side=End on section 0)
+            // resolves the FIRST sample of section 1's neighbour... wait,
+            // §7.7 candidates land on the Checkpoint segment's index, not
+            // the physics-active side. So:
+            //   sectionIndex=1 (Checkpoint), side=Start → BubbleExit reads
+            //     section 0's (physics-active) LAST frame.
+            //   sectionIndex=1 (Checkpoint), side=End   → BubbleEntry reads
+            //     section 2's frames — but here we only have 2 sections, so
+            //     this fixture exercises only the BubbleExit / Side=Start
+            //     path. The Side=End path needs MakeCheckpointThenPhysics.
+            var rec = new Recording { RecordingId = id };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0, endUT = 100,
+                source = TrackSectionSource.Active,
+                frames = physFramesEmpty
+                    ? new List<TrajectoryPoint>()
+                    : new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 0, bodyName = "DoesNotExist" },
+                    },
+                checkpoints = new List<OrbitSegment>(),
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100, endUT = 200,
+                source = TrackSectionSource.Checkpoint,
+                frames = null,
+                checkpoints = new List<OrbitSegment>(),
+            });
+            return rec;
+        }
+
+        private static Recording MakeCheckpointThenPhysics(string id, bool physFramesEmpty)
+        {
+            // Section 0 = Checkpoint, section 1 = physics-active. Used to
+            // exercise BubbleEntry (sectionIndex=0, side=End → reads
+            // section 1's FIRST frame).
+            var rec = new Recording { RecordingId = id };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 0, endUT = 100,
+                source = TrackSectionSource.Checkpoint,
+                frames = null,
+                checkpoints = new List<OrbitSegment>(),
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100, endUT = 200,
+                source = TrackSectionSource.Active,
+                frames = physFramesEmpty
+                    ? new List<TrajectoryPoint>()
+                    : new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 0, bodyName = "DoesNotExist" },
+                    },
+                checkpoints = new List<OrbitSegment>(),
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void BubbleEntryExit_NullRecording_ReturnsFalse()
+        {
+            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
+                resolver.TryResolveBubbleEntryExitWorldPos(
+                    rec: null, sectionIndex: 0, side: AnchorSide.Start,
+                    boundaryUT: 0, out w));
+        }
+
+        [Fact]
+        public void BubbleEntryExit_NullTrackSections_ReturnsFalse()
+        {
+            var rec = new Recording { RecordingId = "rec-bubble-null-sections" };
+            rec.TrackSections = null;
+            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
+                resolver.TryResolveBubbleEntryExitWorldPos(
+                    rec, sectionIndex: 0, side: AnchorSide.Start,
+                    boundaryUT: 0, out w));
+        }
+
+        [Fact]
+        public void BubbleEntryExit_SectionIndexOutOfRange_ReturnsFalse()
+        {
+            var rec = MakePhysicsAndCheckpoint("rec-bubble-oor", physFramesEmpty: false);
+            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
+                resolver.TryResolveBubbleEntryExitWorldPos(
+                    rec, sectionIndex: 99, side: AnchorSide.Start,
+                    boundaryUT: 100, out w));
+        }
+
+        [Fact]
+        public void BubbleExit_AdjacentPrevSectionIsCheckpoint_ReturnsFalse()
+        {
+            // Two Checkpoint sections — adjacent of section 1 with
+            // side=Start is section 0, but section 0 is also a Checkpoint
+            // (TrackSectionSource.Checkpoint), so the source-class guard
+            // rejects.
+            var rec = new Recording { RecordingId = "rec-bubble-prev-ck" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 0, endUT = 100,
+                source = TrackSectionSource.Checkpoint,
+                frames = null,
+                checkpoints = new List<OrbitSegment>(),
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100, endUT = 200,
+                source = TrackSectionSource.Checkpoint,
+                frames = null,
+                checkpoints = new List<OrbitSegment>(),
+            });
+            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
+                resolver.TryResolveBubbleEntryExitWorldPos(
+                    rec, sectionIndex: 1, side: AnchorSide.Start,
+                    boundaryUT: 100, out w));
+        }
+
+        [Fact]
+        public void BubbleEntry_AdjacentNextSectionFramesEmpty_ReturnsFalseAndLogsNoSample()
+        {
+            // sectionIndex=0 Checkpoint, side=End → physIdx=1 (physics-active)
+            // but its frames list is empty. The resolver must early-return
+            // false AND emit the no-sample Verbose so the operator can
+            // attribute the missing anchor.
+            var capturedLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
+            try
+            {
+                var rec = MakeCheckpointThenPhysics("rec-bubble-empty-frames", physFramesEmpty: true);
+                bool ok = resolver.TryResolveBubbleEntryExitWorldPos(
+                    rec, sectionIndex: 0, side: AnchorSide.End,
+                    boundaryUT: 100, out Vector3d _);
+                Assert.False(ok);
+                Assert.Contains(capturedLines,
+                    l => l.Contains("[VERBOSE][Pipeline-Anchor]")
+                        && l.Contains("bubble-entry-exit-no-sample")
+                        && l.Contains("rec-bubble-empty-frames"));
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Headless xUnit runtime can't drive Unity ECall metadata;
+                // silently accept that we never reached the physics-active
+                // branch. The unit-test pass already covers the assertion.
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
         }
     }
 }

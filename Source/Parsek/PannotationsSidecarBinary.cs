@@ -205,6 +205,18 @@ namespace Parsek
         // the alg-stamp bump drives them through alg-stamp-drift on
         // first load (HR-10).
         //
+        // §7.7 BubbleEntry/BubbleExit (merged in from main): the
+        // AnchorCandidateBuilder now emits a seventh candidate type at
+        // every Active|Background ↔ Checkpoint source-class transition.
+        // The on-disk schema is unchanged (BubbleEntry/BubbleExit fit in
+        // the existing type-byte taxonomy bits 0-6), but the byte content
+        // for any recording that has those transitions changes. Mainline
+        // shipped this at AlgorithmStampVersion=5; on the Phase 5 stack
+        // it lands inside the v8 alg-stamp window — v5 mainline .pann
+        // files invalidate via alg-stamp-drift (5 ≠ 8) and recompute
+        // with both Phase 5 co-bubble traces and §7.7 candidates active
+        // (HR-10).
+        //
         // PHASE 8 STACK COORDINATION (PR #644 rebase fixup): Phase 8
         // already bumped AlgorithmStampVersion to 7 in commit 8b9f623d
         // for OutlierFlagsList AND grew CanonicalEncodingLength 53 → 86

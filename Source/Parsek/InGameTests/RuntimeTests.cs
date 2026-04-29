@@ -14269,6 +14269,38 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// v0.9.1 §7.7. BubbleExit candidate — emitted at every
+        /// Active|Background → Checkpoint source-class transition. Lands
+        /// on the Checkpoint segment's Side=Start; the resolver reads the
+        /// LAST physics-active sample as the high-fidelity reference.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Anchor-BubbleEntry", Scene = GameScenes.FLIGHT,
+            Description = "v0.9.1 §7.7 BubbleExit candidate produces non-zero ε via the resolver")]
+        public IEnumerator Pipeline_Anchor_BubbleExit()
+        {
+            yield return RunPhase6PerSourceFixture(
+                testName: "Pipeline_Anchor_BubbleExit",
+                source: Parsek.Rendering.AnchorSource.BubbleExit,
+                side: Parsek.Rendering.AnchorSide.Start);
+        }
+
+        /// <summary>
+        /// v0.9.1 §7.7. BubbleEntry candidate — emitted at every
+        /// Checkpoint → Active|Background source-class transition. Lands
+        /// on the Checkpoint segment's Side=End; the resolver reads the
+        /// FIRST physics-active sample as the high-fidelity reference.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Anchor-BubbleEntry", Scene = GameScenes.FLIGHT,
+            Description = "v0.9.1 §7.7 BubbleEntry candidate produces non-zero ε via the resolver")]
+        public IEnumerator Pipeline_Anchor_BubbleEntry()
+        {
+            yield return RunPhase6PerSourceFixture(
+                testName: "Pipeline_Anchor_BubbleEntry",
+                source: Parsek.Rendering.AnchorSource.BubbleEntry,
+                side: Parsek.Rendering.AnchorSide.End);
+        }
+
+        /// <summary>
         /// Phase 6 §7.2. Dock event: parent and child both produce a
         /// candidate at the boundary UT. The propagator's edge walk
         /// inherits the parent's End ε into the child's Start side.
@@ -14514,6 +14546,10 @@ namespace Parsek.InGameTests
             public bool TryResolveLoopAnchorWorldPos(
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double sampleUT, out Vector3d worldPos)
+            { worldPos = this.worldPos; return true; }
+            public bool TryResolveBubbleEntryExitWorldPos(
+                Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
+                double boundaryUT, out Vector3d worldPos)
             { worldPos = this.worldPos; return true; }
         }
 

@@ -73,5 +73,24 @@ namespace Parsek.Rendering
         bool TryResolveLoopAnchorWorldPos(
             Recording rec, int sectionIndex, AnchorSide side,
             double sampleUT, out Vector3d worldPos);
+
+        /// <summary>
+        /// §7.7 BubbleEntry / BubbleExit world-frame reference. The
+        /// <paramref name="boundaryUT"/> is the seam UT shared by the
+        /// physics-active (Active|Background) and propagation-only
+        /// (Checkpoint) adjacent sections. The candidate's
+        /// <paramref name="sectionIndex"/> always points at the Checkpoint
+        /// segment by AnchorCandidateBuilder construction (Side=Start for
+        /// BubbleExit, Side=End for BubbleEntry) — the resolver finds the
+        /// adjacent physics-active section internally and reads the LAST
+        /// physics-active sample (BubbleExit) or the FIRST physics-active
+        /// sample (BubbleEntry) as the high-fidelity world reference. The
+        /// physics-active sample is converted to world via the section's
+        /// FrameTag dispatch (Absolute → <c>body.GetWorldSurfacePosition</c>;
+        /// Relative → deferred for v0.9.1).
+        /// </summary>
+        bool TryResolveBubbleEntryExitWorldPos(
+            Recording rec, int sectionIndex, AnchorSide side,
+            double boundaryUT, out Vector3d worldPos);
     }
 }
