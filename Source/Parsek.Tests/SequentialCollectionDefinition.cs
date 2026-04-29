@@ -16,9 +16,12 @@ namespace Parsek.Tests
             var attr = typeof(SequentialCollectionDefinition)
                 .GetCustomAttributes(typeof(CollectionDefinitionAttribute), inherit: false)
                 .Cast<CollectionDefinitionAttribute>()
-                .SingleOrDefault();
+                .Single();
+            var attrData = typeof(SequentialCollectionDefinition)
+                .GetCustomAttributesData()
+                .Single(a => a.AttributeType == typeof(CollectionDefinitionAttribute));
 
-            Assert.NotNull(attr);
+            Assert.Equal("Sequential", attrData.ConstructorArguments.Single().Value);
             Assert.True(attr.DisableParallelization);
         }
     }
