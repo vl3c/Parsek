@@ -219,6 +219,26 @@ namespace Parsek
         // pre-rebase coordination notes called out 7 → 8 (and a later
         // amendment 7 → 9 once Phase 5 review-pass-5 landed); the
         // current value reflects the actual rebase landing.
+        //
+        // Phase 8 review-pass-2 (P2 deferred recompute, P3
+        // PrimaryDesignation byte semantics fix) does NOT bump the
+        // stamp:
+        //   • P2 is validation-flow correctness (lazy recompute defers
+        //     when peers haven't yet hydrated and a post-tree-hydration
+        //     sweep does the work) — no change to persisted content
+        //     semantics.
+        //   • P3 swaps the two byte literals for `PrimaryDesignation`
+        //     in CoBubbleOverlapDetector.DetectAndStore so the
+        //     persisted bytes match the §17.3.1 contract (0 = self is
+        //     primary, 1 = self is peer relative to the trace's
+        //     owning recording). This DOES change one persisted byte
+        //     per trace, but the field is reserved for future selector
+        //     use and the current selector ignores it entirely. v9
+        //     files written before this commit have the inverted
+        //     designation byte; they're still functionally correct
+        //     (selector doesn't read the field), and the next
+        //     AlgStamp bump for any other reason will sweep them up.
+        //     Bumping for every PrimaryDesignation flip would be churn.
         internal const int AlgorithmStampVersion = 9;
         private const int CanonicalEncoderVersion = 1;
 

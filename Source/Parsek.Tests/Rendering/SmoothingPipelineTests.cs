@@ -571,10 +571,16 @@ namespace Parsek.Tests.Rendering
             // window, the blender would find no recorded trace and fall
             // back to standalone.
             //
-            // Fix: LoadOrCompute now mirrors PersistAfterCommit's
-            // behaviour by calling PersistPeerPannFiles after the
-            // recompute, using the same touched-by-this-recompute
-            // filter.
+            // Phase 8 review-pass-2 P2 follow-up: when treeLocalLoadSet
+            // is supplied (mid-tree-load), peer persistence is now
+            // deferred to the OnLoad post-hydration sweep
+            // (RecomputeDeferredCoBubbleTraces) — the inline
+            // PersistPeerPannFiles call moved to the non-tree-load lazy-
+            // compute branch. This test covers BOTH halves: the inline
+            // path (treeLocalLoadSet=null) writes both .pann files
+            // immediately; the deferred path (treeLocalLoadSet=
+            // {recA, recB}) writes nothing inline but the sweep produces
+            // both files.
             string pannPathA = Path.Combine(tempDir, "rec-A-lazy-peer.pann");
 
             var recA = MakeRecording("rec-A-lazy-peer",
@@ -622,13 +628,24 @@ namespace Parsek.Tests.Rendering
             SmoothingPipeline.PeerPannPathResolverForTesting = recordingId =>
                 Path.Combine(peerPannDir, recordingId + ".pann");
 
+            // Phase 8 review-pass-2 P2: also stand up CommittedRecordings
+            // so the inline (non-tree-load) recompute path's
+            // DetectAndStoreCoBubbleTracesForRecording can see both peers
+            // — the inline path passes treeLocalLoadSet=null, so the
+            // detector's snapshot composition reads from CommittedRecordings.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             try
             {
+                RecordingStore.AddCommittedInternal(recA);
+                RecordingStore.AddCommittedInternal(recB);
+
                 // Step 1: write a stale-alg-stamp .pann for recA.
                 byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
                     SmoothingConfiguration.Default,
                     AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
-                    SmoothingPipeline.ResolveUseCoBubbleBlend());
+                    SmoothingPipeline.ResolveUseCoBubbleBlend(),
+                    SmoothingPipeline.ResolveUseOutlierRejection());
                 PannotationsSidecarBinary.Write(pannPathA,
                     "rec-A-lazy-peer",
                     sourceSidecarEpoch: recA.SidecarEpoch,
@@ -639,17 +656,16 @@ namespace Parsek.Tests.Rendering
                 bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
                 File.WriteAllBytes(pannPathA, bytes);
 
-                // Step 2: trigger lazy recompute for recA with recB
-                // visible via the load set.
-                var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
-                {
-                    { recA.RecordingId, recA },
-                    { recB.RecordingId, recB },
-                };
-                SmoothingPipeline.LoadOrCompute(recA, pannPathA, loadSet);
+                // Step 2: trigger NON-TREE-LOAD lazy recompute (no load
+                // set). Production hits this path for manual cache-bust
+                // outside OnLoad; it persists peer .pann inline because
+                // there are no later peers waiting to hydrate. recB is
+                // visible via CommittedRecordings.
+                SmoothingPipeline.LoadOrCompute(recA, pannPathA, treeLocalLoadSet: null);
 
                 // recB.pann must exist on disk under the seam path,
-                // proving the lazy recompute mirrored the peer write.
+                // proving the inline lazy recompute mirrored the peer
+                // write (review-pass-3 P3-1 contract).
                 string expectedPeerPath = Path.Combine(peerPannDir, recB.RecordingId + ".pann");
                 Assert.True(File.Exists(expectedPeerPath),
                     $"Peer .pann file should exist at {expectedPeerPath}");
@@ -661,9 +677,15 @@ namespace Parsek.Tests.Rendering
                 Assert.NotNull(peerTraces);
                 Assert.Contains(peerTraces, t =>
                     t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // Phase 8 review-pass-2 P2: inline path must NOT have
+                // enqueued the recording for deferred recompute (the
+                // deferred path is gated on treeLocalLoadSet != null).
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
             }
             finally
             {
+                RecordingStore.ResetForTesting();
                 CoBubbleOverlapDetector.ResetForTesting();
             }
         }
@@ -1028,11 +1050,28 @@ namespace Parsek.Tests.Rendering
             // AlgorithmStampVersion or config-hash drift fell back to
             // standalone playback until recordings were recommitted.
             //
-            // Fix: the recompute path also calls
-            // CoBubbleOverlapDetector.DetectAndStore so the regenerated .pann
-            // contains traces for any pair of recordings that overlapped at
-            // commit time.
-            string pannPath = Path.Combine(tempDir, "rec-drift-cobubble.pann");
+            // Phase 8 review-pass-2 P2 follow-up: when LoadOrCompute is
+            // running mid-tree-load (treeLocalLoadSet != null), peers
+            // hydrated AFTER the current recording have empty Points at
+            // recompute time, so an inline DetectAndStore would emit no
+            // traces. The recompute path now defers that work: it
+            // enqueues recA into s_deferredCoBubbleRecomputes, writes
+            // recA.pann WITHOUT co-bubble traces, and returns. The
+            // OnLoad-driven sweep RecomputeDeferredCoBubbleTraces then
+            // runs against the now-fully-hydrated tree, populates the
+            // in-memory traces for both sides, and rewrites BOTH .pann
+            // files.
+            //
+            // This test exercises both halves end-to-end:
+            //   1. LoadOrCompute mid-tree-load → recA.pann rewritten
+            //      with NO co-bubble traces; recA enqueued for deferred
+            //      recompute.
+            //   2. RecomputeDeferredCoBubbleTraces → recA.pann + recB.pann
+            //      both contain a trace for the (recA, recB) pair.
+            string pannDir = Path.Combine(tempDir, "drift-cobubble-pann");
+            Directory.CreateDirectory(pannDir);
+            string pannPathA = Path.Combine(pannDir, "rec-A-cobubble.pann");
+            string pannPathB = Path.Combine(pannDir, "rec-B-cobubble.pann");
 
             // Two recordings whose ExoBallistic + Absolute sections overlap
             // — the canonical co-bubble pair.
@@ -1082,17 +1121,24 @@ namespace Parsek.Tests.Rendering
                 (rec, ut) => new Vector3d(0, 0, 0);
             CoBubbleOverlapDetector.BodyResolverForTesting = name =>
                 name == "Kerbin" ? fakeKerbin : null;
+            // P2: route owner + peer .pann writes through the test seam
+            // so the deferred-recompute sweep's PersistPeerPannFiles +
+            // ResolveOwnerPannPathForDeferredRecompute land on disk in
+            // pannDir (the production save-context resolver returns null
+            // in xUnit).
+            SmoothingPipeline.PeerPannPathResolverForTesting = id =>
+                Path.Combine(pannDir, id + ".pann");
 
             try
             {
-                // Step 1: write a v6-stamped .pann (the previous Phase 5
-                // alg-stamp) with no co-bubble traces. We mutate the file
-                // post-write so we don't have to back-rev the constant.
+                // Step 1: write a stale-alg-stamp recA.pann to force the
+                // recompute path on read.
                 byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
                     SmoothingConfiguration.Default,
                     AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
-                    SmoothingPipeline.ResolveUseCoBubbleBlend());
-                PannotationsSidecarBinary.Write(pannPath,
+                    SmoothingPipeline.ResolveUseCoBubbleBlend(),
+                    SmoothingPipeline.ResolveUseOutlierRejection());
+                PannotationsSidecarBinary.Write(pannPathA,
                     "rec-A-cobubble",
                     sourceSidecarEpoch: recA.SidecarEpoch,
                     sourceRecordingFormatVersion: recA.RecordingFormatVersion,
@@ -1100,40 +1146,96 @@ namespace Parsek.Tests.Rendering
                     splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
                 // Mutate AlgorithmStampVersion to 6 (offset 8..11). The
-                // current file has the freshly-bumped 7; we mutate to a
-                // stale value to force alg-stamp-drift on read.
-                byte[] bytes = File.ReadAllBytes(pannPath);
+                // current build's stamp is 9; we mutate to a stale value
+                // to force alg-stamp-drift on read.
+                byte[] bytes = File.ReadAllBytes(pannPathA);
                 bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
-                File.WriteAllBytes(pannPath, bytes);
+                File.WriteAllBytes(pannPathA, bytes);
 
-                // Step 2: invoke LoadOrCompute against recA with recB
-                // visible via the tree-local load set so DetectAndStore
-                // sees both recordings.
+                // Step 2: simulate sequential mid-tree-load — LoadOrCompute
+                // for recA fires while recB is still in the load set but
+                // has empty Points at this exact moment. Build a separate
+                // recB-empty stub with the same id so the deferred path's
+                // skip behaviour is observable on the production code
+                // (the production sequential loop hands LoadOrCompute a
+                // dictionary whose entries are all Recording references
+                // from the tree, but the .prec hydration runs per-call so
+                // peers iterated later still have empty Points). Here we
+                // give recB a temporarily-empty Points list to mirror
+                // that ordering, then restore it before the sweep.
+                var recBEmpty = new Recording
+                {
+                    RecordingId = recB.RecordingId,
+                    RecordingFormatVersion = recB.RecordingFormatVersion,
+                    SidecarEpoch = recB.SidecarEpoch,
+                    // Points intentionally null/empty.
+                };
                 var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
                 {
                     { recA.RecordingId, recA },
-                    { recB.RecordingId, recB },
+                    { recB.RecordingId, recBEmpty },
                 };
-                SmoothingPipeline.LoadOrCompute(recA, pannPath, loadSet);
 
-                // The recompute path must regenerate co-bubble traces. The
-                // .pann that gets written back has at least one
-                // CoBubbleOffsetTrace pointing at recB.
-                Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probeAfter));
-                Assert.True(probeAfter.Success);
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+                SmoothingPipeline.LoadOrCompute(recA, pannPathA, loadSet);
+                Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // The first .pann rewrite reflects the deferred path:
+                // recompute ran, but no co-bubble traces were detected
+                // (recBEmpty's Points was empty), so the file has an
+                // empty CoBubbleOffsetTraces block.
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathA, out var probeAfter));
                 Assert.True(probeAfter.Supported);
-                Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probeAfter,
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathA, probeAfter,
                     out _, out _, out List<CoBubbleOffsetTrace> tracesAfter, out _));
                 Assert.NotNull(tracesAfter);
-                Assert.NotEmpty(tracesAfter);
-                Assert.Contains(tracesAfter, t =>
-                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+                Assert.Empty(tracesAfter);
 
-                // The alg-stamp-drift invalidation log fires on read.
+                // The alg-stamp-drift invalidation log fired on read.
                 Assert.Contains(logLines,
                     l => l.Contains("[INFO][Pipeline-Sidecar]")
                         && l.Contains("whole-file invalidation")
                         && l.Contains("reason=alg-stamp-drift"));
+                // The deferred-recompute Verbose log fired.
+                Assert.Contains(logLines,
+                    l => l.Contains("[Pipeline-CoBubble]")
+                        && l.Contains("LoadOrCompute deferred co-bubble detection")
+                        && l.Contains("recordingId=" + recA.RecordingId));
+
+                // Step 3: simulate the OnLoad post-hydration sweep with
+                // BOTH recordings now fully hydrated. The sweep picks up
+                // recA from the deferred set, runs DetectAndStore against
+                // {recA: full, recB: full}, and rewrites BOTH .pann files
+                // via PersistPeerPannFiles.
+                var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { recA.RecordingId, recA },
+                    { recB.RecordingId, recB },
+                };
+                int processed = SmoothingPipeline.RecomputeDeferredCoBubbleTraces(hydrated);
+                Assert.Equal(1, processed);
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // recA.pann now contains a trace pointing at recB.
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathA, out var probeA2));
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathA, probeA2,
+                    out _, out _, out List<CoBubbleOffsetTrace> aTraces, out _));
+                Assert.NotNull(aTraces);
+                Assert.NotEmpty(aTraces);
+                Assert.Contains(aTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+
+                // recB.pann was written by PersistPeerPannFiles and
+                // contains a trace pointing at recA.
+                Assert.True(File.Exists(pannPathB),
+                    $"peer recB.pann should have been written at {pannPathB}");
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathB, out var probeB));
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathB, probeB,
+                    out _, out _, out List<CoBubbleOffsetTrace> bTraces, out _));
+                Assert.NotNull(bTraces);
+                Assert.NotEmpty(bTraces);
+                Assert.Contains(bTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
             }
             finally
             {

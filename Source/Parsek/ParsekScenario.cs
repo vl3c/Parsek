@@ -2625,6 +2625,23 @@ namespace Parsek
                         }
                     }
 
+                    // Phase 8 review-pass-2 P2: post-tree-hydration
+                    // recompute sweep for recordings whose LoadOrCompute
+                    // recompute path fired mid-tree-load and deferred
+                    // co-bubble detection. Runs FIRST (before the
+                    // signature validation sweep below) so the freshly-
+                    // detected traces — whose stored signature matches
+                    // the live peer by construction — don't risk
+                    // interaction with the validation sweep, and any
+                    // pre-existing deferred-validation entries refer to
+                    // disjoint (owner, peer, UT) tuples.
+                    int recomputed = Parsek.Rendering.SmoothingPipeline.RecomputeDeferredCoBubbleTraces(tree.Recordings);
+                    if (recomputed > 0)
+                    {
+                        ParsekLog.Info("Pipeline-CoBubble",
+                            $"Post-hydration recompute: ran deferred co-bubble detection for {recomputed} recording(s) in tree {tree.Id}");
+                    }
+
                     // Phase 5 review-pass-4: post-tree-hydration sweep
                     // for deferred co-bubble peer-content-signature
                     // validations. ClassifyTraceDrift defers signature
@@ -2767,6 +2784,17 @@ namespace Parsek
                         if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")
                             staleEpochHydrationFailures++;
                     }
+                }
+
+                // Phase 8 review-pass-2 P2: post-tree-hydration
+                // recompute sweep (mirrors the committed-tree branch
+                // above). Runs FIRST, before the signature revalidation
+                // sweep below.
+                int activeTreeRecomputed = Parsek.Rendering.SmoothingPipeline.RecomputeDeferredCoBubbleTraces(tree.Recordings);
+                if (activeTreeRecomputed > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-hydration recompute: ran deferred co-bubble detection for {activeTreeRecomputed} recording(s) in active tree {tree.Id}");
                 }
 
                 // Phase 5 review-pass-4: post-tree-hydration sweep for
