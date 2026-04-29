@@ -18,6 +18,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostTrackingStationSelection.ClearSelectedGhostForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -31,6 +32,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostTrackingStationSelection.ClearSelectedGhostForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
         }
 
@@ -442,6 +444,54 @@ namespace Parsek.Tests
             Assert.False(context.MaterializeEligible);
             Assert.Equal(
                 GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
+                context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_SupersededRelation_DisablesMaterialize()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-action-old", pid: 606);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-action-new", pid: 707);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_action_context",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+            var selection = new TrackingStationGhostSelectionInfo(
+                9002u,
+                "Ghost: Superseded",
+                0,
+                oldRec.RecordingId,
+                oldRec.StartUT,
+                oldRec.EndUT,
+                oldRec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: oldRec.EndUT + 1,
+                    chains: new Dictionary<uint, GhostChain>());
+
+            Assert.Equal(0, context.RecordingIndex);
+            Assert.True(context.HasRecording);
+            Assert.False(context.MaterializeEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
                 context.MaterializeReason);
         }
 

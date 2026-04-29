@@ -13037,12 +13037,15 @@ namespace Parsek
         internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
             if (!playbackEnabled)
                 return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (supersededByRelation)
+                return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
                 return GhostPlaybackSkipReason.ExternalVesselSuppressed;
             return GhostPlaybackSkipReason.None;
@@ -13062,11 +13065,12 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
-                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7}",
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} supersededByRelation={8}",
                 index,
                 string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
                 vesselName ?? "?",
@@ -13074,7 +13078,8 @@ namespace Parsek
                 reason.ToLogToken(),
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private static void LogGhostSkipReasonChangeCore(
@@ -13084,7 +13089,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
             ParsekLog.VerboseOnChange(
@@ -13098,7 +13104,8 @@ namespace Parsek
                     reason,
                     hasRenderableData,
                     playbackEnabled,
-                    externalVesselSuppressed));
+                    externalVesselSuppressed,
+                    supersededByRelation));
         }
 
         private void ClearGhostSkipReasonLogState()
@@ -13119,7 +13126,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             LogGhostSkipReasonChangeCore(
                 index,
@@ -13128,7 +13136,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private void LogGhostSkipReasonChangeIfNeeded(
@@ -13136,7 +13145,8 @@ namespace Parsek
             Recording rec,
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -13150,7 +13160,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 rec?.PlaybackEnabled ?? false,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
 
             if (reason == GhostPlaybackSkipReason.None)
                 activeGhostSkipReasonLogIdentities.Remove(identity);
@@ -13271,6 +13282,10 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
+            var scenario = ParsekScenario.Instance;
+            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -13282,16 +13297,20 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
+                    && relationSupersededIds.Contains(rec.RecordingId);
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
                     skipReason,
                     hasData,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -13300,7 +13319,9 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
-                bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
+                bool finalNeedsSpawn = spawnResult.needsSpawn
+                    && !chainSuppressed.suppressed
+                    && !supersededByRelation;
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -13340,7 +13361,8 @@ namespace Parsek
                             skipReason,
                             hasData,
                             rec.PlaybackEnabled,
-                            externalVesselSuppressed),
+                            externalVesselSuppressed,
+                            supersededByRelation),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -14468,13 +14490,36 @@ namespace Parsek
                 return;
             }
 
-            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
-            // Phase 1: pass section index so the body-fixed spline lookup can
-            // gate per-section. Falls through to legacy lerp when sections
-            // are absent (-1) — older flat-point recordings remain bit-exact.
             int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
                 ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
                 : -1;
+            if (splineSectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    traj.TrackSections[splineSectionIdx],
+                    out List<TrajectoryPoint> absoluteFrames))
+            {
+                int absolutePlaybackIdx = playbackIdx;
+                InterpolateAndPosition(
+                    state.ghost,
+                    absoluteFrames,
+                    null,
+                    ref absolutePlaybackIdx,
+                    ut,
+                    index * 10000,
+                    out interpResult,
+                    allowActivation: ShouldAutoActivateGhost(state),
+                    skipOrbitSegments: true,
+                    recordingId: traj.RecordingId,
+                    sectionIndex: splineSectionIdx);
+                state.SetInterpolated(interpResult);
+                state.playbackIndex = absolutePlaybackIdx;
+                return;
+            }
+
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            // Phase 1: pass section index so the body-fixed spline lookup can
+            // gate per-section. Falls through to legacy lerp when sections
+            // are absent (-1) - older flat-point recordings remain bit-exact.
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
@@ -16111,6 +16156,19 @@ namespace Parsek
                         LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
                         return true;
                     }
+                    else if (TryGetAbsoluteSectionPlaybackFrames(section, out List<TrajectoryPoint> absoluteFrames))
+                    {
+                        // Section-local absolute frames are authoritative at
+                        // frame boundaries. The flat Points list can contain
+                        // adjacent Relative metre-offset samples; interpreting
+                        // those as lat/lon/alt causes planet-scale spikes.
+                        int sectionCachedIndex = 0;
+                        return TryResolvePointWorldPosition(
+                            absoluteFrames,
+                            ref sectionCachedIndex,
+                            playbackUT,
+                            out worldPos);
+                    }
                 }
             }
 
@@ -16144,6 +16202,22 @@ namespace Parsek
             }
 
             return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+        }
+
+        internal static bool TryGetAbsoluteSectionPlaybackFrames(
+            TrackSection section,
+            out List<TrajectoryPoint> frames)
+        {
+            frames = null;
+            if (section.referenceFrame != ReferenceFrame.Absolute
+                || section.frames == null
+                || section.frames.Count == 0)
+            {
+                return false;
+            }
+
+            frames = section.frames;
+            return true;
         }
 
         bool TryResolvePointWorldPosition(
@@ -17551,13 +17625,31 @@ namespace Parsek
                 }
             }
 
+            if (sectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    rec.TrackSections[sectionIdx],
+                    out List<TrajectoryPoint> absoluteSectionFrames))
+            {
+                InterpolateAndPosition(
+                    ghost,
+                    absoluteSectionFrames,
+                    null,
+                    ref playbackIdx,
+                    loopUT,
+                    ghostIdSalt,
+                    out interpResult,
+                    allowActivation: allowActivation,
+                    skipOrbitSegments: true,
+                    recordingId: rec.RecordingId,
+                    sectionIndex: sectionIdx);
+                return;
+            }
+
             // Absolute positioning fallback
             // Phase 1: pass section context for spline lookup. The fallback is
             // the body-fixed loop path, which is exactly where ABSOLUTE
             // ExoPropulsive / ExoBallistic splines are meant to apply.
-            int splineSectionIdx = rec.TrackSections != null && rec.TrackSections.Count > 0
-                ? TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT)
-                : -1;
+            int splineSectionIdx = sectionIdx;
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                 allowActivation: allowActivation,
