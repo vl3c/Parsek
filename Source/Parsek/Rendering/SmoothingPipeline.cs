@@ -1455,19 +1455,46 @@ namespace Parsek.Rendering
 
             int dropped = 0;
             int kept = 0;
+            int peerNotInLoadSet = 0;
             for (int i = 0; i < snapshot.Length; i++)
             {
                 DeferredCoBubbleValidation entry = snapshot[i];
                 Recording peer = null;
-                if (hydratedRecordings != null)
-                    hydratedRecordings.TryGetValue(entry.PeerRecordingId, out peer);
+                bool peerInLoadSet = false;
+                if (hydratedRecordings != null
+                    && hydratedRecordings.TryGetValue(entry.PeerRecordingId, out peer)
+                    && peer != null)
+                {
+                    peerInLoadSet = true;
+                }
                 if (peer == null && hydratedRecordings != null)
                 {
+                    // Phase 8 review-pass-3 HR-9 visibility: per-entry
+                    // Verbose when the peer is genuinely missing from
+                    // the supplied load set (deleted from the save
+                    // between sessions, peer-tree never loaded, etc).
+                    // Distinct from the existing peer-still-not-hydrated
+                    // Info: "not-in-load-set" pins the cross-tree /
+                    // missing-tree case BEFORE the committed-list
+                    // fallback runs; if the fallback finds the peer in
+                    // CommittedRecordings the trace is still kept.
+                    peerNotInLoadSet++;
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "peer-not-in-load-set",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "RevalidateDeferredCoBubbleTraces: peer not in supplied load set owner={0} peer={1} startUT={2} endUT={3} loadSetCount={4}",
+                            entry.OwnerRecordingId,
+                            entry.PeerRecordingId,
+                            entry.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                            entry.EndUT.ToString("R", CultureInfo.InvariantCulture),
+                            hydratedRecordings.Count),
+                        5.0);
                     // Tree-local lookup missed; fall back to committed
                     // store (covers mid-revalidation tree commits and
                     // cross-tree peers that the sweep was invoked for).
                     peer = ResolvePeerRecording(entry.PeerRecordingId, null);
                 }
+                _ = peerInLoadSet;
 
                 if (peer == null || peer.Points == null || peer.Points.Count == 0)
                 {
@@ -1513,8 +1540,8 @@ namespace Parsek.Rendering
 
             ParsekLog.Verbose("Pipeline-CoBubble",
                 string.Format(CultureInfo.InvariantCulture,
-                    "RevalidateDeferredCoBubbleTraces summary: deferredCount={0} kept={1} dropped={2}",
-                    snapshot.Length, kept, dropped));
+                    "RevalidateDeferredCoBubbleTraces summary: deferredCount={0} kept={1} dropped={2} peerNotInLoadSet={3}",
+                    snapshot.Length, kept, dropped, peerNotInLoadSet));
             return dropped;
         }
 

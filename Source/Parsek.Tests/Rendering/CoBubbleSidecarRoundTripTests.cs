@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Parsek;
 using Parsek.Rendering;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests.Rendering
@@ -711,6 +712,261 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("reason=peer-still-not-hydrated")
                 && l.Contains("owner=" + ownerId)
                 && l.Contains("peer=" + peerId));
+        }
+
+        // --- Phase 8 review-pass-3: cross-tree global sweep ---
+
+        [Fact]
+        public void RecomputeDeferredCoBubbleTraces_CrossTreePeer_ResolvesAfterAllTreesHydrated()
+        {
+            // Phase 8 review-pass-3 regression: per-tree sweeps fired
+            // before later trees hydrated, so a deferred entry whose
+            // peer lived in a not-yet-loaded tree silently dropped.
+            // Fix moved both sweeps to "after all committed trees
+            // hydrate" with the union of recordings; this test pins
+            // that contract by simulating the OnLoad ordering: defer
+            // recA in tree T1 with empty stub for recB (in tree T2),
+            // then run the global sweep against {A: full, B: full}.
+            // Pre-fix (per-tree call with tree.Recordings = T1 only)
+            // would emit no traces and an empty .pann; post-fix the
+            // sweep sees recB and emits the cross-tree pair.
+            const string idA = "rec-A-cross";
+            const string idB = "rec-B-cross";
+
+            var recA = new Recording
+            {
+                RecordingId = idA,
+                RecordingFormatVersion = 8,
+                SidecarEpoch = 1,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+            };
+            recA.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 100.0,
+                endUT = 109.0,
+                anchorVesselId = 0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 4.0f,
+            });
+            var recB = new Recording
+            {
+                RecordingId = idB,
+                RecordingFormatVersion = 8,
+                SidecarEpoch = 1,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+            };
+            recB.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 100.0,
+                endUT = 109.0,
+                anchorVesselId = 0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 4.0f,
+            });
+
+            // Detector test seams so DetectAndStore runs without
+            // FlightGlobals.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name => null;
+
+            // Route all .pann writes (owner + peer) at temp paths so
+            // RecomputeDeferredCoBubbleTraces can land actual files.
+            string ownerPannPath = Path.Combine(tempDir, idA + ".pann");
+            string peerPannPath = Path.Combine(tempDir, idB + ".pann");
+            SmoothingPipeline.PeerPannPathResolverForTesting = id =>
+                Path.Combine(tempDir, id + ".pann");
+
+            try
+            {
+                // Step 1: write a stale-alg-stamp .pann for recA so the
+                // deferred recompute path triggers when LoadOrCompute
+                // runs with a tree-local load set.
+                byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
+                    SmoothingConfiguration.Default,
+                    AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
+                    SmoothingPipeline.ResolveUseCoBubbleBlend(),
+                    SmoothingPipeline.ResolveUseOutlierRejection());
+                PannotationsSidecarBinary.Write(ownerPannPath, idA,
+                    sourceSidecarEpoch: recA.SidecarEpoch,
+                    sourceRecordingFormatVersion: recA.RecordingFormatVersion,
+                    configurationHash: hash,
+                    splines: new List<KeyValuePair<int, SmoothingSpline>>());
+                byte[] bytes = File.ReadAllBytes(ownerPannPath);
+                bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+                File.WriteAllBytes(ownerPannPath, bytes);
+
+                // Step 2: simulate the OnLoad sequential hydration —
+                // recA's LoadRecordingFiles fires while recB lives in
+                // a different tree (T2) NOT yet hydrated. The tree-
+                // local load set passed here only covers T1 (recA).
+                // Pre-fix: per-tree sweep ran with this same set;
+                // recB was never visible. Post-fix: deferred path
+                // enqueues recA and waits for the global sweep.
+                var t1LoadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { idA, recA },
+                };
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+                SmoothingPipeline.LoadOrCompute(recA, ownerPannPath, t1LoadSet);
+                Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // Step 3: PRE-fix demonstration — running the sweep
+                // per-tree with T1's recordings only (the pre-rev3
+                // ParsekScenario behavior) drains the deferred set
+                // without seeing recB, so no cross-tree traces emit.
+                // The pre-fix `.pann` ends up with an empty
+                // CoBubbleOffsetTraces block. We re-enqueue afterwards
+                // to demonstrate that step 4 (the post-fix global
+                // sweep) DOES find the cross-tree pair.
+                int prefixProcessed = SmoothingPipeline.RecomputeDeferredCoBubbleTraces(t1LoadSet);
+                Assert.Equal(1, prefixProcessed);
+                Assert.True(PannotationsSidecarBinary.TryProbe(ownerPannPath, out var prefixProbe));
+                Assert.True(PannotationsSidecarBinary.TryRead(ownerPannPath, prefixProbe,
+                    out _, out _, out List<CoBubbleOffsetTrace> prefixTraces, out _));
+                Assert.NotNull(prefixTraces);
+                Assert.Empty(prefixTraces);
+                // Pre-fix bug shape pinned: per-tree recompute saw only
+                // {idA} so no overlap pair was emittable. recB.pann was
+                // therefore not produced either.
+                Assert.False(File.Exists(peerPannPath),
+                    $"peer .pann should NOT exist after per-tree-only sweep; got {peerPannPath}");
+
+                // Step 4: re-stale the .pann (step 3 wrote a fresh
+                // file with the current alg stamp) so the second
+                // LoadOrCompute call's drift gate fires again, then
+                // re-enqueue recA (simulating a fresh OnLoad pass)
+                // and run the POST-fix global sweep with the union of
+                // T1 + T2 recordings.
+                byte[] freshBytes = File.ReadAllBytes(ownerPannPath);
+                freshBytes[8] = 6; freshBytes[9] = 0; freshBytes[10] = 0; freshBytes[11] = 0;
+                File.WriteAllBytes(ownerPannPath, freshBytes);
+                SmoothingPipeline.LoadOrCompute(recA, ownerPannPath, t1LoadSet);
+                Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                var allTrees = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { idA, recA },
+                    { idB, recB },
+                };
+                int processed = SmoothingPipeline.RecomputeDeferredCoBubbleTraces(allTrees);
+                Assert.Equal(1, processed);
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // recA.pann now contains a trace pointing at recB
+                // (cross-tree), proving the global sweep saw both
+                // recordings.
+                Assert.True(PannotationsSidecarBinary.TryProbe(ownerPannPath, out var probe));
+                Assert.True(PannotationsSidecarBinary.TryRead(ownerPannPath, probe,
+                    out _, out _, out List<CoBubbleOffsetTrace> aTraces, out _));
+                Assert.NotNull(aTraces);
+                Assert.NotEmpty(aTraces);
+                Assert.Contains(aTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, idB, StringComparison.Ordinal));
+
+                // And recB.pann was symmetrically written by the sweep's
+                // PersistPeerPannFiles step.
+                Assert.True(File.Exists(peerPannPath),
+                    $"peer .pann should be written at {peerPannPath}");
+                Assert.True(PannotationsSidecarBinary.TryProbe(peerPannPath, out var probeB));
+                Assert.True(PannotationsSidecarBinary.TryRead(peerPannPath, probeB,
+                    out _, out _, out List<CoBubbleOffsetTrace> bTraces, out _));
+                Assert.NotNull(bTraces);
+                Assert.NotEmpty(bTraces);
+                Assert.Contains(bTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, idA, StringComparison.Ordinal));
+            }
+            finally
+            {
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void RevalidateDeferredCoBubbleTraces_PeerNotInLoadSet_LogsVerboseAndDrops()
+        {
+            // Phase 8 review-pass-3 HR-9 visibility: when the peer is
+            // missing from the supplied load set (deleted from the save
+            // file between sessions; peer-tree never loaded), the
+            // sweep emits a per-entry Verbose `peer-not-in-load-set`
+            // BEFORE falling back to the committed-recordings walk.
+            // If the fallback also misses, the trace drops as
+            // peer-still-not-hydrated; if it finds the peer in
+            // CommittedRecordings, the trace is kept on signature
+            // match. This test exercises the missing-everywhere case.
+            const string ownerId = "owner-missing";
+            const string peerId = "peer-missing-everywhere";
+            byte[] storedSignature = new byte[32];
+            for (int i = 0; i < 32; i++) storedSignature[i] = 0x42;
+
+            CoBubbleOffsetTrace trace = DeferTraceForOwner(ownerId, peerId, storedSignature);
+            Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
+
+            // Hydrated set excludes peerId entirely; CommittedRecordings
+            // is empty (default test ctor state). Pre-fix: only the
+            // peer-still-not-hydrated Info fired. Post-fix: an
+            // additional peer-not-in-load-set Verbose fires first.
+            var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                // Owner is in the set so the sweep snapshot drains it,
+                // but peer is intentionally absent.
+                {
+                    ownerId,
+                    new Recording
+                    {
+                        RecordingId = ownerId,
+                        RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                        SidecarEpoch = trace.PeerSidecarEpoch,
+                        Points = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                        },
+                    }
+                },
+            };
+            int dropped = SmoothingPipeline.RevalidateDeferredCoBubbleTraces(hydrated);
+
+            Assert.Equal(1, dropped);
+            // The new Verbose log fired with the canonical text.
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("peer not in supplied load set")
+                && l.Contains("owner=" + ownerId)
+                && l.Contains("peer=" + peerId));
+            // The existing peer-still-not-hydrated drop log also fired.
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-CoBubble]")
+                && l.Contains("Per-trace co-bubble invalidation (post-hydration)")
+                && l.Contains("reason=peer-still-not-hydrated")
+                && l.Contains("peer=" + peerId));
+            // Summary log includes the new counter.
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("RevalidateDeferredCoBubbleTraces summary")
+                && l.Contains("peerNotInLoadSet=1"));
         }
     }
 }
