@@ -13865,6 +13865,105 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        /// <summary>
+        /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the four
+        /// structural-event handlers that drive
+        /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/>. The test does
+        /// NOT trigger live KSP events (which is hard to drive deterministically in
+        /// the runner) — instead it walks <c>GameEvents.onPartCouple</c>,
+        /// <c>onPartUndock</c>, <c>onCrewOnEva</c>, and <c>onPartJointBreak</c> via
+        /// reflection on each <c>EventData&lt;T&gt;.events</c> internal listener
+        /// list and asserts at least one delegate per event whose
+        /// <see cref="System.Reflection.MethodInfo.DeclaringType"/> resolves to
+        /// <see cref="ParsekFlight"/> or <see cref="FlightRecorder"/>. A regression
+        /// that drops one of the four <c>GameEvents.X.Add(...)</c> calls fails this
+        /// test — without it, the wiring contract has no automated guard.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "Phase 9 GameEvents wiring contract: dock/undock/EVA/joint-break handlers registered by Parsek")]
+        public void Pipeline_Smoothing_StructuralEvent_HandlersRegistered()
+        {
+            // KSP's `EventData<T>` exposes its listener list as an internal
+            // `events` field of type `List<EvtDelegate>`; each `EvtDelegate`
+            // wraps the user-supplied delegate in `originalDelegate`. Probe the
+            // first event to discover the field names — they're consistent
+            // across the four EventData<T> instances we check.
+            var coupleEv = GameEvents.onPartCouple;
+            InGameAssert.IsNotNull(coupleEv,
+                "GameEvents.onPartCouple must be non-null in flight scene");
+
+            // EventData<T> is generic; the `events` field lives on the closed
+            // generic type. Walk via reflection so we don't compile-bind to KSP's
+            // internal type.
+            var coupleType = coupleEv.GetType();
+            FieldInfo eventsField = coupleType.GetField("events",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (eventsField == null)
+            {
+                InGameAssert.Skip(
+                    "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
+                    + "GameEvents EventData<T> internal field 'events' missing — "
+                    + "KSP may have renamed the field. Probe via Alt+F12 to find "
+                    + "the new name and update this test.");
+                return;
+            }
+
+            int totalAsserted = 0;
+            AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, eventsField,
+                ref totalAsserted);
+            AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, eventsField,
+                ref totalAsserted);
+            AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, eventsField,
+                ref totalAsserted);
+            AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, eventsField,
+                ref totalAsserted);
+
+            ParsekLog.Info("Pipeline-Smoothing",
+                "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
+                + "asserted=" + totalAsserted + " of 4 GameEvents bindings resolved to "
+                + "FlightRecorder / ParsekFlight delegates");
+        }
+
+        private static void AssertHandlerRegistered(
+            string eventName, object eventData, FieldInfo eventsField, ref int totalAsserted)
+        {
+            // The events field is a List<EvtDelegate>; we can't compile-bind to
+            // EvtDelegate so iterate as IEnumerable and reflect for the
+            // originalDelegate field.
+            object listObj = eventsField.GetValue(eventData);
+            InGameAssert.IsNotNull(listObj,
+                eventName + ": EventData<T>.events list must be non-null");
+            var list = listObj as System.Collections.IEnumerable;
+            InGameAssert.IsNotNull(list,
+                eventName + ": EventData<T>.events must be IEnumerable");
+
+            bool found = false;
+            string foundOwnerType = null;
+            foreach (object evtDelegate in list)
+            {
+                if (evtDelegate == null) continue;
+                FieldInfo origField = evtDelegate.GetType().GetField("originalDelegate",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (origField == null) continue;
+                var del = origField.GetValue(evtDelegate) as System.Delegate;
+                if (del == null || del.Method == null || del.Method.DeclaringType == null) continue;
+                var declType = del.Method.DeclaringType;
+                if (declType == typeof(FlightRecorder)
+                    || declType == typeof(ParsekFlight))
+                {
+                    found = true;
+                    foundOwnerType = declType.Name;
+                    break;
+                }
+            }
+
+            InGameAssert.IsTrue(found,
+                "GameEvents." + eventName + " must have a registered listener on "
+                + "FlightRecorder or ParsekFlight (Phase 9 wiring contract). Found owner: "
+                + (foundOwnerType ?? "<none>"));
+            if (found) totalAsserted++;
+        }
+
         #endregion
 
         #region Pipeline-Anchor (Phase 2)

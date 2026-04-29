@@ -173,6 +173,95 @@ namespace Parsek.Tests
             }
         }
 
+        // ----- ShouldEmitStructuralEventSnapshot — schema-gate fall-through -----
+
+        [Fact]
+        public void ShouldEmitStructuralEventSnapshot_LegacyFormatV9_ReturnsFalse()
+        {
+            // Phase 9 review pass (P2-2): legacy recordings (format < v10) must
+            // skip the structural-event snapshot append so the pipeline falls
+            // through to the §15.17 interpolated event ε path. Pin the gate at
+            // every interesting boundary version so a future bump does not
+            // silently flip the contract.
+            Assert.False(FlightRecorder.ShouldEmitStructuralEventSnapshot(
+                RecordingStore.TerrainGroundClearanceFormatVersion));
+        }
+
+        [Fact]
+        public void ShouldEmitStructuralEventSnapshot_V10AndAbove_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
+                RecordingStore.StructuralEventFlagFormatVersion));
+            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
+                RecordingStore.StructuralEventFlagFormatVersion + 1));
+        }
+
+        [Fact]
+        public void ShouldEmitStructuralEventSnapshot_BelowV9_StillReturnsFalse()
+        {
+            // Older format generations (v0-v8) must also stay on the legacy path —
+            // the gate is "v >= v10", not "v == v9 || v == v10".
+            for (int v = 0; v < RecordingStore.StructuralEventFlagFormatVersion; v++)
+            {
+                Assert.False(FlightRecorder.ShouldEmitStructuralEventSnapshot(v),
+                    $"Format v{v} must NOT emit structural-event snapshots " +
+                    $"(only v{RecordingStore.StructuralEventFlagFormatVersion}+ permits them)");
+            }
+        }
+
+        [Fact]
+        public void AppendStructuralEventSnapshot_LegacyV9Recording_NoAppendAndEmitsSkipLog()
+        {
+            // Phase 9 review pass (P2-2): end-to-end coverage of the schema-gate
+            // fall-through branch. Build a FlightRecorder with an ActiveTree
+            // whose active recording is at v9 (TerrainGroundClearanceFormatVersion);
+            // call AppendStructuralEventSnapshot through the standard helper path
+            // and assert (a) no point landed in the recording's frames AND
+            // (b) the "skipped: recording format vN < v10" Verbose log line was
+            // emitted. Together these pin both the gate's behavioural contract
+            // and the HR-9 visibility requirement.
+            var recorder = new FlightRecorder();
+
+            const string recId = "phase9-legacy-v9-gate-test";
+            var legacyRec = new Recording
+            {
+                RecordingId = recId,
+                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+            };
+            var tree = new RecordingTree { Id = "tree-phase9-legacy-gate" };
+            tree.Recordings[recId] = legacyRec;
+            tree.ActiveRecordingId = recId;
+            recorder.ActiveTree = tree;
+
+            // Flip the recording flag without going through StartRecording (which
+            // would touch live KSP state); the helper guards on IsRecording first
+            // and we want to exercise the schema gate next.
+            recorder.IsRecording = true;
+
+            int beforeRecordingPoints = recorder.Recording.Count;
+            int beforeLegacyPoints = legacyRec.Points.Count;
+            logLines.Clear();
+
+            recorder.AppendStructuralEventSnapshot(
+                eventUT: 12345.6,
+                involved: new List<Vessel>(),
+                eventType: "Dock");
+
+            // (a) No point appended. The flat list AND the v9 recording's Points
+            // list both stay empty — CommitRecordedPoint never ran.
+            Assert.Equal(beforeRecordingPoints, recorder.Recording.Count);
+            Assert.Equal(beforeLegacyPoints, legacyRec.Points.Count);
+
+            // (b) Verbose log line emitted with the §15.17 fall-through reason.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Smoothing]") &&
+                l.Contains("structural event snapshot skipped") &&
+                l.Contains("recording format v" +
+                    RecordingStore.TerrainGroundClearanceFormatVersion +
+                    " < v" + RecordingStore.StructuralEventFlagFormatVersion) &&
+                l.Contains("eventType=Dock"));
+        }
+
         // ----- §12 contract: simultaneous calls share physics-frame UT -----
 
         [Fact]

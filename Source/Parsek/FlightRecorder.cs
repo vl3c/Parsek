@@ -6189,6 +6189,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 9 schema gate: returns true when the active recording's format version
+        /// permits writing <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
+        /// points. Legacy recordings (format &lt; v10) keep the interpolated event ε path
+        /// (design doc §15.17) — the writer would silently drop the byte but the in-memory
+        /// flag could still confuse the AnchorCandidateBuilder consumer until a save / load
+        /// round-trip clears it. Skipping the append at the recorder is cleaner.
+        ///
+        /// <para>Pure / static so xUnit can pin the gate semantics without a live KSP runtime
+        /// or an active <see cref="ActiveTree"/>; <see cref="AppendStructuralEventSnapshot"/>
+        /// resolves the active recording's format via
+        /// <see cref="ResolveActiveRecordingFormatVersion"/> and feeds it here.</para>
+        /// </summary>
+        internal static bool ShouldEmitStructuralEventSnapshot(int activeFormatVersion)
+        {
+            return activeFormatVersion >= RecordingStore.StructuralEventFlagFormatVersion;
+        }
+
+        /// <summary>
         /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
         /// point per involved vessel that matches this recorder's
         /// <see cref="RecordingVesselId"/>. The full FlightGlobals state is read once at the top
@@ -6200,6 +6218,18 @@ namespace Parsek
         /// path per §15.17), or when no involved vessel matches this recorder. Callers are
         /// responsible for filtering "noise" structural events (e.g. non-structural joint
         /// breaks, transient pid mismatches) before invoking the helper.</para>
+        ///
+        /// <para><b>"Every involved vessel" reduction:</b> the design doc §12 contract says the
+        /// recorder produces "a snapshot for every involved vessel". In Parsek's architecture,
+        /// each <see cref="FlightRecorder"/> tracks a single focused vessel
+        /// (<see cref="RecordingVesselId"/>); peer vessels in a dock / undock / EVA / joint-break
+        /// pair are owned by a different recorder (a <see cref="BackgroundRecorder"/> if they're
+        /// being proximity-recorded, or no recorder at all). "Every involved vessel" therefore
+        /// reduces to "this recorder's vessel" by construction — the dedup-by-RecordingVesselId
+        /// filter is the design, not a workaround. Peer coverage is a per-recorder concern: each
+        /// recorder satisfies §12 for its own focused vessel, and the BackgroundRecorder
+        /// integration for proximity-tracked peers is tracked under "Phase 9 follow-ups" in
+        /// <c>docs/dev/todo-and-known-bugs.md</c>.</para>
         /// </summary>
         internal void AppendStructuralEventSnapshot(
             double eventUT, IEnumerable<Vessel> involved, string eventType)
@@ -6220,7 +6250,7 @@ namespace Parsek
             // interpolated event ε path (§15.17). Reading the active recording's
             // format version mirrors how Phase 7 gates `recordedGroundClearance`.
             int activeFormatVersion = ResolveActiveRecordingFormatVersion();
-            if (activeFormatVersion < RecordingStore.StructuralEventFlagFormatVersion)
+            if (!ShouldEmitStructuralEventSnapshot(activeFormatVersion))
             {
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,

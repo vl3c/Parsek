@@ -7056,7 +7056,15 @@ namespace Parsek
             // (the helper no-ops once IsRecording flips false). Both vessels in the
             // dock pair are passed; AppendStructuralEventSnapshot dedups by
             // RecordingVesselId so only the relevant snapshot is committed.
-            if (recorder != null && recorder.IsRecording)
+            //
+            // Skip the snapshot when this couple is the abort half of a split-in-
+            // progress: the tree-mode path below early-returns at the
+            // `pendingSplitInProgress` guard without committing the merge, and a
+            // synthetic flagged point would otherwise land in a recording whose
+            // section is about to be torn down by the in-flight split. Mirror the
+            // exact same guard so the snapshot only fires on couples that the
+            // downstream merge path will actually act on.
+            if (recorder != null && recorder.IsRecording && !pendingSplitInProgress)
             {
                 var dockInvolved = new List<Vessel>(2);
                 if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
