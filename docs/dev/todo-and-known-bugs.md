@@ -11,6 +11,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 637. Track remaining refactor opportunities after Refactor-4 archive
+
+**Status:** TODO - active reference in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
+
+Refactor-4's completed planning docs are archived under
+`docs/dev/done/refactor/`. The remaining opportunities are not approved
+implementation work; use the linked document to choose the next focused
+proposal and avoid overlap with active unfinished-flight, ghost trajectory, or
+rendering branches.
+
 ## 636. Destroyed staged flights could miss Unfinished Flights when finalization stamped stale SubOrbital ~~done~~
 
 **Status:** ~~done~~ — fixed in the destroyed-stages Unfinished Flights

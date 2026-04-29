@@ -1,5 +1,9 @@
 # Refactor-4 Deferred Items
 
+Status: archived with the completed Refactor-4 docs. Remaining refactor
+opportunities are tracked in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
+
 Items found during planning or implementation that are worth remembering but
 should not be folded into an unrelated extraction.
 

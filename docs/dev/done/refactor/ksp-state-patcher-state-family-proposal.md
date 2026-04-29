@@ -2,6 +2,9 @@
 
 Date: 2026-04-28
 Branch/worktree: `proposal-ksp-state-patcher` from `origin/main` at `2b03135bf71cac4cb2c2327c8309df61c7ad88f5`
+Status: facilities slice implemented and archived. Remaining patcher-family
+opportunities are tracked in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
 
 ## Goal
 
