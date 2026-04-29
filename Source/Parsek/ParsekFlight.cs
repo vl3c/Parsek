@@ -15270,12 +15270,20 @@ namespace Parsek
             // constant clearance even when KSP regenerates terrain mesh
             // between sessions. NaN sentinel on either endpoint ⇒ silent
             // fall-through to the legacy altitude path (HR-9).
+            //
+            // referenceFrame=Absolute: this method's callers route RELATIVE
+            // sections through IGhostPositioner.InterpolateAndPositionRelative,
+            // and OrbitalCheckpoint sections through
+            // TryInterpolateAndPositionCheckpointSection (orbit propagation),
+            // so the points reaching here are always Absolute-frame body-
+            // fixed lat/lon/alt. The explicit argument is the P2-1 safety
+            // gate at the helper.
             double altBefore = ResolvePhase7EffectiveAltitude(
                 bodyBefore, before.latitude, before.longitude, before.altitude,
-                before.recordedGroundClearance);
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
             double altAfter = ResolvePhase7EffectiveAltitude(
                 bodyAfter, after.latitude, after.longitude, after.altitude,
-                after.recordedGroundClearance);
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
 
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, altBefore);
@@ -16240,9 +16248,17 @@ namespace Parsek
             // the recorded altitude (HR-9 silent fall-through). See
             // ResolvePhase7EffectiveAltitude for the per-frame cache lookup
             // and Pipeline-Terrain logging.
+            //
+            // PositionGhostAt only services Absolute-frame TrajectoryPoints
+            // (RELATIVE-frame playback uses InterpolateAndPositionRelative,
+            // OrbitalCheckpoint uses orbit-driven positioning) — so the
+            // helper's referenceFrame argument is hard-coded Absolute. The
+            // helper still NaN-fall-throughs on legacy/non-SurfaceMobile
+            // points; the explicit Absolute argument is the P2-1 safety
+            // gate against any future caller routing a Relative point here.
             double effectiveAltitude = ResolvePhase7EffectiveAltitude(
                 body, point.latitude, point.longitude, point.altitude,
-                point.recordedGroundClearance);
+                point.recordedGroundClearance, ReferenceFrame.Absolute);
 
             Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, effectiveAltitude);
@@ -16274,13 +16290,46 @@ namespace Parsek
         /// <c>terrain + clearance</c>. If the cache returns NaN (PQS
         /// unspun, body missing) we fall back to the recorded altitude rather
         /// than producing an invalid world position.
+        ///
+        /// <para>The <paramref name="referenceFrame"/> parameter is a
+        /// **safety gate** (review pass P2-1): when the section is
+        /// <see cref="ReferenceFrame.Relative"/> (anchor-local metres in
+        /// lat/lon/alt — see CLAUDE.md "Rotation / world frame") or
+        /// <see cref="ReferenceFrame.OrbitalCheckpoint"/>, the helper
+        /// short-circuits to <paramref name="recordedAltitude"/> regardless
+        /// of clearance. Today's recorder never writes a finite clearance on
+        /// a non-Absolute point, so this path is unreachable in practice —
+        /// but a future codec / optimizer / merge that surfaced a finite
+        /// clearance on a RELATIVE point would otherwise interpret metre-
+        /// scale lat/lon as degrees and produce a position deep inside the
+        /// planet. Pin the contract at the renderer.</para>
         /// </summary>
         internal static double ResolvePhase7EffectiveAltitude(
             CelestialBody body, double latitude, double longitude,
-            double recordedAltitude, double recordedGroundClearance)
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame)
         {
             if (double.IsNaN(recordedGroundClearance))
                 return recordedAltitude;
+            if (referenceFrame != ReferenceFrame.Absolute)
+            {
+                // P2-1: defensive short-circuit. A RELATIVE-frame point
+                // stores anchor-local metres in latitude/longitude/altitude;
+                // applying terrain correction would mix metres with degrees
+                // catastrophically. OrbitalCheckpoint sections have no
+                // per-point latitude/longitude/altitude payload either.
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "non-absolute-frame-skip",
+                    $"ResolvePhase7EffectiveAltitude: skipping terrain correction " +
+                    $"for non-Absolute frame={referenceFrame} " +
+                    $"clearance={recordedGroundClearance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"— returning recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                    $"(future-codec safety gate; today's recorder never writes " +
+                    $"finite clearance on non-Absolute points)",
+                    5.0);
+                return recordedAltitude;
+            }
             if (object.ReferenceEquals(body, null))
                 return recordedAltitude;
 

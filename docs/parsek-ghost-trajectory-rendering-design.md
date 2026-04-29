@@ -1057,6 +1057,8 @@ The first four phases together address the three naive-rendering failure modes (
 - `Source/Parsek/ParsekFlight.cs` — `PositionAtPoint` and `InterpolateAndPosition` for `SurfaceMobile` sections use `body.pqsController.GetSurfaceHeight` plus `recordedGroundClearance` instead of stored `altitude` when `recordedGroundClearance` is non-NaN; otherwise fall through to today's altitude path.
 - `Source/Parsek/Rendering/TerrainCacheBuckets.cs` — lat/lon-bucketed cache, evicted at scene transition.
 
+**API substitution note:** the implementation calls `body.TerrainAltitude(lat, lon, true)` rather than `body.pqsController.GetSurfaceHeight(QuaternionD.AngleAxis(...) * radial)` directly. `TerrainAltitude` is the higher-level wrapper that calls `pqsController.GetSurfaceHeight` plus ocean clamping (the `withOcean=true` flag) and matches the prior art in `VesselSpawner.ClampAltitudeForLanded`. Both forms produce identical metres-above-mean-radius output for SurfaceMobile rover terrain; the wrapper is preferred for ocean-bearing bodies and code-path consistency. Future implementers should not "fix" this back to the lower-level call.
+
 **Done condition:** a recorded rover replayed in a second session over the same terrain stays at constant ground clearance; no clipping at procedural-mesh seams. Older recordings (format ≤ 7) load with `recordedGroundClearance = NaN` and use today's altitude path — backwards-compatible.
 
 ### Phase 8: Outlier Rejection (Section 14)
