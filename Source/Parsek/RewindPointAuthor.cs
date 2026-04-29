@@ -420,13 +420,29 @@ namespace Parsek
             if (!activePid.HasValue || activePid.Value == 0u)
                 return -1;
 
+            int firstMatch = -1;
+            int matches = 0;
             for (int i = 0; i < childSlots.Count; i++)
             {
                 var slot = childSlots[i];
                 uint? slotPid = ResolveSlotVesselPid(slot, resolver);
                 if (slotPid.HasValue && slotPid.Value == activePid.Value)
-                    return i;
+                {
+                    if (firstMatch < 0)
+                        firstMatch = i;
+                    matches++;
+                }
             }
+
+            if (matches > 1)
+            {
+                ParsekLog.Verbose("Rewind",
+                    $"ResolveFocusSlotIndex: activePid={activePid.Value} matched {matches} slots; " +
+                    $"using first slot={firstMatch}");
+            }
+
+            if (firstMatch >= 0)
+                return firstMatch;
 
             return -1;
         }

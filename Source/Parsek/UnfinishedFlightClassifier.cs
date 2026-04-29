@@ -276,7 +276,7 @@ namespace Parsek
             }
 
             bool matchedRp = false;
-            var matchedRps = new List<string>();
+            List<string> matchedRps = null;
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
@@ -293,6 +293,8 @@ namespace Parsek
                     continue;
 
                 matchedRp = true;
+                if (matchedRps == null)
+                    matchedRps = new List<string>();
                 matchedRps.Add($"{candidate.RewindPointId ?? "<no-rp>"}@{candidate.BranchPointId ?? "<no-bp>"}");
                 int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
                     candidate, rec, supersedes);
@@ -312,7 +314,7 @@ namespace Parsek
                     Tag,
                     $"uf-resolve-{recId}-{rejectReason}",
                     $"IsUnfinishedFlight=false rec={recId} reason={rejectReason} " +
-                    $"matches={matchedRps.Count} [{string.Join(",", matchedRps)}]");
+                    $"matches={(matchedRps?.Count ?? 0)} [{string.Join(",", matchedRps ?? (IEnumerable<string>)Array.Empty<string>())}]");
             }
 
             return false;

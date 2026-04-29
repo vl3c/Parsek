@@ -341,6 +341,35 @@ namespace Parsek.Tests
             finally { HighLogic.LoadedScene = GameScenes.LOADING; }
         }
 
+        [Fact]
+        public void ResolveFocusSlotIndex_MultiplePidMatches_ReturnsFirstAndLogs()
+        {
+            var slots = new List<ChildSlot>
+            {
+                Slot(0, "rec_a"),
+                Slot(1, "rec_b"),
+                Slot(2, "rec_c")
+            };
+            var flightGlobals = new FakeFlightGlobals(
+                new Dictionary<uint, VesselSnapshot>(), activeVesselPid: 200u);
+
+            int focusSlot = RewindPointAuthor.ResolveFocusSlotIndex(
+                slots,
+                recId => recId == "rec_a" ? (uint?)200u :
+                         recId == "rec_b" ? (uint?)100u :
+                         recId == "rec_c" ? (uint?)200u :
+                         null,
+                flightGlobals);
+
+            Assert.Equal(0, focusSlot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ResolveFocusSlotIndex")
+                && l.Contains("activePid=200")
+                && l.Contains("matched 2 slots")
+                && l.Contains("using first slot=0"));
+        }
+
         /// <summary>§7.1: a single-controllable output does not trigger Begin — the
         /// caller decides that gate. Here we verify the author does not invent a
         /// multi-controllable state: it honors whatever the caller passed.</summary>

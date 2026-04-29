@@ -32,15 +32,20 @@ re-fly supersede commit both use the same slot-aware classifier to promote
 qualifying leaves to `CommittedProvisional`. Legacy vessel rows with
 `FocusSlotIndex=-1` stay excluded for orbiting/suborbital terminal states so old
 saves do not accidentally surface stable focused flights as unfinished.
-Fresh-provisional merge classification now aborts on a missing Site B-1 slot
-lookup when the terminal outcome needs slot-aware stable-leaf/EVA handling,
-rather than silently falling back to the v0.9 terminal-kind rule.
+If multiple split slots unexpectedly match the active vessel PID, capture keeps
+the first match and logs the aliasing. Fresh-provisional merge classification now
+preflights before supersede relations, tombstones, or journal writes; a missing
+Site B-1 slot lookup aborts without durable merge mutations when the terminal
+outcome needs slot-aware stable-leaf/EVA handling, rather than silently falling
+back to the v0.9 terminal-kind rule.
 
 UI fix: Unfinished Flight rows now show `Fly` plus an explicit `Seal` action.
 Seal sets `ChildSlot.Sealed`/`SealedRealTime`, leaves the recording and
 `MergeState` unchanged, removes that slot from Unfinished Flights, and lets
 `RewindPointReaper` count a sealed `CommittedProvisional` slot as closed once
 every sibling slot is also closed. Sealed `NotCommitted` slots still block reap.
+The in-game test suite has Seal popup coverage for replacing an already-open
+confirmation dialog plus both confirm/cancel button lock cleanup paths.
 
 Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
 in-place merge path may classify an unfinished outcome as

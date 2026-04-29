@@ -46,6 +46,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            MergeJournalOrchestrator.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
             RecordingStore.SuppressLogging = priorStoreSuppress;
@@ -316,6 +317,23 @@ namespace Parsek.Tests
                 TerminalState.Orbiting, supersedeTargetId: "rec_origin");
             provisional.ParentBranchPointId = "bp_missing";
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+            scenario.RecordingSupersedes.Add(Rel("rec_prior_old", "rec_prior_new"));
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb_existing",
+                ActionId = "act_existing",
+                RetiringRecordingId = "rec_prior_new",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_origin",
+                KerbalEndStateField = KerbalEndState.Dead,
+                UT = 12.0,
+            });
+            int relationCountBefore = scenario.RecordingSupersedes.Count;
+            int tombstoneCountBefore = scenario.LedgerTombstones.Count;
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 SupersedeCommit.CommitSupersede(
@@ -323,6 +341,15 @@ namespace Parsek.Tests
 
             Assert.Contains("Site B-1 slot lookup failed", ex.Message);
             Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Equal("rec_origin", provisional.SupersedeTargetId);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Equal(relationCountBefore, scenario.RecordingSupersedes.Count);
+            Assert.Equal(tombstoneCountBefore, scenario.LedgerTombstones.Count);
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.NewRecordingId == "rec_provisional");
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == "act_death");
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("Site B-1 slot lookup failed")

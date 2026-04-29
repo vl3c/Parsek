@@ -15,10 +15,12 @@ namespace Parsek
         internal const string DialogLockId = "ParsekUFSealDialog";
 
         internal static Func<DateTime> UtcNowForTesting;
+        internal static bool DialogLockActiveForTesting { get; private set; }
 
         internal static void ResetForTesting()
         {
             UtcNowForTesting = null;
+            DialogLockActiveForTesting = false;
         }
 
         internal static bool TrySeal(Recording rec, out string reason)
@@ -151,12 +153,14 @@ namespace Parsek
         internal static void LockInput()
         {
             InputLockManager.SetControlLock(ControlTypes.All, DialogLockId);
+            DialogLockActiveForTesting = true;
             ParsekLog.Verbose("UnfinishedFlights", $"Seal dialog input lock set ({DialogLockId})");
         }
 
         internal static void ClearLock()
         {
             InputLockManager.RemoveControlLock(DialogLockId);
+            DialogLockActiveForTesting = false;
             ParsekLog.Verbose("UnfinishedFlights", $"Seal dialog input lock cleared ({DialogLockId})");
         }
     }

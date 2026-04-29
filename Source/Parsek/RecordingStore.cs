@@ -757,7 +757,7 @@ namespace Parsek
                 var slot = rp.ChildSlots[slotListIndex];
                 string qualifyReason;
                 if (!UnfinishedFlightClassifier.TryQualify(
-                        rec, slot, rp, false, out qualifyReason, tree))
+                        rec, slot, rp, true, out qualifyReason, tree))
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
                         $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
