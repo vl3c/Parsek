@@ -15494,23 +15494,6 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
-            // For v6+ we MUST have an instance to dispatch the relative
-            // resolver. The only legitimate xUnit path that hits this code
-            // is the synthetic test which injects an instance via the
-            // RecordingStore + ParsekScenario fixtures; otherwise return
-            // false and emit a rate-limited Verbose (HR-9 visible failure).
-            ParsekFlight inst = Instance;
-            if (object.ReferenceEquals(inst, null))
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-relative-no-instance",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: ParsekFlight.Instance null recording={0} ut={1}",
-                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-
             uint anchorPid = section.anchorVesselId;
             if (anchorPid == 0)
             {
@@ -15523,25 +15506,175 @@ namespace Parsek
                 return false;
             }
 
-            // Active re-fly path: when the section's anchor matches the
-            // active re-fly target, the live anchor's pose is the player's
-            // controls — using it would drag the primary ghost with the
-            // player. The absolute-shadow fallback (Format v7+) replays at
-            // recorded world coordinates.
+            // P1-C: HR-15 contract — co-bubble primary positions are
+            // recording-only and must NOT read live runtime KSP state.
+            // When the section's anchor matches the active re-fly target's
+            // vessel PID, the live anchor IS the player's controls; the
+            // anchor-driven resolver below would drag the primary ghost
+            // with the player input ("Naive Relative Trap" §3.4). Route
+            // through the absolute-shadow path so the primary plays back
+            // at recorded world coordinates instead. This branch runs
+            // BEFORE the Instance null-check below because the absolute-
+            // shadow lookup is pure (TrackSection.absoluteFrames + body
+            // GetWorldSurfacePosition) and does NOT require ParsekFlight
+            // to be alive.
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            bool refly = marker != null
+            if (marker != null
                 && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal);
-            // The non-IGhostPositioner standalone path doesn't have a
-            // FrameContext / index — fall through directly to the
-            // anchor-driven Relative resolver. Active-re-fly absolute-shadow
-            // dispatch belongs to the Update-path consumer; here we use the
-            // anchor pose path which works for the common (non-re-fly) case.
-            // If the anchor cannot be resolved, the call returns false and
-            // the caller falls back to standalone (HR-9).
+                && TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid)
+                && activeReFlyPid != 0
+                && anchorPid == activeReFlyPid)
+            {
+                // Active-re-fly path: prefer the recorded absolute-shadow
+                // for HR-15 freezing. If no shadow is available (legacy
+                // pre-v7 RELATIVE recording), fail closed and emit a
+                // visible Verbose so HR-9 surfaces the degradation —
+                // silently falling through to the live-anchor resolver
+                // would re-introduce the bug this fix exists to prevent.
+                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                    return true;
+
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "primary-active-refly-no-shadow",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneRelativeWorldPosition: active-re-fly anchor matched but no absolute shadow available recording={0} ut={1} anchorPid={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        anchorPid),
+                    5.0);
+                return false;
+            }
+
+            // For v6+ non-re-fly we MUST have an instance to dispatch the
+            // relative resolver. The only legitimate xUnit path that hits
+            // this code is the synthetic test which injects an instance
+            // via the RecordingStore + ParsekScenario fixtures; otherwise
+            // return false and emit a rate-limited Verbose (HR-9 visible
+            // failure).
+            ParsekFlight inst = Instance;
+            if (object.ReferenceEquals(inst, null))
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-relative-no-instance",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneRelativeWorldPosition: ParsekFlight.Instance null recording={0} ut={1}",
+                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+
+            // Common (non-re-fly) case: route through the anchor-driven
+            // Relative resolver. If the anchor cannot be resolved, the
+            // call returns false and the caller falls back to standalone
+            // (HR-9).
             List<TrajectoryPoint> frames = section.frames ?? rec.Points;
             return inst.TryResolveRelativeWorldPosition(
                 frames, ut, anchorPid, rec.RecordingId, rec.RecordingFormatVersion, out worldPos);
+        }
+
+        /// <summary>
+        /// P1-C static helper: resolves the active re-fly target's vessel
+        /// persistent ID by walking <see cref="RecordingStore.CommittedTrees"/>
+        /// and <see cref="RecordingStore.PendingTree"/>, then
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Mirrors the
+        /// instance method <see cref="TryResolveActiveReFlyPid"/> but is
+        /// callable from the static standalone-helper path used by
+        /// <see cref="TryComputeStandaloneRelativeWorldPosition"/>.
+        /// </summary>
+        internal static bool TryResolveActiveReFlyPidStatic(
+            ReFlySessionMarker marker, out uint activeReFlyPid)
+        {
+            activeReFlyPid = 0u;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+
+            IReadOnlyList<RecordingTree> searchTrees =
+                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null) continue;
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        return true;
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec == null
+                        || !string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
+                        || rec.VesselPersistentId == 0u)
+                    {
+                        continue;
+                    }
+                    activeReFlyPid = rec.VesselPersistentId;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
+        /// that bypasses the live anchor by linear-interpolating
+        /// <see cref="TrackSection.absoluteFrames"/> (the v7+ absolute
+        /// shadow). Returns false when the section has no shadow or the
+        /// body cannot be resolved — the caller surfaces the failure as
+        /// HR-9 visible-failure.
+        /// </summary>
+        private static bool TryComputeStandaloneAbsoluteShadowWorldPosition(
+            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
+        {
+            worldPos = default;
+            List<TrajectoryPoint> shadow = section.absoluteFrames;
+            if (shadow == null || shadow.Count == 0) return false;
+
+            int idx = -1;
+            for (int i = 0; i < shadow.Count; i++)
+            {
+                if (shadow[i].ut >= ut) { idx = i; break; }
+            }
+            TrajectoryPoint before, after;
+            float t;
+            if (idx <= 0)
+            {
+                before = shadow[0];
+                after = before;
+                t = 0f;
+            }
+            else
+            {
+                before = shadow[idx - 1];
+                after = shadow[idx];
+                double span = after.ut - before.ut;
+                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
+            }
+            CelestialBody body;
+            try
+            {
+                body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
+            }
+            catch (TypeInitializationException) { return false; }
+            catch (System.Security.SecurityException) { return false; }
+            if (object.ReferenceEquals(body, null)) return false;
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
+            return true;
         }
 
         /// <summary>

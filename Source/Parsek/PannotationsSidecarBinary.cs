@@ -170,7 +170,19 @@ namespace Parsek
         // by P1-A). Bumping the alg stamp drives every v5 .pann through
         // alg-stamp-drift on first load so the recompute writes the new
         // field (HR-10).
-        internal const int AlgorithmStampVersion = 6;
+        // Bumped to 7 in Phase 5 review-pass-2 (P1-B + P2-B fixes): the
+        // recompute path in SmoothingPipeline.LoadOrCompute now invokes
+        // CoBubbleOverlapDetector.DetectAndStore so cache-miss / config-
+        // drifted .pann files regenerate co-bubble traces (rather than
+        // rewriting an empty block), and BuildTrace clamps each trace to
+        // BlendMaxWindowSeconds so very long overlap windows no longer
+        // store EndUTs without sample coverage. v6 .pann files written
+        // before these fixes have semantically incorrect trace contents;
+        // bumping the alg stamp drives them through alg-stamp-drift on
+        // first load (HR-10). NOTE: Phase 8 (PR #644) also bumped to 7 in
+        // commit 8b9f623d for OutlierFlagsList; after Phase 5 lands at 7
+        // here, Phase 8's rebase will need to bump to 8.
+        internal const int AlgorithmStampVersion = 7;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +

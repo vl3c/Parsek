@@ -345,12 +345,26 @@ namespace Parsek.Rendering
         /// recomputes via <see cref="FitAndStorePerSection"/> and writes the
         /// result back to <c>.pann</c>.
         /// </summary>
+        /// <param name="treeLocalLoadSet">
+        /// Optional dictionary of recordings being loaded as part of the same
+        /// tree hydration pass. Phase 5 P1-A fix: <c>RecordingStore</c> hydrates
+        /// tree sidecars BEFORE <c>FinalizeTreeCommit</c> appends to
+        /// <see cref="RecordingStore.CommittedRecordings"/>, so the per-trace
+        /// peer validator could not see same-tree peers and dropped valid
+        /// traces as <c>peer-missing</c>. The caller (recording-sidecar load)
+        /// passes the in-progress tree's <c>Recordings</c> map here so peer
+        /// resolution checks the tree-local set first, falling back to
+        /// <c>CommittedRecordings</c> when null.
+        /// </param>
         /// <remarks>
         /// Per HR-9 / HR-12, a <c>.pann</c> write failure logs Warn and
         /// continues — the in-memory store is still populated, and the file
         /// is regenerable on the next load.
         /// </remarks>
-        internal static void LoadOrCompute(Recording rec, string pannPath)
+        internal static void LoadOrCompute(
+            Recording rec,
+            string pannPath,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet = null)
         {
             if (rec == null) return;
 
@@ -415,7 +429,14 @@ namespace Parsek.Rendering
                         for (int i = 0; i < coBubbleTraces.Count; i++)
                         {
                             CoBubbleOffsetTrace t = coBubbleTraces[i];
-                            string driftReason = ClassifyTraceDrift(t);
+                            // P1-A: pass treeLocalLoadSet so same-tree peers
+                            // being hydrated in the same pass are visible
+                            // before they're added to CommittedRecordings.
+                            // Without this, OnLoad's tree-walk validates
+                            // each recording's traces against an
+                            // unpopulated CommittedRecordings list and
+                            // drops every same-tree trace as peer-missing.
+                            string driftReason = ClassifyTraceDrift(t, treeLocalLoadSet);
                             if (driftReason == null)
                             {
                                 SectionAnnotationStore.PutCoBubbleTrace(recordingId, t);
@@ -482,7 +503,78 @@ namespace Parsek.Rendering
 
             // Compute fresh splines and persist to .pann.
             FitAndStorePerSection(rec);
+            // P1-B: regenerate co-bubble traces on the recompute path. Without
+            // this, lazy compute (file-missing / drift) rewrites a fresh
+            // .pann with an EMPTY CoBubbleOffsetTraces block — saves with a
+            // bumped AlgorithmStampVersion or config-hash drift would silently
+            // fall back to standalone playback until every recording is
+            // recommitted. PersistAfterCommit(rec) at commit time is the
+            // happy path; this branch covers load-time freshness (HR-10).
+            DetectAndStoreCoBubbleTracesForRecording(rec, treeLocalLoadSet);
             TryWritePann(rec, pannPath, expectedHash);
+        }
+
+        /// <summary>
+        /// P1-B helper: build the recording-set the co-bubble detector
+        /// needs at recompute time. The tree-local load set (during OnLoad)
+        /// is the most reliable source — same-tree peers that aren't yet in
+        /// <see cref="RecordingStore.CommittedRecordings"/> ARE visible
+        /// here, mirroring the P1-A peer-resolver fix. We additionally
+        /// merge in the committed list so cross-tree peers are scanned too,
+        /// and ensure <paramref name="rec"/> itself is included even when
+        /// neither source contains it (defense-in-depth for unusual call
+        /// orderings — e.g. a fresh recording flushed through the lazy
+        /// path before its tree commits).
+        /// </summary>
+        private static void DetectAndStoreCoBubbleTracesForRecording(
+            Recording rec,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+        {
+            try
+            {
+                var snapshot = new List<Recording>();
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                if (treeLocalLoadSet != null)
+                {
+                    foreach (var kv in treeLocalLoadSet)
+                    {
+                        Recording r = kv.Value;
+                        if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
+                        if (seen.Add(r.RecordingId)) snapshot.Add(r);
+                    }
+                }
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording r = committed[i];
+                        if (r == null || string.IsNullOrEmpty(r.RecordingId)) continue;
+                        if (seen.Add(r.RecordingId)) snapshot.Add(r);
+                    }
+                }
+                if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
+                    && seen.Add(rec.RecordingId))
+                {
+                    snapshot.Add(rec);
+                }
+                if (snapshot.Count >= 2)
+                {
+                    CoBubbleOverlapDetector.DetectAndStore(snapshot);
+                }
+                else
+                {
+                    ParsekLog.Verbose("Pipeline-CoBubble",
+                        $"DetectAndStoreCoBubbleTracesForRecording: skip recordingId={rec?.RecordingId} " +
+                        $"reason=fewer-than-two-recordings snapshotCount={snapshot.Count}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Pipeline-CoBubble",
+                    $"DetectAndStore on recompute threw {ex.GetType().Name}: {ex.Message} — " +
+                    $"co-bubble traces unavailable for this recompute (recordingId={rec?.RecordingId})");
+            }
         }
 
         /// <summary>
@@ -508,6 +600,9 @@ namespace Parsek.Rendering
             // internally on useCoBubbleBlend; off → no traces emitted.
             // HR-9 visible failure: if the detector throws, we log Warn
             // and continue with the spline / candidate persistence.
+            // Track peer recordings whose in-memory store gained a trace
+            // so we can persist their .pann files too (P2-A).
+            var peerRecordingsToPersist = new List<Recording>();
             try
             {
                 IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
@@ -529,6 +624,45 @@ namespace Parsek.Rendering
                     }
                     if (!includedRec) snapshot.Add(rec);
                     CoBubbleOverlapDetector.DetectAndStore(snapshot);
+
+                    // P2-A: DetectAndStore writes traces into BOTH sides of
+                    // each pair, but we only persist rec.pann here by
+                    // default. If commit time leaves peer .pann files stale
+                    // (no trace persisted), the next session's selector may
+                    // designate the peer as primary and find no trace at
+                    // all — the blend window silently degrades to
+                    // standalone. Eagerly persist every peer touched by
+                    // this commit's overlap pairs so both sides see the
+                    // trace on next load.
+                    for (int i = 0; i < snapshot.Count; i++)
+                    {
+                        Recording other = snapshot[i];
+                        if (other == null
+                            || string.IsNullOrEmpty(other.RecordingId)
+                            || string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                            continue;
+                        if (SectionAnnotationStore.TryGetCoBubbleTraces(other.RecordingId, out var peerTraces)
+                            && peerTraces != null)
+                        {
+                            // Only persist when the peer has at least one
+                            // trace whose PeerRecordingId == rec.RecordingId.
+                            // This narrows the I/O to recordings genuinely
+                            // touched by this commit (vs every existing
+                            // peer with any prior trace).
+                            bool touchedByThisCommit = false;
+                            for (int t = 0; t < peerTraces.Count; t++)
+                            {
+                                CoBubbleOffsetTrace pt = peerTraces[t];
+                                if (pt != null
+                                    && string.Equals(pt.PeerRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                                {
+                                    touchedByThisCommit = true;
+                                    break;
+                                }
+                            }
+                            if (touchedByThisCommit) peerRecordingsToPersist.Add(other);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -536,7 +670,63 @@ namespace Parsek.Rendering
                 ParsekLog.Warn("Pipeline-CoBubble",
                     $"DetectAndStore at commit threw {ex.GetType().Name}: {ex.Message} — co-bubble traces unavailable for this commit");
             }
-            TryWritePann(rec, pannPath, CurrentConfigurationHash());
+            byte[] commitConfigHash = CurrentConfigurationHash();
+            TryWritePann(rec, pannPath, commitConfigHash);
+
+            // P2-A: persist peer .pann files for every recording whose
+            // in-memory trace store gained a trace pointing at `rec`.
+            // PersistPeerPannFiles is wrapped in its own try/catch and
+            // never throws (HR-9 visibility / regenerable cache).
+            if (peerRecordingsToPersist.Count > 0)
+                PersistPeerPannFiles(rec, peerRecordingsToPersist, commitConfigHash);
+        }
+
+        /// <summary>
+        /// P2-A: writes <c>.pann</c> sidecars for every peer recording whose
+        /// in-memory trace store gained an entry pointing at the recording
+        /// just committed by <see cref="PersistAfterCommit"/>. Without this,
+        /// the freshly-built peer trace lives only in memory; on next load
+        /// the peer's <c>.pann</c> still has the pre-commit (or empty)
+        /// CoBubbleOffsetTraces block and the runtime sees no trace if the
+        /// session selector designates the peer as primary.
+        ///
+        /// <para>
+        /// Per HR-9 / HR-12, peer-side write failures must NOT abort the
+        /// caller's commit. Each peer is wrapped independently and surfaces
+        /// as a Warn — the .pann is regenerable from the next lazy compute.
+        /// </para>
+        /// </summary>
+        private static void PersistPeerPannFiles(
+            Recording committedRec,
+            IReadOnlyList<Recording> peers,
+            byte[] configHash)
+        {
+            int persisted = 0;
+            int skipped = 0;
+            for (int i = 0; i < peers.Count; i++)
+            {
+                Recording peer = peers[i];
+                if (peer == null || string.IsNullOrEmpty(peer.RecordingId)) { skipped++; continue; }
+                string peerPannRel = RecordingPaths.BuildAnnotationsRelativePath(peer.RecordingId);
+                if (string.IsNullOrEmpty(peerPannRel)) { skipped++; continue; }
+                string peerPannPath = RecordingPaths.ResolveSaveScopedPath(peerPannRel);
+                if (string.IsNullOrEmpty(peerPannPath)) { skipped++; continue; }
+                try
+                {
+                    TryWritePann(peer, peerPannPath, configHash);
+                    persisted++;
+                }
+                catch (Exception ex)
+                {
+                    skipped++;
+                    ParsekLog.Warn("Pipeline-CoBubble",
+                        $"PersistPeerPannFiles: peer write failed recordingId={peer.RecordingId} " +
+                        $"committed={committedRec.RecordingId} ex={ex.GetType().Name}:{ex.Message}");
+                }
+            }
+            ParsekLog.Verbose("Pipeline-CoBubble",
+                $"PersistPeerPannFiles summary: committed={committedRec.RecordingId} " +
+                $"peerCount={peers.Count} persisted={persisted} skipped={skipped}");
         }
 
         /// <summary>Test-only: clears the in-memory annotation store.</summary>
@@ -655,9 +845,25 @@ namespace Parsek.Rendering
         /// </summary>
         internal static string ClassifyTraceDrift(CoBubbleOffsetTrace trace)
         {
+            return ClassifyTraceDrift(trace, null);
+        }
+
+        /// <summary>
+        /// Phase 5 P1-A overload: per-trace cache-key check that consults a
+        /// tree-local load set BEFORE walking <c>RecordingStore.CommittedRecordings</c>.
+        /// During <see cref="ParsekScenario"/> OnLoad each recording is
+        /// hydrated and its <c>.pann</c> read sequentially, but the tree is
+        /// only added to the committed list AFTER all sidecars have loaded.
+        /// Without the load set, same-tree peers look missing and valid
+        /// traces are dropped as <c>peer-missing</c> on every save load.
+        /// </summary>
+        internal static string ClassifyTraceDrift(
+            CoBubbleOffsetTrace trace,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+        {
             if (trace == null) return "trace-null";
             if (string.IsNullOrEmpty(trace.PeerRecordingId)) return "peer-missing";
-            Recording peer = ResolvePeerRecording(trace.PeerRecordingId);
+            Recording peer = ResolvePeerRecording(trace.PeerRecordingId, treeLocalLoadSet);
             if (peer == null) return "peer-missing";
             if (peer.RecordingFormatVersion != trace.PeerSourceFormatVersion)
                 return "peer-format-changed";
@@ -678,9 +884,30 @@ namespace Parsek.Rendering
 
         private static Recording ResolvePeerRecording(string peerRecordingId)
         {
+            return ResolvePeerRecording(peerRecordingId, null);
+        }
+
+        private static Recording ResolvePeerRecording(
+            string peerRecordingId,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+        {
             if (string.IsNullOrEmpty(peerRecordingId)) return null;
             var seam = CoBubblePeerResolverForTesting;
             if (seam != null) return seam(peerRecordingId);
+            // P1-A: prefer the tree-local load set during OnLoad's
+            // sequential sidecar hydration. The tree is only appended to
+            // CommittedRecordings AFTER every recording's .pann has been
+            // read, so same-tree peers are invisible to the committed
+            // list when ClassifyTraceDrift runs from inside LoadOrCompute.
+            if (treeLocalLoadSet != null)
+            {
+                Recording localPeer;
+                if (treeLocalLoadSet.TryGetValue(peerRecordingId, out localPeer)
+                    && localPeer != null)
+                {
+                    return localPeer;
+                }
+            }
             try
             {
                 IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;

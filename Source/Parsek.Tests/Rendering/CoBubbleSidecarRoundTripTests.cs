@@ -135,8 +135,24 @@ namespace Parsek.Tests.Rendering
             // offsets correctly. Bumping the alg stamp invalidates them via
             // the existing alg-stamp-drift gate so they get recomputed on
             // first load (HR-10).
+            // Phase 5 review-pass-2 (P1-B + P2-B) further bumped to 7.
             Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 6,
                 "AlgorithmStampVersion must be >= 6 after Phase 5 P1-A ships");
+        }
+
+        [Fact]
+        public void AlgStampVersion_BumpedToSevenOrLater_ForRecomputeAndWindowClampFix()
+        {
+            // Phase 5 review-pass-2: P1-B added CoBubbleOverlapDetector.DetectAndStore
+            // to the lazy recompute path so cache-miss / drifted .pann files
+            // regenerate traces instead of rewriting empty blocks. P2-B
+            // clamps BuildTrace to BlendMaxWindowSeconds so long-overlap
+            // traces no longer store EndUTs without sample coverage. v6
+            // .pann files written before these fixes have semantically
+            // incorrect trace content; the alg-stamp bump drives them
+            // through alg-stamp-drift on first load (HR-10).
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 7,
+                "AlgorithmStampVersion must be >= 7 after Phase 5 P1-B + P2-B ship");
         }
 
         [Fact]
@@ -252,6 +268,77 @@ namespace Parsek.Tests.Rendering
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => trace.PeerContentSignature;
             Assert.Null(SmoothingPipeline.ClassifyTraceDrift(trace));
+        }
+
+        [Fact]
+        public void LoadOrCompute_SameTreePeer_NotYetCommitted_StillValidatesTrace()
+        {
+            // P1-A regression: ParsekScenario.OnLoad hydrates each recording's
+            // sidecars BEFORE FinalizeTreeCommit appends the tree to
+            // RecordingStore.CommittedRecordings. The pre-fix per-trace peer
+            // validator walked CommittedRecordings only and dropped every
+            // valid same-tree trace as peer-missing on every save load.
+            //
+            // The fix threads a treeLocalLoadSet (the in-progress tree's
+            // Recordings dict) through ClassifyTraceDrift so peers being
+            // loaded in the same pass are visible BEFORE they're committed.
+            CoBubbleOffsetTrace trace = MakeTrace("same-tree-peer");
+            // The production CoBubblePeerResolverForTesting seam is the
+            // CommittedRecordings stand-in; leave it null to simulate the
+            // OnLoad ordering where same-tree peers are not yet committed.
+            SmoothingPipeline.CoBubblePeerResolverForTesting = null;
+            // Recompute returns the trace's stored signature so the
+            // peer-content-mismatch check passes.
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, startUT, endUT) => trace.PeerContentSignature;
+
+            var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                {
+                    trace.PeerRecordingId,
+                    new Recording
+                    {
+                        RecordingId = trace.PeerRecordingId,
+                        RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                        SidecarEpoch = trace.PeerSidecarEpoch,
+                    }
+                }
+            };
+
+            // Pre-fix code: drops trace as peer-missing because
+            // CommittedRecordings doesn't yet contain the peer.
+            // Post-fix: tree-local load set takes precedence, trace is valid.
+            string driftReason = SmoothingPipeline.ClassifyTraceDrift(trace, loadSet);
+            Assert.Null(driftReason);
+        }
+
+        [Fact]
+        public void ClassifyTraceDrift_TreeLocalLoadSet_NullPeer_StillFallsBackToCommitted()
+        {
+            // P1-A defensive: when the tree-local load set entry is null
+            // (defense-in-depth — shouldn't happen in production), the
+            // resolver must fall back to CommittedRecordings rather than
+            // accept the null peer.
+            CoBubbleOffsetTrace trace = MakeTrace("peer");
+            SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
+                new Recording
+                {
+                    RecordingId = id,
+                    RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                    SidecarEpoch = trace.PeerSidecarEpoch,
+                };
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, startUT, endUT) => trace.PeerContentSignature;
+
+            var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                { trace.PeerRecordingId, null },
+            };
+
+            // The null entry should NOT short-circuit the resolver — the
+            // committed-fallback (test seam) should still produce a valid
+            // peer.
+            Assert.Null(SmoothingPipeline.ClassifyTraceDrift(trace, loadSet));
         }
 
         [Fact]

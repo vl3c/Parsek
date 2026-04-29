@@ -414,8 +414,37 @@ namespace Parsek.Rendering
             if (primaryRate > 0) resampleHz = Math.Min(resampleHz, primaryRate);
             if (peerRate > 0) resampleHz = Math.Min(resampleHz, peerRate);
 
+            // P2-B: clamp the trace's covered range to BlendMaxWindowSeconds.
+            // BlendMaxWindowSeconds participates in ConfigurationHash as the
+            // documented per-trace duration cap (§17.3.1 / §22). Without this
+            // clamp, BuildTrace would either (a) emit a trace covering the
+            // full overlap and only the sample-cap (MaxCoBubbleSamplesPerTrace)
+            // would limit memory while semantically the trace ignores the
+            // duration cap, or (b) hit the sample cap mid-window and leave
+            // EndUT pointing past the last sample so the blender clamps to
+            // the final offset for the rest of the window — visually wrong.
+            // Splitting an over-cap window into multiple traces is a Phase 5
+            // follow-up; for now we clamp to the first BlendMaxWindowSeconds
+            // and emit a Verbose so the truncation is visible (HR-9).
+            double maxWindow = CoBubbleConfiguration.Default.BlendMaxWindowSeconds;
+            double effectiveEndUT = window.EndUT;
+            if (maxWindow > 0 && effectiveEndUT > window.StartUT + maxWindow)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "window-clamped-to-max",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "BuildTrace window clamped to BlendMaxWindowSeconds: peer={0} startUT={1} originalEndUT={2} clampedEndUT={3} maxWindowS={4}",
+                        peer.RecordingId,
+                        window.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                        window.EndUT.ToString("R", CultureInfo.InvariantCulture),
+                        (window.StartUT + maxWindow).ToString("R", CultureInfo.InvariantCulture),
+                        maxWindow.ToString("R", CultureInfo.InvariantCulture)),
+                    30.0);
+                effectiveEndUT = window.StartUT + maxWindow;
+            }
+
             double stepS = 1.0 / Math.Max(0.001, resampleHz);
-            int sampleCount = Math.Max(2, (int)Math.Ceiling((window.EndUT - window.StartUT) / stepS) + 1);
+            int sampleCount = Math.Max(2, (int)Math.Ceiling((effectiveEndUT - window.StartUT) / stepS) + 1);
             if (sampleCount > PannotationsSidecarBinary.MaxCoBubbleSamplesPerTrace)
                 sampleCount = PannotationsSidecarBinary.MaxCoBubbleSamplesPerTrace;
 
@@ -436,7 +465,7 @@ namespace Parsek.Rendering
             for (int i = 0; i < sampleCount; i++)
             {
                 double t = window.StartUT + i * stepS;
-                if (t > window.EndUT) t = window.EndUT;
+                if (t > effectiveEndUT) t = effectiveEndUT;
                 if (!TrySampleWorld(primary, t, out Vector3d pPrimary)) return null;
                 if (!TrySampleWorld(peer, t, out Vector3d pPeer)) return null;
                 Vector3d delta = pPeer - pPrimary;
@@ -468,7 +497,7 @@ namespace Parsek.Rendering
                 Array.Resize(ref dz, writeIdx);
             }
 
-            byte[] sig = ComputePeerContentSignature(peer, window.StartUT, window.EndUT);
+            byte[] sig = ComputePeerContentSignature(peer, window.StartUT, effectiveEndUT);
             return new CoBubbleOffsetTrace
             {
                 PeerRecordingId = peer.RecordingId,
@@ -476,7 +505,7 @@ namespace Parsek.Rendering
                 PeerSidecarEpoch = peer.SidecarEpoch,
                 PeerContentSignature = sig,
                 StartUT = window.StartUT,
-                EndUT = window.EndUT,
+                EndUT = effectiveEndUT,
                 FrameTag = window.FrameTag,
                 PrimaryDesignation = primaryDesignation,
                 UTs = uts,

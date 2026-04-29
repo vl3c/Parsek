@@ -2605,10 +2605,14 @@ namespace Parsek
                     int sidecarHydrationFailures = 0;
                     int syntheticFixtureFailures = 0;
 
-                    // Load bulk data from external files for each recording in the tree
+                    // Load bulk data from external files for each recording in the tree.
+                    // Phase 5 P1-A: pass tree.Recordings as treeLocalLoadSet so the
+                    // per-trace co-bubble peer validator can see same-tree peers
+                    // BEFORE they're added to RecordingStore.CommittedRecordings
+                    // (which only happens after this whole tree finishes hydrating).
                     foreach (var rec in tree.Recordings.Values)
                     {
-                        if (!RecordingStore.LoadRecordingFiles(rec))
+                        if (!RecordingStore.LoadRecordingFiles(rec, tree.Recordings))
                         {
                             sidecarHydrationFailures++;
                             // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
@@ -2735,10 +2739,13 @@ namespace Parsek
                 var tree = RecordingTree.Load(treeNodes[t]);
                 int sidecarHydrationFailures = 0;
                 int staleEpochHydrationFailures = 0;
-                // Hydrate bulk data from sidecar files for each recording
+                // Hydrate bulk data from sidecar files for each recording.
+                // Phase 5 P1-A: pass tree.Recordings as treeLocalLoadSet so the
+                // per-trace co-bubble peer validator can see same-tree peers
+                // before they're appended to CommittedRecordings.
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!RecordingStore.LoadRecordingFiles(rec))
+                    if (!RecordingStore.LoadRecordingFiles(rec, tree.Recordings))
                     {
                         sidecarHydrationFailures++;
                         if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")

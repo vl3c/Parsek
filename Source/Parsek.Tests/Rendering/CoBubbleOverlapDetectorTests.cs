@@ -278,6 +278,100 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void BuildTrace_WindowExceedsMax_ClampsEndUTToBlendMaxWindowSeconds()
+        {
+            // P2-B regression: BlendMaxWindowSeconds participates in the
+            // ConfigurationHash and is the documented per-trace duration cap
+            // (§17.3.1 / §22), but BuildTrace ignored it and only capped via
+            // MaxCoBubbleSamplesPerTrace. For very long overlaps this either
+            // emitted huge traces ignoring the duration cap, or hit the
+            // sample cap mid-window leaving EndUT covering UTs without
+            // sample coverage — the blender would then clamp to the last
+            // offset for the rest of the window, producing visually wrong
+            // results.
+            //
+            // Fix: BuildTrace clamps the trace to the first
+            // BlendMaxWindowSeconds of the window and emits a Verbose
+            // window-clamped-to-max log per HR-9.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+
+            // Make a window that is clearly longer than BlendMaxWindowSeconds.
+            // Default cap is 600.0s; pick 1200s so the clamp has to fire.
+            double cap = CoBubbleConfiguration.Default.BlendMaxWindowSeconds;
+            Assert.True(cap > 0, "test relies on a positive BlendMaxWindowSeconds default");
+            var window = new CoBubbleOverlapDetector.OverlapWindow
+            {
+                RecordingA = "rec-A",
+                RecordingB = "rec-B",
+                StartUT = 1000.0,
+                EndUT = 1000.0 + cap * 2.0,    // 2× cap → must be clamped
+                FrameTag = 0,                   // body-fixed → no inertial lift
+                PrimaryEnv = SegmentEnvironment.ExoBallistic,
+                BodyName = "Kerbin",
+            };
+
+            var primary = MakeRecording("rec-A", 1000.0, 1000.0 + cap * 2.0,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            var peer = MakeRecording("rec-B", 1000.0, 1000.0 + cap * 2.0,
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+
+            CoBubbleOffsetTrace trace = CoBubbleOverlapDetector.BuildTrace(
+                window, primary, peer, primaryDesignation: 0);
+            Assert.NotNull(trace);
+
+            // EndUT must be clamped to StartUT + cap (within a small tolerance
+            // for floating-point round-trip).
+            double expectedEnd = window.StartUT + cap;
+            Assert.True(Math.Abs(trace.EndUT - expectedEnd) < 1e-6,
+                $"EndUT must be clamped to {expectedEnd}, got {trace.EndUT}");
+
+            // Sample UTs must all fall inside [StartUT, expectedEnd].
+            Assert.NotNull(trace.UTs);
+            Assert.NotEmpty(trace.UTs);
+            for (int i = 0; i < trace.UTs.Length; i++)
+            {
+                Assert.True(trace.UTs[i] >= window.StartUT - 1e-6,
+                    $"UT[{i}]={trace.UTs[i]} below StartUT");
+                Assert.True(trace.UTs[i] <= expectedEnd + 1e-6,
+                    $"UT[{i}]={trace.UTs[i]} above clamped endUT={expectedEnd}");
+            }
+        }
+
+        [Fact]
+        public void BuildTrace_WindowWithinCap_NotClamped()
+        {
+            // Counter-test for P2-B: a window shorter than the cap must
+            // round-trip its EndUT unchanged.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+
+            double cap = CoBubbleConfiguration.Default.BlendMaxWindowSeconds;
+            // Pick a window well below the cap.
+            double windowDuration = Math.Min(60.0, cap / 2.0);
+            var window = new CoBubbleOverlapDetector.OverlapWindow
+            {
+                RecordingA = "rec-A",
+                RecordingB = "rec-B",
+                StartUT = 1000.0,
+                EndUT = 1000.0 + windowDuration,
+                FrameTag = 0,
+                PrimaryEnv = SegmentEnvironment.ExoBallistic,
+                BodyName = "Kerbin",
+            };
+
+            var primary = MakeRecording("rec-A", 1000.0, 1000.0 + windowDuration,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            var peer = MakeRecording("rec-B", 1000.0, 1000.0 + windowDuration,
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+
+            CoBubbleOffsetTrace trace = CoBubbleOverlapDetector.BuildTrace(
+                window, primary, peer, primaryDesignation: 0);
+            Assert.NotNull(trace);
+            Assert.Equal(window.EndUT, trace.EndUT);
+        }
+
+        [Fact]
         public void ComputePeerContentSignature_MutationFlipsHash()
         {
             // Even a single-point edit must flip the SHA-256 (HR-10).
