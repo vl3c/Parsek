@@ -43,14 +43,16 @@ namespace Parsek.InGameTests
 
         private static IEnumerator RunSealDialogButtonFlow(string buttonText, bool expectedSealed)
         {
-            if (PopupDialogToDisplayField == null
-                || MultiOptionDialogNameField == null
-                || MultiOptionDialogTitleField == null
-                || MultiOptionDialogOptionsField == null
-                || DialogGuiButtonTextField == null
-                || DialogGuiButtonOptionSelectedMethod == null)
+            if (!AnyReflectionBindingResolved())
             {
-                InGameAssert.Skip("seal dialog reflection helpers are unavailable");
+                InGameAssert.Fail("seal dialog reflection helpers all failed to bind");
+                yield break;
+            }
+            if (!AllReflectionBindingsResolved())
+            {
+                InGameAssert.Skip(
+                    "seal dialog reflection helpers are unavailable: " +
+                    MissingReflectionBindings());
                 yield break;
             }
 
@@ -151,6 +153,44 @@ namespace Parsek.InGameTests
                 scenario.ActiveReFlySessionMarker = originalMarker;
                 scenario.ActiveMergeJournal = originalJournal;
             }
+        }
+
+        private static bool AnyReflectionBindingResolved()
+        {
+            return PopupDialogToDisplayField != null
+                || MultiOptionDialogNameField != null
+                || MultiOptionDialogTitleField != null
+                || MultiOptionDialogOptionsField != null
+                || DialogGuiButtonTextField != null
+                || DialogGuiButtonOptionSelectedMethod != null;
+        }
+
+        private static bool AllReflectionBindingsResolved()
+        {
+            return PopupDialogToDisplayField != null
+                && MultiOptionDialogNameField != null
+                && MultiOptionDialogTitleField != null
+                && MultiOptionDialogOptionsField != null
+                && DialogGuiButtonTextField != null
+                && DialogGuiButtonOptionSelectedMethod != null;
+        }
+
+        private static string MissingReflectionBindings()
+        {
+            var missing = new List<string>();
+            if (PopupDialogToDisplayField == null)
+                missing.Add("PopupDialog.dialogToDisplay");
+            if (MultiOptionDialogNameField == null)
+                missing.Add("MultiOptionDialog.name");
+            if (MultiOptionDialogTitleField == null)
+                missing.Add("MultiOptionDialog.title");
+            if (MultiOptionDialogOptionsField == null)
+                missing.Add("MultiOptionDialog.Options");
+            if (DialogGuiButtonTextField == null)
+                missing.Add("DialogGUIButton.OptionText");
+            if (DialogGuiButtonOptionSelectedMethod == null)
+                missing.Add("DialogGUIButton.OptionSelected");
+            return string.Join(",", missing.ToArray());
         }
 
         private static PopupDialog FindPopupDialog(string dialogName)

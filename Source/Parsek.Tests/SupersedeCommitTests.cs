@@ -276,6 +276,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTarget()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            var priorTip = Rec("rec_prior_tip", "tree_1", terminal: TerminalState.Orbiting);
+            InstallTree("tree_1",
+                new List<Recording> { origin, priorTip },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_prior_tip");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional",
+                supersedeTargetId: "rec_prior_tip");
+            var scenario = InstallScenario(marker);
+            scenario.RecordingSupersedes.Add(Rel("rec_origin", "rec_prior_tip"));
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                }
+            });
+
+            Assert.False(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                provisional, out _, out _, out _));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_prior_tip" && r.NewRecordingId == "rec_provisional");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("slot=1")
+                && l.Contains("classifierReason=stableLeafUnconcluded"));
+        }
+
+        [Fact]
         public void OrbitingFocusStableLeaf_ProducesImmutable()
         {
             const string bpId = "bp_stage";
