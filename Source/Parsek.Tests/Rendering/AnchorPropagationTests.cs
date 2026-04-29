@@ -1007,6 +1007,83 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(3, edgePropagatedCount);
         }
 
+        // ----- §7.7 BubbleEntry / BubbleExit -----------------------------
+
+        [Fact]
+        public void BubbleEntryExit_DeferredSwitchRemoved_ResolverCalled()
+        {
+            // Regression pin: pre-v0.9.1 the BubbleEntry / BubbleExit
+            // sources were in TryResolveSeedEpsilon's deferred-source gate
+            // and never hit the resolver. After §7.7 ships, a BubbleExit
+            // candidate must drive a real resolver call.
+            var rec = MakeRec("rec-bubble-resolver-call", 0, 100);
+            var stub = new BubbleStubResolver { World = new Vector3d(2, 4, 6) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            AnchorPropagator.SmoothedPositionForTesting = (r, s, u) => new Vector3d(1, 2, 3);
+
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(50.0, AnchorSource.BubbleExit, AnchorSide.Start),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-resolver-call" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.Equal(1, stub.BubbleCalls);
+            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
+            Assert.Equal(AnchorSource.BubbleExit, ac.Source);
+            // ε = (2,4,6) - (1,2,3) = (1,2,3)
+            Assert.Equal(1.0, ac.Epsilon.x, 6);
+        }
+
+        [Fact]
+        public void BubbleEntryExit_PropagatedSummaryIncludesResolvedBubbleCount()
+        {
+            // The DAG-walk-summary Info line must include resolvedBubble
+            // so operators can see §7.7 anchors landing in telemetry.
+            var rec = MakeRec("rec-bubble-summary", 0, 100);
+            var stub = new BubbleStubResolver { World = new Vector3d(10, 20, 30) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            AnchorPropagator.SmoothedPositionForTesting = (r, s, u) => new Vector3d(5, 10, 15);
+
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(50.0, AnchorSource.BubbleEntry, AnchorSide.End),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-summary-sess" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Pipeline-AnchorPropagate]")
+                && l.Contains("DAG walk summary")
+                && l.Contains("resolvedBubble=1"));
+        }
+
+        // Helper stub: returns a fixed pose only from the BubbleEntry/Exit
+        // method, all other resolver methods return false.
+        private sealed class BubbleStubResolver : IAnchorWorldFrameResolver
+        {
+            public Vector3d World;
+            public int BubbleCalls;
+
+            public bool TryResolveRelativeBoundaryWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveOrbitalCheckpointWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveSoiBoundaryWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveLoopAnchorWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double sampleUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveBubbleEntryExitWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { BubbleCalls++; worldPos = World; return true; }
+        }
+
         [Fact]
         public void Run_NoSeed_NoEdgesProcessed()
         {

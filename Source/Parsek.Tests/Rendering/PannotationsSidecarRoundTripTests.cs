@@ -710,5 +710,46 @@ namespace Parsek.Tests.Rendering
             Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 3,
                 "AlgorithmStampVersion must be >= 3 after Phase 6 ships");
         }
+
+        [Fact]
+        public void AnchorCandidatesList_RoundTripsBubbleEntryAndBubbleExit()
+        {
+            // §7.7 candidate sources must round-trip cleanly through the
+            // bit-packed type byte. BubbleEntry = 5, BubbleExit = 6 — both
+            // fit in bits 0..6 with the side bit at position 7. A regression
+            // in the pack/unpack would silently flip Source on read.
+            string path = Path.Combine(tempDir, "rec_bubble_candidates.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+
+            var candidates = new List<KeyValuePair<int, AnchorCandidate[]>>
+            {
+                new KeyValuePair<int, AnchorCandidate[]>(1, new[]
+                {
+                    new AnchorCandidate(50.0, AnchorSource.BubbleExit, AnchorSide.Start),
+                    new AnchorCandidate(150.0, AnchorSource.BubbleEntry, AnchorSide.End),
+                }),
+            };
+
+            PannotationsSidecarBinary.Write(path, "rec-bubble-cands", sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                splines: new List<KeyValuePair<int, SmoothingSpline>>(),
+                anchorCandidates: candidates);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
+                out _, out var candsOut, out string failure));
+            Assert.Null(failure);
+            Assert.Single(candsOut);
+            Assert.Equal(2, candsOut[0].Value.Length);
+
+            Assert.Equal(50.0, candsOut[0].Value[0].UT);
+            Assert.Equal(AnchorSource.BubbleExit, candsOut[0].Value[0].Source);
+            Assert.Equal(AnchorSide.Start, candsOut[0].Value[0].Side);
+
+            Assert.Equal(150.0, candsOut[0].Value[1].UT);
+            Assert.Equal(AnchorSource.BubbleEntry, candsOut[0].Value[1].Source);
+            Assert.Equal(AnchorSide.End, candsOut[0].Value[1].Side);
+        }
+
     }
 }

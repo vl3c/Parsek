@@ -14300,6 +14300,10 @@ namespace Parsek.InGameTests
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double sampleUT, out Vector3d worldPos)
             { worldPos = this.worldPos; return true; }
+            public bool TryResolveBubbleEntryExitWorldPos(
+                Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
+                double boundaryUT, out Vector3d worldPos)
+            { worldPos = this.worldPos; return true; }
         }
 
         private static Recording MakeAnchorTestRecording(
