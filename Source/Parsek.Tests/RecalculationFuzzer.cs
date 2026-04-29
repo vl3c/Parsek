@@ -8,6 +8,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecalculationFuzzerTests : IDisposable
     {
+        // Keep this count in sync with CreateAction's switch below so a new
+        // GameActionType cannot land without an explicit fuzzer payload.
         private const int ExpectedGameActionTypeCount = 23;
         private readonly bool priorSuppressLogging;
 
@@ -79,6 +81,8 @@ namespace Parsek.Tests
 
         private static int ExpectedSortCalls(List<GameAction> actions, double? cutoff)
         {
+            // Mirrors RecalculationEngine's cutoff filtering and projection horizon.
+            // If those production rules change, update this predictor in the same PR.
             if (!cutoff.HasValue)
                 return 1 + (WouldContractsPrePassMutate(SortForPrediction(actions), null) ? 1 : 0);
 

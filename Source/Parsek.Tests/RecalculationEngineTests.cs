@@ -464,7 +464,11 @@ namespace Parsek.Tests
 
                 long before;
                 if (!TryGetAllocatedBytesForCurrentThread(out before))
+                {
+                    Console.WriteLine(
+                        "CutoffWalk_AllocationsBounded skipped: GC.GetAllocatedBytesForCurrentThread unavailable.");
                     return;
+                }
 
                 const int iterations = 100;
                 for (int i = 0; i < iterations; i++)
