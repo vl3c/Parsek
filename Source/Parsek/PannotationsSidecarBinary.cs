@@ -179,9 +179,25 @@ namespace Parsek
         // store EndUTs without sample coverage. v6 .pann files written
         // before these fixes have semantically incorrect trace contents;
         // bumping the alg stamp drives them through alg-stamp-drift on
-        // first load (HR-10). NOTE: Phase 8 (PR #644) also bumped to 7 in
-        // commit 8b9f623d for OutlierFlagsList; after Phase 5 lands at 7
-        // here, Phase 8's rebase will need to bump to 8.
+        // first load (HR-10). Phase 5 review-pass-3 (P1-A peer-content
+        // signature deferral, P2-1 past-end clamp, P3-1 lazy-recompute
+        // peer-pann symmetry) does NOT bump the stamp — those are
+        // correctness fixes in validation logic and runtime dispatch,
+        // not changes to persisted trace contents.
+        //
+        // PHASE 8 STACK COORDINATION (PR #644 rebase fixup): Phase 8
+        // already bumped AlgorithmStampVersion to 7 in commit 8b9f623d
+        // for OutlierFlagsList AND grew CanonicalEncodingLength 53 → 86
+        // for additional ConfigurationHash bytes. After Phase 5 lands at
+        // 7 here, the Phase 8 rebase needs BOTH bumps adjusted:
+        //   • AlgorithmStampVersion 7 → 8
+        //   • CanonicalEncodingLength stays at the Phase-8 value (86),
+        //     since Phase 5 didn't grow the hash payload — it only
+        //     reuses bytes already reserved at Phase 5.
+        // Failing to bump AlgorithmStampVersion in the rebase fixup
+        // would make Phase 8's OutlierFlagsList block read as cache-hit
+        // against pre-Phase-8 (or Phase-5-only) .pann files (HR-10
+        // freshness violation).
         internal const int AlgorithmStampVersion = 7;
         private const int CanonicalEncoderVersion = 1;
 

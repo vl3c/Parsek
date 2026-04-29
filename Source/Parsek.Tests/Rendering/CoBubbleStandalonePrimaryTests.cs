@@ -328,15 +328,129 @@ namespace Parsek.Tests.Rendering
                 Assert.DoesNotContain(logLines, l => l.Contains("[Pipeline-CoBubble]")
                     && l.Contains("ParsekFlight.Instance null")
                     && l.Contains(rec.RecordingId));
-                // Either the absolute-shadow body resolution failed
-                // (FlightGlobals not available in xUnit — emits no
-                // explicit log; we don't assert this) OR the shadow path
-                // succeeded silently. Both are consistent with
-                // bypassing the live-anchor live-state read. Pre-fix,
-                // the helper would have followed the live-anchor path
-                // and emitted "Instance null" because there's no
-                // ParsekFlight.Instance — the assertion above pins
-                // that.
+                // Phase 5 review-pass-3 P2-2: positively assert the
+                // no-shadow Verbose fires (rate-limit dedup key
+                // "primary-active-refly-no-shadow", visible message
+                // text "active-re-fly anchor matched but no absolute
+                // shadow available"). The active-re-fly branch ran
+                // (proved by no Instance-null log) and
+                // TryComputeStandaloneAbsoluteShadowWorldPosition
+                // returned false (FlightGlobals.Bodies unavailable in
+                // xUnit → caught TypeInitializationException → return
+                // false), so the no-shadow Verbose must fire — without
+                // this assertion a future refactor that drops the
+                // Verbose would still pass the no-Instance-null check.
+                Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                    && l.Contains("active-re-fly anchor matched but no absolute shadow available")
+                    && l.Contains(rec.RecordingId));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void StandaloneAbsoluteShadow_UTPastEnd_FailsClosed()
+        {
+            // Phase 5 review-pass-3 P2-1 regression: the linear search in
+            // TryComputeStandaloneAbsoluteShadowWorldPosition (and its
+            // siblings TryComputeStandaloneAbsoluteFallbackWorldPosition
+            // / TryComputeStandaloneWorldPositionForRecording's lat/lon
+            // branch) used `idx <= 0` to detect both at-or-before-start
+            // (idx == 0) and past-end (idx == -1). When ut > the last
+            // sample's UT, the loop completes without breaking and idx
+            // stays -1; the pre-fix code clamped to shadow[0], producing
+            // an early-recording position when the caller asked for a
+            // late one — a silent time jump.
+            //
+            // Fix: distinguish the two cases. idx == -1 fails closed with
+            // a Verbose; idx == 0 keeps the existing at-or-before-start
+            // clamp. This test exercises the absolute-shadow path
+            // through the active-re-fly branch with a synthetic shadow
+            // whose last sample is at ut=30 and a query at ut=35.
+            const uint reflyPid = 4242u;
+
+            var reflyRec = new Recording
+            {
+                RecordingId = "active-refly-target-pastend",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselPersistentId = reflyPid,
+            };
+            RecordingStore.AddCommittedInternal(reflyRec);
+
+            // Section spans UTs [10, 50] (so the query at 35 selects this
+            // RELATIVE section), but the absolute-shadow ends at 30 — the
+            // canonical bug case where the recorder stopped capturing
+            // shadow points partway through the section. Shadow walk at
+            // ut=35 hits idx==-1 (past last shadow sample), and the fix
+            // must fail closed instead of clamping to shadow[0].
+            var rec = new Recording
+            {
+                RecordingId = "primary-pastend",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 50.0, latitude = 0, longitude = 0, altitude = 0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity,
+                    },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 10.0,
+                        endUT = 50.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorVesselId = reflyPid,
+                        sampleRateHz = 4.0f,
+                        absoluteFrames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 10.0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 20.0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 30.0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        },
+                    }
+                }
+            };
+            RecordingStore.AddCommittedInternal(rec);
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-pastend",
+                    ActiveReFlyRecordingId = reflyRec.RecordingId,
+                    OriginChildRecordingId = reflyRec.RecordingId,
+                    TreeId = "tree-pastend",
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            try
+            {
+                bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                    rec.RecordingId, ut: 35.0, fallbackBody: null,
+                    out Vector3d worldPos);
+
+                // Past end → fail closed.
+                Assert.False(ok);
+                // The shadow-past-end Verbose must fire (canonical pin:
+                // pre-fix the code clamped to shadow[0] and returned
+                // true with a wrong position; post-fix it returns false
+                // and emits this log). Match the visible log text:
+                // "Absolute shadow exhausted: recording=...".
+                Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                    && l.Contains("Absolute shadow exhausted")
+                    && l.Contains(rec.RecordingId));
             }
             finally
             {

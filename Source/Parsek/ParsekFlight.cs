@@ -15420,7 +15420,24 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            if (idx <= 0)
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). The pre-fix idx <= 0
+            // collapse clamped both cases to rec.Points[0] — past end
+            // produced an early-recording position, jumping the primary
+            // backwards in time when ut > rec.Points last UT.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-absolute-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
+                        recordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0)
             {
                 before = rec.Points[0];
                 after = before;
@@ -15650,7 +15667,26 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            if (idx <= 0)
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). The pre-fix idx <= 0 lumped
+            // both cases into "clamp to shadow[0]" — when ut > last shadow
+            // sample, that produced a position from the FIRST sample
+            // instead of the last, jumping the primary backwards in time.
+            // Past end is HR-9 visible failure: fail closed and emit a
+            // rate-limited Verbose so tuning is observable.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "primary-active-refly-shadow-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Absolute shadow exhausted: recording={0} ut={1} lastShadowUT={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0)
             {
                 before = shadow[0];
                 after = before;
@@ -15696,7 +15732,22 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            if (idx <= 0) { before = rec.Points[0]; after = before; t = 0f; }
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). See sibling comment in
+            // TryComputeStandaloneAbsoluteShadowWorldPosition.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-fallback-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Legacy fallback past last point: recording={0} ut={1} lastPointUT={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0) { before = rec.Points[0]; after = before; t = 0f; }
             else
             {
                 before = rec.Points[idx - 1];

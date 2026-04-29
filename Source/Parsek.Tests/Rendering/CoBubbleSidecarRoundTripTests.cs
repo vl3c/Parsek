@@ -242,12 +242,19 @@ namespace Parsek.Tests.Rendering
             CoBubbleOffsetTrace trace = MakeTrace("peer");
             byte[] otherSig = new byte[32];
             for (int i = 0; i < 32; i++) otherSig[i] = 0xAB;
+            // Phase 5 review-pass-3 P1-A: peer must have non-empty Points
+            // for the signature path to fire — empty Points is now treated
+            // as "still hydrating" and defers signature validation.
             SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
                 new Recording
                 {
                     RecordingId = id,
                     RecordingFormatVersion = trace.PeerSourceFormatVersion,
-                    SidecarEpoch = trace.PeerSidecarEpoch
+                    SidecarEpoch = trace.PeerSidecarEpoch,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = trace.StartUT, bodyName = "Kerbin" },
+                    },
                 };
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => otherSig;
@@ -258,12 +265,17 @@ namespace Parsek.Tests.Rendering
         public void ClassifyTraceDrift_AllFieldsMatch_ReturnsNull()
         {
             CoBubbleOffsetTrace trace = MakeTrace("peer");
+            // Same hydration constraint as the peer-content-mismatch test.
             SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
                 new Recording
                 {
                     RecordingId = id,
                     RecordingFormatVersion = trace.PeerSourceFormatVersion,
-                    SidecarEpoch = trace.PeerSidecarEpoch
+                    SidecarEpoch = trace.PeerSidecarEpoch,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = trace.StartUT, bodyName = "Kerbin" },
+                    },
                 };
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => trace.PeerContentSignature;
@@ -292,6 +304,13 @@ namespace Parsek.Tests.Rendering
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => trace.PeerContentSignature;
 
+            // Phase 5 review-pass-3 P1-A made empty Points trigger the
+            // peer-content-validation-deferred branch (returns null
+            // without invoking the signature recompute), so this peer
+            // gets a non-empty Points list to ensure the resolution path
+            // is exercised end-to-end (load-set wins over null
+            // CommittedRecordings, format/epoch checks pass, signature
+            // path runs and returns null because the seam matches).
             var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
             {
                 {
@@ -301,6 +320,10 @@ namespace Parsek.Tests.Rendering
                         RecordingId = trace.PeerRecordingId,
                         RecordingFormatVersion = trace.PeerSourceFormatVersion,
                         SidecarEpoch = trace.PeerSidecarEpoch,
+                        Points = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = trace.StartUT, bodyName = "Kerbin" },
+                        },
                     }
                 }
             };
@@ -313,20 +336,80 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void ClassifyTraceDrift_TreeLocalLoadSet_NullPeer_StillFallsBackToCommitted()
+        public void LoadOrCompute_PeerContentSignature_PeerStillHydrating_DefersValidation()
         {
-            // P1-A defensive: when the tree-local load set entry is null
-            // (defense-in-depth — shouldn't happen in production), the
-            // resolver must fall back to CommittedRecordings rather than
-            // accept the null peer.
-            CoBubbleOffsetTrace trace = MakeTrace("peer");
+            // Phase 5 review-pass-3 P1-A regression: even after threading
+            // the tree-local load set through ResolvePeerRecording, the
+            // signature recompute still ran against `peer.Points`. During
+            // OnLoad each recording's .prec is deserialized sequentially,
+            // so same-tree peers iterated AFTER the current recording have
+            // peer.Points still empty when the current recording's .pann
+            // is validated. Recomputing SHA-256 over an empty Points list
+            // mismatches the stored signature, dropping every same-tree
+            // trace as peer-content-mismatch on every save load — exactly
+            // the production bug the prior P1-A round was supposed to
+            // fix but missed for the signature leg.
+            //
+            // Fix: when peer.Points is null/empty, defer signature
+            // validation to the runtime per-trace check in
+            // CoBubbleBlender (P2-B from the earlier review pass), which
+            // sees both sides fully hydrated. Format / epoch fields are
+            // populated from the .sfs at tree-load time, so those gates
+            // stay live. Visible-failure: emit a Verbose log so HR-9 is
+            // preserved.
+            CoBubbleOffsetTrace trace = MakeTrace("hydrating-peer");
+            // Stub CoBubblePeerResolverForTesting to return a peer whose
+            // Points is empty (the OnLoad-in-flight state).
             SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
                 new Recording
                 {
                     RecordingId = id,
                     RecordingFormatVersion = trace.PeerSourceFormatVersion,
                     SidecarEpoch = trace.PeerSidecarEpoch,
+                    // Points intentionally null/empty to simulate
+                    // OnLoad-in-flight state.
                 };
+            // The signature recompute seam, if it ran, would return a
+            // mismatching signature — proving the fix's deferral is what
+            // saves the trace, not a coincidental match.
+            byte[] mismatchSig = new byte[32];
+            for (int i = 0; i < 32; i++) mismatchSig[i] = 0xCD;
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, startUT, endUT) => mismatchSig;
+
+            string driftReason = SmoothingPipeline.ClassifyTraceDrift(trace, null);
+            // Pre-fix: returns "peer-content-mismatch".
+            // Post-fix: returns null and logs the deferred message
+            // (canonical text "Peer Points empty during validation;
+            // deferring to runtime"). The rate-limit dedup key
+            // "peer-content-validation-deferred" is only used for
+            // suppression — it does NOT appear in the emitted log
+            // text, so the assertion pins on the visible message.
+            Assert.Null(driftReason);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Peer Points empty during validation")
+                && l.Contains("hydrating-peer"));
+        }
+
+        [Fact]
+        public void ClassifyTraceDrift_TreeLocalLoadSet_NullPeer_StillFallsBackToCommitted()
+        {
+            // P1-A defensive: when the tree-local load set entry is null
+            // (defense-in-depth — shouldn't happen in production), the
+            // resolver must fall back to CommittedRecordings rather than
+            // accept the null peer.
+            //
+            // Phase 5 review-pass-3 P3-3 fix: the prior incarnation of
+            // this test installed CoBubblePeerResolverForTesting, which
+            // short-circuits ResolvePeerRecording BEFORE the load-set
+            // check, so the load-set null-value fallback was never
+            // executed and the test passed for the wrong reason. The fix
+            // leaves the resolver seam null (null map → load-set lookup
+            // runs → null entry → fallback to CommittedRecordings),
+            // populates RecordingStore.CommittedRecordings directly with
+            // the peer, and verifies the fallback fires.
+            CoBubbleOffsetTrace trace = MakeTrace("fallback-peer");
+            SmoothingPipeline.CoBubblePeerResolverForTesting = null;
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => trace.PeerContentSignature;
 
@@ -335,10 +418,37 @@ namespace Parsek.Tests.Rendering
                 { trace.PeerRecordingId, null },
             };
 
-            // The null entry should NOT short-circuit the resolver — the
-            // committed-fallback (test seam) should still produce a valid
-            // peer.
-            Assert.Null(SmoothingPipeline.ClassifyTraceDrift(trace, loadSet));
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = trace.PeerRecordingId,
+                    RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                    SidecarEpoch = trace.PeerSidecarEpoch,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = trace.StartUT, bodyName = "Kerbin" },
+                    },
+                });
+
+                // Pre-fix path (review-pass-2): test seam returns the
+                // peer, signature seam returns matching → null result
+                // because the resolver-seam short-circuit ran. The
+                // load-set null-entry fallback was never reached, so
+                // the test was a false positive.
+                // Post-fix (review-pass-3): resolver seam null forces
+                // the load-set lookup; null entry skips load-set; the
+                // committed-recordings walk finds the peer; the
+                // signature seam matches → null result, but now from
+                // the load-set-fallback path.
+                Assert.Null(SmoothingPipeline.ClassifyTraceDrift(trace, loadSet));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
         }
 
         [Fact]
