@@ -88,13 +88,15 @@ namespace Parsek.Tests
             };
         }
 
-        private static ChildSlot Slot(int index, string originRecordingId)
+        private static ChildSlot Slot(int index, string originRecordingId, bool sealedSlot = false)
         {
             return new ChildSlot
             {
                 SlotIndex = index,
                 OriginChildRecordingId = originRecordingId,
                 Controllable = true,
+                Sealed = sealedSlot,
+                SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
             };
         }
 
@@ -240,6 +242,96 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_CommittedProvisionalSealedSlot_CountsAsClosed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.CommittedProvisional),
+                    Rec("rec_b", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ReapOrphanedRPs:")
+                && l.Contains("sealedSlotsContributing=1"));
+        }
+
+        [Fact]
+        public void Reap_NotCommittedSealedSlot_StillRetained()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.NotCommitted),
+                    Rec("rec_b", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_MixedClosedAndOpenSlots_ReapsAfterLastUnsealedSlotIsSealed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_immutable", MergeState.Immutable),
+                    Rec("rec_open", MergeState.CommittedProvisional),
+                    Rec("rec_sealed", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { bp });
+            var openSlot = Slot(1, "rec_open");
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_immutable"),
+                openSlot,
+                Slot(2, "rec_sealed", sealedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+
+            openSlot.Sealed = true;
+            openSlot.SealedRealTime = "2026-04-28T12:01:00.0000000Z";
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ReapOrphanedRPs:")
+                && l.Contains("sealedSlotsContributing=2"));
         }
 
         // ---------- File delete -------------------------------------------

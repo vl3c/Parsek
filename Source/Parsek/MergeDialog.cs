@@ -622,8 +622,8 @@ namespace Parsek
 
                     // Force MergeState to Immutable for the in-place
                     // continuation path. The default flip in
-                    // FlipMergeStateAndClearTransient picks
-                    // CommittedProvisional for Crashed re-flies so a
+                    // FlipMergeStateAndClearTransient can pick
+                    // CommittedProvisional for an unfinished outcome so a
                     // separate-recording journaled merge can offer "re-fly
                     // again" against the same RP. That semantic does NOT
                     // apply here: there IS no separate provisional, and a
@@ -631,11 +631,9 @@ namespace Parsek
                     // in place again. Treat the merge dialog confirm as
                     // the player's commitment to the timeline, regardless
                     // of whether the re-flight survived. Otherwise the
-                    // recording keeps MergeState=CommittedProvisional,
-                    // RewindPointReaper.IsReapEligible refuses to reap
-                    // (only Immutable counts), and the row stays in
-                    // Unfinished Flights forever — the duplicate the
-                    // 10:47 playtest reported.
+                    // unsealed recording keeps MergeState=CommittedProvisional,
+                    // RewindPointReaper.IsReapEligible refuses to reap it,
+                    // and the row stays in Unfinished Flights forever.
                     if (provisional.MergeState != MergeState.Immutable)
                     {
                         var priorState = provisional.MergeState;

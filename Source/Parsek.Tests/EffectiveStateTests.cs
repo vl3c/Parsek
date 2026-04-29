@@ -284,14 +284,14 @@ namespace Parsek.Tests
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1");
-            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            var rp = Rp("rp_1", "bp_1", "rec_A");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
-            // Log-assertion: the not-crashed reject path must emit a distinguishing
+            // Log-assertion: stable terminal rejects must emit a distinguishing
             // Verbose line so the rejection is visible post-hoc (design §10.5).
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("stableTerminal"));
         }
 
         [Fact]
@@ -430,7 +430,7 @@ namespace Parsek.Tests
 
             Assert.False(EffectiveState.IsUnfinishedFlight(head));
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed:Orbiting"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("noFocusSignalOrbiting"));
         }
 
         [Fact]
@@ -447,15 +447,15 @@ namespace Parsek.Tests
             // once per rate-limit window.
             var rec = Rec("rec_spam", MergeState.Immutable, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1");
-            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            var rp = Rp("rp_1", "bp_1", "rec_spam");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             for (int i = 0; i < 100; i++)
                 Assert.False(EffectiveState.IsUnfinishedFlight(rec));
 
-            int notCrashedLines = logLines.Count(l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("rec_spam") && l.Contains("notCrashed"));
-            Assert.Equal(1, notCrashedLines);
+            int noFocusSignalLines = logLines.Count(l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("rec_spam") && l.Contains("noFocusSignalOrbiting"));
+            Assert.Equal(1, noFocusSignalLines);
         }
 
         [Fact]

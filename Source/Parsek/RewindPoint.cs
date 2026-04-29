@@ -40,6 +40,13 @@ namespace Parsek
         public List<ChildSlot> ChildSlots = new List<ChildSlot>();
 
         /// <summary>
+        /// Zero-based list index into <see cref="ChildSlots"/> for the vessel
+        /// that was focused when the split was captured. -1 means no focus
+        /// signal was available, including legacy saves.
+        /// </summary>
+        public int FocusSlotIndex = -1;
+
+        /// <summary>
         /// <c>Vessel.persistentId</c> -> <see cref="ChildSlot.SlotIndex"/>. Primary
         /// lookup at post-load strip time. Populated on the deferred frame after
         /// the quicksave write.
@@ -88,6 +95,8 @@ namespace Parsek
                 node.AddValue("creatingSessionId", CreatingSessionId);
             if (!string.IsNullOrEmpty(CreatedRealTime))
                 node.AddValue("createdRealTime", CreatedRealTime);
+            if (FocusSlotIndex != -1)
+                node.AddValue("focusSlotIndex", FocusSlotIndex.ToString(ic));
 
             if (ChildSlots != null)
             {
@@ -149,6 +158,14 @@ namespace Parsek
 
             rp.CreatingSessionId = node.GetValue("creatingSessionId");
             rp.CreatedRealTime = node.GetValue("createdRealTime");
+
+            string focusSlotIndexStr = node.GetValue("focusSlotIndex");
+            int focusSlotIndex;
+            if (!string.IsNullOrEmpty(focusSlotIndexStr)
+                && int.TryParse(focusSlotIndexStr, NumberStyles.Integer, ic, out focusSlotIndex))
+            {
+                rp.FocusSlotIndex = focusSlotIndex;
+            }
 
             ConfigNode[] slotNodes = node.GetNodes("CHILD_SLOT");
             rp.ChildSlots = new List<ChildSlot>(slotNodes.Length);

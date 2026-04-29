@@ -36,7 +36,7 @@ namespace Parsek
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 75f;
+        private const float ColW_Rewind = 150f;
         private const float ColW_Hide = 80f;
 
         // Header cell height — the cells containing a label + select-all toggle
@@ -829,13 +829,29 @@ namespace Parsek
             string firstText, string secondText, float cellWidth,
             out bool firstClicked, out bool secondClicked)
         {
+            DrawBodyCenteredTwoButtons(
+                new GUIContent(firstText), true,
+                new GUIContent(secondText), true,
+                cellWidth, out firstClicked, out secondClicked);
+        }
+
+        private void DrawBodyCenteredTwoButtons(
+            GUIContent firstContent, bool firstEnabled,
+            GUIContent secondContent, bool secondEnabled,
+            float cellWidth,
+            out bool firstClicked, out bool secondClicked)
+        {
+            bool priorEnabled = GUI.enabled;
             float innerW = cellWidth - BodyCellButtonLeftInset;
             float halfInner = (innerW - 4f) * 0.5f;
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
-            firstClicked = GUILayout.Button(firstText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled && firstEnabled;
+            firstClicked = GUILayout.Button(firstContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
             GUILayout.Space(4f);
-            secondClicked = GUILayout.Button(secondText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled && secondEnabled;
+            secondClicked = GUILayout.Button(secondContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled;
             GUILayout.EndHorizontal();
         }
 
@@ -941,7 +957,7 @@ namespace Parsek
                 GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
                 if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrWatch");
             }
-            GUILayout.Label("Rewind/FF", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("Rewind / Seal", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrRewind");
 
             // Hide column header + toggle
@@ -1230,9 +1246,9 @@ namespace Parsek
                         b.ItemType == RootItemType.Group, b.GroupName, b.SortName, b.SortKey,
                         col, asc));
 
-                // Phase 5 (design §5.11): Unfinished Flights is a virtual group
-                // of recordings whose parent split produced a destroyed / lost
-                // sibling. It used to render at root level, but that made the
+                // Unfinished Flights is a virtual group of recordings whose
+                // parent split left a re-flyable crashed, stranded, or stable
+                // unconcluded sibling. It used to render at root level, but that made the
                 // row float detached from the mission it belongs to. Now it is
                 // rendered NESTED under each owning tree's auto-generated root
                 // group (see DrawGroupTree → DrawVirtualUnfinishedFlightsGroup
@@ -2399,8 +2415,10 @@ namespace Parsek
             // Expand / collapse toggle + label — no rename (system group).
             bool expanded = expandedGroups.Contains(groupName);
             string arrow = expanded ? "\u25bc" : "\u25b6";
-            if (GUILayout.Button($"{arrow} {groupName} ({memberCount})",
-                GUI.skin.label, GUILayout.ExpandWidth(true)))
+            var ufGroupContent = new GUIContent(
+                $"{arrow} {groupName} ({memberCount})",
+                UnfinishedFlightsGroup.Tooltip);
+            if (GUILayout.Button(ufGroupContent, GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedGroups.Remove(groupName);
                 else expandedGroups.Add(groupName);
@@ -2590,7 +2608,7 @@ namespace Parsek
             // glyph in both surfaces. The action is qualitatively different
             // from the legacy R / FF buttons (rewind time and watch
             // playback): clicking this loads a Rewind Point quicksave,
-            // places the player in control of the destroyed sibling vessel,
+            // places the player in control of the unfinished sibling vessel,
             // and starts a re-fly session (marker, supersede tracking,
             // merge dialog later). Past-vs-future relative to current UT is
             // irrelevant for the user-facing label. `now` is kept on the
@@ -2628,17 +2646,28 @@ namespace Parsek
                     $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
             }
 
-            GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Re-fly the destroyed sibling from the staging split"
+                ? "Re-fly this unfinished flight from the separation moment"
                 : (reason ?? "Re-Fly unavailable");
-            if (DrawBodyCenteredButton(new GUIContent(kReFlyLabel, tooltip), ColW_Rewind))
+            bool flyClicked;
+            bool sealClicked;
+            DrawBodyCenteredTwoButtons(
+                new GUIContent(kReFlyLabel, tooltip), canInvoke,
+                new GUIContent("Seal", "Close this re-fly slot permanently without changing the recording"), true,
+                ColW_Rewind, out flyClicked, out sealClicked);
+            if (flyClicked)
             {
                 ParsekLog.Info("RewindUI",
                     $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
                 RewindInvoker.ShowDialog(rp, slotListIndex);
             }
-            GUI.enabled = true;
+
+            if (sealClicked)
+            {
+                ParsekLog.Info("UnfinishedFlights",
+                    $"Seal button clicked rec={rec.RecordingId ?? "<no-id>"} rp={rpKey} slot={slotId}");
+                UnfinishedFlightSealHandler.ShowConfirmation(rec);
+            }
             return true;
         }
 
@@ -2656,9 +2685,12 @@ namespace Parsek
                     $"Re-Fly #{ri} rec={recId} disabled — {reason}");
             }
 
-            GUI.enabled = false;
-            DrawBodyCenteredButton(new GUIContent("Fly", reason), ColW_Rewind);
-            GUI.enabled = true;
+            bool ignoredFlyClicked;
+            bool ignoredSealClicked;
+            DrawBodyCenteredTwoButtons(
+                new GUIContent("Fly", reason), false,
+                new GUIContent("Seal", reason), false,
+                ColW_Rewind, out ignoredFlyClicked, out ignoredSealClicked);
         }
 
         internal enum UnfinishedFlightRewindRoute
@@ -2762,46 +2794,12 @@ namespace Parsek
         /// </summary>
         internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
         {
-            if (rec == null) return false;
-            if (rec.MergeState != MergeState.Immutable
-                && rec.MergeState != MergeState.CommittedProvisional)
-                return false;
-            // Accept either branch link: `ParentBranchPointId` (break child)
-            // or `ChildBranchPointId` (surviving active parent of a breakup,
-            // which is also a controllable output of the split).
-            if (string.IsNullOrEmpty(rec.ParentBranchPointId)
-                && string.IsNullOrEmpty(rec.ChildBranchPointId))
-                return false;
-            var terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
-            return EffectiveState.IsTerminalCrashed(terminalRec);
+            return UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec);
         }
 
         internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
         {
-            reason = null;
-            if (!IsUnfinishedFlightCandidateShape(rec))
-            {
-                reason = "not an unfinished flight";
-                return false;
-            }
-
-            var scenario = ParsekScenario.Instance;
-            var supersedes = !object.ReferenceEquals(null, scenario)
-                ? scenario.RecordingSupersedes
-                : null;
-            if (!EffectiveState.IsVisible(rec, supersedes))
-            {
-                reason = "recording is superseded";
-                return false;
-            }
-
-            if (!EffectiveState.IsUnfinishedFlight(rec))
-            {
-                reason = "no matching rewind point or slot";
-                return false;
-            }
-
-            return true;
+            return UnfinishedFlightClassifier.IsVisibleUnfinishedFlight(rec, out reason);
         }
 
         /// <summary>
@@ -2813,48 +2811,8 @@ namespace Parsek
         internal static bool TryResolveRewindPointForRecording(
             Recording rec, out RewindPoint rp, out int slotListIndex)
         {
-            rp = null;
-            slotListIndex = -1;
-            if (rec == null) return false;
-
-            // A breakup RP includes BOTH the surviving active parent AND each
-            // break child as controllable outputs (see
-            // `ParsekFlight.TryAuthorRewindPointForBreakup`). The children
-            // reference the branch via `ParentBranchPointId`; the active
-            // parent references the same branch via `ChildBranchPointId`
-            // (it's the split they produced, not the split they came from).
-            // Accept either side so the active parent's row can resolve to
-            // the RP when it later ends up an Unfinished Flight.
-            string parentBp = rec.ParentBranchPointId;
-            string childBp = rec.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
-                return false;
-
-            var scenario = ParsekScenario.Instance;
-            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
-                return false;
-
-            for (int i = 0; i < scenario.RewindPoints.Count; i++)
-            {
-                var candidate = scenario.RewindPoints[i];
-                if (candidate == null) continue;
-                bool matchesParent = !string.IsNullOrEmpty(parentBp)
-                    && string.Equals(candidate.BranchPointId, parentBp, StringComparison.Ordinal);
-                bool matchesChild = !string.IsNullOrEmpty(childBp)
-                    && string.Equals(candidate.BranchPointId, childBp, StringComparison.Ordinal);
-                if (!matchesParent && !matchesChild)
-                    continue;
-
-                int resolved = ResolveSlotListIndexForRecording(candidate, rec);
-                if (resolved < 0)
-                    return false;
-
-                rp = candidate;
-                slotListIndex = resolved;
-                return true;
-            }
-
-            return false;
+            return UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec, out rp, out slotListIndex);
         }
 
         /// <summary>
@@ -2993,9 +2951,7 @@ namespace Parsek
         /// </summary>
         internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)
         {
-            var supersedes = ParsekScenario.Instance?.RecordingSupersedes
-                ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
-            return EffectiveState.ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
+            return UnfinishedFlightClassifier.ResolveSlotListIndexForRecording(rp, rec);
         }
 
         /// <summary>
