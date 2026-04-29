@@ -29,10 +29,12 @@ event; the classifier rejected it as `downstreamBp` before reaching the
 Fix: `FinalizeIndividualRecording` now allows a `Destroyed` finalizer cache to
 repair an existing `SubOrbital` terminal on an effective leaf, using the
 cache-applier's already-finalized repair mode so stale predicted tails are
-replaced. Stable endpoints such as `Landed`, `Splashed`, and `Orbiting` are not
-overwritten. `UnfinishedFlightClassifier` now treats a `Destroyed` chain tip as
-conclusive before applying the downstream-BranchPoint guard, so crash/debris
-bookkeeping BPs do not hide playable Re-Fly slots.
+replaced only when the cached destruction UT is not in the future. Stable
+endpoints such as `Landed`, `Splashed`, and `Orbiting` are not overwritten.
+`UnfinishedFlightClassifier` now treats a `Destroyed` chain tip as conclusive
+when its downstream BranchPoint has no resolved Rewind Point route of its own,
+so crash/debris bookkeeping BPs do not hide playable Re-Fly slots while real
+downstream RPs still take precedence.
 
 ## 635. Stable-leaf Unfinished Flights were forward-only after Rewind Point splits ~~done~~
 

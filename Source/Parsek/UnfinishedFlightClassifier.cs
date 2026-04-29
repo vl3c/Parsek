@@ -113,23 +113,33 @@ namespace Parsek
                 return false;
             }
 
-            if (chainTip.TerminalStateValue.HasValue
-                && chainTip.TerminalStateValue.Value == TerminalState.Destroyed)
-            {
-                // Destruction is a conclusive unfinished outcome. A later child
-                // BranchPoint can be the crash/debris bookkeeping event rather
-                // than a playable continuation, so it must not suppress Re-Fly.
-                return TerminalOutcomeQualifiesInternal(
-                    recId, chainTip, slot, rp, out reason, branchSide);
-            }
-
             if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
                 && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, StringComparison.Ordinal))
             {
-                reason = "downstreamBp";
-                LogVerdict(false, recId, reason,
-                    $"chainTipChildBp={chainTip.ChildBranchPointId} matchedRpBp={rp.BranchPointId ?? "<none>"}");
-                return false;
+                bool destroyedTerminal = chainTip.TerminalStateValue.HasValue
+                    && chainTip.TerminalStateValue.Value == TerminalState.Destroyed;
+                bool hasResolvedDownstreamRp = HasResolvedRewindPointForBranch(
+                    rec,
+                    chainTip.ChildBranchPointId);
+
+                if (!destroyedTerminal || hasResolvedDownstreamRp)
+                {
+                    reason = "downstreamBp";
+                    LogVerdict(false, recId, reason,
+                        $"chainTipChildBp={chainTip.ChildBranchPointId} matchedRpBp={rp.BranchPointId ?? "<none>"} " +
+                        $"downstreamRp={hasResolvedDownstreamRp}");
+                    return false;
+                }
+            }
+
+            if (chainTip.TerminalStateValue.HasValue
+                && chainTip.TerminalStateValue.Value == TerminalState.Destroyed)
+            {
+                // Destruction is conclusive unless the child BranchPoint has a
+                // real rewind route of its own. Crash/debris bookkeeping BPs do
+                // not suppress the older playable split.
+                return TerminalOutcomeQualifiesInternal(
+                    recId, chainTip, slot, rp, out reason, branchSide);
             }
 
             return TerminalOutcomeQualifiesInternal(
@@ -392,21 +402,74 @@ namespace Parsek
                 return false;
             }
 
-            bool matchedRp = false;
-            List<string> matchedRps = null;
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+            bool matchedRp = false;
+            List<string> matchedRps = null;
+
+            if (TryResolveRewindPointForBranch(
+                rec,
+                childBp,
+                supersedes,
+                ref matchedRp,
+                ref matchedRps,
+                out rp,
+                out slotListIndex))
+            {
+                return true;
+            }
+
+            if (!string.Equals(parentBp, childBp, StringComparison.Ordinal)
+                && TryResolveRewindPointForBranch(
+                    rec,
+                    parentBp,
+                    supersedes,
+                    ref matchedRp,
+                    ref matchedRps,
+                    out rp,
+                    out slotListIndex))
+            {
+                return true;
+            }
+
+            rejectReason = matchedRp ? "noMatchingRpSlot" : "noMatchingRP";
+            if (matchedRp)
+            {
+                string recId = rec.RecordingId ?? "<no-id>";
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    $"uf-resolve-{recId}-{rejectReason}",
+                    $"IsUnfinishedFlight=false rec={recId} reason={rejectReason} " +
+                    $"matches={(matchedRps?.Count ?? 0)} [{string.Join(",", matchedRps ?? (IEnumerable<string>)Array.Empty<string>())}]");
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveRewindPointForBranch(
+            Recording rec,
+            string branchPointId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            ref bool matchedRp,
+            ref List<string> matchedRps,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (rec == null || string.IsNullOrEmpty(branchPointId))
+                return false;
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return false;
 
             for (int i = 0; i < scenario.RewindPoints.Count; i++)
             {
                 var candidate = scenario.RewindPoints[i];
                 if (candidate == null) continue;
-                bool matchesParent = !string.IsNullOrEmpty(parentBp)
-                    && string.Equals(candidate.BranchPointId, parentBp, StringComparison.Ordinal);
-                bool matchesChild = !string.IsNullOrEmpty(childBp)
-                    && string.Equals(candidate.BranchPointId, childBp, StringComparison.Ordinal);
-                if (!matchesParent && !matchesChild)
+                if (!string.Equals(candidate.BranchPointId, branchPointId, StringComparison.Ordinal))
                     continue;
 
                 matchedRp = true;
@@ -423,18 +486,29 @@ namespace Parsek
                 return true;
             }
 
-            rejectReason = matchedRp ? "noMatchingRpSlot" : "noMatchingRP";
-            if (matchedRp)
-            {
-                string recId = rec.RecordingId ?? "<no-id>";
-                ParsekLog.VerboseRateLimited(
-                    Tag,
-                    $"uf-resolve-{recId}-{rejectReason}",
-                    $"IsUnfinishedFlight=false rec={recId} reason={rejectReason} " +
-                    $"matches={(matchedRps?.Count ?? 0)} [{string.Join(",", matchedRps ?? (IEnumerable<string>)Array.Empty<string>())}]");
-            }
-
             return false;
+        }
+
+        private static bool HasResolvedRewindPointForBranch(
+            Recording rec,
+            string branchPointId)
+        {
+            bool matchedRp = false;
+            List<string> matchedRps = null;
+            RewindPoint rp;
+            int slotListIndex;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                ParsekScenario.Instance?.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+
+            return TryResolveRewindPointForBranch(
+                rec,
+                branchPointId,
+                supersedes,
+                ref matchedRp,
+                ref matchedRps,
+                out rp,
+                out slotListIndex);
         }
 
         internal static int ResolveSlotListIndexForRecording(RewindPoint rp, Recording rec)

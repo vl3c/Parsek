@@ -215,6 +215,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyedWithRealDownstreamRewindPoint_PrefersDownstreamRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(0, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void DestroyedAgainstOlderRewindPointWithRealDownstreamRoute_NotMemberForOlderPoint()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            var olderRp = Rp("rp_old", "bp_old", "rec_stage");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                olderRp,
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                rec,
+                olderRp.ChildSlots[0],
+                olderRp,
+                considerSealed: true,
+                out string reason));
+            Assert.Equal("downstreamBp", reason);
+        }
+
+        [Fact]
         public void CommittedProvisionalDestroyedUnderRP_IsMember()
         {
             // Regression: crash-terminal re-fly attempts and newly stamped

@@ -192,6 +192,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_DestroyedCacheDoesNotRepairFutureTerminal()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "future-destroyed",
+                VesselName = "Future Impact",
+                VesselPersistentId = 4242,
+                TerminalStateValue = TerminalState.SubOrbital,
+                ExplicitEndUT = 100.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 80.0, altitude = 40000.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 25000.0, bodyName = "Kerbin" });
+
+            var cache = TestFinalizationCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                TerminalState.Destroyed,
+                terminalUT: 220.0,
+                TestOrbitSegment(100.0, 220.0, isPredicted: true));
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 180.0,
+                isSceneExit: false,
+                finalizationCache: cache,
+                treeContext: null);
+
+            Assert.Equal(TerminalState.SubOrbital, rec.TerminalStateValue);
+            Assert.Equal(100.0, rec.ExplicitEndUT);
+            Assert.Empty(rec.OrbitSegments);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("consumer=FinalizeIndividualRecordingRepair") &&
+                l.Contains("future-destroyed"));
+        }
+
+        [Fact]
         public void FinalizeIndividualRecording_DestroyedCacheDoesNotRepairStableLandedTerminal()
         {
             var rec = new Recording

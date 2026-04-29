@@ -10175,7 +10175,8 @@ namespace Parsek
 
         internal static bool ShouldRepairExistingTerminalFromDestroyedCache(
             Recording recording,
-            RecordingFinalizationCache cache)
+            RecordingFinalizationCache cache,
+            double commitUT)
         {
             if (recording == null || cache == null)
                 return false;
@@ -10191,8 +10192,24 @@ namespace Parsek
 
             // The cache is allowed to correct the in-flight ballistic fallback
             // that can be stamped before destruction evidence arrives. Do not
-            // override stable spawn endpoints such as Landed/Splashed/Orbiting.
-            return existing == TerminalState.SubOrbital;
+            // override stable spawn endpoints such as Landed/Splashed/Orbiting,
+            // and never extend the recording to a future predicted crash.
+            return existing == TerminalState.SubOrbital
+                && IsCacheTerminalAtOrBeforeCommit(cache, commitUT);
+        }
+
+        private static bool IsCacheTerminalAtOrBeforeCommit(
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (cache == null)
+                return false;
+            if (double.IsNaN(commitUT) || double.IsInfinity(commitUT))
+                return false;
+            if (double.IsNaN(cache.TerminalUT) || double.IsInfinity(cache.TerminalUT))
+                return false;
+
+            return cache.TerminalUT <= commitUT + 1e-6;
         }
 
         /// <summary>
@@ -10480,12 +10497,15 @@ namespace Parsek
             }
 
             if (isLeaf
-                && ShouldRepairExistingTerminalFromDestroyedCache(rec, finalizationCache)
+                && ShouldRepairExistingTerminalFromDestroyedCache(
+                    rec,
+                    finalizationCache,
+                    commitUT)
                 && TryApplyFinalizationCacheFallback(
                     rec,
                     finalizationCache,
                     "FinalizeIndividualRecordingRepair",
-                    allowStale: true,
+                    allowStale: finalizeVessel == null,
                     out _,
                     allowAlreadyFinalizedRepair: true))
             {
