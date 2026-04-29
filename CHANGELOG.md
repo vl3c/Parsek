@@ -135,6 +135,8 @@ All notable changes to Parsek are documented here.
 
 - Re-Fly watch playback no longer treats unresolved, `NaN`, infinite, or negative ghost distances as in-range full-fidelity watched ghosts, preventing watch camera resets caused by stale relative-section transforms after rewind.
 
+- Re-Fly watch playback no longer spikes the watched ghost hundreds of kilometres away at a RELATIVE-to-ABSOLUTE split boundary. Flight playback, loop playback, and watch cutoff distance checks now use the active ABSOLUTE `TrackSection`'s section-local frames when available instead of interpolating through the flat point list, which can contain adjacent RELATIVE metre-offset samples.
+
 - Re-Fly ghost reentry FX no longer activates during hidden spawn priming at the stale KSC-surface pose; first-frame visual FX are suppressed until after the playback transform and ghost activation order are synchronized.
 
 - Breakup coalescing now drops dead-on-arrival controlled children whenever their live vessel is already gone, even if a pre-captured snapshot exists, preventing single-point `Unknown` 0s rows from being committed after Re-Fly merge.

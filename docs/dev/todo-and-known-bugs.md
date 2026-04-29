@@ -514,6 +514,26 @@ bogus frame followed by within-range frame: counter resets, no exit) and
 `RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold`
 (N consecutive cutoff frames trip the exit at exactly the threshold).
 
+**Follow-up (2026-04-29, `logs/2026-04-29_2112_reflight-supersede-investigation`):**
+the same camera-reset symptom reproduced after watching ghost `#0 "Kerbal X"`
+through upper/lower stage separation, but this was not the one-frame
+FloatingOrigin/Krakensbane seam that PR #617 debounced. The cached distance
+stayed bad for the whole 3-frame debounce window, so watch mode correctly
+exited. Root cause: immediately after the RELATIVE-to-ABSOLUTE section
+boundary, ABSOLUTE playback and watch-distance resolution could fall back to
+the flattened `traj.Points` list. That list can contain RELATIVE v6
+anchor-local metre-offset samples adjacent to ABSOLUTE latitude/longitude/
+altitude samples; interpolating across them as body-fixed coordinates produced
+a planet-scale false position, terrain clamp, and ~800 km distance spike even
+though the section-local ABSOLUTE frame was around 54 km altitude. Fix:
+flight playback, loop playback, and watch cutoff distance resolution now use
+the active ABSOLUTE `TrackSection.frames` when present, reserving the flat-list
+path for legacy/no-section data only. Regression coverage:
+`ZoneRenderingTests.TryGetAbsoluteSectionPlaybackFrames_AbsoluteSection_UsesSectionFrames`
+and
+`ZoneRenderingTests.TryGetAbsoluteSectionPlaybackFrames_RelativeSection_ReturnsFalse`
+plus the empty-frame guard.
+
 ## 626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle
 
 When the user clicked Watch on ghost B while watching ghost A, returned to A

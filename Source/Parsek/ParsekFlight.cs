@@ -14468,13 +14468,36 @@ namespace Parsek
                 return;
             }
 
-            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
-            // Phase 1: pass section index so the body-fixed spline lookup can
-            // gate per-section. Falls through to legacy lerp when sections
-            // are absent (-1) — older flat-point recordings remain bit-exact.
             int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
                 ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
                 : -1;
+            if (splineSectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    traj.TrackSections[splineSectionIdx],
+                    out List<TrajectoryPoint> absoluteFrames))
+            {
+                int absolutePlaybackIdx = playbackIdx;
+                InterpolateAndPosition(
+                    state.ghost,
+                    absoluteFrames,
+                    null,
+                    ref absolutePlaybackIdx,
+                    ut,
+                    index * 10000,
+                    out interpResult,
+                    allowActivation: ShouldAutoActivateGhost(state),
+                    skipOrbitSegments: true,
+                    recordingId: traj.RecordingId,
+                    sectionIndex: splineSectionIdx);
+                state.SetInterpolated(interpResult);
+                state.playbackIndex = absolutePlaybackIdx;
+                return;
+            }
+
+            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            // Phase 1: pass section index so the body-fixed spline lookup can
+            // gate per-section. Falls through to legacy lerp when sections
+            // are absent (-1) - older flat-point recordings remain bit-exact.
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
@@ -16111,6 +16134,19 @@ namespace Parsek
                         LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
                         return true;
                     }
+                    else if (TryGetAbsoluteSectionPlaybackFrames(section, out List<TrajectoryPoint> absoluteFrames))
+                    {
+                        // Section-local absolute frames are authoritative at
+                        // frame boundaries. The flat Points list can contain
+                        // adjacent Relative metre-offset samples; interpreting
+                        // those as lat/lon/alt causes planet-scale spikes.
+                        int sectionCachedIndex = 0;
+                        return TryResolvePointWorldPosition(
+                            absoluteFrames,
+                            ref sectionCachedIndex,
+                            playbackUT,
+                            out worldPos);
+                    }
                 }
             }
 
@@ -16144,6 +16180,22 @@ namespace Parsek
             }
 
             return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+        }
+
+        internal static bool TryGetAbsoluteSectionPlaybackFrames(
+            TrackSection section,
+            out List<TrajectoryPoint> frames)
+        {
+            frames = null;
+            if (section.referenceFrame != ReferenceFrame.Absolute
+                || section.frames == null
+                || section.frames.Count == 0)
+            {
+                return false;
+            }
+
+            frames = section.frames;
+            return true;
         }
 
         bool TryResolvePointWorldPosition(
@@ -17551,13 +17603,31 @@ namespace Parsek
                 }
             }
 
+            if (sectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    rec.TrackSections[sectionIdx],
+                    out List<TrajectoryPoint> absoluteSectionFrames))
+            {
+                InterpolateAndPosition(
+                    ghost,
+                    absoluteSectionFrames,
+                    null,
+                    ref playbackIdx,
+                    loopUT,
+                    ghostIdSalt,
+                    out interpResult,
+                    allowActivation: allowActivation,
+                    skipOrbitSegments: true,
+                    recordingId: rec.RecordingId,
+                    sectionIndex: sectionIdx);
+                return;
+            }
+
             // Absolute positioning fallback
             // Phase 1: pass section context for spline lookup. The fallback is
             // the body-fixed loop path, which is exactly where ABSOLUTE
             // ExoPropulsive / ExoBallistic splines are meant to apply.
-            int splineSectionIdx = rec.TrackSections != null && rec.TrackSections.Count > 0
-                ? TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT)
-                : -1;
+            int splineSectionIdx = sectionIdx;
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                 allowActivation: allowActivation,
