@@ -543,7 +543,9 @@ namespace Parsek
                     // fields reflect the build-time snapshot rather than a historical per-UT sample.
                     funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0,
                     science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0f,
-                    reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0f
+                    reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0f,
+                    // Phase 7: orbital checkpoints are exo-atmospheric — never SurfaceMobile.
+                    recordedGroundClearance = double.NaN
                 };
                 return true;
             }

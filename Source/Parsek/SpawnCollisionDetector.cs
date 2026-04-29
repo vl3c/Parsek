@@ -559,6 +559,9 @@ namespace Parsek
                 funds = later.funds + (earlier.funds - later.funds) * t,
                 science = later.science + (earlier.science - later.science) * t,
                 reputation = later.reputation + (earlier.reputation - later.reputation) * t,
+                // Phase 7: lerp clearance through walkback (NaN propagates).
+                recordedGroundClearance = later.recordedGroundClearance
+                    + (earlier.recordedGroundClearance - later.recordedGroundClearance) * t,
             };
         }
 

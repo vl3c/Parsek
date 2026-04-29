@@ -42,15 +42,21 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is8()
+        public void CurrentRecordingFormatVersion_Is9()
         {
-            Assert.Equal(8, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(9, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
         public void BoundarySeamFlagFormatVersion_Is8()
         {
             Assert.Equal(8, RecordingStore.BoundarySeamFlagFormatVersion);
+        }
+
+        [Fact]
+        public void TerrainGroundClearanceFormatVersion_Is9()
+        {
+            Assert.Equal(9, RecordingStore.TerrainGroundClearanceFormatVersion);
         }
 
         // Cross-codec sync guard. The binary `.prec` codec gates the seam-flag

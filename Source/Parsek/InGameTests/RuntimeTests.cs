@@ -14390,6 +14390,132 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region Pipeline-Terrain Phase 7
+
+        /// <summary>
+        /// Phase 7 (design doc §13.1, §18 Phase 7) end-to-end smoke: build a
+        /// synthetic SurfaceMobile recording with N samples each carrying a
+        /// known clearance (1.5 m above terrain along a lat/lon path), then
+        /// ask the render-time helper for the effective altitude at each
+        /// sample. The contract is
+        /// <c>(rendered_altitude − terrain_at_lat_lon) == clearance ± 0.01 m</c>
+        /// for every sample. Runs in FLIGHT because
+        /// <c>body.TerrainAltitude</c> requires a live PQS controller; the
+        /// xUnit suite covers the resolver/cache/math; this pins the
+        /// integration with KSP's PQS.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Terrain", Scene = GameScenes.FLIGHT,
+            Description = "SurfaceMobile playback uses recorded clearance + live terrain — clearance is preserved")]
+        public IEnumerator Pipeline_Terrain_RoverClearance_StaysConstant()
+        {
+            const double clearance = 1.5;
+            const double tolerance = 0.01;
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+            if (kerbin == null || kerbin.pqsController == null)
+            {
+                InGameAssert.Skip(
+                    "Pipeline_Terrain_RoverClearance_StaysConstant: Kerbin PQS not spun "
+                    + "(scene transition still settling) — skipping");
+                yield break;
+            }
+
+            // Clear the cache before the test so we exercise resolve+cache
+            // misses, not stale buckets from prior tests.
+            Parsek.Rendering.TerrainCacheBuckets.ResetForTesting();
+
+            // Build a synthetic SurfaceMobile path: 8 samples crossing the
+            // KSC area (lat ~ -0.0972, lon ~ -74.5577). At each sample, set
+            // recorded altitude = current_pqs_terrain + clearance.
+            const int sampleCount = 8;
+            const double startLat = -0.0972;
+            const double startLon = -74.5577;
+            const double dLat = 0.001;  // ~111 m steps per sample
+            const double dLon = 0.001;
+
+            var samples = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double lat = startLat + i * dLat;
+                double lon = startLon + i * dLon;
+                double terrainHere = kerbin.TerrainAltitude(lat, lon, true);
+                samples.Add(new TrajectoryPoint
+                {
+                    ut = 1000.0 + i,
+                    latitude = lat,
+                    longitude = lon,
+                    altitude = terrainHere + clearance,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = clearance,
+                });
+                yield return null;
+            }
+
+            // For each sample, ask the render-time helper for the effective
+            // altitude — should equal current_terrain + clearance (which equals
+            // the recorded altitude in this synthetic path because we computed
+            // both off the same PQS query). The test is meaningful even when
+            // current_terrain matches recording_terrain because it pins the
+            // formula. The cross-session "terrain shifts" branch is covered by
+            // the xUnit FlightRecorderTerrainTests.
+            double maxDeviation = 0.0;
+            int nMatched = 0;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                TrajectoryPoint pt = samples[i];
+                double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
+                    kerbin, pt.latitude, pt.longitude,
+                    pt.altitude, pt.recordedGroundClearance);
+                double currentTerrain = kerbin.TerrainAltitude(pt.latitude, pt.longitude, true);
+                double effectiveClearance = effective - currentTerrain;
+                double deviation = System.Math.Abs(effectiveClearance - clearance);
+                if (deviation > maxDeviation) maxDeviation = deviation;
+
+                InGameAssert.IsTrue(deviation < tolerance,
+                    "Pipeline_Terrain sample " + i + " effectiveClearance="
+                    + effectiveClearance.ToString("F4", CultureInfo.InvariantCulture)
+                    + " m vs expected " + clearance.ToString("F2", CultureInfo.InvariantCulture)
+                    + " m exceeds tolerance " + tolerance.ToString("F2", CultureInfo.InvariantCulture));
+
+                nMatched++;
+                yield return null;
+            }
+
+            ParsekLog.Info("Pipeline-Terrain",
+                "Pipeline_Terrain_RoverClearance_StaysConstant: nMatched="
+                + nMatched + " maxDeviation="
+                + maxDeviation.ToString("F4", CultureInfo.InvariantCulture) + "m"
+                + " clearance=" + clearance.ToString("F2", CultureInfo.InvariantCulture) + "m"
+                + " tolerance=" + tolerance.ToString("F2", CultureInfo.InvariantCulture) + "m");
+
+            // Also exercise the NaN-clearance fall-through path: a legacy
+            // point should be rendered at its recorded altitude unchanged.
+            var legacyPoint = new TrajectoryPoint
+            {
+                ut = 2000.0,
+                latitude = startLat,
+                longitude = startLon,
+                altitude = 12345.0,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+                bodyName = "Kerbin",
+                recordedGroundClearance = double.NaN,
+            };
+            double legacyEffective = ParsekFlight.ResolvePhase7EffectiveAltitude(
+                kerbin, legacyPoint.latitude, legacyPoint.longitude,
+                legacyPoint.altitude, legacyPoint.recordedGroundClearance);
+            InGameAssert.ApproxEqual((float)legacyPoint.altitude, (float)legacyEffective, 0.0001f,
+                "NaN-clearance legacy path must return recorded altitude unchanged");
+
+            Parsek.Rendering.TerrainCacheBuckets.ResetForTesting();
+            yield break;
+        }
+
+        #endregion
+
         #region Pipeline-Anchor Phase 6 per-source
 
         // -------------------------------------------------------------------

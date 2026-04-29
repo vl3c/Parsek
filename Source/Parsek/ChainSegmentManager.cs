@@ -270,7 +270,12 @@ namespace Parsek
                 bodyName = v.mainBody.name,
                 funds = lastPoint.funds,
                 science = lastPoint.science,
-                reputation = lastPoint.reputation
+                reputation = lastPoint.reputation,
+                // Phase 7: continuation chains spawn after a primary recording's
+                // terminal — clearance NaN means "not measured", playback uses
+                // legacy altitude path. Continuation sampling never enters a
+                // SurfaceMobile section.
+                recordedGroundClearance = double.NaN
             };
 
             rec.Points.Add(point);
@@ -409,7 +414,9 @@ namespace Parsek
                 altitude = otherVessel.altitude,
                 rotation = otherVessel.srfRelRotation,
                 velocity = velocity,
-                bodyName = otherVessel.mainBody.name
+                bodyName = otherVessel.mainBody.name,
+                // Phase 7: continuation seed — clearance NaN, playback uses legacy path.
+                recordedGroundClearance = double.NaN
             };
 
             var contRec = new Recording

@@ -42,6 +42,14 @@ namespace Parsek
         private bool pendingRestoreEnvironmentResync;
         private SegmentEnvironment restoreEnvironmentResyncTarget;
 
+        // Phase 7 (design doc §13, §18 Phase 7): per-section diagnostics for the
+        // SurfaceMobile clearance summary line emitted at section close. Reset
+        // when a new section opens so each closed section emits its own line.
+        private int surfaceMobileSamplesThisSection;
+        private double surfaceMobileMinClearanceThisSection = double.NaN;
+        private double surfaceMobileMaxClearanceThisSection = double.NaN;
+        private double surfaceMobileClearanceSumThisSection;
+
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
         private uint currentAnchorPid;
@@ -4067,6 +4075,12 @@ namespace Parsek
                 maxAltitude = float.NaN
             };
             trackSectionActive = true;
+            // Phase 7: reset SurfaceMobile clearance accumulators so the summary
+            // log at the next CloseCurrentTrackSection reflects ONLY this section.
+            surfaceMobileSamplesThisSection = 0;
+            surfaceMobileMinClearanceThisSection = double.NaN;
+            surfaceMobileMaxClearanceThisSection = double.NaN;
+            surfaceMobileClearanceSumThisSection = 0.0;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -4121,6 +4135,23 @@ namespace Parsek
                 $"TrackSection closed: env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
                 $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
+
+            // Phase 7 (design doc §13, §19.2 Pipeline-Terrain row): when a
+            // SurfaceMobile section closes, summarise the clearance distribution
+            // captured during its samples. One Verbose line per closed section —
+            // bounded by the section count, no per-frame spam.
+            if (currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && surfaceMobileSamplesThisSection > 0)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                double avg = surfaceMobileClearanceSumThisSection / surfaceMobileSamplesThisSection;
+                ParsekLog.Verbose("Pipeline-Terrain",
+                    $"section close env=SurfaceMobile " +
+                    $"clearanceMin={surfaceMobileMinClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceMax={surfaceMobileMaxClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceAvg={avg.ToString("F3", ic)}m " +
+                    $"N={surfaceMobileSamplesThisSection}");
+            }
         }
 
         /// <summary>
@@ -5797,6 +5828,29 @@ namespace Parsek
                 TrimRecordingToUT(point.ut);
             }
 
+            // Phase 7 (design doc §13, §18 Phase 7): for SurfaceMobile sections,
+            // capture the per-sample ground clearance so playback can apply
+            // continuous terrain correction at render time. NaN for any other
+            // environment / RELATIVE frame; the playback path falls through
+            // to the legacy altitude branch. Mutates `point` BEFORE the flat
+            // list / section append so both stores see the same value.
+            if (trackSectionActive
+                && currentTrackSection.referenceFrame == ReferenceFrame.Absolute
+                && currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && v != null && v.mainBody != null && v.mainBody.pqsController != null)
+            {
+                double terrainHeight = v.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
+                point.recordedGroundClearance = point.altitude - terrainHeight;
+                surfaceMobileSamplesThisSection++;
+                if (double.IsNaN(surfaceMobileMinClearanceThisSection)
+                    || point.recordedGroundClearance < surfaceMobileMinClearanceThisSection)
+                    surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
+                if (double.IsNaN(surfaceMobileMaxClearanceThisSection)
+                    || point.recordedGroundClearance > surfaceMobileMaxClearanceThisSection)
+                    surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
+                surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
+            }
+
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
@@ -6037,7 +6091,11 @@ namespace Parsek
                 bodyName = v.mainBody.name,
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: NaN sentinel = "not captured / non-SurfaceMobile". The
+                // SurfaceMobile section append in CommitRecordedPoint overwrites
+                // with the real clearance when applicable.
+                recordedGroundClearance = double.NaN
             };
         }
 

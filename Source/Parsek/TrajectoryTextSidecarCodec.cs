@@ -37,7 +37,14 @@ namespace Parsek
 
         private static TrajectoryPoint DeserializePoint(ConfigNode ptNode, NumberStyles ns, CultureInfo ic)
         {
-            var pt = new TrajectoryPoint();
+            // Phase 7: text codec is the debug mirror only (post-refactor-4 the
+            // canonical sidecar is binary). Default clearance to NaN sentinel —
+            // anything reaching this path is at most a legacy fallback and must
+            // play back via the legacy altitude path.
+            var pt = new TrajectoryPoint
+            {
+                recordedGroundClearance = double.NaN
+            };
 
             double.TryParse(ptNode.GetValue("ut"), ns, ic, out pt.ut);
             double.TryParse(ptNode.GetValue("lat"), ns, ic, out pt.latitude);

@@ -355,6 +355,10 @@ namespace Parsek.Rendering
                     funds = p.funds,
                     science = p.science,
                     reputation = p.reputation,
+                    // Phase 7: clearance is body-fixed; SurfaceMobile sections never
+                    // get lifted to inertial (Stage-2 lift only fires for ExoBallistic+),
+                    // but propagate the value defensively.
+                    recordedGroundClearance = p.recordedGroundClearance,
                 });
             }
             return lifted;

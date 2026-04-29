@@ -2935,7 +2935,10 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: BG-recorded vessels don't reach SurfaceMobile sections
+                // (they're packed/on-rails); leave clearance as NaN sentinel.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -3010,7 +3013,9 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: NaN sentinel for non-SurfaceMobile points.
+                recordedGroundClearance = double.NaN
             };
         }
 

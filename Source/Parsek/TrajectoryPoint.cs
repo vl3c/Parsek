@@ -25,6 +25,16 @@ namespace Parsek
         public float science;
         public float reputation;
 
+        // Phase 7: continuous terrain correction (design doc §13.1, §17.3.2,
+        // §18 Phase 7). Recorded ground clearance in metres = altitude (root
+        // origin) - terrainHeight at this point's lat/lon at recording time.
+        // Populated only for SurfaceMobile section samples (post-v9 recordings).
+        // NaN sentinel for legacy points and non-SurfaceMobile environments —
+        // playback falls through to the legacy altitude-only path.
+        // Binary codec gates this field on
+        // RecordingStore.TerrainGroundClearanceFormatVersion (v9+).
+        public double recordedGroundClearance;
+
         public override string ToString()
         {
             return $"UT={ut:F1} lat={latitude:F4} lon={longitude:F4} alt={altitude:F1}";

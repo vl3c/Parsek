@@ -46,7 +46,13 @@ namespace Parsek
         // this value, but the public RecordingStore.BoundarySeamFlagFormatVersion drives
         // the recording's RecordingFormatVersion stamp and the version-selection ladder.
         internal const int BoundarySeamFlagBinaryVersion = RecordingStore.BoundarySeamFlagFormatVersion;
-        private const int CurrentBinaryVersion = BoundarySeamFlagBinaryVersion;
+        // Phase 7 (design doc §13, §17.3.2, §18 Phase 7): per-point
+        // recordedGroundClearance double appended to each TrajectoryPoint's
+        // binary record. Gated on `binaryVersion >= TerrainGroundClearanceBinaryVersion`
+        // in WritePoint / ReadPoint and the sparse-list paths; legacy readers
+        // default-NaN. Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
+        internal const int TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion;
+        private const int CurrentBinaryVersion = TerrainGroundClearanceBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -134,6 +140,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= BoundarySeamFlagBinaryVersion
+                    ? BoundarySeamFlagBinaryVersion
                 : rec.RecordingFormatVersion >= RelativeAbsoluteShadowBinaryVersion
                     ? RelativeAbsoluteShadowBinaryVersion
                 : rec.RecordingFormatVersion >= RelativeLocalFrameBinaryVersion
@@ -354,6 +362,7 @@ namespace Parsek
                 || version == PredictedOrbitSegmentBinaryVersion
                 || version == RelativeLocalFrameBinaryVersion
                 || version == RelativeAbsoluteShadowBinaryVersion
+                || version == BoundarySeamFlagBinaryVersion
                 || version == CurrentBinaryVersion;
         }
 
@@ -372,12 +381,12 @@ namespace Parsek
 
             if (binaryVersion >= SparsePointBinaryVersion)
             {
-                WriteSparsePointList(writer, points, table, ref stats);
+                WriteSparsePointList(writer, points, table, binaryVersion, ref stats);
                 return;
             }
 
             for (int i = 0; i < points.Count; i++)
-                WritePoint(writer, points[i], table);
+                WritePoint(writer, points[i], table, binaryVersion);
         }
 
         private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
@@ -388,15 +397,15 @@ namespace Parsek
 
             if (binaryVersion >= SparsePointBinaryVersion)
             {
-                ReadSparsePointList(reader, points, stringTable, count, ref stats);
+                ReadSparsePointList(reader, points, stringTable, count, binaryVersion, ref stats);
                 return;
             }
 
             for (int i = 0; i < count; i++)
-                points.Add(ReadPoint(reader, stringTable));
+                points.Add(ReadPoint(reader, stringTable, binaryVersion));
         }
 
-        private static void WritePoint(BinaryWriter writer, TrajectoryPoint pt, BinaryStringTable table)
+        private static void WritePoint(BinaryWriter writer, TrajectoryPoint pt, BinaryStringTable table, int binaryVersion)
         {
             writer.Write(pt.ut);
             writer.Write(pt.latitude);
@@ -413,11 +422,18 @@ namespace Parsek
             writer.Write(pt.funds);
             writer.Write(pt.science);
             writer.Write(pt.reputation);
+            // Phase 7 (v9): recordedGroundClearance double tail. Legacy v2 readers
+            // never reach this branch (the LegacyBinaryVersion path is selected for
+            // v < 3); v3-v8 readers stop reading at the reputation field above.
+            // Position-stable: this is the last per-point field, so adding it does
+            // not desynchronise any earlier-version reader.
+            if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
+                writer.Write(pt.recordedGroundClearance);
         }
 
-        private static TrajectoryPoint ReadPoint(BinaryReader reader, List<string> stringTable)
+        private static TrajectoryPoint ReadPoint(BinaryReader reader, List<string> stringTable, int binaryVersion)
         {
-            return new TrajectoryPoint
+            var pt = new TrajectoryPoint
             {
                 ut = reader.ReadDouble(),
                 latitude = reader.ReadDouble(),
@@ -437,6 +453,14 @@ namespace Parsek
                 science = reader.ReadSingle(),
                 reputation = reader.ReadSingle()
             };
+            // Phase 7 (v9): recordedGroundClearance — gated on
+            // `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Legacy v2-v8
+            // readers see NaN sentinel, which the playback path interprets as
+            // "no clearance captured — use legacy altitude" (HR-9 fall-through).
+            pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
+                ? reader.ReadDouble()
+                : double.NaN;
+            return pt;
         }
 
         private static void WriteOrbitSegmentList(BinaryWriter writer, List<OrbitSegment> segments, BinaryStringTable table, int binaryVersion)
@@ -698,7 +722,7 @@ namespace Parsek
             }
         }
 
-        private static void WriteSparsePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table, ref SparsePointWriteStats stats)
+        private static void WriteSparsePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table, int binaryVersion, ref SparsePointWriteStats stats)
         {
             SparsePointListPlan plan = BuildSparsePointListPlan(points);
             writer.Write(plan.ListFlags);
@@ -706,7 +730,7 @@ namespace Parsek
             if (!plan.Enabled)
             {
                 for (int i = 0; i < points.Count; i++)
-                    WritePoint(writer, points[i], table);
+                    WritePoint(writer, points[i], table, binaryVersion);
                 return;
             }
 
@@ -796,16 +820,25 @@ namespace Parsek
                 {
                     writer.Write(pt.reputation);
                 }
+
+                // Phase 7 (v9): per-point recordedGroundClearance double appended
+                // after the optional reputation override field. Position-stable —
+                // appears at the END of every point's record so legacy v8 readers
+                // (which stop after reputation) keep their stream alignment. New
+                // readers gate on `binaryVersion >= TerrainGroundClearanceBinaryVersion`
+                // and default-NaN on `< 9` (HR-9 fall-through to legacy altitude path).
+                if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
+                    writer.Write(pt.recordedGroundClearance);
             }
         }
 
-        private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, ref SparsePointReadStats stats)
+        private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, int binaryVersion, ref SparsePointReadStats stats)
         {
             byte listFlags = reader.ReadByte();
             if ((listFlags & SparsePointListFlagEnabled) == 0)
             {
                 for (int i = 0; i < count; i++)
-                    points.Add(ReadPoint(reader, stringTable));
+                    points.Add(ReadPoint(reader, stringTable, binaryVersion));
                 return;
             }
 
@@ -911,6 +944,13 @@ namespace Parsek
                 {
                     pt.reputation = reader.ReadSingle();
                 }
+
+                // Phase 7 (v9): per-point recordedGroundClearance read at the END
+                // of each sample's record. Gated on `binaryVersion >= 9`; legacy
+                // v3-v8 readers default-NaN to indicate "no clearance captured".
+                pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
+                    ? reader.ReadDouble()
+                    : double.NaN;
 
                 points.Add(pt);
             }
