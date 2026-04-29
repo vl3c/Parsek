@@ -1,6 +1,8 @@
 # RecordingStore Pass 2 Orchestration Refactor Plan
 
-Status: first group-store slice implemented in this branch. Later slices remain proposal only.
+Status: first group-store slice implemented and archived. Remaining
+RecordingStore opportunities are tracked in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
 
 ## Goal
 

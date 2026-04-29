@@ -1,5 +1,9 @@
 # Refactor-4 Plan
 
+Status: archived after the Refactor-4 zero-logic extraction pass. Remaining
+refactor opportunities are tracked in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
+
 ## Overview
 
 Structural refactoring pass for the code added after refactor-3 and the later
