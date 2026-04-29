@@ -7,12 +7,12 @@ namespace Parsek.InGameTests
     /// <summary>
     /// Synthetic live-runtime coverage for stable-leaf Unfinished Flights. This
     /// installs an in-memory RP fixture, exercises the production group/route
-    /// plus Park/Seal/reaper paths, then restores the live scenario state.
+    /// plus Stash/Seal/reaper paths, then restores the live scenario state.
     /// </summary>
     public class StableLeafUnfinishedFlightsRuntimeTest
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.SPACECENTER,
-            Description = "Stable-leaf Unfinished Flights group, Park, Seal, and last-slot reap work on a synthetic RP fixture")]
+            Description = "Stable-leaf Unfinished Flights group, Stash, Seal, and last-slot reap work on a synthetic RP fixture")]
         public void StableLeafGroupSealAndLastSlotReap()
         {
             var scenario = ParsekScenario.Instance;
@@ -138,28 +138,28 @@ namespace Parsek.InGameTests
 
                 RewindPoint resolvedRp;
                 int resolvedSlot;
-                UnfinishedFlightParkHandler.UtcNowForTesting =
+                UnfinishedFlightStashHandler.UtcNowForTesting =
                     () => new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
                 string reason;
                 InGameAssert.IsTrue(
-                    RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+                    RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
                         landed, out resolvedRp, out resolvedSlot),
-                    "Landed default-excluded slot should expose a Park route while the RP exists");
+                    "Landed default-excluded slot should expose a Stash route while the RP exists");
                 InGameAssert.AreEqual(rp, resolvedRp,
-                    "Park route should resolve the synthetic Rewind Point");
+                    "Stash route should resolve the synthetic Rewind Point");
                 InGameAssert.AreEqual(5, resolvedSlot,
-                    "Park route should resolve the Landed slot");
-                InGameAssert.IsTrue(UnfinishedFlightParkHandler.TryPark(landed, out reason),
-                    "Parking the Landed slot should succeed");
-                InGameAssert.IsTrue(rp.ChildSlots[5].Parked,
-                    "Landed slot should be marked parked");
-                InGameAssert.AreEqual("2000-01-01T00:00:00.0000000Z", rp.ChildSlots[5].ParkedRealTime,
-                    "Park timestamp should come from the test clock");
+                    "Stash route should resolve the Landed slot");
+                InGameAssert.IsTrue(UnfinishedFlightStashHandler.TryStash(landed, out reason),
+                    "Stashing the Landed slot should succeed");
+                InGameAssert.IsTrue(rp.ChildSlots[5].Stashed,
+                    "Landed slot should be marked stashed");
+                InGameAssert.AreEqual("2000-01-01T00:00:00.0000000Z", rp.ChildSlots[5].StashedRealTime,
+                    "Stash timestamp should come from the test clock");
                 members = UnfinishedFlightsGroup.ComputeMembers();
                 AssertContainsMember(members, landed,
-                    "Parked Landed slot should enter Unfinished Flights");
+                    "Stashed Landed slot should enter Unfinished Flights");
                 InGameAssert.AreEqual(4, CountSyntheticMembers(members, suffix),
-                    "Parked Landed slot should add one synthetic Unfinished Flight row");
+                    "Stashed Landed slot should add one synthetic Unfinished Flight row");
 
                 InGameAssert.IsTrue(
                     RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(orbiting, out resolvedRp, out resolvedSlot),
@@ -204,16 +204,16 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(MergeState.CommittedProvisional, eva.MergeState,
                     "Sealing the final CommittedProvisional member must not mutate MergeState");
                 InGameAssert.AreEqual(1, scenario.RewindPoints.Count,
-                    "Parked Immutable slot should keep the synthetic RP open after CP slots close");
+                    "Stashed Immutable slot should keep the synthetic RP open after CP slots close");
 
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(landed, out reason),
-                    "Sealing the parked Landed member should succeed");
+                    "Sealing the stashed Landed member should succeed");
                 InGameAssert.AreEqual(MergeState.Immutable, landed.MergeState,
-                    "Sealing a parked Immutable slot must not mutate MergeState");
+                    "Sealing a stashed Immutable slot must not mutate MergeState");
                 InGameAssert.IsTrue(deleteHookCalled,
                     "Last Seal should invoke the RP quicksave delete hook");
                 InGameAssert.AreEqual(0, scenario.RewindPoints.Count,
-                    "Sealing the final parked slot should auto-reap the synthetic RP");
+                    "Sealing the final stashed slot should auto-reap the synthetic RP");
                 InGameAssert.IsNull(branchPoint.RewindPointId,
                     "Auto-reap should clear the BranchPoint back-reference");
             }
@@ -235,7 +235,7 @@ namespace Parsek.InGameTests
 
                 RewindPointReaper.ResetTestOverrides();
                 UnfinishedFlightSealHandler.ResetForTesting();
-                UnfinishedFlightParkHandler.ResetForTesting();
+                UnfinishedFlightStashHandler.ResetForTesting();
                 EffectiveState.ResetCachesForTesting();
             }
         }

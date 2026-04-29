@@ -101,7 +101,7 @@ namespace Parsek.Tests
             int slotIndex,
             string recordingId,
             bool sealedSlot = false,
-            bool parkedSlot = false)
+            bool stashedSlot = false)
         {
             return new ChildSlot
             {
@@ -110,8 +110,8 @@ namespace Parsek.Tests
                 Controllable = true,
                 Sealed = sealedSlot,
                 SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
-                Parked = parkedSlot,
-                ParkedRealTime = parkedSlot ? "2026-04-29T09:10:11.0000000Z" : null
+                Stashed = stashedSlot,
+                StashedRealTime = stashedSlot ? "2026-04-29T09:10:11.0000000Z" : null
             };
         }
 
@@ -228,7 +228,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedImmutableLandedUnderRP_IsMember()
+        public void StashedImmutableLandedUnderRP_IsMember()
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -241,7 +241,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_A", parkedSlot: true)
+                    Slot(0, "rec_A", stashedSlot: true)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
@@ -251,7 +251,7 @@ namespace Parsek.Tests
             Assert.Single(members);
             Assert.Equal("rec_A", members[0].RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=parkedStableLeaf"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
         }
 
         [Fact]
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedOrbitingFocusSlotUnderPostFeatureRP_IsMember()
+        public void StashedOrbitingFocusSlotUnderPostFeatureRP_IsMember()
         {
             var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -303,7 +303,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_focus", parkedSlot: true),
+                    Slot(0, "rec_focus", stashedSlot: true),
                     Slot(1, "rec_probe")
                 }
             };
@@ -314,7 +314,7 @@ namespace Parsek.Tests
             Assert.Single(members);
             Assert.Equal("rec_focus", members[0].RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=parkedStableLeaf"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
         }
 
         [Fact]
@@ -336,7 +336,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedOrbitingLegacyNoFocusSignal_IsMember()
+        public void StashedOrbitingLegacyNoFocusSignal_IsMember()
         {
             var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -349,7 +349,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_probe", parkedSlot: true)
+                    Slot(0, "rec_probe", stashedSlot: true)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
@@ -359,7 +359,7 @@ namespace Parsek.Tests
             Assert.Single(members);
             Assert.Equal("rec_probe", members[0].RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=parkedStableLeaf"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
         }
 
         [Fact]
@@ -415,7 +415,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedBoardedEva_NotMember()
+        public void StashedBoardedEva_NotMember()
         {
             var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Boarded,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
@@ -428,7 +428,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_eva", parkedSlot: true)
+                    Slot(0, "rec_eva", stashedSlot: true)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
@@ -468,7 +468,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ParkedSealedSlot_NotMember()
+        public void StashedSealedSlot_NotMember()
         {
             var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -481,7 +481,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_probe", sealedSlot: true, parkedSlot: true)
+                    Slot(0, "rec_probe", sealedSlot: true, stashedSlot: true)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });

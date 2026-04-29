@@ -100,7 +100,7 @@ namespace Parsek.Tests
             int index,
             string originRecordingId,
             bool sealedSlot = false,
-            bool parkedSlot = false)
+            bool stashedSlot = false)
         {
             return new ChildSlot
             {
@@ -109,8 +109,8 @@ namespace Parsek.Tests
                 Controllable = true,
                 Sealed = sealedSlot,
                 SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
-                Parked = parkedSlot,
-                ParkedRealTime = parkedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
+                Stashed = stashedSlot,
+                StashedRealTime = stashedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
             };
         }
 
@@ -213,7 +213,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_ParkedImmutableSlot_RetainedUntilSealed()
+        public void Reap_StashedImmutableSlot_RetainedUntilSealed()
         {
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
@@ -224,9 +224,9 @@ namespace Parsek.Tests
                         parentBranchPointId: "bp_1"),
                 },
                 new List<BranchPoint> { bp });
-            var parkedSlot = Slot(1, "rec_b", parkedSlot: true);
+            var stashedSlot = Slot(1, "rec_b", stashedSlot: true);
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a"), parkedSlot);
+                Slot(0, "rec_a"), stashedSlot);
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int first = RewindPointReaper.ReapOrphanedRPs();
@@ -236,8 +236,8 @@ namespace Parsek.Tests
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
 
-            parkedSlot.Sealed = true;
-            parkedSlot.SealedRealTime = "2026-04-29T12:01:00.0000000Z";
+            stashedSlot.Sealed = true;
+            stashedSlot.SealedRealTime = "2026-04-29T12:01:00.0000000Z";
 
             int second = RewindPointReaper.ReapOrphanedRPs();
 
@@ -248,7 +248,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_ParkedBoardedEvaImmutableSlot_CountsAsClosed()
+        public void Reap_StashedBoardedEvaImmutableSlot_CountsAsClosed()
         {
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
@@ -261,7 +261,7 @@ namespace Parsek.Tests
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
                 Slot(0, "rec_a"),
-                Slot(1, "rec_eva", parkedSlot: true));
+                Slot(1, "rec_eva", stashedSlot: true));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();
@@ -273,7 +273,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_ParkedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
+        public void Reap_StashedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
         {
             var bp = Bp("bp_1", "rp_1");
             var eva = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
@@ -287,7 +287,7 @@ namespace Parsek.Tests
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
                 Slot(0, "rec_a"),
-                Slot(1, "rec_eva", parkedSlot: true));
+                Slot(1, "rec_eva", stashedSlot: true));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int first = RewindPointReaper.ReapOrphanedRPs();

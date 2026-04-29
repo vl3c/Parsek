@@ -176,14 +176,14 @@ namespace Parsek
                 return false;
             }
 
-            if (slot?.Parked == true && ParkedTerminalQualifies(chainTip, terminal.Value))
+            if (slot?.Stashed == true && StashedTerminalQualifies(chainTip, terminal.Value))
             {
-                int parkedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
+                int stashedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
                 int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
-                reason = "parkedStableLeaf";
+                reason = "stashedStableLeaf";
                 LogVerdict(true, recId, reason,
                     WithBranchSide(
-                        $"slot={parkedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} parkedRealTime={slot.ParkedRealTime ?? "<none>"}",
+                        $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
                         branchSide));
                 return true;
             }
@@ -248,7 +248,7 @@ namespace Parsek
             return false;
         }
 
-        internal static bool TryResolveParkableRewindPointForRecording(
+        internal static bool TryResolveStashableRewindPointForRecording(
             Recording rec,
             out RewindPoint rp,
             out int slotListIndex,
@@ -296,9 +296,9 @@ namespace Parsek
                 return false;
             }
 
-            if (slot.Parked)
+            if (slot.Stashed)
             {
-                reason = "alreadyParked";
+                reason = "alreadyStashed";
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -321,9 +321,9 @@ namespace Parsek
                 return false;
             }
 
-            if (!IsManualParkOverrideReason(defaultReason))
+            if (!IsManualStashOverrideReason(defaultReason))
             {
-                reason = defaultReason ?? "notParkable";
+                reason = defaultReason ?? "notStashable";
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -331,9 +331,9 @@ namespace Parsek
 
             Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec);
             TerminalState? terminal = chainTip?.TerminalStateValue;
-            if (!terminal.HasValue || !ParkedTerminalQualifies(chainTip, terminal.Value))
+            if (!terminal.HasValue || !StashedTerminalQualifies(chainTip, terminal.Value))
             {
-                reason = defaultReason ?? "notParkable";
+                reason = defaultReason ?? "notStashable";
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -467,10 +467,10 @@ namespace Parsek
         {
             reason = null;
             bool defaultCandidate = IsUnfinishedFlightCandidateShape(rec);
-            bool parkedCandidate = !defaultCandidate
-                && IsPotentialManualParkShape(rec)
-                && HasParkedResolvedSlot(rec);
-            if (!defaultCandidate && !parkedCandidate)
+            bool stashedCandidate = !defaultCandidate
+                && IsPotentialManualStashShape(rec)
+                && HasStashedResolvedSlot(rec);
+            if (!defaultCandidate && !stashedCandidate)
             {
                 reason = "not an unfinished flight";
                 return false;
@@ -495,7 +495,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsPotentialManualParkShape(Recording rec)
+        private static bool IsPotentialManualStashShape(Recording rec)
         {
             if (rec == null) return false;
             if (rec.MergeState != MergeState.Immutable
@@ -509,7 +509,7 @@ namespace Parsek
             return terminalRec != null && terminalRec.TerminalStateValue.HasValue;
         }
 
-        private static bool HasParkedResolvedSlot(Recording rec)
+        private static bool HasStashedResolvedSlot(Recording rec)
         {
             RewindPoint rp;
             int slotListIndex;
@@ -520,10 +520,10 @@ namespace Parsek
             return rp?.ChildSlots != null
                 && slotListIndex >= 0
                 && slotListIndex < rp.ChildSlots.Count
-                && rp.ChildSlots[slotListIndex]?.Parked == true;
+                && rp.ChildSlots[slotListIndex]?.Stashed == true;
         }
 
-        private static bool ParkedTerminalQualifies(Recording chainTip, TerminalState terminal)
+        private static bool StashedTerminalQualifies(Recording chainTip, TerminalState terminal)
         {
             if (terminal == TerminalState.Destroyed)
                 return false;
@@ -533,11 +533,11 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsManualParkOverrideReason(string reason)
+        private static bool IsManualStashOverrideReason(string reason)
         {
-            // Park only covers default-excluded stable leaves. Crashed and
+            // Stash only covers default-excluded stable leaves. Crashed and
             // stranded EVA rows are already Unfinished Flights, so they reject
-            // earlier as alreadyUnfinishedFlight instead of becoming Parkable.
+            // earlier as alreadyUnfinishedFlight instead of becoming stashable.
             return string.Equals(reason, "stableTerminal", StringComparison.Ordinal)
                 || string.Equals(reason, "stableTerminalFocusSlot", StringComparison.Ordinal)
                 || string.Equals(reason, "noFocusSignalOrbiting", StringComparison.Ordinal);

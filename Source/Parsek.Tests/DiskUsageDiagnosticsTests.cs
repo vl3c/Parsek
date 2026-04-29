@@ -94,7 +94,7 @@ namespace Parsek.Tests
             int index,
             string originRecordingId,
             bool sealedSlot = false,
-            bool parkedSlot = false)
+            bool stashedSlot = false)
         {
             return new ChildSlot
             {
@@ -103,8 +103,8 @@ namespace Parsek.Tests
                 Controllable = true,
                 Sealed = sealedSlot,
                 SealedRealTime = sealedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
-                Parked = parkedSlot,
-                ParkedRealTime = parkedSlot ? "2026-04-29T12:01:00.0000000Z" : null
+                Stashed = stashedSlot,
+                StashedRealTime = stashedSlot ? "2026-04-29T12:01:00.0000000Z" : null
             };
         }
 
@@ -271,7 +271,7 @@ namespace Parsek.Tests
         public void DiskUsage_CacheInvalidatesWhenScenarioStateChanges()
         {
             // Regression: the 10s disk cache must not freeze the live RP
-            // breakdown after a Seal/Park/merge path bumps scenario state.
+            // breakdown after a Seal/Stash/merge path bumps scenario state.
             double fakeNow = 2000.0;
             RewindPointDiskUsage.ClockSourceForTesting = () => fakeNow;
             WriteFile("rp_a.sfs", 100);

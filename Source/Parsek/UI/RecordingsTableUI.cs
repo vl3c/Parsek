@@ -36,8 +36,10 @@ namespace Parsek
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 150f;
+        private const float ColW_Rewind = 75f;
         private const float ColW_Hide = 80f;
+        private const string RewindActionLabel = "Rewind";
+        private const string FastForwardActionLabel = "Forward";
 
         // Header cell height — the cells containing a label + select-all toggle
         // (Loop, Archive) naturally measure taller than a single bold label in
@@ -153,11 +155,11 @@ namespace Parsek
         private const float SpacingSmall = 3f;
         private static readonly Color LoopPeriodClampColor = new Color(1.0f, 0.8f, 0.4f);
 
-        // R/FF button state tracking for transition logging
+        // Rewind/Forward button state tracking for transition logging
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
         private Dictionary<int, bool> lastCanFF = new Dictionary<int, bool>();
 
-        // Tracks rows where the legacy rewind-to-launch R button is suppressed
+        // Tracks rows where the legacy rewind-to-launch button is suppressed
         // because the recording is a non-owner tree branch (the rewind save
         // belongs to the tree root). Keyed by row index so the debounce
         // mirrors lastCanRewind. Logged once per transition so a tree merge
@@ -199,6 +201,9 @@ namespace Parsek
         // overflows the container (margins are "outside" the content width). Zeroing
         // horizontal margin lets Space(N) + Button(Width=cellW-N) fit the cell exactly.
         private GUIStyle bodyCellButtonFlush;
+        // Compact-padding variant for Rewind-column actions; keeps full-word
+        // labels readable inside the original 75px column.
+        private GUIStyle bodyCellButtonCompact;
         // Zero-horizontal-margin text-field style for the Period val TextField inside
         // the same shifted-right wrap treatment as bodyCellButtonFlush.
         private GUIStyle bodyCellTextFieldFlush;
@@ -472,6 +477,12 @@ namespace Parsek
                 margin = new RectOffset(
                     0, 0,
                     GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
+            };
+            bodyCellButtonCompact = new GUIStyle(bodyCellButtonFlush)
+            {
+                padding = new RectOffset(
+                    2, 2,
+                    GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
             };
             bodyCellTextFieldFlush = new GUIStyle(GUI.skin.textField)
             {
@@ -806,9 +817,14 @@ namespace Parsek
         // inside the button.
         private bool DrawBodyCenteredButton(GUIContent content, float cellWidth)
         {
+            return DrawBodyCenteredButton(content, cellWidth, bodyCellButtonFlush);
+        }
+
+        private bool DrawBodyCenteredButton(GUIContent content, float cellWidth, GUIStyle buttonStyle)
+        {
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
-            bool clicked = GUILayout.Button(content, bodyCellButtonFlush,
+            bool clicked = GUILayout.Button(content, buttonStyle ?? bodyCellButtonFlush,
                 GUILayout.Width(cellWidth - BodyCellButtonLeftInset));
             GUILayout.EndHorizontal();
             return clicked;
@@ -817,6 +833,11 @@ namespace Parsek
         private bool DrawBodyCenteredButton(string text, float cellWidth)
         {
             return DrawBodyCenteredButton(new GUIContent(text), cellWidth);
+        }
+
+        private bool DrawRewindColumnButton(GUIContent content)
+        {
+            return DrawBodyCenteredButton(content, ColW_Rewind, bodyCellButtonCompact);
         }
 
         // Twin-button variant used by ghost-only recording rows (G + X) and
@@ -847,10 +868,10 @@ namespace Parsek
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
             GUI.enabled = priorEnabled && firstEnabled;
-            firstClicked = GUILayout.Button(firstContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            firstClicked = GUILayout.Button(firstContent, bodyCellButtonCompact, GUILayout.Width(halfInner));
             GUILayout.Space(4f);
             GUI.enabled = priorEnabled && secondEnabled;
-            secondClicked = GUILayout.Button(secondContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            secondClicked = GUILayout.Button(secondContent, bodyCellButtonCompact, GUILayout.Width(halfInner));
             GUI.enabled = priorEnabled;
             GUILayout.EndHorizontal();
         }
@@ -957,7 +978,7 @@ namespace Parsek
                 GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
                 if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrWatch");
             }
-            GUILayout.Label("Rewind / Slot", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("Actions", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrRewind");
 
             // Hide column header + toggle
@@ -1564,15 +1585,15 @@ namespace Parsek
                 if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowWatch");
             }
 
-            // Rewind / Fast-forward button
+            // Rewind / Forward button
             if (DrawUnfinishedFlightRewindButton(rec, ri, now,
                 reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
             {
                 // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
             }
-            else if (DrawParkUnfinishedFlightButton(rec, ri))
+            else if (DrawStashUnfinishedFlightButton(rec, ri))
             {
-                // Rendered as Park-to-Unfinished-Flights; skip the legacy rewind-to-launch block.
+                // Rendered as Stash-in-Unfinished-Flights; skip the legacy rewind-to-launch block.
             }
             else
             {
@@ -1581,7 +1602,7 @@ namespace Parsek
                 bool hasRewindSave = !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
                 if (isFuture)
                 {
-                    // Future recording: FF button advances UT to recording start
+                    // Future recording: Forward button advances UT to recording start
                     string ffReason;
                     bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
@@ -1589,15 +1610,15 @@ namespace Parsek
                     if (!lastCanFF.TryGetValue(ri, out prevFF) || prevFF != canFF)
                     {
                         lastCanFF[ri] = canFF;
-                        ParsekLog.Verbose("UI", $"FF #{ri} \"{rec.VesselName}\": {(canFF ? "enabled" : "disabled — " + ffReason)}");
+                        ParsekLog.Verbose("UI", $"Forward #{ri} \"{rec.VesselName}\": {(canFF ? "enabled" : "disabled — " + ffReason)}");
                     }
                     GUI.enabled = canFF;
                     string tooltip = canFF
                         ? "Fast-forward to this launch"
                         : ffReason;
-                    if (DrawBodyCenteredButton(new GUIContent("FF", tooltip), ColW_Rewind))
+                    if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                     {
-                        ParsekLog.Info("UI", $"FF button clicked: #{ri} \"{rec.VesselName}\"");
+                        ParsekLog.Info("UI", $"Forward button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowFastForwardConfirmation(rec);
                     }
                     GUI.enabled = true;
@@ -1605,15 +1626,15 @@ namespace Parsek
                 else if (ShouldShowLegacyRewindButton(rec, now))
                 {
                     // Past/active recording with save AND we are the rewind
-                    // owner: render the R button. The owner gate inside
+                    // owner: render the Rewind button. The owner gate inside
                     // ShouldShowLegacyRewindButton suppresses tree branches
                     // (debris / decouple children / EVA splits) so the player
-                    // only sees one R per tree — on the launch row.
+                    // only sees one Rewind per tree — on the launch row.
                     // The unfinished-flight gate inside the helper suppresses
-                    // R only for the row that is itself an unfinished flight
+                    // Rewind only for the row that is itself an unfinished flight
                     // (it gets Rewind-to-Staging instead via
                     // DrawUnfinishedFlightRewindButton); the chain HEAD keeps
-                    // R-to-launch even when a sibling chain TIP is the
+                    // Rewind-to-launch even when a sibling chain TIP is the
                     // unfinished flight.
                     string rewindReason;
                     bool isRecording = parentUI.InFlightMode && flight.IsRecording;
@@ -1622,7 +1643,7 @@ namespace Parsek
                     if (!lastCanRewind.TryGetValue(ri, out prevR) || prevR != canRewind)
                     {
                         lastCanRewind[ri] = canRewind;
-                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
+                        ParsekLog.Verbose("UI", $"Rewind #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
                     }
                     // Owner row → suppression flag is now false; clear the
                     // debounce + log the flip if it was true previously.
@@ -1630,13 +1651,13 @@ namespace Parsek
                     if (lastSuppressedTreeBranch.TryGetValue(ri, out prevSuppressed) && prevSuppressed)
                     {
                         lastSuppressedTreeBranch[ri] = false;
-                        ParsekLog.Verbose("UI", $"R #{ri} \"{rec.VesselName}\": no longer suppressed — owner row");
+                        ParsekLog.Verbose("UI", $"Rewind #{ri} \"{rec.VesselName}\": no longer suppressed — owner row");
                     }
                     GUI.enabled = canRewind;
                     string tooltip = canRewind
                         ? "Rewind to this launch"
                         : rewindReason;
-                    if (DrawBodyCenteredButton(new GUIContent("R", tooltip), ColW_Rewind))
+                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                     {
                         ParsekLog.Info("UI", $"Rewind button clicked: #{ri} \"{rec.VesselName}\"");
                         ShowRewindConfirmation(rec);
@@ -1663,12 +1684,12 @@ namespace Parsek
                         if (suppressedTreeBranch)
                         {
                             ParsekLog.Verbose("UI",
-                                $"R #{ri} \"{rec.VesselName}\": suppressed — tree branch, use root recording's R button");
+                                $"Rewind #{ri} \"{rec.VesselName}\": suppressed — tree branch, use root recording's Rewind button");
                         }
                         else
                         {
                             ParsekLog.Verbose("UI",
-                                $"R #{ri} \"{rec.VesselName}\": no longer suppressed");
+                                $"Rewind #{ri} \"{rec.VesselName}\": no longer suppressed");
                         }
                     }
                     GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
@@ -2014,7 +2035,7 @@ namespace Parsek
 
             var flight = parentUI.Flight;
 
-            // Find the "main" (earliest non-debris) recording for group-level W and R/FF buttons
+            // Find the "main" (earliest non-debris) recording for group-level W and Rewind/Forward buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
 
             // Watch button (flight only) — Bug #382: cycles through eligible
@@ -2155,7 +2176,7 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            // Rewind / Fast-forward button — targets main recording
+            // Rewind / Forward button — targets main recording
             // (per-recording row already logs enable/disable transitions for the same recording)
             if (mainIdx >= 0)
             {
@@ -2170,9 +2191,9 @@ namespace Parsek
                     bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
                     GUI.enabled = canFF;
                     string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
-                    if (DrawBodyCenteredButton(new GUIContent("FF", tooltip), ColW_Rewind))
+                    if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                     {
-                        ParsekLog.Info("UI", $"Group '{groupName}' FF button: #{mainIdx} \"{mainRec.VesselName}\"");
+                        ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{mainIdx} \"{mainRec.VesselName}\"");
                         ShowFastForwardConfirmation(mainRec);
                     }
                     GUI.enabled = true;
@@ -2183,15 +2204,15 @@ namespace Parsek
                     // be the rewind owner — tree roots are the typical case.
                     // If the group's main happens to be a non-owner branch
                     // (rare, but possible for a group whose root is hidden or
-                    // pruned), suppress the R button here too so the column
+                    // pruned), suppress the Rewind button here too so the column
                     // doesn't render a redundant duplicate.
                     string rewindReason;
                     bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
                     string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
-                    if (DrawBodyCenteredButton(new GUIContent("R", tooltip), ColW_Rewind))
+                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                     {
-                        ParsekLog.Info("UI", $"Group '{groupName}' R button: #{mainIdx} \"{mainRec.VesselName}\"");
+                        ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{mainIdx} \"{mainRec.VesselName}\"");
                         ShowRewindConfirmation(mainRec);
                     }
                     GUI.enabled = true;
@@ -2494,7 +2515,7 @@ namespace Parsek
             if (parentUI.InFlightMode)
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
-            // Rewind / Re-Fly placeholder — the virtual group has no
+            // Rewind / Forward placeholder — the virtual group has no
             // group-level Re-Fly button because Unfinished Flights is a
             // special system group: each member maps to a specific RP child
             // slot, so a single aggregate "re-fly all" makes no sense. The
@@ -2568,16 +2589,13 @@ namespace Parsek
         /// Phase 6 of Rewind-to-Staging (design §6.3). Renders the Rewind-to-RP
         /// button for an Unfinished Flight row, whether the row is shown in the
         /// normal recording list or inside the virtual group. Returns
-        /// <c>true</c> iff this row consumed the Rewind/FF cell, so the caller
+        /// <c>true</c> iff this row consumed the Rewind/Forward cell, so the caller
         /// can skip the legacy rewind-to-launch fallback.
         ///
         /// <para>
-        /// Uses the same `R` / `FF` glyph + column width as the legacy
-        /// rewind-to-launch button at line 1577 / 2129 so the table column
-        /// renders consistently regardless of which path drew the cell.
-        /// `FF` shows when the recording's <see cref="Recording.StartUT"/> is
-        /// strictly in the future (post-rewind UT can land before a recording
-        /// that survived the rewind window), otherwise `R`.
+        /// Uses the same Rewind-column width as the legacy Rewind/Forward
+        /// buttons so the table column renders consistently regardless of
+        /// which path drew the cell.
         /// </para>
         /// </summary>
         private bool DrawUnfinishedFlightRewindButton(
@@ -2610,7 +2628,7 @@ namespace Parsek
             // Always "Fly" — matches the Timeline-window separation-row label
             // (DrawTimelineFlyButton) so the same action carries the same
             // glyph in both surfaces. The action is qualitatively different
-            // from the legacy R / FF buttons (rewind time and watch
+            // from the legacy Rewind / Forward buttons (rewind time and watch
             // playback): clicking this loads a Rewind Point quicksave,
             // places the player in control of the unfinished sibling vessel,
             // and starts a re-fly session (marker, supersede tracking,
@@ -2697,14 +2715,14 @@ namespace Parsek
                 ColW_Rewind, out ignoredFlyClicked, out ignoredSealClicked);
         }
 
-        private bool DrawParkUnfinishedFlightButton(Recording rec, int ri)
+        private bool DrawStashUnfinishedFlightButton(Recording rec, int ri)
         {
             if (rec == null) return false;
 
             RewindPoint rp;
             int slotListIndex;
             string reason;
-            if (!TryResolveParkableUnfinishedFlightRewindPoint(
+            if (!TryResolveStashableUnfinishedFlightRewindPoint(
                     rec, out rp, out slotListIndex, out reason))
                 return false;
 
@@ -2715,20 +2733,20 @@ namespace Parsek
             var slot = rp.ChildSlots[slotListIndex];
             int slotId = slot != null ? slot.SlotIndex : slotListIndex;
             string tooltip =
-                "Add this stable Rewind Point slot to Unfinished Flights so it can be re-flown later";
-            if (DrawBodyCenteredButton(new GUIContent("Park", tooltip), ColW_Rewind))
+                "Stash this stable Rewind Point slot in Unfinished Flights so it can be re-flown later";
+            if (DrawRewindColumnButton(new GUIContent("Stash", tooltip)))
             {
                 string rpKey = rp.RewindPointId ?? "<no-id>";
                 ParsekLog.Info("UnfinishedFlights",
-                    $"Park button clicked rec={rec.RecordingId ?? "<no-id>"} rp={rpKey} slot={slotId}");
-                string parkReason;
-                if (!UnfinishedFlightParkHandler.TryPark(rec, out parkReason))
+                    $"Stash button clicked rec={rec.RecordingId ?? "<no-id>"} rp={rpKey} slot={slotId}");
+                string stashReason;
+                if (!UnfinishedFlightStashHandler.TryStash(rec, out stashReason))
                 {
                     ParsekLog.Warn("UnfinishedFlights",
-                        $"Park button failed rec={rec.RecordingId ?? "<no-id>"} reason={parkReason ?? "<none>"}");
+                        $"Stash button failed rec={rec.RecordingId ?? "<no-id>"} reason={stashReason ?? "<none>"}");
                     ParsekLog.ScreenMessage(
-                        $"Cannot park '{rec.VesselName ?? rec.RecordingId ?? "<unnamed>"}': " +
-                        (parkReason ?? "slot is unavailable"),
+                        $"Cannot stash '{rec.VesselName ?? rec.RecordingId ?? "<unnamed>"}': " +
+                        (stashReason ?? "slot is unavailable"),
                         4f);
                 }
             }
@@ -2763,7 +2781,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Decides whether a row should render the legacy "R"
+        /// Decides whether a row should render the legacy Rewind
         /// (Rewind-to-launch) button. The legacy button only makes sense on the
         /// recording that actually owns the quicksave: standalone recordings
         /// (own <c>RewindSaveFileName</c>) and tree roots that captured the
@@ -2771,19 +2789,19 @@ namespace Parsek
         /// children, EVA splits) inherited the save through
         /// <see cref="RecordingStore.GetRewindRecording"/> and would draw
         /// duplicate buttons that all rewind to the same root launch — the
-        /// player sees four identical "R" buttons after a normal merge and
-        /// reasonably concludes they're broken. Future rows take the FF path
+        /// player sees four identical Rewind buttons after a normal merge and
+        /// reasonably concludes they're broken. Future rows take the Forward path
         /// instead, and rows that ARE THEMSELVES an unfinished flight render
         /// the Rewind-to-Staging button drawn separately by
         /// <c>DrawUnfinishedFlightRewindButton</c>; the chain HEAD (the launch
-        /// row that owns the rewind quicksave) keeps its R-to-launch even when
+        /// row that owns the rewind quicksave) keeps its Rewind-to-launch even when
         /// a sibling chain TIP is the unfinished flight, so the player can
         /// always rewind a launch to the pad.
         /// </summary>
         internal static bool ShouldShowLegacyRewindButton(Recording rec, double now)
         {
             if (rec == null) return false;
-            // Future recording — the FF path renders instead. Keep the legacy
+            // Future recording — the Forward path renders instead. Keep the legacy
             // gate strictly past/active so a flipped clock can't double-render.
             if (now < rec.StartUT) return false;
             // Owner gate: only the recording that holds the rewind save
@@ -2798,7 +2816,7 @@ namespace Parsek
             // Rewind-to-Staging button (DrawUnfinishedFlightRewindButton) takes
             // over and offering rewind-to-launch alongside it would be a
             // footgun. We must NOT suppress when only some OTHER chain member
-            // is the unfinished flight — that incorrectly hides R on the
+            // is the unfinished flight — that incorrectly hides Rewind on the
             // launch row of a multi-segment chain whose destroyed continuation
             // (TIP) carries the BP link, leaving the player no way to rewind
             // the mission to the pad. See bug: launch root recording with
@@ -2822,18 +2840,18 @@ namespace Parsek
                 == UnfinishedFlightRewindRoute.Resolved;
         }
 
-        internal static bool TryResolveParkableUnfinishedFlightRewindPoint(
+        internal static bool TryResolveStashableUnfinishedFlightRewindPoint(
             Recording rec, out RewindPoint rp, out int slotListIndex)
         {
             string reason;
-            return TryResolveParkableUnfinishedFlightRewindPoint(
+            return TryResolveStashableUnfinishedFlightRewindPoint(
                 rec, out rp, out slotListIndex, out reason);
         }
 
-        internal static bool TryResolveParkableUnfinishedFlightRewindPoint(
+        internal static bool TryResolveStashableUnfinishedFlightRewindPoint(
             Recording rec, out RewindPoint rp, out int slotListIndex, out string reason)
         {
-            return UnfinishedFlightClassifier.TryResolveParkableRewindPointForRecording(
+            return UnfinishedFlightClassifier.TryResolveStashableRewindPointForRecording(
                 rec, out rp, out slotListIndex, out reason);
         }
 
