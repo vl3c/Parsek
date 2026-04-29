@@ -10124,12 +10124,14 @@ namespace Parsek
             RecordingFinalizationCache cache,
             string consumerPath,
             bool allowStale,
-            out RecordingFinalizationCacheApplyResult result)
+            out RecordingFinalizationCacheApplyResult result,
+            bool allowAlreadyFinalizedRepair = false)
         {
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                AllowAlreadyFinalizedRepair = allowAlreadyFinalizedRepair
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
@@ -10169,6 +10171,28 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        internal static bool ShouldRepairExistingTerminalFromDestroyedCache(
+            Recording recording,
+            RecordingFinalizationCache cache)
+        {
+            if (recording == null || cache == null)
+                return false;
+            if (!recording.TerminalStateValue.HasValue)
+                return false;
+            if (!cache.TerminalState.HasValue
+                || cache.TerminalState.Value != TerminalState.Destroyed)
+                return false;
+
+            TerminalState existing = recording.TerminalStateValue.Value;
+            if (existing == TerminalState.Destroyed)
+                return false;
+
+            // The cache is allowed to correct the in-flight ballistic fallback
+            // that can be stamped before destruction evidence arrives. Do not
+            // override stable spawn endpoints such as Landed/Splashed/Orbiting.
+            return existing == TerminalState.SubOrbital;
         }
 
         /// <summary>
@@ -10453,6 +10477,20 @@ namespace Parsek
                 sceneExitSuppliedTerminalOrbit =
                     sceneExitLifetimeExtended
                     && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
+            }
+
+            if (isLeaf
+                && ShouldRepairExistingTerminalFromDestroyedCache(rec, finalizationCache)
+                && TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecordingRepair",
+                    allowStale: true,
+                    out _,
+                    allowAlreadyFinalizedRepair: true))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
             }
 
             // Determine terminal state for recordings that don't have one yet

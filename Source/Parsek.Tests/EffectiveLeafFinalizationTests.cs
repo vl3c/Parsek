@@ -119,6 +119,110 @@ namespace Parsek.Tests
                 l.Contains("breakup-continuous, no same-PID continuation child"));
         }
 
+        [Fact]
+        public void FinalizeIndividualRecording_DestroyedCacheRepairsStaleSubOrbitalEffectiveLeaf()
+        {
+            var tree = new RecordingTree { Id = "tree-cache-repair", TreeName = "Kerbal X" };
+
+            var parent = new Recording
+            {
+                RecordingId = "a8079-upper",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065,
+                ChildBranchPointId = "bp-stage",
+                TerminalStateValue = TerminalState.SubOrbital,
+                ExplicitEndUT = 150.0
+            };
+            parent.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 40000.0, bodyName = "Kerbin" });
+            parent.Points.Add(new TrajectoryPoint { ut = 150.0, altitude = 12000.0, bodyName = "Kerbin" });
+            parent.OrbitSegments.Add(TestOrbitSegment(100.0, 150.0, isPredicted: false));
+            parent.OrbitSegments.Add(TestOrbitSegment(150.0, 190.0, isPredicted: true));
+
+            var sideOff = new Recording
+            {
+                RecordingId = "994b-probe",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 1509110526,
+                ParentBranchPointId = "bp-stage",
+            };
+
+            tree.Recordings[parent.RecordingId] = parent;
+            tree.Recordings[sideOff.RecordingId] = sideOff;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-stage",
+                Type = BranchPointType.JointBreak,
+                UT = 140.0,
+                ParentRecordingIds = new List<string> { parent.RecordingId },
+                ChildRecordingIds = new List<string> { sideOff.RecordingId },
+            });
+
+            var cache = TestFinalizationCache(
+                parent.RecordingId,
+                parent.VesselPersistentId,
+                TerminalState.Destroyed,
+                terminalUT: 220.0,
+                TestOrbitSegment(150.0, 220.0, isPredicted: true));
+
+            ParsekFlight.FinalizeIndividualRecording(
+                parent,
+                commitUT: 230.0,
+                isSceneExit: false,
+                finalizationCache: cache,
+                treeContext: tree);
+
+            Assert.Equal(TerminalState.Destroyed, parent.TerminalStateValue);
+            Assert.Equal(220.0, parent.ExplicitEndUT);
+            Assert.Equal(2, parent.OrbitSegments.Count);
+            Assert.False(parent.OrbitSegments[0].isPredicted);
+            Assert.True(parent.OrbitSegments[1].isPredicted);
+            Assert.Equal(220.0, parent.OrbitSegments[1].endUT);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("consumer=FinalizeIndividualRecordingRepair") &&
+                l.Contains("terminal=Destroyed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Flight]") &&
+                l.Contains("FinalizeTreeRecordings:") &&
+                l.Contains("a8079-upper") &&
+                l.Contains("terminal=Destroyed") &&
+                l.Contains("leaf=True"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_DestroyedCacheDoesNotRepairStableLandedTerminal()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "stable-landed",
+                VesselName = "Stable Lander",
+                VesselPersistentId = 4242,
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0, altitude = 0.0, bodyName = "Kerbin" });
+
+            var cache = TestFinalizationCache(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                TerminalState.Destroyed,
+                terminalUT: 40.0,
+                TestOrbitSegment(10.0, 40.0, isPredicted: true));
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 50.0,
+                isSceneExit: false,
+                finalizationCache: cache,
+                treeContext: null);
+
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("consumer=FinalizeIndividualRecordingRepair") &&
+                l.Contains("stable-landed"));
+        }
+
         /// <summary>
         /// Regression guard: when the BP DOES have a same-PID child, the parent
         /// is a true non-leaf (an interior continuation node) and must NOT get
@@ -247,6 +351,55 @@ namespace Parsek.Tests
                 l.Contains("multi-debris-parent") &&
                 l.Contains("terminal=Landed") &&
                 l.Contains("leaf=True"));
+        }
+
+        private static RecordingFinalizationCache TestFinalizationCache(
+            string recordingId,
+            uint vesselPid,
+            TerminalState terminalState,
+            double terminalUT,
+            params OrbitSegment[] segments)
+        {
+            return new RecordingFinalizationCache
+            {
+                RecordingId = recordingId,
+                VesselPersistentId = vesselPid,
+                Owner = FinalizationCacheOwner.BackgroundLoaded,
+                Status = FinalizationCacheStatus.Fresh,
+                CachedAtUT = terminalUT - 1.0,
+                LastObservedUT = terminalUT - 1.0,
+                RefreshReason = "unit-test",
+                TailStartsAtUT = segments != null && segments.Length > 0
+                    ? segments[0].startUT
+                    : terminalUT,
+                TerminalUT = terminalUT,
+                TerminalState = terminalState,
+                TerminalBodyName = "Kerbin",
+                PredictedSegments = segments != null
+                    ? new List<OrbitSegment>(segments)
+                    : new List<OrbitSegment>()
+            };
+        }
+
+        private static OrbitSegment TestOrbitSegment(
+            double startUT,
+            double endUT,
+            bool isPredicted)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.2,
+                inclination = 1.0,
+                longitudeOfAscendingNode = 2.0,
+                argumentOfPeriapsis = 3.0,
+                meanAnomalyAtEpoch = 0.4,
+                epoch = startUT,
+                isPredicted = isPredicted
+            };
         }
     }
 }

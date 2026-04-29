@@ -169,6 +169,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyedStagesWithDownstreamCrashBranch_AreMembers()
+        {
+            // 2026-04-29 Kerbal X repro: upper/root and probe/booster both
+            // crashed after the staging RP. The probe recording also carried a
+            // later child BP for its destruction event; that downstream crash
+            // bookkeeping must not suppress the already-conclusive Destroyed
+            // terminal outcome.
+            var upper = Rec(
+                "rec_upper",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                childBranchPointId: "bp_stage",
+                treeId: "tree_1");
+            var probe = Rec(
+                "rec_probe",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_stage",
+                childBranchPointId: "bp_probe_destroyed",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(upper, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_stage", "bp_stage", 0, "rec_upper", "rec_probe")
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Equal(2, members.Count);
+            Assert.Contains(members, r => r.RecordingId == "rec_upper");
+            Assert.Contains(members, r => r.RecordingId == "rec_probe");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=crashed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=downstreamBp"));
+        }
+
+        [Fact]
         public void CommittedProvisionalDestroyedUnderRP_IsMember()
         {
             // Regression: crash-terminal re-fly attempts and newly stamped

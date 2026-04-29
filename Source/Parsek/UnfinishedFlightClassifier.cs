@@ -113,6 +113,16 @@ namespace Parsek
                 return false;
             }
 
+            if (chainTip.TerminalStateValue.HasValue
+                && chainTip.TerminalStateValue.Value == TerminalState.Destroyed)
+            {
+                // Destruction is a conclusive unfinished outcome. A later child
+                // BranchPoint can be the crash/debris bookkeeping event rather
+                // than a playable continuation, so it must not suppress Re-Fly.
+                return TerminalOutcomeQualifiesInternal(
+                    recId, chainTip, slot, rp, out reason, branchSide);
+            }
+
             if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
                 && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, StringComparison.Ordinal))
             {
