@@ -185,12 +185,34 @@ namespace Parsek
         // correctness fixes in validation logic and runtime dispatch,
         // not changes to persisted trace contents.
         //
+        // Bumped to 8 in Phase 5 review-pass-5 (P1 offset-sign fix):
+        // CoBubbleOverlapDetector.DetectAndStore was emitting both
+        // stored sides of every overlap pair with reversed offsets.
+        // CloneTraceWithPeer's flip condition was exactly inverted: it
+        // kept the offset as-is when the trace's peer-id matched the
+        // intended storage-side peer (which produced "Dx = primary -
+        // owner" instead of "Dx = owner - primary"), and flipped only
+        // when rewriting the peer metadata for the OTHER storage side
+        // (also wrong). Both stored sides ended up with reversed-sign
+        // offsets — peer ghosts rendered on the opposite side of the
+        // primary at the offset's distance. The fix replaces
+        // CloneTraceWithPeer with two separate BuildTrace invocations
+        // (one per storage side, with the role parameters swapped so
+        // "Dx = peer - primary" matches "Dx = owner - primaryRef" for
+        // each side) followed by a small RebrandTraceForPrimary helper
+        // that overwrites the trace's PeerRecordingId / signature to
+        // name the primary side. v7 .pann files have wrong-sign offsets;
+        // the alg-stamp bump drives them through alg-stamp-drift on
+        // first load (HR-10).
+        //
         // PHASE 8 STACK COORDINATION (PR #644 rebase fixup): Phase 8
         // already bumped AlgorithmStampVersion to 7 in commit 8b9f623d
         // for OutlierFlagsList AND grew CanonicalEncodingLength 53 → 86
         // for additional ConfigurationHash bytes. After Phase 5 lands at
-        // 7 here, the Phase 8 rebase needs BOTH bumps adjusted:
-        //   • AlgorithmStampVersion 7 → 8
+        // 8 here (was 7 before review-pass-5), the Phase 8 rebase needs
+        // BOTH bumps adjusted:
+        //   • AlgorithmStampVersion 7 → 9 (was 8 in the prior plan,
+        //     bumped a step further because Phase 5 itself moved 7 → 8).
         //   • CanonicalEncodingLength stays at the Phase-8 value (86),
         //     since Phase 5 didn't grow the hash payload — it only
         //     reuses bytes already reserved at Phase 5.
@@ -198,7 +220,7 @@ namespace Parsek
         // would make Phase 8's OutlierFlagsList block read as cache-hit
         // against pre-Phase-8 (or Phase-5-only) .pann files (HR-10
         // freshness violation).
-        internal const int AlgorithmStampVersion = 7;
+        internal const int AlgorithmStampVersion = 8;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +

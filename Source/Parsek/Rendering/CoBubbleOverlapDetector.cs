@@ -603,17 +603,62 @@ namespace Parsek.Rendering
                 // hint exists for diagnostics and lazy-recompute symmetry.
                 bool aIsPrimaryHint = string.CompareOrdinal(recA.RecordingId, recB.RecordingId) < 0;
 
-                // Store on side A: peer = B, primary designation = aIsPrimaryHint?0:1
-                CoBubbleOffsetTrace traceA = BuildTrace(w, aIsPrimaryHint ? recA : recB,
-                    aIsPrimaryHint ? recB : recA, primaryDesignation: aIsPrimaryHint ? (byte)0 : (byte)1);
-                if (traceA != null)
+                // Phase 5 review-pass-5 P1: build each side's trace with
+                // BuildTrace(window, primary=primarySide, peer=ownerSide).
+                // BuildTrace's contract is delta = pPeer - pPrimary, so
+                // owner = peer here yields Dx = ownerWorld - primaryWorld
+                // — exactly the offset semantics the blender expects: a
+                // trace stored under the rendered ghost's id, with
+                // PeerRecordingId naming the primary, supplies
+                // worldOffset such that ghostWorld = primaryWorld + offset.
+                //
+                // BuildTrace assigns PeerRecordingId = peer.RecordingId
+                // (the OWNER side here), and computes the signature
+                // against that owner — both are wrong for storage. The
+                // RebrandTraceForPrimary helper rewrites the trace's
+                // PeerRecordingId / PeerSourceFormatVersion /
+                // PeerSidecarEpoch / PeerContentSignature to name the
+                // primary side, which is what the blender's per-trace
+                // peer-validation path (and the runtime
+                // ResolveLivePeerRecording lookup) expect.
+                //
+                // The pre-fix code reused a single BuildTrace output for
+                // both sides via CloneTraceWithPeer, whose flip condition
+                // was exactly inverted: it kept the offset as-is when the
+                // built trace's peer matched the storage side's intended
+                // peer (which produced the wrong sign because BuildTrace's
+                // "peer" is the OFFSET'S peer, not the STORED trace's
+                // peer-id), and flipped only when rewriting the peer
+                // metadata. Both stored sides ended up with wrong-sign
+                // offsets — peer ghosts rendered on the opposite side of
+                // the primary at the offset's distance. Two BuildTrace
+                // calls cost 2× world-position lookups per overlap window
+                // at commit time; bounded and acceptable per HR-3 (don't
+                // optimize prematurely).
+                //
+                // Side A storage: trace under recA, PeerRecordingId = recB.
+                CoBubbleOffsetTrace traceForA = BuildTrace(
+                    w,
+                    primary: recB,    // primary side for the offset reference
+                    peer: recA,       // owner side (the rendered ghost)
+                    primaryDesignation: aIsPrimaryHint ? (byte)1 : (byte)0);
+                if (traceForA != null)
                 {
-                    // Trace stored under "A" with peerRecordingId = B's id.
-                    var traceForA = CloneTraceWithPeer(traceA, recB);
+                    RebrandTraceForPrimary(traceForA, primaryRec: recB);
                     SectionAnnotationStore.PutCoBubbleTrace(recA.RecordingId, traceForA);
-                    var traceForB = CloneTraceWithPeer(traceA, recA);
+                    tracesEmitted++;
+                }
+                // Side B storage: trace under recB, PeerRecordingId = recA.
+                CoBubbleOffsetTrace traceForB = BuildTrace(
+                    w,
+                    primary: recA,
+                    peer: recB,
+                    primaryDesignation: aIsPrimaryHint ? (byte)0 : (byte)1);
+                if (traceForB != null)
+                {
+                    RebrandTraceForPrimary(traceForB, primaryRec: recA);
                     SectionAnnotationStore.PutCoBubbleTrace(recB.RecordingId, traceForB);
-                    tracesEmitted += 2;
+                    tracesEmitted++;
                 }
             }
 
@@ -624,67 +669,38 @@ namespace Parsek.Rendering
             return tracesEmitted;
         }
 
-        // The trace produced by BuildTrace is centred on whichever side was
-        // passed as `primary`. To store a copy under the OTHER side we need
-        // to flip the offset sign and rewrite the peer fields. Each side's
-        // .pann holds traces whose peerRecordingId names the OTHER side.
-        private static CoBubbleOffsetTrace CloneTraceWithPeer(
-            CoBubbleOffsetTrace builtTrace, Recording newPeer)
+        /// <summary>
+        /// Phase 5 review-pass-5 helper: rewrites a trace's peer-id
+        /// metadata (<see cref="CoBubbleOffsetTrace.PeerRecordingId"/>,
+        /// <see cref="CoBubbleOffsetTrace.PeerSourceFormatVersion"/>,
+        /// <see cref="CoBubbleOffsetTrace.PeerSidecarEpoch"/>,
+        /// <see cref="CoBubbleOffsetTrace.PeerContentSignature"/>) so the
+        /// trace names <paramref name="primaryRec"/> as its peer (the
+        /// blender's terminology: a stored trace's <c>PeerRecordingId</c>
+        /// names the primary that the offset references). Mutates the
+        /// passed trace in place.
+        ///
+        /// <para>
+        /// <c>BuildTrace</c>'s output uses the parameter name <c>peer</c>
+        /// for "the recording the offset is computed against" (i.e. the
+        /// owner side here). The blender's lookup keys the trace's
+        /// <c>PeerRecordingId</c> against the primary, which is the
+        /// opposite side. This helper bridges the naming gap without
+        /// touching the offset arrays or rotating the offset signs —
+        /// <c>BuildTrace</c> is invoked twice in <see cref="DetectAndStore"/>
+        /// with the role parameters swapped per side, so the offset
+        /// signs are already correct for each storage side.
+        /// </para>
+        /// </summary>
+        private static void RebrandTraceForPrimary(
+            CoBubbleOffsetTrace builtTrace, Recording primaryRec)
         {
-            // builtTrace's peer is the recording opposite the side it was
-            // built for. If newPeer matches builtTrace.PeerRecordingId, the
-            // built trace is already centred correctly for storage on the
-            // OTHER recording — return as-is (after copying).
-            if (string.Equals(newPeer.RecordingId, builtTrace.PeerRecordingId, StringComparison.Ordinal))
-            {
-                return new CoBubbleOffsetTrace
-                {
-                    PeerRecordingId = builtTrace.PeerRecordingId,
-                    PeerSourceFormatVersion = builtTrace.PeerSourceFormatVersion,
-                    PeerSidecarEpoch = builtTrace.PeerSidecarEpoch,
-                    PeerContentSignature = (byte[])builtTrace.PeerContentSignature?.Clone(),
-                    StartUT = builtTrace.StartUT,
-                    EndUT = builtTrace.EndUT,
-                    FrameTag = builtTrace.FrameTag,
-                    PrimaryDesignation = builtTrace.PrimaryDesignation,
-                    UTs = (double[])builtTrace.UTs.Clone(),
-                    Dx = (float[])builtTrace.Dx.Clone(),
-                    Dy = (float[])builtTrace.Dy.Clone(),
-                    Dz = (float[])builtTrace.Dz.Clone(),
-                    BodyName = builtTrace.BodyName,
-                };
-            }
-
-            // Otherwise we're storing under the side that was the original
-            // primary; the peer becomes the recording the trace is centred
-            // on. Flip offsets, recompute the signature for the new peer.
-            int n = builtTrace.UTs?.Length ?? 0;
-            var dx = new float[n];
-            var dy = new float[n];
-            var dz = new float[n];
-            for (int i = 0; i < n; i++)
-            {
-                dx[i] = -builtTrace.Dx[i];
-                dy[i] = -builtTrace.Dy[i];
-                dz[i] = -builtTrace.Dz[i];
-            }
-            byte[] sig = ComputePeerContentSignature(newPeer, builtTrace.StartUT, builtTrace.EndUT);
-            return new CoBubbleOffsetTrace
-            {
-                PeerRecordingId = newPeer.RecordingId,
-                PeerSourceFormatVersion = newPeer.RecordingFormatVersion,
-                PeerSidecarEpoch = newPeer.SidecarEpoch,
-                PeerContentSignature = sig,
-                StartUT = builtTrace.StartUT,
-                EndUT = builtTrace.EndUT,
-                FrameTag = builtTrace.FrameTag,
-                PrimaryDesignation = (byte)(1 - builtTrace.PrimaryDesignation),
-                UTs = (double[])builtTrace.UTs.Clone(),
-                Dx = dx,
-                Dy = dy,
-                Dz = dz,
-                BodyName = builtTrace.BodyName,
-            };
+            if (builtTrace == null || primaryRec == null) return;
+            builtTrace.PeerRecordingId = primaryRec.RecordingId;
+            builtTrace.PeerSourceFormatVersion = primaryRec.RecordingFormatVersion;
+            builtTrace.PeerSidecarEpoch = primaryRec.SidecarEpoch;
+            builtTrace.PeerContentSignature = ComputePeerContentSignature(
+                primaryRec, builtTrace.StartUT, builtTrace.EndUT);
         }
     }
 }

@@ -391,5 +391,156 @@ namespace Parsek.Tests.Rendering
             byte[] s2 = CoBubbleOverlapDetector.ComputePeerContentSignature(rec, 100.0, 110.0);
             Assert.NotEqual(s1, s2);
         }
+
+        // ---------- Phase 5 review-pass-5 P1: offset-sign round-trip ----------
+
+        [Fact]
+        public void DetectAndStore_OffsetSign_RoundTripsThroughBlenderToCorrectPeerWorldPosition()
+        {
+            // Phase 5 review-pass-5 P1 regression: DetectAndStore was
+            // emitting both stored sides of every overlap pair with
+            // reversed-sign offsets. The blender's contract is: a trace
+            // stored under recording X with PeerRecordingId = Y supplies
+            // worldOffset such that X_world = Y_world + offset, i.e.
+            // offset = X - Y. Pre-fix, both stored sides had offset =
+            // Y - X, so peer ghosts rendered on the opposite side of
+            // the primary at the offset's distance. The two existing
+            // in-game tests (Pipeline_CoBubble_Live, Pipeline_CoBubble_
+            // GhostGhost) bypassed DetectAndStore and injected traces
+            // directly via PutCoBubbleTrace, so this regression hid.
+            //
+            // This test exercises the round-trip from DetectAndStore →
+            // SectionAnnotationStore → CoBubbleBlender.TryEvaluateOffset
+            // and asserts the offset has the correct sign on BOTH
+            // stored sides (asymmetric primary-assignment).
+            //
+            // Setup: A at world (0, 0, 0); B at world (10, 0, 0). The
+            // detector's TrySampleWorld test seam returns these
+            // positions for any UT. After DetectAndStore:
+            //   - traces[recA] contains a trace with PeerRecordingId =
+            //     recB and offset = recA - recB = (0, 0, 0) - (10, 0, 0)
+            //     = (-10, 0, 0).
+            //   - traces[recB] contains a trace with PeerRecordingId =
+            //     recA and offset = recB - recA = (10, 0, 0) - (0, 0, 0)
+            //     = (10, 0, 0).
+            // When B is the rendered ghost and A is its designated
+            // primary, blender returns (-10, 0, 0): A_world + (-10, 0, 0)
+            // = (-10, 0, 0). Hmm — but the brief says (10, 0, 0). Let
+            // me re-check.
+            //
+            // Blender consumer adds offset to primary's world to get
+            // peer's world. So if peer = B and primary = A, want B_world
+            // = A_world + offset, i.e. offset = B - A = (10, 0, 0). The
+            // trace stored under B (the rendered peer) with
+            // PeerRecordingId = A (the primary) has Dx = B - A. That's
+            // the correct sign.
+            //
+            // For symmetric: peer = A, primary = B → offset = A - B =
+            // (-10, 0, 0). The trace stored under A with PeerRecordingId
+            // = B has Dx = A - B.
+
+            // Use simple synthetic recordings — sample positions come
+            // from the test seam, not from rec.Points / FlightGlobals.
+            const string idA = "rec-A-sign";
+            const string idB = "rec-B-sign";
+            var recA = MakeRecording(idA, 100.0, 110.0,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            var recB = MakeRecording(idB, 100.0, 110.0,
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            // Inject deterministic world positions: A at origin, B at +10x.
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting = (rec, ut) =>
+                rec.RecordingId == idA
+                    ? new Vector3d(0, 0, 0)
+                    : new Vector3d(10.0, 0, 0);
+
+            // Need RecordingStore.CommittedRecordings populated for the
+            // blender's runtime peer-validation lookup
+            // (ResolveLivePeerRecording). Without this, the validator
+            // would see the live peer as null and skip the format/epoch
+            // gate — fine for this test, but we want to exercise the
+            // production-shaped path.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.VerboseOverrideForTesting = true;
+            SectionAnnotationStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
+            SmoothingPipeline.ResetForTesting();
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            // Force the FrameTag to body-fixed (0) regardless of what
+            // the detector picks for the section's environment, so the
+            // blender's inertial-lift branch doesn't trigger and need
+            // FlightGlobals.Bodies.
+            CoBubbleBlender.FrameTagOverrideForTesting = (peer, ut) => (byte)0;
+
+            try
+            {
+                RecordingStore.AddCommittedInternal(recA);
+                RecordingStore.AddCommittedInternal(recB);
+
+                int emitted = CoBubbleOverlapDetector.DetectAndStore(
+                    new List<Recording> { recA, recB });
+                Assert.Equal(2, emitted);
+
+                // Both sides should have one trace.
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(idA, out var aTraces));
+                Assert.NotNull(aTraces);
+                Assert.Single(aTraces);
+                Assert.Equal(idB, aTraces[0].PeerRecordingId);
+
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(idB, out var bTraces));
+                Assert.NotNull(bTraces);
+                Assert.Single(bTraces);
+                Assert.Equal(idA, bTraces[0].PeerRecordingId);
+
+                // Pin: the trace stored under B (rendered ghost) with
+                // PeerRecordingId = A (primary) must have Dx = B - A =
+                // (10, 0, 0). Pre-fix this would be (-10, 0, 0).
+                Assert.True(Math.Abs(bTraces[0].Dx[0] - 10.0f) < 1e-3f,
+                    $"B-side Dx[0] expected 10.0, got {bTraces[0].Dx[0]}");
+                // And under A with PeerRecordingId = B: Dx = A - B = (-10, 0, 0).
+                Assert.True(Math.Abs(aTraces[0].Dx[0] - (-10.0f)) < 1e-3f,
+                    $"A-side Dx[0] expected -10.0, got {aTraces[0].Dx[0]}");
+
+                // Round-trip through the blender. First: B is the
+                // rendered ghost, A is its primary.
+                RenderSessionState.PutPrimaryAssignmentForTesting(idB, idA);
+                double midpointUT = (aTraces[0].StartUT + aTraces[0].EndUT) * 0.5;
+                bool ok = CoBubbleBlender.TryEvaluateOffset(
+                    idB, midpointUT, out Vector3d offsetB, out CoBubbleBlendStatus statusB,
+                    out string primaryB);
+                Assert.True(ok, $"blender miss for B; status={statusB}");
+                Assert.Equal(idA, primaryB);
+                // A_world (0,0,0) + offset = B_world (10, 0, 0) → offset = (10, 0, 0).
+                Assert.Equal(10.0, offsetB.x, 3);
+                Assert.Equal(0.0, offsetB.y, 3);
+                Assert.Equal(0.0, offsetB.z, 3);
+
+                // Symmetric: clear B's primary mapping and assign B as
+                // A's primary instead. Then A is the rendered ghost.
+                RenderSessionState.ResetForTesting();
+                RenderSessionState.PutPrimaryAssignmentForTesting(idA, idB);
+                bool ok2 = CoBubbleBlender.TryEvaluateOffset(
+                    idA, midpointUT, out Vector3d offsetA, out CoBubbleBlendStatus statusA,
+                    out string primaryA);
+                Assert.True(ok2, $"blender miss for A; status={statusA}");
+                Assert.Equal(idB, primaryA);
+                // B_world (10,0,0) + offset = A_world (0, 0, 0) → offset = (-10, 0, 0).
+                Assert.Equal(-10.0, offsetA.x, 3);
+                Assert.Equal(0.0, offsetA.y, 3);
+                Assert.Equal(0.0, offsetA.z, 3);
+            }
+            finally
+            {
+                CoBubbleBlender.ResetForTesting();
+                CoBubbleOverlapDetector.ResetForTesting();
+                SmoothingPipeline.ResetForTesting();
+                SectionAnnotationStore.ResetForTesting();
+                RenderSessionState.ResetForTesting();
+                RecordingStore.ResetForTesting();
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
     }
 }

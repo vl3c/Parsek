@@ -151,8 +151,25 @@ namespace Parsek.Tests.Rendering
             // .pann files written before these fixes have semantically
             // incorrect trace content; the alg-stamp bump drives them
             // through alg-stamp-drift on first load (HR-10).
+            // Phase 5 review-pass-5 further bumped to 8.
             Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 7,
                 "AlgorithmStampVersion must be >= 7 after Phase 5 P1-B + P2-B ship");
+        }
+
+        [Fact]
+        public void AlgStampVersion_BumpedToEightOrLater_ForOffsetSignFix()
+        {
+            // Phase 5 review-pass-5 P1: DetectAndStore was emitting both
+            // stored sides of every overlap pair with reversed-sign
+            // offsets. CloneTraceWithPeer's flip condition was exactly
+            // inverted; both stored sides ended up with offset = primary -
+            // owner instead of owner - primary, so peer ghosts rendered
+            // on the opposite side of the primary at the offset's
+            // distance. v7 .pann files have wrong-sign offsets; bumping
+            // the alg stamp drives them through alg-stamp-drift on
+            // first load so they get recomputed with the correct sign.
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 8,
+                "AlgorithmStampVersion must be >= 8 after Phase 5 review-pass-5 P1 (offset-sign fix) ships");
         }
 
         [Fact]
