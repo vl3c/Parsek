@@ -122,7 +122,16 @@ namespace Parsek
         // false-cache-hit risk. The alg-stamp bump forces every existing
         // .pann to invalidate via alg-stamp-drift on first load after the
         // upgrade, regardless of the configured flag value.
-        internal const int AlgorithmStampVersion = 4;
+        // Bumped to 5 in v0.9.1 §7.7 BubbleEntry/BubbleExit ship: the
+        // AnchorCandidateBuilder now emits a seventh candidate type at
+        // every Active|Background ↔ Checkpoint source-class transition.
+        // The on-disk schema is unchanged (BubbleEntry/BubbleExit fit in
+        // the existing type-byte taxonomy bits 0-6), but the byte content
+        // for any recording that has those transitions changes. A v4 .pann
+        // written before §7.7 shipped will be missing the new candidates;
+        // the alg-stamp bump triggers the existing alg-stamp-drift path so
+        // stale files are discarded and recomputed on first load (HR-10).
+        internal const int AlgorithmStampVersion = 5;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
