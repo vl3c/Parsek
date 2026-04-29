@@ -273,6 +273,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reap_ParkedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            var eva = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                "Jebediah Kerman", parentBranchPointId: "bp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    eva,
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"),
+                Slot(1, "rec_eva", parkedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Empty(deletedRpIds);
+
+            eva.TerminalStateValue = TerminalState.Boarded;
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+        }
+
+        [Fact]
         public void Reap_AnySlotNotCommitted_Retained()
         {
             var bp = Bp("bp_1", "rp_1");

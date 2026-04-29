@@ -123,7 +123,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryPark_AlreadyUnfinishedFlight_ReturnsFalseAndLogsWarning()
+        public void TryPark_DestroyedAutoIncludedRow_ReturnsAlreadyUnfinishedFlightAndLogsWarning()
         {
             var crashed = Rec("rec_crashed", TerminalState.Destroyed);
             RecordingStore.AddRecordingWithTreeForTesting(crashed, "tree_1");
@@ -144,6 +144,44 @@ namespace Parsek.Tests
                 && l.Contains("[UnfinishedFlights]")
                 && l.Contains("Park unavailable")
                 && l.Contains("reason=alreadyUnfinishedFlight"));
+        }
+
+        [Fact]
+        public void TryPark_AlreadyParkedSlot_ReturnsFalseWithoutVersionBump()
+        {
+            var landed = Rec("rec_landed", TerminalState.Landed);
+            RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_landed",
+                        Controllable = true,
+                        Parked = true,
+                        ParkedRealTime = "2026-04-29T08:00:00.0000000Z",
+                    }
+                }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+
+            bool ok = UnfinishedFlightParkHandler.TryPark(landed, out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("alreadyParked", reason);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Equal("2026-04-29T08:00:00.0000000Z", rp.ChildSlots[0].ParkedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Park unavailable")
+                && l.Contains("reason=alreadyParked"));
         }
 
         [Fact]

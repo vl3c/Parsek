@@ -52,15 +52,17 @@ namespace Parsek
                 return false;
             }
 
-            DateTime now = UtcNowForTesting != null ? UtcNowForTesting() : DateTime.UtcNow;
+            bool parkedNow = false;
             if (!slot.Parked)
             {
+                DateTime now = UtcNowForTesting != null ? UtcNowForTesting() : DateTime.UtcNow;
                 slot.Parked = true;
                 slot.ParkedRealTime = now.ToString("o", CultureInfo.InvariantCulture);
+                parkedNow = true;
             }
 
             var scenario = ParsekScenario.Instance;
-            if (!object.ReferenceEquals(null, scenario))
+            if (parkedNow && !object.ReferenceEquals(null, scenario))
                 scenario.BumpSupersedeStateVersion();
 
             Recording tip = EffectiveState.ResolveChainTerminalRecording(rec);

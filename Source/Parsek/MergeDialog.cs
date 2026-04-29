@@ -747,15 +747,41 @@ namespace Parsek
 
             RewindPoint rp;
             int slotListIndex;
+            string rejectReason;
             if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
-                    provisional, out rp, out slotListIndex)
-                || rp?.ChildSlots == null
+                    provisional, out rp, out slotListIndex, out rejectReason))
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"resolve Parked slot to clear rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"reason={rejectReason ?? "<none>"}");
+                return;
+            }
+
+            if (rp?.ChildSlots == null
                 || slotListIndex < 0
                 || slotListIndex >= rp.ChildSlots.Count)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"clear Parked slot rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"rp={rp?.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
+                    $"reason=slot-index-invalid");
                 return;
+            }
 
             var slot = rp.ChildSlots[slotListIndex];
-            if (slot == null || !slot.Parked)
+            if (slot == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"clear Parked slot rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
+                    $"reason=slot-null");
+                return;
+            }
+
+            if (!slot.Parked)
                 return;
 
             slot.Parked = false;

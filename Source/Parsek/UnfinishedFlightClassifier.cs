@@ -535,6 +535,9 @@ namespace Parsek
 
         private static bool IsManualParkOverrideReason(string reason)
         {
+            // Park only covers default-excluded stable leaves. Crashed and
+            // stranded EVA rows are already Unfinished Flights, so they reject
+            // earlier as alreadyUnfinishedFlight instead of becoming Parkable.
             return string.Equals(reason, "stableTerminal", StringComparison.Ordinal)
                 || string.Equals(reason, "stableTerminalFocusSlot", StringComparison.Ordinal)
                 || string.Equals(reason, "noFocusSignalOrbiting", StringComparison.Ordinal);
