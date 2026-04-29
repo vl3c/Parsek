@@ -250,6 +250,20 @@ namespace Parsek.Tests
             Assert.True(EffectiveState.IsSupersededByRelation(rec, list));
         }
 
+        [Fact]
+        public void ComputeSupersededRecordingIdsByRelation_EmptyNewId_DoesNotSuppress()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable);
+            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", null) };
+
+            var result = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                new List<Recording> { rec },
+                list);
+
+            Assert.Empty(result);
+            Assert.False(EffectiveState.IsSupersededByRelation(rec, list));
+        }
+
         // =====================================================================
         // IsUnfinishedFlight
         // =====================================================================

@@ -13037,12 +13037,15 @@ namespace Parsek
         internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
             if (!playbackEnabled)
                 return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (supersededByRelation)
+                return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
                 return GhostPlaybackSkipReason.ExternalVesselSuppressed;
             return GhostPlaybackSkipReason.None;
@@ -13062,11 +13065,12 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
-                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7}",
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} supersededByRelation={8}",
                 index,
                 string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
                 vesselName ?? "?",
@@ -13074,7 +13078,8 @@ namespace Parsek
                 reason.ToLogToken(),
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private static void LogGhostSkipReasonChangeCore(
@@ -13084,7 +13089,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
             ParsekLog.VerboseOnChange(
@@ -13098,7 +13104,8 @@ namespace Parsek
                     reason,
                     hasRenderableData,
                     playbackEnabled,
-                    externalVesselSuppressed));
+                    externalVesselSuppressed,
+                    supersededByRelation));
         }
 
         private void ClearGhostSkipReasonLogState()
@@ -13119,7 +13126,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             LogGhostSkipReasonChangeCore(
                 index,
@@ -13128,7 +13136,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private void LogGhostSkipReasonChangeIfNeeded(
@@ -13136,7 +13145,8 @@ namespace Parsek
             Recording rec,
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -13150,7 +13160,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 rec?.PlaybackEnabled ?? false,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
 
             if (reason == GhostPlaybackSkipReason.None)
                 activeGhostSkipReasonLogIdentities.Remove(identity);
@@ -13271,6 +13282,10 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
+            var scenario = ParsekScenario.Instance;
+            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -13282,16 +13297,20 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
+                    && relationSupersededIds.Contains(rec.RecordingId);
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
                     skipReason,
                     hasData,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -13300,7 +13319,9 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
-                bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
+                bool finalNeedsSpawn = spawnResult.needsSpawn
+                    && !chainSuppressed.suppressed
+                    && !supersededByRelation;
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -13340,7 +13361,8 @@ namespace Parsek
                             skipReason,
                             hasData,
                             rec.PlaybackEnabled,
-                            externalVesselSuppressed),
+                            externalVesselSuppressed,
+                            supersededByRelation),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,

@@ -75,6 +75,7 @@ namespace Parsek
         private int frameSkipPlaybackDisabled;
         private int frameSkipExternalVesselSuppressed;
         private int frameSkipSessionSuppressed;
+        private int frameSkipSupersededByRelation;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -275,6 +276,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.SessionSuppressed:
                     frameSkipSessionSuppressed++;
                     break;
+                case GhostPlaybackSkipReason.SupersededByRelation:
+                    frameSkipSupersededByRelation++;
+                    break;
             }
         }
 
@@ -292,7 +296,8 @@ namespace Parsek
                 || counters.noRenderableData > 0
                 || counters.playbackDisabled > 0
                 || counters.externalVesselSuppressed > 0
-                || counters.sessionSuppressed > 0;
+                || counters.sessionSuppressed > 0
+                || counters.supersededByRelation > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -302,7 +307,7 @@ namespace Parsek
                 "skips[beforeActivation={3} anchorMissing={4} loopSyncFailed={5} " +
                 "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
-                "sessionSuppressed={12}] active={13}",
+                "sessionSuppressed={12} supersededByRelation={13}] active={14}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -316,6 +321,7 @@ namespace Parsek
                 counters.playbackDisabled,
                 counters.externalVesselSuppressed,
                 counters.sessionSuppressed,
+                counters.supersededByRelation,
                 counters.active);
         }
 
@@ -336,6 +342,7 @@ namespace Parsek
                 playbackDisabled = frameSkipPlaybackDisabled,
                 externalVesselSuppressed = frameSkipExternalVesselSuppressed,
                 sessionSuppressed = frameSkipSessionSuppressed,
+                supersededByRelation = frameSkipSupersededByRelation,
                 active = ghostStates.Count
             };
         }
@@ -834,6 +841,7 @@ namespace Parsek
             frameSkipPlaybackDisabled = 0;
             frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
+            frameSkipSupersededByRelation = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -3406,6 +3414,7 @@ namespace Parsek
             frameSkipPlaybackDisabled = 0;
             frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
+            frameSkipSupersededByRelation = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.

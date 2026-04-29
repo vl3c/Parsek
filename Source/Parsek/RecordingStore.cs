@@ -624,6 +624,7 @@ namespace Parsek
             committedTrees.Clear();
             ClearRewindReplayTargetScope();
             BumpStateVersion();
+            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("clear-committed");
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }

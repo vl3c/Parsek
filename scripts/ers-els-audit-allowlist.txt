@@ -43,6 +43,12 @@ Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
 Source/Parsek/UI/SettingsWindowUI.cs
 
+# GroupHierarchyStore prunes persisted hierarchy state against the raw
+# committed list, then subtracts explicit supersede-relation ids so the saved
+# hierarchy matches the recordings table's display-effective group membership.
+# Documented at the call site with an inline [ERS-exempt] comment.
+Source/Parsek/GroupHierarchyStore.cs
+
 # RewindPointDiskUsage builds a Settings-only retained-RP diagnostic line.
 # It resolves each slot's already-walked effective id against the raw committed
 # list so the explicit scenario overload can classify a supplied scenario rather
