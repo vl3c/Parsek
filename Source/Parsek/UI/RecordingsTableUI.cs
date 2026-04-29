@@ -957,7 +957,7 @@ namespace Parsek
                 GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
                 if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrWatch");
             }
-            GUILayout.Label("Rewind / Seal", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("Rewind / Slot", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrRewind");
 
             // Hide column header + toggle
@@ -1569,6 +1569,10 @@ namespace Parsek
                 reserveCellWhenUnavailable: unfinishedFlightRowDepth > 0))
             {
                 // Rendered as Rewind-to-RP (Phase 6); skip the legacy rewind-to-launch block.
+            }
+            else if (DrawParkUnfinishedFlightButton(rec, ri))
+            {
+                // Rendered as Park-to-Unfinished-Flights; skip the legacy rewind-to-launch block.
             }
             else
             {
@@ -2693,6 +2697,45 @@ namespace Parsek
                 ColW_Rewind, out ignoredFlyClicked, out ignoredSealClicked);
         }
 
+        private bool DrawParkUnfinishedFlightButton(Recording rec, int ri)
+        {
+            if (rec == null) return false;
+
+            RewindPoint rp;
+            int slotListIndex;
+            string reason;
+            if (!TryResolveParkableUnfinishedFlightRewindPoint(
+                    rec, out rp, out slotListIndex, out reason))
+                return false;
+
+            if (rp == null || rp.ChildSlots == null
+                || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
+                return false;
+
+            var slot = rp.ChildSlots[slotListIndex];
+            int slotId = slot != null ? slot.SlotIndex : slotListIndex;
+            string tooltip =
+                "Add this stable Rewind Point slot to Unfinished Flights so it can be re-flown later";
+            if (DrawBodyCenteredButton(new GUIContent("Park", tooltip), ColW_Rewind))
+            {
+                string rpKey = rp.RewindPointId ?? "<no-id>";
+                ParsekLog.Info("UnfinishedFlights",
+                    $"Park button clicked rec={rec.RecordingId ?? "<no-id>"} rp={rpKey} slot={slotId}");
+                string parkReason;
+                if (!UnfinishedFlightParkHandler.TryPark(rec, out parkReason))
+                {
+                    ParsekLog.Warn("UnfinishedFlights",
+                        $"Park button failed rec={rec.RecordingId ?? "<no-id>"} reason={parkReason ?? "<none>"}");
+                    ParsekLog.ScreenMessage(
+                        $"Cannot park '{rec.VesselName ?? rec.RecordingId ?? "<unnamed>"}': " +
+                        (parkReason ?? "slot is unavailable"),
+                        4f);
+                }
+            }
+
+            return true;
+        }
+
         internal enum UnfinishedFlightRewindRoute
         {
             NotUnfinishedFlight,
@@ -2777,6 +2820,21 @@ namespace Parsek
             return ResolveUnfinishedFlightRewindRoute(
                 rec, out rp, out slotListIndex, out reason)
                 == UnfinishedFlightRewindRoute.Resolved;
+        }
+
+        internal static bool TryResolveParkableUnfinishedFlightRewindPoint(
+            Recording rec, out RewindPoint rp, out int slotListIndex)
+        {
+            string reason;
+            return TryResolveParkableUnfinishedFlightRewindPoint(
+                rec, out rp, out slotListIndex, out reason);
+        }
+
+        internal static bool TryResolveParkableUnfinishedFlightRewindPoint(
+            Recording rec, out RewindPoint rp, out int slotListIndex, out string reason)
+        {
+            return UnfinishedFlightClassifier.TryResolveParkableRewindPointForRecording(
+                rec, out rp, out slotListIndex, out reason);
         }
 
         /// <summary>

@@ -55,6 +55,21 @@ namespace Parsek
         /// </summary>
         public string SealedRealTime;
 
+        /// <summary>
+        /// True when the player explicitly promoted a default-excluded stable
+        /// slot into Unfinished Flights. Parked slots stay re-flyable until
+        /// the player Seals them; structural close-outs such as downstream
+        /// branch points and boarded EVAs still use the classifier's normal
+        /// closed-path rules.
+        /// </summary>
+        public bool Parked;
+
+        /// <summary>
+        /// ISO-8601 UTC timestamp for the Park action. Diagnostic only;
+        /// null when <see cref="Parked"/> is false.
+        /// </summary>
+        public string ParkedRealTime;
+
         private const string NodeName = "CHILD_SLOT";
 
         /// <summary>Appends a <c>CHILD_SLOT</c> child node to the given parent ConfigNode.</summary>
@@ -74,6 +89,10 @@ namespace Parsek
                 node.AddValue("sealed", Sealed.ToString());
             if (!string.IsNullOrEmpty(SealedRealTime))
                 node.AddValue("sealedRealTime", SealedRealTime);
+            if (Parked)
+                node.AddValue("parked", Parked.ToString());
+            if (!string.IsNullOrEmpty(ParkedRealTime))
+                node.AddValue("parkedRealTime", ParkedRealTime);
         }
 
         /// <summary>Loads a single <c>CHILD_SLOT</c> ConfigNode into a new <see cref="ChildSlot"/>.</summary>
@@ -109,6 +128,13 @@ namespace Parsek
                 slot.Sealed = sealedValue;
 
             slot.SealedRealTime = node.GetValue("sealedRealTime");
+
+            string parkedStr = node.GetValue("parked");
+            bool parkedValue;
+            if (!string.IsNullOrEmpty(parkedStr) && bool.TryParse(parkedStr, out parkedValue))
+                slot.Parked = parkedValue;
+
+            slot.ParkedRealTime = node.GetValue("parkedRealTime");
 
             return slot;
         }

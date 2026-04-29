@@ -31,7 +31,7 @@ The v1 feature covers:
 
 ### 1.3 Out of scope (v1)
 
-- **Park-from-not-UF affordance.** A complementary UI action that adds a row the default predicate excluded (e.g. a Landed rover the player wants re-flyable later, a focus-continuation upper stage they decided to come back to). Deferred to v2 unless playtest shows demand.
+- ~~**Park-from-not-UF affordance.** A complementary UI action that adds a row the default predicate excluded (e.g. a Landed rover the player wants re-flyable later, a focus-continuation upper stage they decided to come back to). Deferred to v2 unless playtest shows demand.~~ Implemented in the v2 follow-up as `ChildSlot.Parked` while the RP still exists; already-reaped RP quicksaves are not resurrected.
 - **Voluntary-action heuristics.** A1/A2/A4 orbit-shift / mid-chain-surface / body-change classifiers that R1-R3 explored. Explicitly rejected upstream of v1; over-inclusion is handled by the Seal button instead.
 - **Migration sweep for legacy star-shaped supersede graphs.** §6.4 covers the topology change; the existing star portions in legacy saves are tolerated as-is.
 - **Auto-purge of long-lived sealed RPs.** No TTL-based reaper extension. Disk usage is the player's responsibility via the Seal button, surfaced through the existing Settings → Diagnostics line.
@@ -62,7 +62,7 @@ The recording tree never shrinks. The new `ChildSlot.Sealed` flag is the close s
 
 ### 2.3 Narrow v1 semantics, Seal as the override
 
-The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus, SubOrbital non-focus, EVA-stranded). Over-inclusion is handled by the player Sealing the row. Under-inclusion (rover drove 20m and player wants it re-flyable) is accepted as a v1 limitation; the Park-from-not-UF affordance is the v2 escape hatch. **No heuristic predicates** beyond the simple terminal-state-plus-focus rule. R1-R3's voluntary-action heuristic exploration was explicitly rejected.
+The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus, SubOrbital non-focus, EVA-stranded). Over-inclusion is handled by the player Sealing the row. Under-inclusion (rover drove 20m and player wants it re-flyable) was accepted as a v1 limitation; the v2 Park-from-not-UF affordance is the explicit escape hatch while the backing RP still exists. **No heuristic predicates** beyond the simple terminal-state-plus-focus rule. R1-R3's voluntary-action heuristic exploration was explicitly rejected.
 
 ### 2.4 Predicate must not drift between call sites
 
@@ -176,9 +176,9 @@ The reaper (§6.5) treats `slot.Sealed == true` as equivalent-to-Immutable for c
 
 ## 5. Data Model
 
-Three new persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
+Five new persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
 
-### 5.1 ChildSlot.Sealed + SealedRealTime
+### 5.1 ChildSlot.Sealed / SealedRealTime + Parked / ParkedRealTime
 
 File: `Source/Parsek/ChildSlot.cs`.
 
@@ -205,6 +205,24 @@ public class ChildSlot
     /// only; null when Sealed is false.
     /// </summary>
     public string SealedRealTime;
+
+    /// <summary>
+    /// True when the player invoked the per-row Park action on this slot,
+    /// promoting a default-excluded stable terminal leaf into Unfinished
+    /// Flights. Excluded only when the slot is Sealed or the structural
+    /// classifier closes it (for example boarded EVA / downstream BP).
+    ///
+    /// Default false; legacy saves load with false. Park is only possible
+    /// while the backing RewindPoint still exists; it does not resurrect
+    /// already-reaped RP quicksaves.
+    /// </summary>
+    public bool Parked;
+
+    /// <summary>
+    /// Wall-clock ISO-8601 UTC timestamp the Park was applied. Diagnostic
+    /// only; null when Parked is false.
+    /// </summary>
+    public string ParkedRealTime;
 }
 ```
 
@@ -220,6 +238,8 @@ CHILD_SLOT
     disabledReason = ...         # omitted when null
     sealed = True                # omitted when False (NEW)
     sealedRealTime = 2026-...    # omitted when null (NEW)
+    parked = True                # omitted when False (NEW)
+    parkedRealTime = 2026-...    # omitted when null (NEW)
 }
 ```
 
@@ -692,7 +712,7 @@ Survivor V's chain TIP terminal Destroyed. Crashed branch returns true regardles
 Survivor V's chain TIP terminal Landed. Landed always returns false from `TerminalOutcomeQualifies`. Not UF. RP reaps when other slots close. v0.9 behavior.
 
 ### 7.11 Breakup-survivor active parent, terminal Orbiting (ACCEPTED LIMITATION)
-Survivor V is FocusSlot, terminal Orbiting → not UF (focus exclusion). Player loses access to re-fly the breakup moment via UF. **Acceptable v1 limitation — see §10 risk.** Mitigation: player can manually crash the post-breakup vessel and the row will appear; v2's Park-from-not-UF affordance is the proper fix.
+Survivor V is FocusSlot, terminal Orbiting → not UF (focus exclusion). Player loses access to re-fly the breakup moment via UF by default. **Accepted v1 limitation — see §10 risk.** Mitigation: player can manually crash the post-breakup vessel and the row will appear, or use v2 Park while the backing RP still exists.
 
 ### 7.12 Cross-tree dock during stable-leaf re-fly
 Re-flown probe docks with another tree's station. Dock BP fires; probe-re-fly's chain TIP gets `ChildBranchPointId = dockBp.Id`. Per-RP leaf gate fails. Site B-1 sees Docked terminal → `TerminalOutcomeQualifies` returns false → Immutable. Slot closes. AppendRelations closure walk (rooted at SupersedeTargetId) is tree-scoped and halts at the mixed-parent BP; station's tree unaffected. ✓
@@ -700,8 +720,8 @@ Re-flown probe docks with another tree's station. Dock BP fires; probe-re-fly's 
 ### 7.13 Re-fly a parked probe, end in Mun orbit (chain extension on stable terminal)
 Re-fly merge: Site B-1 sees Orbiting + non-focus → CP. Slot stays open. Supersede chain extends linearly: probeOrig -> probeReFly1 (via §6.4 prerequisite). Player can Fly probe again; chain extends to probeReFly2 on a third re-fly. Player Seals to close.
 
-### 7.14 Re-fly a parked probe, end Landed
-Re-fly merge: Site B-1 sees Landed → not UF → Immutable. Slot closes. Supersede relation `{priorTip -> provisional}` appended. Reaper sees all slots closed → reaps RP.
+### 7.14 Re-fly an auto-included stable-leaf probe, end Landed
+Re-fly merge: Site B-1 sees Landed → not UF → Immutable. Slot closes. Supersede relation `{priorTip -> provisional}` appended. Reaper sees all slots closed → reaps RP. Manual-Park variant: if the player explicitly set `slot.Parked`, Landed remains `parkedStableLeaf` and the slot stays open until the player Seals it; boarded EVA and downstream-BP close-outs still use the normal closed path.
 
 ### 7.15 Re-fly a parked stranded EVA kerbal, succeed in reboarding
 Re-fly merge produces a Board BP. Provisional has `ChildBranchPointId = boardBp.Id`. `TerminalOutcomeQualifies` returns false (Boarded → kerbal branch returns false). Site B-1 → Immutable. Slot closes. Stranded-kerbal-recovery path complete.
@@ -728,7 +748,7 @@ Legacy RP loads with `FocusSlotIndex == -1`. Crashed branch returns true regardl
 Legacy RP loads with `FocusSlotIndex == -1`. EVA branch returns BEFORE the noFocusSignal short-circuit. Stranded kerbal qualifies. Row appears in UF post-upgrade. **Intentional retroactive carve-out** — see §9.2 CHANGELOG split note.
 
 ### 7.23 New post-feature RP, no slot was focused at split time
-RP captures with explicit `FocusSlotIndex = -1` (player was focused on an unrelated vessel outside the split). Same `noFocusSignal` behavior as legacy RPs: Orbiting/SubOrbital suppressed; Crashed and EVA-stranded qualify. v2's Park-from-not-UF could allow the player to manually add Orbiting siblings from these rare RPs.
+RP captures with explicit `FocusSlotIndex = -1` (player was focused on an unrelated vessel outside the split). Same `noFocusSignal` behavior as legacy RPs: Orbiting/SubOrbital suppressed; Crashed and EVA-stranded qualify. v2 Park allows the player to manually add Orbiting siblings from these rare RPs while the backing RP still exists.
 
 ### 7.24 BG-only multi-controllable split with all controllable Orbiting siblings
 RP captures with `FocusSlotIndex = -1` (no focus involved). All sibling slots stay Immutable post-commit. No UF rows. RP reaps. Same outcome as legacy save case.
@@ -818,7 +838,7 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 - **Reversal of v0.9 §7.31 stance.** v0.9 said "stable-end splits explicitly not in scope." v1 says some non-focus stable-end splits ARE in scope (Orbiting/SubOrbital non-focus, EVA-stranded). Focus-continuation stable terminals continue to NOT get a row, preserving the "your mission's upper stage didn't suddenly become unfinished" intuition. The CHANGELOG must be precise about what changed and what didn't.
 
-- **Breakup-survivor with stable-orbit terminal can't be re-flown via UF** (§7.11). The single most "obvious-feeling-bug" outcome of the focus-slot exclusion. Player remembers a structural failure, looks for it under UF, doesn't find it (because they survived to orbit). **Acceptable v1 limitation.** Mitigations: player can crash the post-breakup vessel, or wait for v2 Park-from-not-UF. CHANGELOG must surface this with an FAQ-style entry; consider a forum/Discord post too.
+- **Breakup-survivor with stable-orbit terminal isn't auto-added to UF** (§7.11). The single most "obvious-feeling-bug" outcome of the focus-slot exclusion. Player remembers a structural failure, looks for it under UF, doesn't find it (because they survived to orbit). **Accepted v1 limitation.** Mitigations: player can crash the post-breakup vessel, or use v2 Park while the backing RP still exists. CHANGELOG must surface this with an FAQ-style entry; consider a forum/Discord post too.
 
 - **Site B-2 in-place duplicate-row invariant.** The current v0.9 `MergeDialog.TryCommitReFlySupersede` override exists because the in-place path has no separate provisional — leaving the recording CP after merge would create a duplicate / un-reapable UF row. §6.3 enumerates three candidate handlings with a preference order: **(B2-B) fresh-provisional first** (cleanest gameplay, keeps the chain-extension promise on the in-place path), **(B2-A) force-Immutable as fallback** (preserves v0.9 behavior exactly when B2-B is out of v1 scope), avoid **(B2-C) auto-Seal** (muddies the player-explicit Seal semantic). §11.3 picks per the investigation. Until then, the design ships under the (B2-A) fallback assumption: the in-place re-fly's recording flips to `MergeState.Immutable` (closing the slot via MergeState — distinct from the player-explicit `ChildSlot.Sealed` action elsewhere in the design), chain extension via in-place is unavailable, and the player must use a fresh split RP to re-fly again. Documented in §9.2 CHANGELOG note 3 (which the implementation PR retracts if B2-B is picked instead).
 
@@ -878,7 +898,7 @@ The implementation PR's pre-work must:
 
 ### 11.4 v2 Park-from-not-UF affordance
 
-Deferred to v2 unless playtest shows demand. Would add a Park button on Recordings table rows for stable-terminal leaves that the v1 predicate excluded (rover-drove-20m, breakup-survivor-orbiting, focus-continuation upper stage the player decided to come back to). Implementation: a new `slot.Parked` flag (parallel to `slot.Sealed`) that flips a "default-not-UF" recording into a UF row. Same Fly + Seal affordance from there.
+Implemented as a follow-up. The Recordings table shows a `Park` button for stable-terminal leaves that the default predicate excludes (rover-drove-20m, breakup-survivor-orbiting, focus-continuation upper stage the player decided to come back to) when the row still resolves to a live Rewind Point slot. The action sets `slot.Parked` / `slot.ParkedRealTime`, leaves the recording and `MergeState` unchanged, makes the row qualify as an Unfinished Flight, and from there exposes the same `Fly` + `Seal` affordance. `RewindPointReaper` treats an unsealed parked `Immutable` slot as open while the classifier still qualifies it; Park does not resurrect already-reaped RP quicksaves. Under the B2-A in-place merge policy, confirming an in-place re-fly clears `slot.Parked` before forcing `Immutable`, so the in-place path still closes the slot.
 
 ### 11.5 v2 Auto-purge of long-lived sealed RPs
 
@@ -1031,7 +1051,7 @@ Seal handler:
 - Stranded EVA (S6): kerbal stranded + lander Orbiting → both in UF; Fly kerbal, reboard, merge → kerbal slot closes; lander slot still in UF; Seal lander to clean up.
 - Breakup-survivor (S7-S11): trigger a breakup, survive, land safely → NOT in UF and RP reaps. Trigger another, survive but Orbiting → NOT in UF (focus exclusion — documented limitation). Trigger a third, crash post-survival → IS in UF (Crashed regardless of focus).
 - Cross-tree dock during stable-leaf re-fly (S12): probe re-fly docks with another tree's station, merge, verify slot closes Immutable, supersede stays inside probe's tree, station's tree unchanged.
-- Re-fly chain extension on a stable terminal (S13): park probe, re-fly to a different stable orbit, merge, verify slot stays CP and UF still shows the probe with the new flight as effective; re-fly again, land it, merge, verify slot now Immutable.
+- Re-fly chain extension on a stable terminal (S13): auto-included non-focus probe, re-fly to a different stable orbit, merge, verify slot stays CP and UF still shows the probe with the new flight as effective; re-fly again, land it, merge, verify slot now Immutable. Manual-Park variant: Park a default-excluded stable row, verify the parked flag keeps Landed/Orbiting outcomes in UF until Seal.
 - Seal-and-no-unseal: Seal a row, verify there's no in-game un-seal path (Full-Revert is the only undo).
 
 ### 13.5 Hybrid graph regression test
