@@ -417,11 +417,11 @@ foreach (CoBubbleOffsetTrace trace in coBubbleTraces) {
 
 Where `ClassifyTraceDrift` returns one of:
 
-- `peer-missing` — peer recording not in `RecordingStore.CommittedRecordings`
+- `peer-missing` — peer recording not in `RecordingStore.CommittedRecordings` and not in the tree-local load set (review pass 2 P1-A: same-tree peers being hydrated in the same OnLoad pass are visible via the load set before they're committed)
 - `peer-format-changed` — peer's `RecordingFormatVersion != trace.PeerSourceFormatVersion`
 - `peer-epoch-changed` — peer's `SidecarEpoch != trace.PeerSidecarEpoch`
 - `peer-content-mismatch` — recomputed peer content signature != stored
-- `null` (accept)
+- `null` (accept) — including the **deferred-validation path** (review passes 3 + 4): when `peer.Points` is empty during validation (sequential OnLoad sidecar hydration: same-tree peers iterated AFTER the current recording have empty Points when its `.pann` is validated), `ClassifyTraceDrift` enqueues a `DeferredCoBubbleValidation(ownerRecordingId, peerRecordingId, startUT, endUT, expectedSignature)` and returns null. `ParsekScenario.OnLoad` invokes `SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings)` after every recording in the tree has hydrated; the sweep recomputes the signature against the now-populated peer and drops mismatches with `Pipeline-CoBubble` Info `Per-trace co-bubble invalidation (post-hydration): owner={…} peer={…} startUT={…} endUT={…} reason=peer-content-mismatch` (or `reason=peer-still-not-hydrated` if the peer's Points list is still empty by sweep time, e.g. its `.prec` failed to load entirely). The runtime per-trace check in `CoBubbleBlender` only validates format / epoch — it does NOT recompute the signature — so without the post-hydration sweep an OnLoad-time deferral would silently leave stale offsets installed for the entire session.
 
 ### 6.5 Lazy Recompute on Demand
 

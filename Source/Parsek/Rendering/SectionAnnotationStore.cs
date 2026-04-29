@@ -204,6 +204,53 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
+        /// Phase 5 review-pass-4: removes a single co-bubble trace
+        /// matching <paramref name="recordingId"/> +
+        /// <paramref name="peerRecordingId"/> + (<paramref name="startUT"/>,
+        /// <paramref name="endUT"/>). Returns true when an entry was
+        /// removed. Symmetric key with
+        /// <see cref="PutCoBubbleTrace"/>'s "Replace existing entry with
+        /// matching tuple" rule.
+        ///
+        /// <para>
+        /// Called by
+        /// <c>SmoothingPipeline.RevalidateDeferredCoBubbleTraces</c>:
+        /// when a deferred trace's peer-content signature mismatches at
+        /// post-hydration revalidation, the affected trace is dropped
+        /// without touching the rest of the recording's traces.
+        /// </para>
+        /// </summary>
+        internal static bool RemoveCoBubbleTrace(
+            string recordingId, string peerRecordingId, double startUT, double endUT)
+        {
+            if (string.IsNullOrEmpty(recordingId) || string.IsNullOrEmpty(peerRecordingId))
+                return false;
+            lock (Lock)
+            {
+                if (!CoBubbleTraces.TryGetValue(recordingId, out var list) || list == null)
+                    return false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    CoBubbleOffsetTrace existing = list[i];
+                    if (existing == null) continue;
+                    if (string.Equals(existing.PeerRecordingId, peerRecordingId, StringComparison.Ordinal)
+                        && existing.StartUT == startUT
+                        && existing.EndUT == endUT)
+                    {
+                        list.RemoveAt(i);
+                        // Drop the empty-list entry so callers using
+                        // TryGetCoBubbleTraces see the recording as
+                        // "no traces" rather than "non-null empty list".
+                        if (list.Count == 0)
+                            CoBubbleTraces.Remove(recordingId);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Removes every section annotation for the given recording id. No-op
         /// if the recording has no entries. Clears the spline map, the
         /// Phase 6 candidate map, and the Phase 5 co-bubble trace list

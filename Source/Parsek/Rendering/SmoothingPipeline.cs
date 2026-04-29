@@ -73,6 +73,23 @@ namespace Parsek.Rendering
         private static readonly object s_frameDecisionLock = new object();
         private static readonly HashSet<string> s_frameDecisionLogged = new HashSet<string>();
 
+        // Phase 5 review-pass-4: traces whose peer-content-signature
+        // validation was deferred at LoadOrCompute time because
+        // peer.Points was empty (ParsekScenario.OnLoad hydrates each
+        // recording's .prec sequentially; same-tree peers iterated AFTER
+        // the current recording have empty Points when its .pann is
+        // validated). ParsekScenario must invoke
+        // RevalidateDeferredCoBubbleTraces after all recordings in a
+        // tree have hydrated; that sweep recomputes the signature now
+        // that peer.Points is populated and drops any trace whose
+        // signature mismatches. The runtime per-trace check in
+        // CoBubbleBlender only validates format / epoch — it does NOT
+        // recompute the signature — so without this post-hydration
+        // sweep a stale trace stays installed for the entire session.
+        private static readonly object s_deferredValidationLock = new object();
+        private static readonly HashSet<DeferredCoBubbleValidation> s_deferredValidations
+            = new HashSet<DeferredCoBubbleValidation>();
+
         // Test seam: when set, returned in place of FlightGlobals.Bodies?.Find.
         // xUnit cannot stand up FlightGlobals.Bodies, so the suite injects a
         // CelestialBody factory (typically TestBodyRegistry.ResolveBodyByName)
@@ -436,7 +453,12 @@ namespace Parsek.Rendering
                             // each recording's traces against an
                             // unpopulated CommittedRecordings list and
                             // drops every same-tree trace as peer-missing.
-                            string driftReason = ClassifyTraceDrift(t, treeLocalLoadSet);
+                            // Pass recordingId so a deferred peer-content
+                            // validation (peer.Points still empty during
+                            // sequential sidecar hydration) can be located
+                            // in SectionAnnotationStore later by
+                            // RevalidateDeferredCoBubbleTraces (review-pass-4).
+                            string driftReason = ClassifyTraceDrift(t, treeLocalLoadSet, recordingId);
                             if (driftReason == null)
                             {
                                 SectionAnnotationStore.PutCoBubbleTrace(recordingId, t);
@@ -818,6 +840,10 @@ namespace Parsek.Rendering
             {
                 s_frameDecisionLogged.Clear();
             }
+            lock (s_deferredValidationLock)
+            {
+                s_deferredValidations.Clear();
+            }
             BodyResolverForTesting = null;
             TreeResolverForTesting = null;
             UseCoBubbleBlendResolverForTesting = null;
@@ -921,7 +947,7 @@ namespace Parsek.Rendering
         /// </summary>
         internal static string ClassifyTraceDrift(CoBubbleOffsetTrace trace)
         {
-            return ClassifyTraceDrift(trace, null);
+            return ClassifyTraceDrift(trace, null, ownerRecordingId: null);
         }
 
         /// <summary>
@@ -936,6 +962,23 @@ namespace Parsek.Rendering
         internal static string ClassifyTraceDrift(
             CoBubbleOffsetTrace trace,
             IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+        {
+            return ClassifyTraceDrift(trace, treeLocalLoadSet, ownerRecordingId: null);
+        }
+
+        /// <summary>
+        /// Phase 5 review-pass-4 overload: as
+        /// <see cref="ClassifyTraceDrift(CoBubbleOffsetTrace, IReadOnlyDictionary{string, Recording})"/>
+        /// but additionally records <paramref name="ownerRecordingId"/>
+        /// alongside any deferred peer-content-signature validation, so
+        /// <see cref="RevalidateDeferredCoBubbleTraces"/> can locate the
+        /// installed trace in <see cref="SectionAnnotationStore"/> when
+        /// the post-hydration sweep finds a mismatch.
+        /// </summary>
+        internal static string ClassifyTraceDrift(
+            CoBubbleOffsetTrace trace,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet,
+            string ownerRecordingId)
         {
             if (trace == null) return "trace-null";
             if (string.IsNullOrEmpty(trace.PeerRecordingId)) return "peer-missing";
@@ -955,21 +998,35 @@ namespace Parsek.Rendering
             // Recomputing the SHA-256 over an empty Points list always
             // yields the empty-stream hash, which mismatches the stored
             // signature and drops the trace as peer-content-mismatch on
-            // every load. Defer signature validation in that case to the
-            // runtime per-trace check in CoBubbleBlender, which sees both
-            // sides fully hydrated. Format / epoch fields above are
-            // populated from the .sfs at tree-load time, so those gates
-            // stay live.
+            // every load. Defer signature validation in that case;
+            // ParsekScenario.OnLoad invokes
+            // RevalidateDeferredCoBubbleTraces after all tree recordings
+            // have hydrated, which re-runs the signature check now that
+            // peer.Points is populated. (Phase 5 review-pass-4: the
+            // runtime per-trace check in CoBubbleBlender only validates
+            // format / epoch — it does NOT recompute the signature — so
+            // a post-hydration sweep is required.) Format / epoch fields
+            // above are populated from the .sfs at tree-load time, so
+            // those gates stay live.
             if (peer.Points == null || peer.Points.Count == 0)
             {
                 ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
                     "peer-content-validation-deferred",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Peer Points empty during validation; deferring to runtime peer={0} startUT={1} endUT={2}",
+                        "Peer Points empty during validation; deferring to post-hydration sweep peer={0} startUT={1} endUT={2}",
                         trace.PeerRecordingId,
                         trace.StartUT.ToString("R", CultureInfo.InvariantCulture),
                         trace.EndUT.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);
+                if (!string.IsNullOrEmpty(ownerRecordingId))
+                {
+                    EnqueueDeferredValidation(new DeferredCoBubbleValidation(
+                        ownerRecordingId,
+                        trace.PeerRecordingId,
+                        trace.StartUT,
+                        trace.EndUT,
+                        trace.PeerContentSignature));
+                }
                 return null;
             }
 
@@ -983,6 +1040,189 @@ namespace Parsek.Rendering
             if (actual == null) return "peer-missing";
             if (!ByteArraysEqual(actual, expected)) return "peer-content-mismatch";
             return null;
+        }
+
+        /// <summary>
+        /// Phase 5 review-pass-4: pure-data carrier for one deferred
+        /// peer-content-signature validation. Equality / hashing key on
+        /// (<see cref="OwnerRecordingId"/>, <see cref="PeerRecordingId"/>,
+        /// <see cref="StartUT"/>, <see cref="EndUT"/>) only — the signature
+        /// itself is excluded so a re-deferral with the same trace metadata
+        /// dedupes through <see cref="HashSet{T}.Add"/>.
+        /// </summary>
+        internal readonly struct DeferredCoBubbleValidation : IEquatable<DeferredCoBubbleValidation>
+        {
+            public readonly string OwnerRecordingId;
+            public readonly string PeerRecordingId;
+            public readonly double StartUT;
+            public readonly double EndUT;
+            public readonly byte[] ExpectedSignature;
+
+            public DeferredCoBubbleValidation(
+                string ownerRecordingId,
+                string peerRecordingId,
+                double startUT,
+                double endUT,
+                byte[] expectedSignature)
+            {
+                OwnerRecordingId = ownerRecordingId;
+                PeerRecordingId = peerRecordingId;
+                StartUT = startUT;
+                EndUT = endUT;
+                ExpectedSignature = expectedSignature;
+            }
+
+            public bool Equals(DeferredCoBubbleValidation other)
+            {
+                return string.Equals(OwnerRecordingId, other.OwnerRecordingId, StringComparison.Ordinal)
+                    && string.Equals(PeerRecordingId, other.PeerRecordingId, StringComparison.Ordinal)
+                    && StartUT == other.StartUT
+                    && EndUT == other.EndUT;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is DeferredCoBubbleValidation other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = 17;
+                    h = h * 31 + (OwnerRecordingId?.GetHashCode() ?? 0);
+                    h = h * 31 + (PeerRecordingId?.GetHashCode() ?? 0);
+                    h = h * 31 + StartUT.GetHashCode();
+                    h = h * 31 + EndUT.GetHashCode();
+                    return h;
+                }
+            }
+        }
+
+        private static void EnqueueDeferredValidation(DeferredCoBubbleValidation entry)
+        {
+            lock (s_deferredValidationLock)
+            {
+                s_deferredValidations.Add(entry);
+            }
+        }
+
+        /// <summary>
+        /// Phase 5 review-pass-4 test seam: snapshot of the deferred
+        /// validation set, for xUnit assertions. Production callers do
+        /// not use this; the production sweep
+        /// <see cref="RevalidateDeferredCoBubbleTraces"/> drains the set
+        /// in place.
+        /// </summary>
+        internal static int DeferredCoBubbleValidationsCountForTesting
+        {
+            get
+            {
+                lock (s_deferredValidationLock)
+                {
+                    return s_deferredValidations.Count;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Phase 5 review-pass-4: post-tree-hydration revalidation pass
+        /// for traces whose peer-content signature validation was
+        /// deferred during <see cref="LoadOrCompute"/> because the peer's
+        /// <see cref="Recording.Points"/> list was empty at that time.
+        /// Recomputes the SHA-256 signature now that the peer's
+        /// <c>.prec</c> sidecar has been deserialized, drops traces whose
+        /// signature mismatches, and emits a <c>Pipeline-CoBubble</c>
+        /// Info log per drop. Drained-as-it-processes — safe to call
+        /// multiple times (the second call sees an empty deferred set).
+        ///
+        /// <para>
+        /// HR-9 visible failure: when the peer is missing from
+        /// <paramref name="hydratedRecordings"/> OR its Points list is
+        /// still empty (sidecar load failed), the trace is dropped with
+        /// reason <c>peer-still-not-hydrated</c> rather than retained
+        /// indefinitely — by the time the sweep runs, the tree is fully
+        /// loaded and a still-empty peer is gone for the session.
+        /// </para>
+        /// </summary>
+        /// <returns>Count of traces dropped by this sweep.</returns>
+        internal static int RevalidateDeferredCoBubbleTraces(
+            IReadOnlyDictionary<string, Recording> hydratedRecordings)
+        {
+            // Snapshot + drain so callers calling twice are idempotent.
+            DeferredCoBubbleValidation[] snapshot;
+            lock (s_deferredValidationLock)
+            {
+                if (s_deferredValidations.Count == 0)
+                    return 0;
+                snapshot = new DeferredCoBubbleValidation[s_deferredValidations.Count];
+                s_deferredValidations.CopyTo(snapshot);
+                s_deferredValidations.Clear();
+            }
+
+            int dropped = 0;
+            int kept = 0;
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                DeferredCoBubbleValidation entry = snapshot[i];
+                Recording peer = null;
+                if (hydratedRecordings != null)
+                    hydratedRecordings.TryGetValue(entry.PeerRecordingId, out peer);
+                if (peer == null && hydratedRecordings != null)
+                {
+                    // Tree-local lookup missed; fall back to committed
+                    // store (covers mid-revalidation tree commits and
+                    // cross-tree peers that the sweep was invoked for).
+                    peer = ResolvePeerRecording(entry.PeerRecordingId, null);
+                }
+
+                if (peer == null || peer.Points == null || peer.Points.Count == 0)
+                {
+                    // Peer never hydrated — drop the trace.
+                    SectionAnnotationStore.RemoveCoBubbleTrace(
+                        entry.OwnerRecordingId, entry.PeerRecordingId, entry.StartUT, entry.EndUT);
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Per-trace co-bubble invalidation (post-hydration): owner={0} peer={1} startUT={2} endUT={3} reason=peer-still-not-hydrated",
+                            entry.OwnerRecordingId,
+                            entry.PeerRecordingId,
+                            entry.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                            entry.EndUT.ToString("R", CultureInfo.InvariantCulture)));
+                    dropped++;
+                    continue;
+                }
+
+                byte[] actual;
+                var recomputeSeam = CoBubblePeerSignatureRecomputeForTesting;
+                if (recomputeSeam != null)
+                    actual = recomputeSeam(peer, entry.StartUT, entry.EndUT);
+                else
+                    actual = CoBubbleOverlapDetector.ComputePeerContentSignature(peer, entry.StartUT, entry.EndUT);
+
+                if (actual == null || !ByteArraysEqual(actual, entry.ExpectedSignature))
+                {
+                    SectionAnnotationStore.RemoveCoBubbleTrace(
+                        entry.OwnerRecordingId, entry.PeerRecordingId, entry.StartUT, entry.EndUT);
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Per-trace co-bubble invalidation (post-hydration): owner={0} peer={1} startUT={2} endUT={3} reason=peer-content-mismatch",
+                            entry.OwnerRecordingId,
+                            entry.PeerRecordingId,
+                            entry.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                            entry.EndUT.ToString("R", CultureInfo.InvariantCulture)));
+                    dropped++;
+                }
+                else
+                {
+                    kept++;
+                }
+            }
+
+            ParsekLog.Verbose("Pipeline-CoBubble",
+                string.Format(CultureInfo.InvariantCulture,
+                    "RevalidateDeferredCoBubbleTraces summary: deferredCount={0} kept={1} dropped={2}",
+                    snapshot.Length, kept, dropped));
+            return dropped;
         }
 
         private static Recording ResolvePeerRecording(string peerRecordingId)

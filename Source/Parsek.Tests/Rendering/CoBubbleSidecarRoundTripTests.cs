@@ -377,18 +377,26 @@ namespace Parsek.Tests.Rendering
             SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
                 (peer, startUT, endUT) => mismatchSig;
 
-            string driftReason = SmoothingPipeline.ClassifyTraceDrift(trace, null);
+            // Use the 3-arg overload so the deferral records an
+            // ownerRecordingId (review-pass-4 plumbing).
+            string driftReason = SmoothingPipeline.ClassifyTraceDrift(
+                trace, treeLocalLoadSet: null, ownerRecordingId: "owner-rec");
             // Pre-fix: returns "peer-content-mismatch".
             // Post-fix: returns null and logs the deferred message
             // (canonical text "Peer Points empty during validation;
-            // deferring to runtime"). The rate-limit dedup key
-            // "peer-content-validation-deferred" is only used for
-            // suppression — it does NOT appear in the emitted log
-            // text, so the assertion pins on the visible message.
+            // deferring to post-hydration sweep"). The rate-limit
+            // dedup key "peer-content-validation-deferred" is only
+            // used for suppression — it does NOT appear in the emitted
+            // log text, so the assertion pins on the visible message.
             Assert.Null(driftReason);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("Peer Points empty during validation")
                 && l.Contains("hydrating-peer"));
+            // Phase 5 review-pass-4: the deferral must enqueue an entry
+            // for the post-hydration sweep — without this, a peer that
+            // hydrates to mutated points would never be revalidated and
+            // a stale offset would render for the entire session.
+            Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
         }
 
         [Fact]
@@ -496,6 +504,196 @@ namespace Parsek.Tests.Rendering
                     splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                     anchorCandidates: null,
                     coBubbleTraces: new List<CoBubbleOffsetTrace> { bad }));
+        }
+
+        // ----- Phase 5 review-pass-4: post-hydration revalidation sweep -----
+
+        /// <summary>
+        /// Defers a peer-content-signature validation by stashing one trace
+        /// into <see cref="SectionAnnotationStore"/> and queuing a matching
+        /// deferred entry in <see cref="SmoothingPipeline"/>. Returns the
+        /// trace so callers can build their assertion expectations against
+        /// the same object.
+        /// </summary>
+        private CoBubbleOffsetTrace DeferTraceForOwner(string ownerRecordingId, string peerRecordingId,
+            byte[] expectedSignature, double startUT = 100.0, double endUT = 110.0)
+        {
+            CoBubbleOffsetTrace trace = MakeTrace(peerRecordingId, startUT: startUT, endUT: endUT);
+            if (expectedSignature != null)
+                trace.PeerContentSignature = expectedSignature;
+            // Install in the store so the post-hydration sweep can find
+            // and remove it on mismatch.
+            SectionAnnotationStore.PutCoBubbleTrace(ownerRecordingId, trace);
+            // Deferral path: peer.Points is empty so ClassifyTraceDrift
+            // enqueues without invoking the signature recompute.
+            SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
+                new Recording
+                {
+                    RecordingId = id,
+                    RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                    SidecarEpoch = trace.PeerSidecarEpoch,
+                    // Points intentionally empty.
+                };
+            // Stash a mismatch sig so a non-deferred path would surface
+            // a regression instantly.
+            byte[] sentinel = new byte[32];
+            for (int i = 0; i < 32; i++) sentinel[i] = 0xEE;
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, s, e) => sentinel;
+            string driftReason = SmoothingPipeline.ClassifyTraceDrift(
+                trace, treeLocalLoadSet: null, ownerRecordingId: ownerRecordingId);
+            Assert.Null(driftReason);
+            // Reset the seams used for deferral so the revalidation
+            // pass exercises whichever path each test wants.
+            SmoothingPipeline.CoBubblePeerResolverForTesting = null;
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting = null;
+            return trace;
+        }
+
+        [Fact]
+        public void RevalidateDeferredCoBubbleTraces_PeerHydratedToDifferentPoints_DropsTrace()
+        {
+            // Phase 5 review-pass-4 regression: after a deferred
+            // validation in LoadOrCompute (peer.Points empty), the
+            // post-hydration sweep must recompute the signature against
+            // the now-populated peer and drop the trace if the peer's
+            // points differ from what was stored at commit time.
+            // Without this, the runtime per-trace check in
+            // CoBubbleBlender (which only validates format / epoch)
+            // would leave the stale offset installed for the entire
+            // session.
+            const string ownerId = "owner-mismatch";
+            const string peerId = "peer-mismatch";
+            byte[] storedSignature = new byte[32];
+            for (int i = 0; i < 32; i++) storedSignature[i] = (byte)(i + 1);
+
+            CoBubbleOffsetTrace trace = DeferTraceForOwner(ownerId, peerId, storedSignature);
+            Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
+
+            // Hydrated peer with non-empty Points; recompute seam
+            // returns a DIFFERENT signature (simulates partial
+            // hydration / save-edit-without-epoch-bump).
+            byte[] differentSignature = new byte[32];
+            for (int i = 0; i < 32; i++) differentSignature[i] = 0xAB;
+            var hydratedPeer = new Recording
+            {
+                RecordingId = peerId,
+                RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                SidecarEpoch = trace.PeerSidecarEpoch,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin" },
+                },
+            };
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, s, e) => differentSignature;
+
+            var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                { peerId, hydratedPeer },
+            };
+            int dropped = SmoothingPipeline.RevalidateDeferredCoBubbleTraces(hydrated);
+
+            Assert.Equal(1, dropped);
+            // Trace must be removed from the store.
+            bool ownerHasTraces = SectionAnnotationStore.TryGetCoBubbleTraces(ownerId, out var ownerTraces);
+            Assert.False(ownerHasTraces && ownerTraces != null && ownerTraces.Count > 0,
+                "owner's trace list should be empty after mismatch drop");
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-CoBubble]")
+                && l.Contains("Per-trace co-bubble invalidation (post-hydration)")
+                && l.Contains("reason=peer-content-mismatch")
+                && l.Contains("owner=" + ownerId)
+                && l.Contains("peer=" + peerId));
+            // Sweep is idempotent: a second call drains nothing.
+            Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
+        }
+
+        [Fact]
+        public void RevalidateDeferredCoBubbleTraces_PeerSignatureMatches_KeepsTrace()
+        {
+            // Counter-test for the mismatch case: when the hydrated
+            // peer's signature matches the trace's stored signature,
+            // the trace must stay installed and no mismatch log fires.
+            const string ownerId = "owner-match";
+            const string peerId = "peer-match";
+            byte[] storedSignature = new byte[32];
+            for (int i = 0; i < 32; i++) storedSignature[i] = 0x55;
+
+            CoBubbleOffsetTrace trace = DeferTraceForOwner(ownerId, peerId, storedSignature);
+            Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
+
+            // Hydrated peer; recompute seam returns the SAME signature.
+            var hydratedPeer = new Recording
+            {
+                RecordingId = peerId,
+                RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                SidecarEpoch = trace.PeerSidecarEpoch,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                },
+            };
+            SmoothingPipeline.CoBubblePeerSignatureRecomputeForTesting =
+                (peer, s, e) => storedSignature;
+
+            var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                { peerId, hydratedPeer },
+            };
+            int dropped = SmoothingPipeline.RevalidateDeferredCoBubbleTraces(hydrated);
+
+            Assert.Equal(0, dropped);
+            // Trace remains in the store.
+            Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(ownerId, out var ownerTraces));
+            Assert.NotNull(ownerTraces);
+            Assert.Contains(ownerTraces, t =>
+                t != null && string.Equals(t.PeerRecordingId, peerId, StringComparison.Ordinal));
+            // No mismatch log fired.
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO][Pipeline-CoBubble]")
+                && l.Contains("Per-trace co-bubble invalidation (post-hydration)")
+                && l.Contains("reason=peer-content-mismatch"));
+        }
+
+        [Fact]
+        public void RevalidateDeferredCoBubbleTraces_PeerStillEmpty_LogsAndDrops()
+        {
+            // When the peer never hydrated (Points still empty by the
+            // time the post-hydration sweep runs), the trace is dropped
+            // with reason=peer-still-not-hydrated and an Info log fires.
+            // Retaining indefinitely would leak deferred entries across
+            // the session.
+            const string ownerId = "owner-empty";
+            const string peerId = "peer-empty";
+            byte[] storedSignature = new byte[32];
+            for (int i = 0; i < 32; i++) storedSignature[i] = 0x77;
+
+            CoBubbleOffsetTrace trace = DeferTraceForOwner(ownerId, peerId, storedSignature);
+            Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleValidationsCountForTesting);
+
+            // Hydrated peer is also empty — sidecar load failed.
+            var hydratedPeer = new Recording
+            {
+                RecordingId = peerId,
+                RecordingFormatVersion = trace.PeerSourceFormatVersion,
+                SidecarEpoch = trace.PeerSidecarEpoch,
+                // Points intentionally empty.
+            };
+            var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                { peerId, hydratedPeer },
+            };
+            int dropped = SmoothingPipeline.RevalidateDeferredCoBubbleTraces(hydrated);
+
+            Assert.Equal(1, dropped);
+            bool ownerHasTraces = SectionAnnotationStore.TryGetCoBubbleTraces(ownerId, out var ownerTraces);
+            Assert.False(ownerHasTraces && ownerTraces != null && ownerTraces.Count > 0,
+                "owner's trace list should be empty after still-not-hydrated drop");
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-CoBubble]")
+                && l.Contains("Per-trace co-bubble invalidation (post-hydration)")
+                && l.Contains("reason=peer-still-not-hydrated")
+                && l.Contains("owner=" + ownerId)
+                && l.Contains("peer=" + peerId));
         }
     }
 }

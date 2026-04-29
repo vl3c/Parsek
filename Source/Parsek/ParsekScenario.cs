@@ -2625,6 +2625,22 @@ namespace Parsek
                         }
                     }
 
+                    // Phase 5 review-pass-4: post-tree-hydration sweep
+                    // for deferred co-bubble peer-content-signature
+                    // validations. ClassifyTraceDrift defers signature
+                    // recomputes when peer.Points was empty during the
+                    // sequential hydration above; the runtime per-trace
+                    // check in CoBubbleBlender only validates format /
+                    // epoch, so without this sweep a stale trace whose
+                    // peer hydrated to different points than at commit
+                    // time stays installed for the entire session.
+                    int dropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
+                    if (dropped > 0)
+                    {
+                        ParsekLog.Info("Pipeline-CoBubble",
+                            $"Post-hydration revalidation: dropped {dropped} stale co-bubble trace(s) in tree {tree.Id}");
+                    }
+
                     committedTrees.Add(tree);
 
                     // Add tree recordings to CommittedRecordings for ghost playback
@@ -2751,6 +2767,16 @@ namespace Parsek
                         if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")
                             staleEpochHydrationFailures++;
                     }
+                }
+
+                // Phase 5 review-pass-4: post-tree-hydration sweep for
+                // deferred co-bubble peer-content-signature validations
+                // (mirrors the committed-tree branch above).
+                int activeTreeDropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
+                if (activeTreeDropped > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-hydration revalidation: dropped {activeTreeDropped} stale co-bubble trace(s) in active tree {tree.Id}");
                 }
 
                 if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
