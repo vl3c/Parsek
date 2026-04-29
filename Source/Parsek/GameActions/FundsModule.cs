@@ -103,9 +103,10 @@ namespace Parsek
         /// cutoff to <paramref name="actions"/> before calling PrePass, so every action we
         /// see is in scope for the visible/current aggregate.
         /// </remarks>
-        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+        public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             ComputeTotalSpendings(actions);
+            return false;
         }
 
         /// <summary>

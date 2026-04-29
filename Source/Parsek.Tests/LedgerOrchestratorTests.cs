@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using Xunit;
 
@@ -47,6 +48,25 @@ namespace Parsek.Tests
             }
 
             return count;
+        }
+
+        private static bool ShouldRunWarpRecalcTickForTesting(
+            bool isAnyWarpActive,
+            float timeScale,
+            bool recalcRequested,
+            bool warpRecalcInFlight,
+            float unscaledTime,
+            float lastWarpRecalcWallClockTime)
+        {
+            if (!isAnyWarpActive)
+                return false;
+            if (timeScale <= 0.01f)
+                return false;
+            if (!recalcRequested)
+                return false;
+            if (warpRecalcInFlight)
+                return false;
+            return unscaledTime - lastWarpRecalcWallClockTime >= 1.0f;
         }
 
         // ================================================================
@@ -227,6 +247,85 @@ namespace Parsek.Tests
             // Verify modules processed the actions
             Assert.Equal(10.0, LedgerOrchestrator.Science.GetAvailableScience(), 3);
             Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+        }
+
+        [Fact]
+        public void RegularEntry_OnTimelineDataChangedReentry_DoesNotCorrupt()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 250f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            double referenceFunds = LedgerOrchestrator.Funds.GetAvailableFunds();
+
+            LedgerOrchestrator.ResetForTesting();
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 250f
+            });
+
+            int callbackCount = 0;
+            bool nestedWalkRan = false;
+            LedgerOrchestrator.OnTimelineDataChanged += () =>
+            {
+                callbackCount++;
+                if (nestedWalkRan)
+                    return;
+
+                nestedWalkRan = true;
+                LedgerOrchestrator.RecalculateAndPatch();
+            };
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.True(nestedWalkRan);
+            Assert.Equal(2, callbackCount);
+            Assert.Equal(referenceFunds, LedgerOrchestrator.Funds.GetAvailableFunds(), 3);
+        }
+
+        [Fact]
+        public void WarpRecalcCadence_NoOverheadOutsideWarp()
+        {
+            const int iterations = 10000;
+
+            var sw = Stopwatch.StartNew();
+            bool result = false;
+            for (int i = 0; i < iterations; i++)
+            {
+                result |= ShouldRunWarpRecalcTickForTesting(
+                    isAnyWarpActive: false,
+                    timeScale: 1.0f,
+                    recalcRequested: true,
+                    warpRecalcInFlight: false,
+                    unscaledTime: 100.0f,
+                    lastWarpRecalcWallClockTime: 0.0f);
+            }
+            sw.Stop();
+
+            double nsPerFrame = sw.Elapsed.TotalMilliseconds * 1000000.0 / iterations;
+            Assert.False(result);
+            Assert.True(nsPerFrame < 100.0,
+                $"Expected inactive-warp recalc gate below 100 ns/frame, got {nsPerFrame:F1} ns/frame.");
         }
 
         [Fact]

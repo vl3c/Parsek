@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
+- Recalculation walks now skip the redundant post-prepass sort when no module injects deadline-failure actions, trimming work on ordinary ledger refreshes.
 - Continued refactor-4 (Pass 4) with a behavior-neutral `LedgerOrchestrator` extraction for vessel recovery-funds pairing and rollout cost/adoption helpers. Existing orchestrator wrappers, constants, log tags/text, dedup formats, KSC sequence allocation, and build-cost residual emission stay in place while the moved logic lives in focused helper classes.
 - Continued refactor-4 (Pass 3) with a behavior-neutral `PostWalkActionReconciler` extraction: post-walk reconciliation classification, live-coverage filtering, event matching, coalesced aggregation, comparison, and dump diagnostics now live behind unchanged `LedgerOrchestrator` wrappers while shared commit-window helpers and de-duplication state stay in `LedgerOrchestrator`.
 - Continued refactor-4 (Pass 2) with a behavior-neutral `RecordingSidecarStore` save-path extraction: save-side path resolution, sidecar epoch bump/rollback, staged authoritative sidecar writes, readable mirror reconciliation, and `FilesDirty` clearing now live behind `RecordingStore` wrappers while load-path hydration stays in `RecordingStore`.

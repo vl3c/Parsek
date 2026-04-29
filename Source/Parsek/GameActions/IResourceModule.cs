@@ -21,7 +21,8 @@ namespace Parsek
         /// Pre-pass over the full sorted action list before the walk begins.
         /// Modules that need aggregate information (e.g. total committed spendings
         /// for the reservation system) compute it here. Called after Reset and
-        /// before the first ProcessAction dispatch.
+        /// before the first ProcessAction dispatch. Return <c>true</c> only when
+        /// the action list was mutated and must be sorted again.
         /// </summary>
         /// <param name="actions">The action list (already UT-cutoff-filtered by the engine).</param>
         /// <param name="walkNowUT">
@@ -35,7 +36,7 @@ namespace Parsek
         /// and the cutoff UT itself — otherwise deadline-expired contracts would leak
         /// past a rewind without firing their synthetic <c>ContractFail</c>.
         /// </param>
-        void PrePass(List<GameAction> actions, double? walkNowUT = null);
+        bool PrePass(List<GameAction> actions, double? walkNowUT = null);
 
         /// <summary>
         /// Processes a single game action during the recalculation walk.

@@ -24,6 +24,7 @@ namespace Parsek
         private static readonly List<IResourceModule> secondTierModules = new List<IResourceModule>();
         private static IResourceModule strategyTransform;
         private static IResourceModule facilitiesModule;
+        internal static int SortActionsCallCountForTesting { get; private set; }
 
         // ================================================================
         // Module registration
@@ -120,6 +121,11 @@ namespace Parsek
             facilitiesModule = null;
 
             ParsekLog.Verbose("RecalcEngine", $"ClearModules: removed={total}");
+        }
+
+        internal static void ResetSortActionsCallCountForTesting()
+        {
+            SortActionsCallCountForTesting = 0;
         }
 
         // ================================================================
@@ -259,6 +265,8 @@ namespace Parsek
         /// </summary>
         internal static List<GameAction> SortActions(List<GameAction> actions)
         {
+            SortActionsCallCountForTesting++;
+
             if (actions == null || actions.Count == 0)
                 return new List<GameAction>();
 
@@ -387,15 +395,30 @@ namespace Parsek
 
             // 2b. Pre-pass: let modules compute aggregate data before the walk.
             // Modules may inject synthetic actions (e.g., ContractsModule injects
-            // ContractFail for expired deadlines), so we re-sort afterward.
+            // ContractFail for expired deadlines), so only re-sort when a module
+            // reports that it mutated the list.
             //
             // Pass the cutoff as the walk's effective "now" so ContractsModule can
             // detect deadlines that expired between the last pre-cutoff action and
             // the cutoff itself. Without this, a filtered action list could have its
             // "last UT" land before a deadline, letting deadline-expired contracts
             // slip through the rewind without the synthetic ContractFail.
-            PrePassAllModules(sorted, walkNowUT, firstTier, strategy, secondTier, facilities);
-            sorted = SortActions(sorted);
+            bool prePassMutatedActions = PrePassAllModules(
+                sorted,
+                walkNowUT,
+                firstTier,
+                strategy,
+                secondTier,
+                facilities);
+            if (prePassMutatedActions)
+            {
+                sorted = SortActions(sorted);
+            }
+            else
+            {
+                ParsekLog.Verbose("RecalcEngine",
+                    "PrePass stable action list; skipped second sort");
+            }
 
             // 3. Walk sorted actions.
             int firstTierDispatches = 0;
@@ -635,7 +658,7 @@ namespace Parsek
             };
         }
 
-        private static void PrePassAllModules(
+        private static bool PrePassAllModules(
             List<GameAction> sorted,
             double? walkNowUT,
             List<IResourceModule> firstTier,
@@ -643,17 +666,20 @@ namespace Parsek
             List<IResourceModule> secondTier,
             IResourceModule facilities)
         {
+            bool mutated = false;
             for (int i = 0; i < firstTier.Count; i++)
-                firstTier[i].PrePass(sorted, walkNowUT);
+                mutated |= firstTier[i].PrePass(sorted, walkNowUT);
 
             if (strategy != null)
-                strategy.PrePass(sorted, walkNowUT);
+                mutated |= strategy.PrePass(sorted, walkNowUT);
 
             for (int i = 0; i < secondTier.Count; i++)
-                secondTier[i].PrePass(sorted, walkNowUT);
+                mutated |= secondTier[i].PrePass(sorted, walkNowUT);
 
             if (facilities != null)
-                facilities.PrePass(sorted, walkNowUT);
+                mutated |= facilities.PrePass(sorted, walkNowUT);
+
+            return mutated;
         }
 
         private static void PostWalkAllModules(

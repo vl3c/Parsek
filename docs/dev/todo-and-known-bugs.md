@@ -11,6 +11,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done — v0.9.1 Recalculation pipeline performance plan
+
+- ~~Item 1: conditional second sort.~~ `IResourceModule.PrePass` now returns whether it mutated the sorted action list; `RecalculationEngine` only runs the second sort when at least one module reports a mutation. The default resource modules return `false`, while `ContractsModule` returns `true` only when it injects synthetic `ContractFail` deadline actions. The engine logs a `[RecalcEngine]` Verbose skip line when the pre-pass leaves the list stable.
+- ~~Item 1 tests.~~ Added direct coverage for both branches: no-injection walks perform one sort and log the skip, while contract-deadline injection performs the second sort and dispatches the synthetic failure in deadline order.
+- ~~Cross-item baseline tests from the recalculation performance plan §6.~~ Added the first landing set: deterministic ledger fuzzer covering every `GameActionType`, cutoff-walk allocation bound (`<16 KB` for the Item 1 LINQ-sort baseline), orchestrator reentrancy via `OnTimelineDataChanged`, inactive-warp cadence overhead, and repeated `KerbalsModule` walk slot-count stability.
+
+---
+
 ## Done — v0.9.1 Phase 6 anchor taxonomy + DAG propagation
 
 - ~~Phase 6: emit AnchorCandidate entries for §7.2–§7.10 at commit time.~~ Implemented in `Source/Parsek/Rendering/AnchorCandidateBuilder.cs`; wired into `SmoothingPipeline.FitAndStorePerSection`.

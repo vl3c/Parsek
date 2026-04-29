@@ -13,6 +13,7 @@ namespace Parsek.Tests
         public RecalculationEngineTests()
         {
             RecalculationEngine.ClearModules();
+            RecalculationEngine.ResetSortActionsCallCountForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -21,6 +22,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecalculationEngine.ClearModules();
+            RecalculationEngine.ResetSortActionsCallCountForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -41,10 +43,11 @@ namespace Parsek.Tests
                 ResetCount++;
             }
 
-            public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+            public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
             {
                 PrePassCount++;
                 PrePassWalkNowUTs.Add(walkNowUT);
+                return false;
             }
 
             public void ProcessAction(GameAction action)
@@ -57,6 +60,15 @@ namespace Parsek.Tests
             {
                 PostWalkCount++;
             }
+        }
+
+        private static long GetAllocatedBytesForCurrentThreadCompat()
+        {
+            var method = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
+            if (method != null)
+                return (long)method.Invoke(null, null);
+
+            return GC.GetTotalMemory(forceFullCollection: false);
         }
 
         // ================================================================
@@ -371,6 +383,93 @@ namespace Parsek.Tests
         // ================================================================
         // Recalculate — module lifecycle
         // ================================================================
+
+        [Fact]
+        public void PrePassNoInjection_SkipsSecondSort()
+        {
+            var module = new TestModule();
+            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 200.0, Type = GameActionType.FundsEarning, FundsAwarded = 25f },
+                new GameAction { UT = 100.0, Type = GameActionType.ScienceEarning, ScienceAwarded = 5f }
+            };
+
+            RecalculationEngine.ResetSortActionsCallCountForTesting();
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(1, RecalculationEngine.SortActionsCallCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]") &&
+                l.Contains("PrePass stable action list; skipped second sort"));
+        }
+
+        [Fact]
+        public void PrePassWithInjection_DoesSecondSort()
+        {
+            var contracts = new ContractsModule();
+            var capture = new TestModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(capture, RecalculationEngine.ModuleTier.FirstTier);
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100.0,
+                    Type = GameActionType.ContractAccept,
+                    ContractId = "deadline-contract",
+                    DeadlineUT = 150f,
+                    FundsPenalty = 300f,
+                    RepPenalty = 2f
+                },
+                new GameAction { UT = 200.0, Type = GameActionType.FundsEarning, FundsAwarded = 1f }
+            };
+
+            RecalculationEngine.ResetSortActionsCallCountForTesting();
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(2, RecalculationEngine.SortActionsCallCountForTesting);
+            Assert.Contains(capture.ProcessedActions, a =>
+                a.Type == GameActionType.ContractFail &&
+                a.ContractId == "deadline-contract" &&
+                Math.Abs(a.UT - 150.0) < 0.001);
+        }
+
+        [Fact]
+        public void CutoffWalk_AllocationsBounded()
+        {
+            RecalculationEngine.RegisterModule(new FundsModule(), RecalculationEngine.ModuleTier.SecondTier);
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 1000f },
+                new GameAction { UT = 10.0, Type = GameActionType.FundsEarning, FundsAwarded = 100f },
+                new GameAction { UT = 20.0, Type = GameActionType.FundsSpending, FundsSpent = 50f }
+            };
+
+            bool previousSuppress = ParsekLog.SuppressLogging;
+            ParsekLog.SuppressLogging = true;
+            try
+            {
+                for (int i = 0; i < 10; i++)
+                    RecalculationEngine.Recalculate(actions, 15.0);
+
+                long before = GetAllocatedBytesForCurrentThreadCompat();
+                const int iterations = 100;
+                for (int i = 0; i < iterations; i++)
+                    RecalculationEngine.Recalculate(actions, 15.0);
+                long after = GetAllocatedBytesForCurrentThreadCompat();
+
+                long bytesPerWalk = (after - before) / iterations;
+                Assert.True(bytesPerWalk < 16 * 1024,
+                    $"Expected cutoff walk allocation below 16 KB, got {bytesPerWalk} bytes per walk.");
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = previousSuppress;
+            }
+        }
 
         [Fact]
         public void Recalculate_CallsResetOnAllModules()
