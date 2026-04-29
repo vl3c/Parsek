@@ -231,6 +231,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Computes the subset of <paramref name="recordings"/> replaced by an
+        /// explicit supersede relation. This is the raw-index compatibility
+        /// helper for systems that still iterate <see cref="RecordingStore.CommittedRecordings"/>
+        /// but must suppress old recordings consistently with ERS.
+        /// </summary>
+        internal static HashSet<string> ComputeSupersededRecordingIdsByRelation(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (recordings == null || recordings.Count == 0)
+                return result;
+            if (supersedes == null || supersedes.Count == 0)
+                return result;
+
+            var liveIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                liveIds.Add(rec.RecordingId);
+            }
+
+            for (int i = 0; i < supersedes.Count; i++)
+            {
+                var rel = supersedes[i];
+                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId))
+                    continue;
+                if (string.IsNullOrEmpty(rel.NewRecordingId))
+                    continue;
+                if (!liveIds.Contains(rel.OldRecordingId))
+                    continue;
+                if (string.Equals(rel.OldRecordingId, rel.NewRecordingId, StringComparison.Ordinal))
+                    continue;
+                result.Add(rel.OldRecordingId);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// True iff <paramref name="rec"/> is an Unfinished Flight: committed
         /// visible, mapped to a RewindPoint child slot, not sealed, and with a
         /// qualifying terminal outcome per <see cref="UnfinishedFlightClassifier"/>.

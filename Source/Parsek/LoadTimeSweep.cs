@@ -21,8 +21,9 @@ namespace Parsek
     ///   session-scoped RPs referenced by a valid marker.</description></item>
     ///   <item><description>Discard set: NotCommitted provisional recordings
     ///   with no marker reference.</description></item>
-    ///   <item><description>Orphan supersede / tombstone log (kept per §3.5
-    ///   invariant 7 / §7.47).</description></item>
+    ///   <item><description>One-sided orphan supersede / tombstone log
+    ///   (kept per §3.5 invariant 7 / §7.47); fully orphaned supersedes are
+    ///   removed because neither endpoint can affect effective state.</description></item>
     ///   <item><description>Stray <see cref="Recording.SupersedeTargetId"/>
     ///   on Immutable/CommittedProvisional recordings (log Warn + clear).</description></item>
     ///   <item><description>Nested session-provisional cleanup (§7.11):
@@ -168,11 +169,10 @@ namespace Parsek
             // ----------------------------------------------------------------
             int selfSupersedes = RemoveSelfSupersedes(scenario);
 
-            // ----------------------------------------------------------------
-            // Step 4 (§6.9 step 7): orphan supersede relations (log Warn;
-            // kept per §3.5 invariant 7 / §7.47).
-            // ----------------------------------------------------------------
-            int orphanSupersedes = LogOrphanSupersedes(scenario);
+            // Supersede orphan sweep runs after zombie recording deletion below
+            // so rows whose endpoints are removed by this same load pass are
+            // classified against the final post-sweep recording set.
+            SupersedeOrphanSweepResult orphanSupersedes = new SupersedeOrphanSweepResult();
 
             // ----------------------------------------------------------------
             // Step 5 (§6.9 step 8): orphan tombstones (log Warn; kept).
@@ -217,6 +217,15 @@ namespace Parsek
             int removedRps = RemoveDiscardRps(scenario, discardRps);
 
             // ----------------------------------------------------------------
+            // Step 8.5 (§6.9 step 7): one-sided orphan supersede relations
+            // log Warn and stay in place; fully orphaned rows cannot affect
+            // effective recording resolution, so they are removed to stop
+            // warning on every load/save cycle.
+            // ----------------------------------------------------------------
+            orphanSupersedes = SweepOrphanSupersedes(scenario);
+            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+
+            // ----------------------------------------------------------------
             // Step 9 (§6.9 step 10): summary log (§10.7).
             // ----------------------------------------------------------------
             ParsekLog.Info(SweepTag,
@@ -224,7 +233,8 @@ namespace Parsek
                 $"spare={spareRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"discarded={removedRecordings.ToString(CultureInfo.InvariantCulture)} " +
                 $"selfSupersedes={selfSupersedes.ToString(CultureInfo.InvariantCulture)} " +
-                $"orphanSupersedes={orphanSupersedes.ToString(CultureInfo.InvariantCulture)} " +
+                $"orphanSupersedes={orphanSupersedes.RetainedOrphans.ToString(CultureInfo.InvariantCulture)} " +
+                $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)}");
@@ -323,13 +333,19 @@ namespace Parsek
         // Step 4 helper: orphan supersede relations.
         // ------------------------------------------------------------------
 
-        private static int LogOrphanSupersedes(ParsekScenario scenario)
+        private struct SupersedeOrphanSweepResult
         {
-            if (scenario.RecordingSupersedes == null || scenario.RecordingSupersedes.Count == 0)
-                return 0;
+            public int RetainedOrphans;
+            public int RemovedFullyOrphaned;
+        }
 
-            int orphans = 0;
-            for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
+        private static SupersedeOrphanSweepResult SweepOrphanSupersedes(ParsekScenario scenario)
+        {
+            var result = new SupersedeOrphanSweepResult();
+            if (scenario.RecordingSupersedes == null || scenario.RecordingSupersedes.Count == 0)
+                return result;
+
+            for (int i = scenario.RecordingSupersedes.Count - 1; i >= 0; i--)
             {
                 var rel = scenario.RecordingSupersedes[i];
                 if (rel == null) continue;
@@ -340,13 +356,23 @@ namespace Parsek
                                    && RecordingExists(rel.NewRecordingId);
                 if (oldResolved && newResolved) continue;
 
+                if (!oldResolved && !newResolved)
+                {
+                    ParsekLog.Info(SupersedeTag,
+                        $"Fully orphaned relation={rel.RelationId ?? "<no-id>"} " +
+                        $"old={rel.OldRecordingId ?? "<no-id>"} new={rel.NewRecordingId ?? "<no-id>"}; removing");
+                    scenario.RecordingSupersedes.RemoveAt(i);
+                    result.RemovedFullyOrphaned++;
+                    continue;
+                }
+
                 ParsekLog.Warn(SupersedeTag,
                     $"Orphan relation={rel.RelationId ?? "<no-id>"} " +
                     $"oldResolved={oldResolved.ToString()} newResolved={newResolved.ToString()} " +
                     $"old={rel.OldRecordingId ?? "<no-id>"} new={rel.NewRecordingId ?? "<no-id>"}");
-                orphans++;
+                result.RetainedOrphans++;
             }
-            return orphans;
+            return result;
         }
 
         // ------------------------------------------------------------------

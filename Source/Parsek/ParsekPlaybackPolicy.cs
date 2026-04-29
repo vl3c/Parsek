@@ -132,13 +132,21 @@ namespace Parsek
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
 
             int detected = 0;
             int abandoned = 0;
+            int skippedSuperseded = 0;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                if (IsRelationSuperseded(rec, relationSupersededIds))
+                {
+                    skippedSuperseded++;
+                    continue;
+                }
+
                 if (!GhostPlaybackLogic.ShouldCheckForSpawnDeath(
                         rec.VesselSpawned, rec.SpawnedVesselPersistentId, rec.SpawnAbandoned))
                     continue;
@@ -176,6 +184,9 @@ namespace Parsek
             if (detected > 0)
                 ParsekLog.Info("Policy",
                     $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned");
+            if (skippedSuperseded > 0)
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-superseded-by-relation",
+                    $"RunSpawnDeathChecks: skipped {skippedSuperseded} superseded-by-relation recording(s)");
         }
 
         /// <summary>
@@ -199,12 +210,15 @@ namespace Parsek
             bool isWarpActive = IsWarpActiveOverrideForTesting != null
                 ? IsWarpActiveOverrideForTesting()
                 : GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+            var committed = RecordingStore.CommittedRecordings;
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            PurgeRelationSupersededDeferredQueues(relationSupersededIds);
+
             if (!GhostPlaybackLogic.ShouldFlushDeferredSpawns(
                     pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count,
                     isWarpActive))
                 return;
 
-            var committed = RecordingStore.CommittedRecordings;
             double currentUT = CurrentUTOverrideForTesting != null
                 ? CurrentUTOverrideForTesting()
                 : Planetarium.GetUniversalTime();
@@ -215,6 +229,9 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                if (IsRelationSuperseded(rec, relationSupersededIds))
+                    continue;
+
                 bool pendingSpawn = pendingSpawnRecordingIds.Contains(rec.RecordingId);
                 bool pendingFlagReplay = pendingFlagReplayRecordingIds.Contains(rec.RecordingId);
                 if (!pendingSpawn && !pendingFlagReplay)
@@ -307,6 +324,55 @@ namespace Parsek
 
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
+        }
+
+        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+            IReadOnlyList<Recording> committed)
+        {
+            var scenario = ParsekScenario.Instance;
+            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+        }
+
+        private static bool IsRelationSuperseded(
+            Recording rec,
+            HashSet<string> relationSupersededIds)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.RecordingId)
+                && relationSupersededIds != null
+                && relationSupersededIds.Contains(rec.RecordingId);
+        }
+
+        private void PurgeRelationSupersededDeferredQueues(
+            HashSet<string> relationSupersededIds)
+        {
+            if (relationSupersededIds == null || relationSupersededIds.Count == 0)
+                return;
+
+            var purged = new HashSet<string>();
+            foreach (var id in relationSupersededIds)
+            {
+                if (pendingSpawnRecordingIds.Remove(id))
+                    purged.Add(id);
+                if (pendingFlagReplayRecordingIds.Remove(id))
+                    purged.Add(id);
+                if (pendingFlagReplayFailureCounts.Remove(id))
+                    purged.Add(id);
+            }
+
+            bool clearedWatch = !string.IsNullOrEmpty(pendingWatchRecordingId)
+                && relationSupersededIds.Contains(pendingWatchRecordingId);
+            if (clearedWatch)
+                pendingWatchRecordingId = null;
+
+            if (purged.Count > 0 || clearedWatch)
+            {
+                ParsekLog.Info("Policy",
+                    $"Purged {purged.Count} deferred spawn/flag replay id(s) " +
+                    $"supersededByRelation; clearedWatch={clearedWatch}");
+            }
         }
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)

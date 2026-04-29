@@ -780,10 +780,75 @@ namespace Parsek.Tests
 
             LoadTimeSweep.Run();
 
-            // Relation survives per §3.5 invariant 7.
+            // One-sided relation survives per §3.5 invariant 7 because it can
+            // still suppress the old recording.
             Assert.Single(scenario.RecordingSupersedes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") && l.Contains("Orphan relation=rsr_orphan"));
+        }
+
+        [Fact]
+        public void FullyOrphanSupersede_RemovedAtLoadTime()
+        {
+            InstallTree("tree_1",
+                new List<Recording> { Rec("rec_present", MergeState.Immutable) },
+                new List<BranchPoint>());
+            var rel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_fully_orphan",
+                OldRecordingId = "rec_vanished_old",
+                NewRecordingId = "rec_vanished_new",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { rel });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Fully orphaned relation=rsr_fully_orphan")
+                && l.Contains("removing"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Orphan relation=rsr_fully_orphan"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("removedFullyOrphanSupersedes=1"));
+        }
+
+        [Fact]
+        public void SupersedeFullyOrphanedByZombieDiscard_RemovedSameLoad()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie_old", MergeState.NotCommitted, sessionId: "sess_dead"),
+                    Rec("rec_zombie_new", MergeState.NotCommitted, sessionId: "sess_dead"),
+                },
+                new List<BranchPoint>());
+            var rel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_zombie_pair",
+                OldRecordingId = "rec_zombie_old",
+                NewRecordingId = "rec_zombie_new",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { rel });
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(FindRecording("rec_zombie_old"));
+            Assert.Null(FindRecording("rec_zombie_new"));
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Fully orphaned relation=rsr_zombie_pair")
+                && l.Contains("removing"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("discarded=2")
+                && l.Contains("removedFullyOrphanSupersedes=1"));
         }
 
         [Fact]
@@ -886,9 +951,15 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording> { zombie, stray },
                 new List<BranchPoint>());
-            var orphanRel = new RecordingSupersedeRelation
+            var retainedOrphanRel = new RecordingSupersedeRelation
             {
                 RelationId = "rsr_orphan",
+                OldRecordingId = "rec_stray",
+                NewRecordingId = "rec_y",
+            };
+            var fullyOrphanRel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_fully_orphan",
                 OldRecordingId = "rec_x",
                 NewRecordingId = "rec_y",
             };
@@ -902,7 +973,7 @@ namespace Parsek.Tests
                 creatingSessionId: "sess_dead");
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { zombieRp },
-                supersedes: new List<RecordingSupersedeRelation> { orphanRel },
+                supersedes: new List<RecordingSupersedeRelation> { retainedOrphanRel, fullyOrphanRel },
                 tombstones: new List<LedgerTombstone> { orphanTomb });
 
             LoadTimeSweep.Run();
@@ -913,6 +984,7 @@ namespace Parsek.Tests
                 l.Contains("Marker valid=False") &&
                 l.Contains("discarded=1") &&
                 l.Contains("orphanSupersedes=1") &&
+                l.Contains("removedFullyOrphanSupersedes=1") &&
                 l.Contains("orphanTombstones=1") &&
                 l.Contains("strayFields=1") &&
                 l.Contains("discardedRps=1"));
