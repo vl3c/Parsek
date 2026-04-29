@@ -3610,6 +3610,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 5 P1-A overload: forward a tree-local load set to the
+        /// per-trace co-bubble peer validator so same-tree peers being
+        /// hydrated in the same OnLoad pass are visible BEFORE they land
+        /// in <see cref="CommittedRecordings"/>.
+        /// </summary>
+        internal static bool LoadRecordingFiles(
+            Recording rec,
+            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+        {
+            return RecordingSidecarStore.LoadRecordingFiles(rec, treeLocalLoadSet);
+        }
+
+        /// <summary>
         /// Bug #270: Returns true if the sidecar file's epoch doesn't match the
         /// recording's expected epoch (loaded from .sfs). When true, the caller
         /// should skip trajectory deserialization — the .prec is from a different

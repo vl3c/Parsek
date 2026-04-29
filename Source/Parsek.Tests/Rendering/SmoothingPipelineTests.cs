@@ -430,6 +430,245 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void PersistAfterCommit_PeerPannFiles_AlsoUpdated()
+        {
+            // P2-A regression: DetectAndStore writes traces into BOTH sides
+            // of every overlap pair, but PersistAfterCommit only wrote
+            // rec.pann. Peer .pann files stayed stale; on next session
+            // load, if the selector designated the peer as primary, the
+            // blender would find no trace and the window would silently
+            // degrade to standalone playback.
+            //
+            // Fix: PersistAfterCommit eagerly writes peer .pann files for
+            // every recording whose in-memory store gained a trace
+            // pointing at the recording being committed.
+            //
+            // Phase 5 review-pass-3 P3-2: prior incarnation of this test
+            // could not verify the actual file write because
+            // RecordingPaths.ResolveSaveScopedPath returns null in xUnit
+            // (no save context) and PersistPeerPannFiles fell into its
+            // skipped-path branch. The new PeerPannPathResolverForTesting
+            // seam routes peer writes to a temp directory so the file is
+            // actually produced on disk and can be verified.
+            var recA = MakeRecording("rec-A-peer-persist",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-peer-persist",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+
+            // P3-2: route peer .pann writes to the test's temp directory.
+            string peerPannDir = Path.Combine(tempDir, "peer-pann");
+            Directory.CreateDirectory(peerPannDir);
+            SmoothingPipeline.PeerPannPathResolverForTesting = recordingId =>
+                Path.Combine(peerPannDir, recordingId + ".pann");
+
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                // Both must be in CommittedRecordings so PersistAfterCommit
+                // sees recB in its snapshot iteration.
+                RecordingStore.AddCommittedInternal(recA);
+                RecordingStore.AddCommittedInternal(recB);
+
+                string pannPathA = Path.Combine(tempDir, "rec-A-peer-persist.pann");
+                SmoothingPipeline.PersistAfterCommit(recA, pannPathA);
+
+                // Both sides have the in-memory trace.
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(
+                    recA.RecordingId, out var tracesA));
+                Assert.NotNull(tracesA);
+                Assert.NotEmpty(tracesA);
+                Assert.Contains(tracesA, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(
+                    recB.RecordingId, out var tracesB));
+                Assert.NotNull(tracesB);
+                Assert.NotEmpty(tracesB);
+                Assert.Contains(tracesB, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // P3-2: the peer .pann file must exist on disk under the
+                // seam-directed path.
+                string expectedPeerPannPath = Path.Combine(peerPannDir, recB.RecordingId + ".pann");
+                Assert.True(File.Exists(expectedPeerPannPath),
+                    $"Peer .pann file should exist at {expectedPeerPannPath}");
+
+                // And the on-disk file must contain the trace pointing
+                // at recA. Probe + read to validate.
+                Assert.True(PannotationsSidecarBinary.TryProbe(expectedPeerPannPath, out var probe));
+                Assert.True(probe.Success);
+                Assert.True(probe.Supported);
+                Assert.True(PannotationsSidecarBinary.TryRead(expectedPeerPannPath, probe,
+                    out _, out _, out List<CoBubbleOffsetTrace> peerDiskTraces, out _));
+                Assert.NotNull(peerDiskTraces);
+                Assert.Contains(peerDiskTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // The peer-persist summary log must fire with peerCount=1
+                // (recB is the one peer touched by recA's commit) AND
+                // persisted=1 (P3-2: pre-fix this would be skipped=1 in
+                // xUnit because the production resolver returned null).
+                Assert.Contains(logLines, l =>
+                    l.Contains("[VERBOSE][Pipeline-CoBubble]")
+                    && l.Contains("PersistPeerPannFiles summary")
+                    && l.Contains("committed=" + recA.RecordingId)
+                    && l.Contains("peerCount=1")
+                    && l.Contains("persisted=1"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void LoadOrCompute_LazyRecompute_PeerPannSymmetricallyUpdated()
+        {
+            // Phase 5 review-pass-3 P3-1 regression: when LoadOrCompute
+            // recomputed for recA after alg-stamp drift, it called
+            // DetectAndStore (which populates BOTH sides' in-memory
+            // traces) and TryWritePann(recA), but did NOT mirror P2-A's
+            // peer-side .pann write. Until both sides had iterated, the
+            // .pann state was asymmetric: recA.pann had the trace,
+            // recB.pann was still stale (or empty if newly recomputed
+            // first). If a session designated recB as primary in that
+            // window, the blender would find no recorded trace and fall
+            // back to standalone.
+            //
+            // Fix: LoadOrCompute now mirrors PersistAfterCommit's
+            // behaviour by calling PersistPeerPannFiles after the
+            // recompute, using the same touched-by-this-recompute
+            // filter.
+            string pannPathA = Path.Combine(tempDir, "rec-A-lazy-peer.pann");
+
+            var recA = MakeRecording("rec-A-lazy-peer",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-lazy-peer",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+
+            string peerPannDir = Path.Combine(tempDir, "lazy-peer-pann");
+            Directory.CreateDirectory(peerPannDir);
+            SmoothingPipeline.PeerPannPathResolverForTesting = recordingId =>
+                Path.Combine(peerPannDir, recordingId + ".pann");
+
+            try
+            {
+                // Step 1: write a stale-alg-stamp .pann for recA.
+                byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
+                    SmoothingConfiguration.Default,
+                    AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
+                    SmoothingPipeline.ResolveUseCoBubbleBlend());
+                PannotationsSidecarBinary.Write(pannPathA,
+                    "rec-A-lazy-peer",
+                    sourceSidecarEpoch: recA.SidecarEpoch,
+                    sourceRecordingFormatVersion: recA.RecordingFormatVersion,
+                    configurationHash: hash,
+                    splines: new List<KeyValuePair<int, SmoothingSpline>>());
+                byte[] bytes = File.ReadAllBytes(pannPathA);
+                bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+                File.WriteAllBytes(pannPathA, bytes);
+
+                // Step 2: trigger lazy recompute for recA with recB
+                // visible via the load set.
+                var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { recA.RecordingId, recA },
+                    { recB.RecordingId, recB },
+                };
+                SmoothingPipeline.LoadOrCompute(recA, pannPathA, loadSet);
+
+                // recB.pann must exist on disk under the seam path,
+                // proving the lazy recompute mirrored the peer write.
+                string expectedPeerPath = Path.Combine(peerPannDir, recB.RecordingId + ".pann");
+                Assert.True(File.Exists(expectedPeerPath),
+                    $"Peer .pann file should exist at {expectedPeerPath}");
+
+                // And contain a trace pointing at recA.
+                Assert.True(PannotationsSidecarBinary.TryProbe(expectedPeerPath, out var probe));
+                Assert.True(PannotationsSidecarBinary.TryRead(expectedPeerPath, probe,
+                    out _, out _, out List<CoBubbleOffsetTrace> peerTraces, out _));
+                Assert.NotNull(peerTraces);
+                Assert.Contains(peerTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+            }
+            finally
+            {
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void PersistAfterCommit_PrecUntouched()
         {
             // What makes it fail: HR-1 violation — SmoothingPipeline must
@@ -778,6 +1017,128 @@ namespace Parsek.Tests.Rendering
             byte[] explicitOn = PannotationsSidecarBinary.ComputeConfigurationHash(
                 SmoothingConfiguration.Default, useAnchorTaxonomy: true);
             Assert.Equal(singleArg, explicitOn);
+        }
+
+        [Fact]
+        public void LoadOrCompute_DriftedAlgStamp_RecomputesCoBubbleTraces()
+        {
+            // P1-B regression: lazy recompute (file-missing / drift) used to
+            // call FitAndStorePerSection only and rewrite a fresh .pann with
+            // an EMPTY CoBubbleOffsetTraces block. Saves with bumped
+            // AlgorithmStampVersion or config-hash drift fell back to
+            // standalone playback until recordings were recommitted.
+            //
+            // Fix: the recompute path also calls
+            // CoBubbleOverlapDetector.DetectAndStore so the regenerated .pann
+            // contains traces for any pair of recordings that overlapped at
+            // commit time.
+            string pannPath = Path.Combine(tempDir, "rec-drift-cobubble.pann");
+
+            // Two recordings whose ExoBallistic + Absolute sections overlap
+            // — the canonical co-bubble pair.
+            var recA = MakeRecording("rec-A-cobubble",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            // Mark Background source so P2-A's Active+Active rejection
+            // doesn't skip the pair.
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-cobubble",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+
+            // Pre-populate Recording.Points so the detector's sample-walk
+            // sees a sane separation. Two points each, same world position
+            // = zero separation.
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            // Wire test seams so the detector / pipeline run without
+            // FlightGlobals.
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+
+            try
+            {
+                // Step 1: write a v6-stamped .pann (the previous Phase 5
+                // alg-stamp) with no co-bubble traces. We mutate the file
+                // post-write so we don't have to back-rev the constant.
+                byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
+                    SmoothingConfiguration.Default,
+                    AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
+                    SmoothingPipeline.ResolveUseCoBubbleBlend());
+                PannotationsSidecarBinary.Write(pannPath,
+                    "rec-A-cobubble",
+                    sourceSidecarEpoch: recA.SidecarEpoch,
+                    sourceRecordingFormatVersion: recA.RecordingFormatVersion,
+                    configurationHash: hash,
+                    splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+                // Mutate AlgorithmStampVersion to 6 (offset 8..11). The
+                // current file has the freshly-bumped 7; we mutate to a
+                // stale value to force alg-stamp-drift on read.
+                byte[] bytes = File.ReadAllBytes(pannPath);
+                bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+                File.WriteAllBytes(pannPath, bytes);
+
+                // Step 2: invoke LoadOrCompute against recA with recB
+                // visible via the tree-local load set so DetectAndStore
+                // sees both recordings.
+                var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { recA.RecordingId, recA },
+                    { recB.RecordingId, recB },
+                };
+                SmoothingPipeline.LoadOrCompute(recA, pannPath, loadSet);
+
+                // The recompute path must regenerate co-bubble traces. The
+                // .pann that gets written back has at least one
+                // CoBubbleOffsetTrace pointing at recB.
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probeAfter));
+                Assert.True(probeAfter.Success);
+                Assert.True(probeAfter.Supported);
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probeAfter,
+                    out _, out _, out List<CoBubbleOffsetTrace> tracesAfter, out _));
+                Assert.NotNull(tracesAfter);
+                Assert.NotEmpty(tracesAfter);
+                Assert.Contains(tracesAfter, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+
+                // The alg-stamp-drift invalidation log fires on read.
+                Assert.Contains(logLines,
+                    l => l.Contains("[INFO][Pipeline-Sidecar]")
+                        && l.Contains("whole-file invalidation")
+                        && l.Contains("reason=alg-stamp-drift"));
+            }
+            finally
+            {
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
         }
 
         [Fact]

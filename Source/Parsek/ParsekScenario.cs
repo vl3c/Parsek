@@ -2605,10 +2605,14 @@ namespace Parsek
                     int sidecarHydrationFailures = 0;
                     int syntheticFixtureFailures = 0;
 
-                    // Load bulk data from external files for each recording in the tree
+                    // Load bulk data from external files for each recording in the tree.
+                    // Phase 5 P1-A: pass tree.Recordings as treeLocalLoadSet so the
+                    // per-trace co-bubble peer validator can see same-tree peers
+                    // BEFORE they're added to RecordingStore.CommittedRecordings
+                    // (which only happens after this whole tree finishes hydrating).
                     foreach (var rec in tree.Recordings.Values)
                     {
-                        if (!RecordingStore.LoadRecordingFiles(rec))
+                        if (!RecordingStore.LoadRecordingFiles(rec, tree.Recordings))
                         {
                             sidecarHydrationFailures++;
                             // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
@@ -2619,6 +2623,22 @@ namespace Parsek
                             if (IsSyntheticFixtureSidecarMarker(rec))
                                 syntheticFixtureFailures++;
                         }
+                    }
+
+                    // Phase 5 review-pass-4: post-tree-hydration sweep
+                    // for deferred co-bubble peer-content-signature
+                    // validations. ClassifyTraceDrift defers signature
+                    // recomputes when peer.Points was empty during the
+                    // sequential hydration above; the runtime per-trace
+                    // check in CoBubbleBlender only validates format /
+                    // epoch, so without this sweep a stale trace whose
+                    // peer hydrated to different points than at commit
+                    // time stays installed for the entire session.
+                    int dropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
+                    if (dropped > 0)
+                    {
+                        ParsekLog.Info("Pipeline-CoBubble",
+                            $"Post-hydration revalidation: dropped {dropped} stale co-bubble trace(s) in tree {tree.Id}");
                     }
 
                     committedTrees.Add(tree);
@@ -2735,15 +2755,28 @@ namespace Parsek
                 var tree = RecordingTree.Load(treeNodes[t]);
                 int sidecarHydrationFailures = 0;
                 int staleEpochHydrationFailures = 0;
-                // Hydrate bulk data from sidecar files for each recording
+                // Hydrate bulk data from sidecar files for each recording.
+                // Phase 5 P1-A: pass tree.Recordings as treeLocalLoadSet so the
+                // per-trace co-bubble peer validator can see same-tree peers
+                // before they're appended to CommittedRecordings.
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!RecordingStore.LoadRecordingFiles(rec))
+                    if (!RecordingStore.LoadRecordingFiles(rec, tree.Recordings))
                     {
                         sidecarHydrationFailures++;
                         if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")
                             staleEpochHydrationFailures++;
                     }
+                }
+
+                // Phase 5 review-pass-4: post-tree-hydration sweep for
+                // deferred co-bubble peer-content-signature validations
+                // (mirrors the committed-tree branch above).
+                int activeTreeDropped = Parsek.Rendering.SmoothingPipeline.RevalidateDeferredCoBubbleTraces(tree.Recordings);
+                if (activeTreeDropped > 0)
+                {
+                    ParsekLog.Info("Pipeline-CoBubble",
+                        $"Post-hydration revalidation: dropped {activeTreeDropped} stale co-bubble trace(s) in active tree {tree.Id}");
                 }
 
                 if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))

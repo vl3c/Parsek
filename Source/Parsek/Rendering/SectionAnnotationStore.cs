@@ -29,6 +29,19 @@ namespace Parsek.Rendering
         private static readonly Dictionary<string, Dictionary<int, AnchorCandidate[]>> Candidates
             = new Dictionary<string, Dictionary<int, AnchorCandidate[]>>(StringComparer.Ordinal);
 
+        // Phase 5 (design doc §6.5 / §10 / §17.3.1). Per-recording list of
+        // co-bubble offset traces. CoBubbleOverlapDetector writes traces at
+        // commit time (and lazily on first co-render demand); CoBubbleBlender
+        // reads them at playback. Persisted to / loaded from the .pann
+        // CoBubbleOffsetTraces block.
+        //
+        // The map is recordingId -> List<trace>. Each trace's PeerRecordingId
+        // names the OTHER side of the overlap pair. Both sides of a pair
+        // store their own list independently so a permanently-missing peer
+        // does not block trace reads on the surviving side.
+        private static readonly Dictionary<string, List<CoBubbleOffsetTrace>> CoBubbleTraces
+            = new Dictionary<string, List<CoBubbleOffsetTrace>>(StringComparer.Ordinal);
+
         /// <summary>
         /// Stores or overwrites the spline for a (recordingId, sectionIndex) pair.
         /// Silent overwrite — caller is expected to gate on cache-key freshness
@@ -121,10 +134,128 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
+        /// Phase 5: stores or appends a co-bubble offset trace under the
+        /// owning <paramref name="recordingId"/>. Multiple traces may exist
+        /// per recording (one per overlap window with each peer); the same
+        /// (peerRecordingId, startUT, endUT) tuple is overwritten in place
+        /// so a re-detect does not double-emit the same window.
+        /// </summary>
+        internal static void PutCoBubbleTrace(string recordingId, CoBubbleOffsetTrace trace)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (trace == null) return;
+
+            lock (Lock)
+            {
+                if (!CoBubbleTraces.TryGetValue(recordingId, out var list))
+                {
+                    list = new List<CoBubbleOffsetTrace>();
+                    CoBubbleTraces[recordingId] = list;
+                }
+                // Replace existing entry with matching (peer, startUT, endUT) tuple.
+                for (int i = 0; i < list.Count; i++)
+                {
+                    CoBubbleOffsetTrace existing = list[i];
+                    if (existing == null) continue;
+                    if (string.Equals(existing.PeerRecordingId, trace.PeerRecordingId, StringComparison.Ordinal)
+                        && existing.StartUT == trace.StartUT
+                        && existing.EndUT == trace.EndUT)
+                    {
+                        list[i] = trace;
+                        return;
+                    }
+                }
+                list.Add(trace);
+            }
+        }
+
+        /// <summary>
+        /// Phase 5: looks up the per-recording list of co-bubble offset
+        /// traces. Returns false (with <paramref name="traces"/> = null) when
+        /// the recording has no traces. The returned list is the live store
+        /// reference — callers must not mutate it; reads under any lock-free
+        /// access pattern accept that a concurrent write may add entries
+        /// after the lookup, which is acceptable for the read-only blender.
+        /// </summary>
+        internal static bool TryGetCoBubbleTraces(string recordingId, out List<CoBubbleOffsetTrace> traces)
+        {
+            traces = null;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+
+            lock (Lock)
+            {
+                return CoBubbleTraces.TryGetValue(recordingId, out traces);
+            }
+        }
+
+        /// <summary>
+        /// Phase 5: removes every co-bubble trace stored under
+        /// <paramref name="recordingId"/>. Symmetric with
+        /// <see cref="RemoveRecording"/>; called from the same recompute
+        /// paths so stale traces do not survive a config-hash drift.
+        /// </summary>
+        internal static void RemoveCoBubbleTracesForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            lock (Lock)
+            {
+                CoBubbleTraces.Remove(recordingId);
+            }
+        }
+
+        /// <summary>
+        /// Phase 5 review-pass-4: removes a single co-bubble trace
+        /// matching <paramref name="recordingId"/> +
+        /// <paramref name="peerRecordingId"/> + (<paramref name="startUT"/>,
+        /// <paramref name="endUT"/>). Returns true when an entry was
+        /// removed. Symmetric key with
+        /// <see cref="PutCoBubbleTrace"/>'s "Replace existing entry with
+        /// matching tuple" rule.
+        ///
+        /// <para>
+        /// Called by
+        /// <c>SmoothingPipeline.RevalidateDeferredCoBubbleTraces</c>:
+        /// when a deferred trace's peer-content signature mismatches at
+        /// post-hydration revalidation, the affected trace is dropped
+        /// without touching the rest of the recording's traces.
+        /// </para>
+        /// </summary>
+        internal static bool RemoveCoBubbleTrace(
+            string recordingId, string peerRecordingId, double startUT, double endUT)
+        {
+            if (string.IsNullOrEmpty(recordingId) || string.IsNullOrEmpty(peerRecordingId))
+                return false;
+            lock (Lock)
+            {
+                if (!CoBubbleTraces.TryGetValue(recordingId, out var list) || list == null)
+                    return false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    CoBubbleOffsetTrace existing = list[i];
+                    if (existing == null) continue;
+                    if (string.Equals(existing.PeerRecordingId, peerRecordingId, StringComparison.Ordinal)
+                        && existing.StartUT == startUT
+                        && existing.EndUT == endUT)
+                    {
+                        list.RemoveAt(i);
+                        // Drop the empty-list entry so callers using
+                        // TryGetCoBubbleTraces see the recording as
+                        // "no traces" rather than "non-null empty list".
+                        if (list.Count == 0)
+                            CoBubbleTraces.Remove(recordingId);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Removes every section annotation for the given recording id. No-op
-        /// if the recording has no entries. Clears both the spline map and
-        /// the Phase 6 candidate map (HR-10: a recompute path must not leave
-        /// stale candidates behind any more than stale splines).
+        /// if the recording has no entries. Clears the spline map, the
+        /// Phase 6 candidate map, and the Phase 5 co-bubble trace list
+        /// (HR-10: a recompute path must not leave stale annotations behind
+        /// any more than stale splines).
         /// </summary>
         internal static void RemoveRecording(string recordingId)
         {
@@ -135,6 +266,7 @@ namespace Parsek.Rendering
             {
                 Splines.Remove(recordingId);
                 Candidates.Remove(recordingId);
+                CoBubbleTraces.Remove(recordingId);
             }
         }
 
@@ -145,6 +277,7 @@ namespace Parsek.Rendering
             {
                 Splines.Clear();
                 Candidates.Clear();
+                CoBubbleTraces.Clear();
             }
         }
 
@@ -187,6 +320,22 @@ namespace Parsek.Rendering
                 if (!Candidates.TryGetValue(recordingId, out var perSection))
                     return 0;
                 return perSection.Count;
+            }
+        }
+
+        /// <summary>
+        /// Test-only: number of Phase 5 co-bubble traces stored for a
+        /// recording (0 when the key is absent).
+        /// </summary>
+        internal static int GetCoBubbleTraceCountForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            lock (Lock)
+            {
+                if (!CoBubbleTraces.TryGetValue(recordingId, out var list)) return 0;
+                return list?.Count ?? 0;
             }
         }
     }

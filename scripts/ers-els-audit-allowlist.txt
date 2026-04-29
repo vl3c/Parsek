@@ -192,3 +192,24 @@ Source/Parsek/Rendering/RenderSessionState.cs
 # the propagator's DAG walk. Read-only against trajectory data
 # (HR-1 / HR-5). Same rationale as the RenderSessionState exemption.
 Source/Parsek/Rendering/AnchorPropagator.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 5) ---
+# SmoothingPipeline routes the Phase 5 co-bubble overlap detector
+# through CommittedRecordings at commit time + at per-trace peer
+# validation (ClassifyTraceDrift) at load time (design doc §6.5 /
+# §10 / §17.3.1 Per-Trace Peer Validation). ERS would filter the
+# active NotCommitted provisional re-fly target out of the recording
+# list, hiding live-anchored peers from co-bubble detection and
+# preventing per-trace peer signature recomputes for the live side.
+# Read-only against trajectory data (HR-1 / HR-5). Same rationale as
+# the RenderSessionState / AnchorPropagator exemptions.
+Source/Parsek/Rendering/SmoothingPipeline.cs
+
+# CoBubbleBlender.ResolveLivePeerRecording (Phase 5 P2-B) walks
+# CommittedRecordings at every TryEvaluateOffset call to re-validate
+# the trace's PeerSidecarEpoch / RecordingFormatVersion against the
+# live peer mid-session. ERS would filter the active NotCommitted
+# provisional re-fly target out, masking peer drift during the very
+# session whose supersede commit caused the drift. Read-only against
+# trajectory metadata; same rationale as SmoothingPipeline above.
+Source/Parsek/Rendering/CoBubbleBlender.cs
