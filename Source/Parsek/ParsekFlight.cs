@@ -1240,6 +1240,19 @@ namespace Parsek
                         Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                             e.latAfter, e.lonAfter, e.altAfter);
                         Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        // §7.7 (and any §7.x anchor that lands on a
+                        // Checkpoint section): re-apply the world-space ε
+                        // here so the FloatingOrigin shift between Update
+                        // and LateUpdate cannot snap the ghost back to the
+                        // bare lerp position. Phase 3 evaluates ε at the
+                        // current playback UT — the lerp interval (§6.4
+                        // Both case) progresses each frame, not freezes.
+                        if (allowAnchorCorrectionInterval(
+                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                out Vector3d cpLateEps))
+                        {
+                            pos += cpLateEps;
+                        }
                         e.ghost.transform.position = pos;
 
                         Orbit orbit;
@@ -10196,12 +10209,14 @@ namespace Parsek
             RecordingFinalizationCache cache,
             string consumerPath,
             bool allowStale,
-            out RecordingFinalizationCacheApplyResult result)
+            out RecordingFinalizationCacheApplyResult result,
+            bool allowAlreadyFinalizedRepair = false)
         {
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                AllowAlreadyFinalizedRepair = allowAlreadyFinalizedRepair
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
@@ -10241,6 +10256,92 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        internal static bool ShouldRepairExistingTerminalFromDestroyedCache(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (recording == null || cache == null)
+                return false;
+            if (!recording.TerminalStateValue.HasValue)
+                return false;
+            if (!cache.TerminalState.HasValue
+                || cache.TerminalState.Value != TerminalState.Destroyed)
+                return false;
+
+            TerminalState existing = recording.TerminalStateValue.Value;
+            if (existing == TerminalState.Destroyed)
+            {
+                LogDestroyedCacheRepairRejected(recording, cache, commitUT, existing, "alreadyDestroyed");
+                return false;
+            }
+
+            // The cache is allowed to correct the in-flight ballistic fallback
+            // SubOrbital is the speculative state stamped when the vessel was
+            // still on a ballistic path. Orbiting is deliberately excluded:
+            // it requires stronger periapsis/situation evidence and is treated
+            // as a stable spawn endpoint, not a prediction to repair.
+            if (existing != TerminalState.SubOrbital)
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "existingTerminalNotSubOrbital");
+                return false;
+            }
+
+            if (!IsCacheTerminalAtOrBeforeCommit(cache, commitUT))
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "futureOrInvalidTerminalUT");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsCacheTerminalAtOrBeforeCommit(
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (cache == null)
+                return false;
+            if (double.IsNaN(commitUT) || double.IsInfinity(commitUT))
+                return false;
+            if (double.IsNaN(cache.TerminalUT) || double.IsInfinity(cache.TerminalUT))
+                return false;
+
+            return cache.TerminalUT <= commitUT + 1e-6;
+        }
+
+        private static void LogDestroyedCacheRepairRejected(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT,
+            TerminalState existing,
+            string reason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Flight",
+                $"finalization-cache-repair-rejected-{recording?.RecordingId ?? "null"}-{reason}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Finalization cache repair skipped: rec={0} reason={1} " +
+                    "existingTerminal={2} cacheTerminal={3} terminalUT={4:F3} commitUT={5:F3}",
+                    recording?.DebugName ?? "(null)",
+                    reason ?? "(null)",
+                    existing,
+                    cache?.TerminalState?.ToString() ?? "(null)",
+                    cache != null ? cache.TerminalUT : double.NaN,
+                    commitUT));
         }
 
         /// <summary>
@@ -10525,6 +10626,23 @@ namespace Parsek
                 sceneExitSuppliedTerminalOrbit =
                     sceneExitLifetimeExtended
                     && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
+            }
+
+            if (isLeaf
+                && ShouldRepairExistingTerminalFromDestroyedCache(
+                    rec,
+                    finalizationCache,
+                    commitUT)
+                && TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecordingRepair",
+                    allowStale: finalizeVessel == null,
+                    out _,
+                    allowAlreadyFinalizedRepair: true))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
             }
 
             // Determine terminal state for recordings that don't have one yet
@@ -16435,6 +16553,7 @@ namespace Parsek
                     ref playbackIdx,
                     playbackUT,
                     allowActivation,
+                    recordingId: traj?.RecordingId,
                     out interpResult))
             {
                 // Phase 1: pass section context. Checkpoint sections are
@@ -16468,6 +16587,7 @@ namespace Parsek
             ref int playbackIdx,
             double playbackUT,
             bool allowActivation,
+            string recordingId,
             out InterpolationResult interpResult)
         {
             interpResult = InterpolationResult.Zero;
@@ -16514,6 +16634,23 @@ namespace Parsek
             if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
                 interpolatedPos = posBefore;
 
+            // §7.7 BubbleEntry/Exit (and any other §7.x candidate landing on
+            // a Checkpoint section): apply the rigid-translation ε on top of
+            // the Kepler-bracketed lerp before assigning the transform.
+            // Without this, the ε computed by AnchorPropagator and stored in
+            // RenderSessionState would be invisible — the spline / lerp paths
+            // already query allowAnchorCorrectionInterval, but the checkpoint
+            // path used to skip it because the original §7.5 OrbitalCheckpoint
+            // anchor lands on the ABSOLUTE neighbour rather than the
+            // Checkpoint section itself; §7.7 changed that, and so did the
+            // Phase 6 anchor-bound resolver work that produces ε at the
+            // Checkpoint side. Same lookup as the PointInterp path uses
+            // (Phase 2/3 ε, additive in world-space, HR-15 frozen-once).
+            bool hasAnchorEps = allowAnchorCorrectionInterval(
+                recordingId, sectionIdx, playbackUT, out Vector3d anchorEps);
+            if (hasAnchorEps)
+                interpolatedPos += anchorEps;
+
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
@@ -16556,7 +16693,13 @@ namespace Parsek
                 orbitBody = orbitBody,
                 orbitAngularVelocity = segment.angularVelocity,
                 isSpinning = spinning,
-                orbitSegmentStartUT = segment.startUT
+                orbitSegmentStartUT = segment.startUT,
+                // §7.7 anchor lookup keys for LateUpdate re-application.
+                // Without these, the LateUpdate FloatingOrigin shift
+                // would replay the bare lerp position and the rendered
+                // ghost would drop the anchor correction every late frame.
+                anchorRecordingId = recordingId,
+                anchorSectionIndex = sectionIdx,
             });
 
             interpResult = new InterpolationResult(

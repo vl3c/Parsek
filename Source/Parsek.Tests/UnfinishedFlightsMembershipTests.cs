@@ -169,6 +169,145 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyedStagesWithDownstreamCrashBranch_AreMembers()
+        {
+            // 2026-04-29 Kerbal X repro: upper/root and probe/booster both
+            // crashed after the staging RP. The probe recording also carried a
+            // later child BP for its destruction event; that downstream crash
+            // bookkeeping must not suppress the already-conclusive Destroyed
+            // terminal outcome.
+            var upper = Rec(
+                "rec_upper",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                childBranchPointId: "bp_stage",
+                treeId: "tree_1");
+            var probe = Rec(
+                "rec_probe",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_stage",
+                childBranchPointId: "bp_probe_destroyed",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(upper, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_stage", "bp_stage", 0, "rec_upper", "rec_probe")
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Equal(2, members.Count);
+            Assert.Contains(members, r => r.RecordingId == "rec_upper");
+            Assert.Contains(members, r => r.RecordingId == "rec_probe");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_upper") &&
+                l.Contains("reason=crashed") &&
+                l.Contains("side=active-parent-child"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=crashed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=downstreamBp"));
+        }
+
+        [Fact]
+        public void DestroyedWithRealDownstreamRewindPoint_PrefersDownstreamRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(0, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void NonDestroyedWithParentAndChildRewindPoints_PrefersChildRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.SubOrbital,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                RpWithFocus("rp_new", "bp_new", 0, "rec_focus", "rec_stage")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(1, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void DestroyedAgainstOlderRewindPointWithRealDownstreamRoute_NotMemberForOlderPoint()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            var olderRp = Rp("rp_old", "bp_old", "rec_stage");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                olderRp,
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                rec,
+                olderRp.ChildSlots[0],
+                olderRp,
+                considerSealed: true,
+                out string reason));
+            Assert.Equal("downstreamBp", reason);
+        }
+
+        [Fact]
         public void CommittedProvisionalDestroyedUnderRP_IsMember()
         {
             // Regression: crash-terminal re-fly attempts and newly stamped

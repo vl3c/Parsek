@@ -66,6 +66,7 @@ namespace Parsek.Rendering
             EmitSplitCandidates(rec, tree, perSection);
             EmitRelativeBoundaryCandidates(rec, perSection);
             EmitOrbitalCheckpointAndSoiCandidates(rec, perSection);
+            EmitBubbleEntryExitCandidates(rec, perSection);
             EmitSurfaceContinuousMarkers(rec, perSection);
             EmitLoopMarkers(rec, perSection);
 
@@ -125,7 +126,8 @@ namespace Parsek.Rendering
 
             int totalCandidates = 0;
             int dockCount = 0, splitCount = 0, relCount = 0, orbitCount = 0,
-                soiCount = 0, surfaceCount = 0, loopCount = 0, otherCount = 0;
+                soiCount = 0, surfaceCount = 0, loopCount = 0,
+                bubbleEntryCount = 0, bubbleExitCount = 0, otherCount = 0;
 
             // Reviewer P2-1: BranchPointType differentiation for the
             // DockOrMerge byte-aliased split sources (Undock / EVA /
@@ -190,6 +192,8 @@ namespace Parsek.Rendering
                         case AnchorSource.RelativeBoundary:  relCount++;     break;
                         case AnchorSource.OrbitalCheckpoint: orbitCount++;   break;
                         case AnchorSource.SoiTransition:     soiCount++;     break;
+                        case AnchorSource.BubbleEntry:       bubbleEntryCount++; break;
+                        case AnchorSource.BubbleExit:        bubbleExitCount++;  break;
                         case AnchorSource.SurfaceContinuous: surfaceCount++; break;
                         case AnchorSource.Loop:              loopCount++;    break;
                         default:
@@ -206,11 +210,12 @@ namespace Parsek.Rendering
             ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
                 "AnchorCandidateBuilder summary: recordingId={0} sections={1} candidatesEmittedTotal={2} " +
                 "perSourceCounts=[Dock/Merge={3} Split(EVA/Undock/JointBreak)={4} RelativeBoundary={5} OrbitalCheckpoint={6} " +
-                "SoiTransition={7} SurfaceContinuous={8} Loop={9} other={10}]",
+                "SoiTransition={7} BubbleEntry={8} BubbleExit={9} SurfaceContinuous={10} Loop={11} other={12}]",
                 recordingId,
                 rec.TrackSections != null ? rec.TrackSections.Count : 0,
                 totalCandidates,
-                dockCount, splitCount, relCount, orbitCount, soiCount, surfaceCount, loopCount, otherCount));
+                dockCount, splitCount, relCount, orbitCount, soiCount,
+                bubbleEntryCount, bubbleExitCount, surfaceCount, loopCount, otherCount));
         }
 
         /// <summary>
@@ -421,6 +426,50 @@ namespace Parsek.Rendering
             if (s.absoluteFrames != null && s.absoluteFrames.Count > 0)
                 return s.absoluteFrames[0].bodyName;
             return null;
+        }
+
+        // §7.7 BubbleEntry / BubbleExit. Walks adjacent TrackSection pairs
+        // and emits a candidate at every Active|Background ↔ Checkpoint
+        // source-class transition. The candidate lands on the Checkpoint
+        // segment's index (the propagation-only side per §7.7), with side
+        // = Start for BubbleExit (the boundary is the Checkpoint segment's
+        // startUT) and side = End for BubbleEntry (the boundary is the
+        // Checkpoint segment's endUT). This asymmetry vs §7.5 (which lands
+        // on the ABSOLUTE side) is intentional: §7.7's reference position
+        // is the LAST/FIRST physics-active sample on the OTHER side, not
+        // the analytical Kepler value, so the candidate's "owner" segment
+        // is the propagation-only segment that needs the correction.
+        private static void EmitBubbleEntryExitCandidates(
+            Recording rec, Dictionary<int, List<AnchorCandidate>> output)
+        {
+            if (rec.TrackSections == null) return;
+            for (int i = 0; i < rec.TrackSections.Count - 1; i++)
+            {
+                TrackSection a = rec.TrackSections[i];
+                TrackSection b = rec.TrackSections[i + 1];
+                bool aPhys = a.source == TrackSectionSource.Active || a.source == TrackSectionSource.Background;
+                bool bPhys = b.source == TrackSectionSource.Active || b.source == TrackSectionSource.Background;
+                bool aCk = a.source == TrackSectionSource.Checkpoint;
+                bool bCk = b.source == TrackSectionSource.Checkpoint;
+
+                double boundaryUT = b.startUT;
+
+                if (aPhys && bCk)
+                {
+                    // BubbleExit at the boundary UT — candidate lives on
+                    // the Checkpoint segment's Start side (section i+1).
+                    AddCandidate(output, i + 1,
+                        new AnchorCandidate(boundaryUT, AnchorSource.BubbleExit, AnchorSide.Start));
+                }
+                else if (aCk && bPhys)
+                {
+                    // BubbleEntry at the boundary UT — candidate lives on
+                    // the Checkpoint segment's End side (section i).
+                    AddCandidate(output, i,
+                        new AnchorCandidate(boundaryUT, AnchorSource.BubbleEntry, AnchorSide.End));
+                }
+                // Otherwise: same-class transition (no Bubble candidate).
+            }
         }
 
         // §7.9 SurfaceContinuous markers — Phase 6 emits the candidate; the

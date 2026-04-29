@@ -4,6 +4,9 @@
 **Last updated:** 2026-04-29.
 **Worktree:** `Parsek-refactor-4`, branch `refactor-4`.
 **Base:** `3c863ff0` (`main`, after `git pull origin main`, already up to date).
+**Status:** Archived after the Refactor-4 zero-logic extraction pass. Remaining
+opportunities are tracked in
+`docs/dev/plans/refactor-remaining-opportunities.md`.
 
 This inventory is the starting map for the next structural refactor pass. It is
 not an implementation plan by itself; every extraction target still needs a

@@ -1,6 +1,7 @@
 # GameStateRecorder Facility Polling Owner Extraction Plan
 
-Status: facility polling slice implemented in this worktree.
+Status: facility polling slice implemented and archived. Remaining handler
+families are tracked in `docs/dev/plans/refactor-remaining-opportunities.md`.
 
 Worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek-proposal-gamestate-handlers`
 

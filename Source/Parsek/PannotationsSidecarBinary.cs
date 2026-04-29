@@ -220,6 +220,17 @@ namespace Parsek
         // amendment 7 → 9 once Phase 5 review-pass-5 landed); the
         // current value reflects the actual rebase landing.
         //
+        // §7.7 BubbleEntry/BubbleExit (merged in from main via the post-
+        // #643 main merge): AnchorCandidateBuilder now emits a seventh
+        // candidate type at every Active|Background ↔ Checkpoint source-
+        // class transition. The on-disk schema is unchanged (BubbleEntry/
+        // BubbleExit fit in the existing type-byte taxonomy bits 0-6),
+        // but the byte content for any recording that has those
+        // transitions changes. Mainline shipped this at v5; with the
+        // Phase 8 v9 stamp here, v5 mainline .pann files invalidate via
+        // alg-stamp-drift (5 ≠ 9) and recompute with co-bubble traces,
+        // §7.7 candidates, AND outlier flags all active (HR-10).
+        //
         // Phase 8 review-pass-2 (P2 deferred recompute, P3
         // PrimaryDesignation byte semantics fix) does NOT bump the
         // stamp:

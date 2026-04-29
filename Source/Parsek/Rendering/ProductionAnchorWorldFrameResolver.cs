@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek.Rendering
@@ -128,6 +129,78 @@ namespace Parsek.Rendering
             return IsFinite(worldPos);
         }
 
+        public bool TryResolveBubbleEntryExitWorldPos(
+            Recording rec, int sectionIndex, AnchorSide side,
+            double boundaryUT, out Vector3d worldPos)
+        {
+            worldPos = default;
+            if (rec == null || rec.TrackSections == null) return false;
+            if (sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count) return false;
+
+            // The candidate's sectionIndex always points at the Checkpoint
+            // segment (the propagation-only side). Side=Start (BubbleExit)
+            // means the physics-active section is at sectionIndex - 1; the
+            // reference position is the LAST sample of that section.
+            // Side=End (BubbleEntry) means the physics-active section is at
+            // sectionIndex + 1; the reference position is the FIRST sample.
+            int physIdx = (side == AnchorSide.Start) ? sectionIndex - 1 : sectionIndex + 1;
+            if (physIdx < 0 || physIdx >= rec.TrackSections.Count) return false;
+
+            TrackSection phys = rec.TrackSections[physIdx];
+            if (phys.source != TrackSectionSource.Active && phys.source != TrackSectionSource.Background)
+                return false;
+
+            if (phys.frames == null || phys.frames.Count == 0)
+            {
+                ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                    "bubble-entry-exit-no-sample recordingId={0} sectionIndex={1} side={2} physIdx={3} reason=frames-empty",
+                    rec.RecordingId, sectionIndex, side, physIdx));
+                return false;
+            }
+
+            // Pick the boundary-adjacent physics-active sample.
+            TrajectoryPoint pt = (side == AnchorSide.Start)
+                ? phys.frames[phys.frames.Count - 1]   // BubbleExit: LAST physics-active sample
+                : phys.frames[0];                      // BubbleEntry: FIRST physics-active sample
+
+            // Convert to world via the section's FrameTag dispatch.
+            switch (phys.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                {
+                    CelestialBody body = ResolveBody(pt.bodyName);
+                    if (body == null) return false;
+                    try
+                    {
+                        worldPos = body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                    return IsFinite(worldPos);
+                }
+                case ReferenceFrame.Relative:
+                {
+                    // RELATIVE+physics-active+adjacent-to-Checkpoint is
+                    // uncommon (a vessel docked to its anchor while a
+                    // Checkpoint segment splices in). Defer with Verbose
+                    // for v0.9.1 — documented residual gap.
+                    ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                        "bubble-entry-exit-relative-section-deferred recordingId={0} sectionIndex={1} side={2} physIdx={3}",
+                        rec.RecordingId, sectionIndex, side, physIdx));
+                    return false;
+                }
+                case ReferenceFrame.OrbitalCheckpoint:
+                    // Impossible by construction (we just verified phys is
+                    // Active|Background which never carries OrbitalCheckpoint
+                    // frame data). Defensive only.
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
         // --- helpers -----------------------------------------------------
 
         private static bool TryResolveCheckpointSideWorldPos(
@@ -147,40 +220,14 @@ namespace Parsek.Rendering
             TrackSection ckSection = rec.TrackSections[ckIdx];
             if (ckSection.referenceFrame != ReferenceFrame.OrbitalCheckpoint) return false;
 
-            // Pick the OrbitSegment that brackets the boundary UT. When the
-            // boundary is the section's startUT (ABSOLUTE→Checkpoint, side=End
-            // on ABSOLUTE side), the first checkpoint covers it. When the
-            // boundary is the section's endUT (Checkpoint→ABSOLUTE, side=Start
-            // on ABSOLUTE side), the last checkpoint covers it. FindOrbitSegment
-            // already does the right thing for any UT in [start,end].
-            if (ckSection.checkpoints == null || ckSection.checkpoints.Count == 0)
-                return false;
-
-            OrbitSegment? maybeSeg = TrajectoryMath.FindOrbitSegment(ckSection.checkpoints, boundaryUT);
-            if (!maybeSeg.HasValue)
-            {
-                // Fall back to nearest endpoint by side.
-                maybeSeg = side == AnchorSide.End
-                    ? ckSection.checkpoints[0]
-                    : ckSection.checkpoints[ckSection.checkpoints.Count - 1];
-            }
-            OrbitSegment seg = maybeSeg.Value;
-
-            CelestialBody body = ResolveBody(seg.bodyName);
-            if (body == null) return false;
-
-            try
-            {
-                Orbit orbit = new Orbit(
-                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
-                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
-                    seg.meanAnomalyAtEpoch, seg.epoch, body);
-                worldPos = orbit.getPositionAtUT(boundaryUT);
-            }
-            catch
-            {
-                return false;
-            }
+            // Pick the OrbitSegment that brackets the boundary UT and
+            // evaluate Kepler at it. The shared helper handles the
+            // partial-first / partial-last checkpoint endpoint fallback
+            // for both §7.5 and §7.7 — see TrajectoryMath.EvaluateOrbitSegmentAtUT.
+            Vector3d? maybePos = TrajectoryMath.EvaluateOrbitSegmentAtUT(
+                ckSection.checkpoints, boundaryUT, ResolveBody);
+            if (!maybePos.HasValue) return false;
+            worldPos = maybePos.Value;
             return IsFinite(worldPos);
         }
 

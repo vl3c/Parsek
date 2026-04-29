@@ -4,7 +4,9 @@
 **Worktree:** `Parsek-proposal-postwalk-reconciler`, branch
 `proposal-postwalk-reconciler`.
 **Base:** `afdb7046` (`origin/main`, after `git fetch origin main`).
-**Status:** Proposal only. No production code changes.
+**Status:** Implemented and archived. The `PostWalkActionReconciler` extraction
+landed with zero intended production logic changes; this document is retained as
+the proposal, boundary, and validation record.
 
 ## Goal
 
