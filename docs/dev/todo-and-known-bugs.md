@@ -32,6 +32,9 @@ re-fly supersede commit both use the same slot-aware classifier to promote
 qualifying leaves to `CommittedProvisional`. Legacy vessel rows with
 `FocusSlotIndex=-1` stay excluded for orbiting/suborbital terminal states so old
 saves do not accidentally surface stable focused flights as unfinished.
+Fresh-provisional merge classification now aborts on a missing Site B-1 slot
+lookup when the terminal outcome needs slot-aware stable-leaf/EVA handling,
+rather than silently falling back to the v0.9 terminal-kind rule.
 
 UI fix: Unfinished Flight rows now show `Fly` plus an explicit `Seal` action.
 Seal sets `ChildSlot.Sealed`/`SealedRealTime`, leaves the recording and

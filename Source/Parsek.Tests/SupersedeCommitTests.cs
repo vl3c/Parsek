@@ -308,6 +308,61 @@ namespace Parsek.Tests
                 && l.Contains("classifierReason=stableTerminalFocusSlot"));
         }
 
+        [Fact]
+        public void OrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.CommitSupersede(
+                    scenario.ActiveReFlySessionMarker, provisional));
+
+            Assert.Contains("Site B-1 slot lookup failed", ex.Message);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
+        [Fact]
+        public void ChainTipOrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional_head", "tree_1",
+                null, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            provisional.ChainId = "chain_stable";
+            provisional.ChainIndex = 0;
+            var tip = Rec("rec_provisional_tip", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Orbiting);
+            tip.ChainId = "chain_stable";
+            tip.ChainIndex = 1;
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_1");
+            var tree = RecordingStore.CommittedTrees.Single(t => t.Id == "tree_1");
+            tree.AddOrReplaceRecording(provisional);
+            tree.AddOrReplaceRecording(tip);
+            var marker = Marker("rec_origin", "rec_provisional_head");
+            var scenario = InstallScenario(marker);
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.FlipMergeStateAndClearTransient(
+                    marker, provisional, scenario, preserveMarker: false));
+
+            Assert.Contains("Site B-1 slot lookup failed", ex.Message);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("terminal=Orbiting")
+                && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
         // ---------- Subtree supersede ---------------------------------------
 
         [Fact]

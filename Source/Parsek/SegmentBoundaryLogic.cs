@@ -376,7 +376,8 @@ namespace Parsek
         {
             Vessel active = null;
             try { active = FlightGlobals.ActiveVessel; }
-            catch { active = null; }
+            catch (NullReferenceException) { active = null; }
+            catch (TypeInitializationException) { active = null; }
             if (active == null) return null;
             return active.persistentId;
         }

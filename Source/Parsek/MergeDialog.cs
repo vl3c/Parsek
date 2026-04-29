@@ -633,8 +633,7 @@ namespace Parsek
                     // of whether the re-flight survived. Otherwise the
                     // unsealed recording keeps MergeState=CommittedProvisional,
                     // RewindPointReaper.IsReapEligible refuses to reap it,
-                    // and the row stays in Unfinished Flights forever — the
-                    // duplicate the 10:47 playtest reported.
+                    // and the row stays in Unfinished Flights forever.
                     if (provisional.MergeState != MergeState.Immutable)
                     {
                         var priorState = provisional.MergeState;

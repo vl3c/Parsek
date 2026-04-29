@@ -11,10 +11,11 @@ namespace Parsek
     ///
     /// <para>
     /// A <see cref="RewindPoint"/> becomes reap-eligible when every child
-    /// slot's effective recording has reached <see cref="MergeState.Immutable"/>
-    /// — at that point no slot can be re-flown any more, so the on-disk
-    /// quicksave and the scenario entry are dead weight. Session-provisional
-    /// RPs (<see cref="RewindPoint.SessionProvisional"/> still true) are
+    /// slot's effective recording is closed: <see cref="MergeState.Immutable"/>,
+    /// or a sealed <see cref="MergeState.CommittedProvisional"/>. At that point
+    /// no slot can be re-flown any more, so the on-disk quicksave and the
+    /// scenario entry are dead weight. Session-provisional RPs
+    /// (<see cref="RewindPoint.SessionProvisional"/> still true) are
     /// always retained; Phase 10's <see cref="MergeJournalOrchestrator.TagRpsForReap"/>
     /// flips that flag at merge time so the first post-merge reap pass can
     /// claim them.
@@ -169,7 +170,7 @@ namespace Parsek
         /// A <see cref="RewindPoint"/> is reap-eligible when <b>all</b> of:
         /// <list type="bullet">
         ///   <item><description><see cref="RewindPoint.SessionProvisional"/> is false (the owning session has merged).</description></item>
-        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a live <see cref="Recording"/> with <see cref="MergeState.Immutable"/>.</description></item>
+        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/>, or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
         /// </list>
         /// A slot whose OriginChildRecordingId is null/blank is treated as
         /// terminal-Immutable (there is no recording that could still be

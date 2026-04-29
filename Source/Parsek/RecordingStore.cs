@@ -738,10 +738,6 @@ namespace Parsek
                 if (rec.MergeState != MergeState.Immutable) continue;
                 if (!UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec, tree)) continue;
 
-                if (string.IsNullOrEmpty(rec.ParentBranchPointId)
-                    && string.IsNullOrEmpty(rec.ChildBranchPointId))
-                    continue;
-
                 RewindPoint rp;
                 int slotListIndex;
                 string slotRejectReason;

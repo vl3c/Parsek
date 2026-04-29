@@ -85,6 +85,10 @@ namespace Parsek
                 return false;
             }
 
+            string branchSide = matchesChild && !matchesParent
+                ? "active-parent-child"
+                : "child";
+
             if (rec.IsDebris || !slot.Controllable)
             {
                 reason = "notControllable";
@@ -119,7 +123,7 @@ namespace Parsek
             }
 
             return TerminalOutcomeQualifiesInternal(
-                recId, chainTip, slot, rp, out reason);
+                recId, chainTip, slot, rp, out reason, branchSide);
         }
 
         internal static bool TerminalOutcomeQualifies(
@@ -129,7 +133,7 @@ namespace Parsek
         {
             string reason;
             return TerminalOutcomeQualifiesInternal(
-                chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason);
+                chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
         }
 
         private static bool TerminalOutcomeQualifiesInternal(
@@ -137,21 +141,22 @@ namespace Parsek
             Recording chainTip,
             ChildSlot slot,
             RewindPoint rp,
-            out string reason)
+            out string reason,
+            string branchSide)
         {
             reason = null;
             TerminalState? terminal = chainTip?.TerminalStateValue;
             if (!terminal.HasValue)
             {
                 reason = "noTerminal";
-                LogVerdict(false, recId, reason, "terminal=<none>");
+                LogVerdict(false, recId, reason, WithBranchSide("terminal=<none>", branchSide));
                 return false;
             }
 
             if (terminal.Value == TerminalState.Destroyed)
             {
                 reason = "crashed";
-                LogVerdict(true, recId, reason, "terminal=Destroyed");
+                LogVerdict(true, recId, reason, WithBranchSide("terminal=Destroyed", branchSide));
                 return true;
             }
 
@@ -161,22 +166,44 @@ namespace Parsek
                 {
                     reason = "strandedEva";
                     LogVerdict(true, recId, reason,
-                        $"terminal={terminal.Value} crew={chainTip.EvaCrewName}");
+                        WithBranchSide($"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide));
                     return true;
                 }
 
                 reason = "stableTerminal";
                 LogVerdict(false, recId, reason,
-                    $"terminal={terminal.Value} crew={chainTip.EvaCrewName}");
+                    WithBranchSide($"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide));
+                return false;
+            }
+
+            if (terminal.Value != TerminalState.Orbiting
+                && terminal.Value != TerminalState.SubOrbital)
+            {
+                reason = "stableTerminal";
+                LogVerdict(false, recId, reason,
+                    WithBranchSide($"terminal={terminal.Value}", branchSide));
+                return false;
+            }
+
+            if (rp == null)
+            {
+                int fallbackSlotListIndex = ResolveSlotListIndexByReference(null, slot);
+                reason = "noFocusSignalOrbiting";
+                LogVerdict(false, recId, reason,
+                    WithBranchSide(
+                        $"terminal={terminal.Value} slot={fallbackSlotListIndex} focusSlot=-1",
+                        branchSide));
                 return false;
             }
 
             int slotListIndex = ResolveSlotListIndexByReference(rp, slot);
-            if (rp == null || rp.FocusSlotIndex < 0)
+            if (rp.FocusSlotIndex < 0)
             {
                 reason = "noFocusSignalOrbiting";
                 LogVerdict(false, recId, reason,
-                    $"terminal={terminal.Value} slot={slotListIndex} focusSlot={(rp != null ? rp.FocusSlotIndex : -1)}");
+                    WithBranchSide(
+                        $"terminal={terminal.Value} slot={slotListIndex} focusSlot={rp.FocusSlotIndex}",
+                        branchSide));
                 return false;
             }
 
@@ -184,7 +211,9 @@ namespace Parsek
             {
                 reason = "stableTerminalFocusSlot";
                 LogVerdict(false, recId, reason,
-                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}");
+                    WithBranchSide(
+                        $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                        branchSide));
                 return false;
             }
 
@@ -193,13 +222,17 @@ namespace Parsek
             {
                 reason = "stableLeafUnconcluded";
                 LogVerdict(true, recId, reason,
-                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}");
+                    WithBranchSide(
+                        $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                        branchSide));
                 return true;
             }
 
             reason = "stableTerminal";
             LogVerdict(false, recId, reason,
-                $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}");
+                WithBranchSide(
+                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                    branchSide));
             return false;
         }
 
@@ -243,6 +276,7 @@ namespace Parsek
             }
 
             bool matchedRp = false;
+            var matchedRps = new List<string>();
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
@@ -259,6 +293,7 @@ namespace Parsek
                     continue;
 
                 matchedRp = true;
+                matchedRps.Add($"{candidate.RewindPointId ?? "<no-rp>"}@{candidate.BranchPointId ?? "<no-bp>"}");
                 int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
                     candidate, rec, supersedes);
                 if (resolved < 0)
@@ -270,6 +305,16 @@ namespace Parsek
             }
 
             rejectReason = matchedRp ? "noMatchingRpSlot" : "noMatchingRP";
+            if (matchedRp)
+            {
+                string recId = rec.RecordingId ?? "<no-id>";
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    $"uf-resolve-{recId}-{rejectReason}",
+                    $"IsUnfinishedFlight=false rec={recId} reason={rejectReason} " +
+                    $"matches={matchedRps.Count} [{string.Join(",", matchedRps)}]");
+            }
+
             return false;
         }
 
@@ -347,6 +392,13 @@ namespace Parsek
             }
 
             return slot != null ? slot.SlotIndex : -1;
+        }
+
+        private static string WithBranchSide(string details, string branchSide)
+        {
+            if (string.IsNullOrEmpty(branchSide)) return details;
+            if (string.IsNullOrEmpty(details)) return $"side={branchSide}";
+            return details + $" side={branchSide}";
         }
 
         private static void LogVerdict(bool qualifies, string recId, string reason, string details)

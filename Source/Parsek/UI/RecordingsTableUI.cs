@@ -829,13 +829,29 @@ namespace Parsek
             string firstText, string secondText, float cellWidth,
             out bool firstClicked, out bool secondClicked)
         {
+            DrawBodyCenteredTwoButtons(
+                new GUIContent(firstText), true,
+                new GUIContent(secondText), true,
+                cellWidth, out firstClicked, out secondClicked);
+        }
+
+        private void DrawBodyCenteredTwoButtons(
+            GUIContent firstContent, bool firstEnabled,
+            GUIContent secondContent, bool secondEnabled,
+            float cellWidth,
+            out bool firstClicked, out bool secondClicked)
+        {
+            bool priorEnabled = GUI.enabled;
             float innerW = cellWidth - BodyCellButtonLeftInset;
             float halfInner = (innerW - 4f) * 0.5f;
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
-            firstClicked = GUILayout.Button(firstText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled && firstEnabled;
+            firstClicked = GUILayout.Button(firstContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
             GUILayout.Space(4f);
-            secondClicked = GUILayout.Button(secondText, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled && secondEnabled;
+            secondClicked = GUILayout.Button(secondContent, bodyCellButtonFlush, GUILayout.Width(halfInner));
+            GUI.enabled = priorEnabled;
             GUILayout.EndHorizontal();
         }
 
@@ -2630,22 +2646,23 @@ namespace Parsek
                     $"{(canInvoke ? "enabled" : "disabled — " + reason)}");
             }
 
-            GUI.enabled = canInvoke;
             string tooltip = canInvoke
                 ? "Re-fly this unfinished flight from the separation moment"
                 : (reason ?? "Re-Fly unavailable");
-            float actionWidth = ColW_Rewind * 0.5f;
-            if (DrawBodyCenteredButton(new GUIContent(kReFlyLabel, tooltip), actionWidth))
+            bool flyClicked;
+            bool sealClicked;
+            DrawBodyCenteredTwoButtons(
+                new GUIContent(kReFlyLabel, tooltip), canInvoke,
+                new GUIContent("Seal", "Close this re-fly slot permanently without changing the recording"), true,
+                ColW_Rewind, out flyClicked, out sealClicked);
+            if (flyClicked)
             {
                 ParsekLog.Info("RewindUI",
                     $"Button clicked: rp={rpKey} slot={slotId} rec=\"{rec.VesselName}\"");
                 RewindInvoker.ShowDialog(rp, slotListIndex);
             }
-            GUI.enabled = true;
 
-            if (DrawBodyCenteredButton(
-                    new GUIContent("Seal", "Close this re-fly slot permanently without changing the recording"),
-                    actionWidth))
+            if (sealClicked)
             {
                 ParsekLog.Info("UnfinishedFlights",
                     $"Seal button clicked rec={rec.RecordingId ?? "<no-id>"} rp={rpKey} slot={slotId}");
@@ -2668,11 +2685,12 @@ namespace Parsek
                     $"Re-Fly #{ri} rec={recId} disabled — {reason}");
             }
 
-            GUI.enabled = false;
-            float actionWidth = ColW_Rewind * 0.5f;
-            DrawBodyCenteredButton(new GUIContent("Fly", reason), actionWidth);
-            DrawBodyCenteredButton(new GUIContent("Seal", reason), actionWidth);
-            GUI.enabled = true;
+            bool ignoredFlyClicked;
+            bool ignoredSealClicked;
+            DrawBodyCenteredTwoButtons(
+                new GUIContent("Fly", reason), false,
+                new GUIContent("Seal", reason), false,
+                ColW_Rewind, out ignoredFlyClicked, out ignoredSealClicked);
         }
 
         internal enum UnfinishedFlightRewindRoute

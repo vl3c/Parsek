@@ -318,14 +318,23 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Error(Tag,
+                string slotLookupFailure =
                     $"Site B-1 slot lookup failed for provisional={provisional.RecordingId ?? "<no-id>"} " +
                     $"markerOrigin={marker.OriginChildRecordingId ?? "<none>"} " +
                     $"markerTarget={marker.SupersedeTargetId ?? "<none>"} " +
                     $"rp={marker.RewindPointId ?? "<none>"} reason={slotRejectReason ?? "slot-index-invalid"}; " +
-                    $"falling back to v0.9 terminalKind classifier");
-                System.Diagnostics.Debug.Assert(false,
-                    "Site B-1 slot lookup failed; falling back to v0.9 terminal classifier.");
+                    $"terminal={DescribeTerminalForLogs(provisional)}";
+                if (!IsInPlaceContinuation(marker, provisional)
+                    && RequiresSlotAwareMergeClassification(provisional))
+                {
+                    ParsekLog.Error(Tag,
+                        slotLookupFailure +
+                        "; aborting because stable-leaf classification cannot safely fall back");
+                    throw new InvalidOperationException(slotLookupFailure);
+                }
+
+                ParsekLog.Error(Tag,
+                    slotLookupFailure + "; falling back to v0.9 terminalKind classifier");
                 classifierReason = "fallback:" + kind;
                 newState = (kind == TerminalKind.Crashed)
                     ? MergeState.CommittedProvisional
@@ -357,6 +366,39 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        private static bool RequiresSlotAwareMergeClassification(Recording rec)
+        {
+            if (rec == null) return false;
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            TerminalState? terminal = terminalRec.TerminalStateValue;
+            if (!terminal.HasValue) return false;
+            if (terminal.Value == TerminalState.Orbiting
+                || terminal.Value == TerminalState.SubOrbital)
+                return true;
+            return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal.Value != TerminalState.Boarded;
+        }
+
+        private static bool IsInPlaceContinuation(ReFlySessionMarker marker, Recording provisional)
+        {
+            return marker != null
+                && provisional != null
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && string.Equals(
+                    marker.OriginChildRecordingId,
+                    provisional.RecordingId,
+                    StringComparison.Ordinal);
+        }
+
+        private static string DescribeTerminalForLogs(Recording rec)
+        {
+            if (rec == null) return "<null>";
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            return terminalRec.TerminalStateValue.HasValue
+                ? terminalRec.TerminalStateValue.Value.ToString()
+                : "<none>";
         }
 
         /// <summary>
