@@ -125,9 +125,10 @@ Key source files and what they do - read the relevant one before modifying:
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
 - `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
 - `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
+- `RecordingGroupStore.cs` - recording group membership/orchestration helpers (auto-generated tree groups, group mutations, standalone auto-assignment mirror)
 - `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
 - `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
-- `RecordingStore.cs` - static recording storage surviving scene changes
+- `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to RecordingGroupStore
 - `PatchedConicSnapshot.cs` - snapshots patched-conic coast chains into predicted `OrbitSegment` lists for scene-exit finalization
 - `BallisticExtrapolator.cs` - extrapolates incomplete ballistic tails through atmosphere / terrain / SOI events to a terminal endpoint
 - `IncompleteBallisticSceneExitFinalizer.cs` - scene-exit seam that snapshots, extrapolates, validates, and applies extended tail results to recordings
