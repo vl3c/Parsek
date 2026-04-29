@@ -4152,6 +4152,17 @@ namespace Parsek
                     $"clearanceAvg={avg.ToString("F3", ic)}m " +
                     $"N={surfaceMobileSamplesThisSection}");
             }
+
+            // P3-3: defensive accumulator reset. StartNewTrackSection already
+            // resets these when a new section opens, but closing without
+            // immediately opening (e.g. Stop Recording, scene exit) leaves
+            // stale state that any future defensive-coding path emitting a
+            // summary between sections would carry forward. Reset here so
+            // the accumulators always reflect the in-progress section only.
+            surfaceMobileSamplesThisSection = 0;
+            surfaceMobileMinClearanceThisSection = double.NaN;
+            surfaceMobileMaxClearanceThisSection = double.NaN;
+            surfaceMobileClearanceSumThisSection = 0.0;
         }
 
         /// <summary>

@@ -14468,7 +14468,8 @@ namespace Parsek.InGameTests
                 TrajectoryPoint pt = samples[i];
                 double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                     kerbin, pt.latitude, pt.longitude,
-                    pt.altitude, pt.recordedGroundClearance);
+                    pt.altitude, pt.recordedGroundClearance,
+                    ReferenceFrame.Absolute);
                 double currentTerrain = kerbin.TerrainAltitude(pt.latitude, pt.longitude, true);
                 double effectiveClearance = effective - currentTerrain;
                 double deviation = System.Math.Abs(effectiveClearance - clearance);
@@ -14506,7 +14507,8 @@ namespace Parsek.InGameTests
             };
             double legacyEffective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 kerbin, legacyPoint.latitude, legacyPoint.longitude,
-                legacyPoint.altitude, legacyPoint.recordedGroundClearance);
+                legacyPoint.altitude, legacyPoint.recordedGroundClearance,
+                ReferenceFrame.Absolute);
             InGameAssert.ApproxEqual((float)legacyPoint.altitude, (float)legacyEffective, 0.0001f,
                 "NaN-clearance legacy path must return recorded altitude unchanged");
 

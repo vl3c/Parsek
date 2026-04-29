@@ -29,8 +29,6 @@ namespace Parsek.Tests.Rendering
             ParsekLog.VerboseOverrideForTesting = true;
             RecordingStore.SuppressLogging = true;
             TerrainCacheBuckets.ResetForTesting();
-            // Stub Unity Time.frameCount (xUnit cannot bind the ECall).
-            TerrainCacheBuckets.FrameCountResolverForTesting = () => 1L;
             fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
         }
 
@@ -58,7 +56,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, 0.0, 0.0,
                 recordedAltitude: 100.0,
-                recordedGroundClearance: double.NaN);
+                recordedGroundClearance: double.NaN,
+                referenceFrame: ReferenceFrame.Absolute);
 
             Assert.Equal(100.0, effective);
             Assert.Equal(0, resolverCalls);
@@ -74,7 +73,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, 0.0, 0.0,
                 recordedAltitude: 80.0,         // would have been used in legacy path
-                recordedGroundClearance: 1.5);  // 1.5 m above current terrain
+                recordedGroundClearance: 1.5,   // 1.5 m above current terrain
+                referenceFrame: ReferenceFrame.Absolute);
 
             // current_terrain (75.0) + clearance (1.5) = 76.5
             Assert.Equal(76.5, effective);
@@ -91,7 +91,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, 0.0, 0.0,
                 recordedAltitude: 76.5,         // recording-time root altitude
-                recordedGroundClearance: 1.5);  // recording-time clearance
+                recordedGroundClearance: 1.5,   // recording-time clearance
+                referenceFrame: ReferenceFrame.Absolute);
 
             // Effective altitude = 79 + 1.5 = 80.5 — rover lifted 4 m so it
             // sits on the new terrain at the same clearance.
@@ -111,7 +112,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, 0.0, 0.0,
                 recordedAltitude: 100.0,
-                recordedGroundClearance: 2.0);
+                recordedGroundClearance: 2.0,
+                referenceFrame: ReferenceFrame.Absolute);
 
             Assert.Equal(100.0, effective);
             Assert.Contains(logLines, l =>
@@ -128,8 +130,72 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 null, 0.0, 0.0,
                 recordedAltitude: 50.0,
-                recordedGroundClearance: 1.0);
+                recordedGroundClearance: 1.0,
+                referenceFrame: ReferenceFrame.Absolute);
             Assert.Equal(50.0, effective);
+        }
+
+        // ----- P2-1 safety gate: non-Absolute frames must skip terrain correction -----
+
+        [Fact]
+        public void ResolvePhase7EffectiveAltitude_RelativeFrame_FiniteClearance_ReturnsRecordedAltitude()
+        {
+            // Recorder never writes finite clearance on a Relative-frame
+            // point today, but if a future codec / merge / optimizer ever
+            // does, the renderer must NOT interpret the metre-scale
+            // anchor-local "latitude" / "longitude" / "altitude" fields as
+            // degrees + altitude — that would project a point deep inside
+            // the planet (CLAUDE.md "Rotation / world frame" notes). The
+            // helper short-circuits to the recorded altitude regardless.
+            // Resolver must not be called on this path.
+            int resolverCalls = 0;
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) =>
+            {
+                resolverCalls++;
+                return 999.0;
+            };
+
+            // Synthetic "Relative-frame" point: lat=120 m anchor-local x,
+            // lon=-50 m anchor-local y, alt=2 m anchor-local z. If the helper
+            // mistakenly applied terrain correction it would treat lat=120 as
+            // 120° latitude and try to look up terrain at an invalid lat.
+            double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
+                fakeKerbin,
+                latitude: 120.0,
+                longitude: -50.0,
+                recordedAltitude: 2.0,
+                recordedGroundClearance: 1.5,
+                referenceFrame: ReferenceFrame.Relative);
+
+            Assert.Equal(2.0, effective);
+            Assert.Equal(0, resolverCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("non-Absolute frame=Relative"));
+        }
+
+        [Fact]
+        public void ResolvePhase7EffectiveAltitude_OrbitalCheckpointFrame_FiniteClearance_ReturnsRecordedAltitude()
+        {
+            // OrbitalCheckpoint sections have no per-point lat/lon/alt
+            // payload at all (they're driven by Keplerian orbit segments).
+            // Any TrajectoryPoint flagged with this frame should never
+            // reach terrain correction.
+            int resolverCalls = 0;
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) =>
+            {
+                resolverCalls++;
+                return 50.0;
+            };
+
+            double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
+                fakeKerbin, 0.0, 0.0,
+                recordedAltitude: 78000.0,
+                recordedGroundClearance: 5.0,
+                referenceFrame: ReferenceFrame.OrbitalCheckpoint);
+
+            Assert.Equal(78000.0, effective);
+            Assert.Equal(0, resolverCalls);
         }
 
         // ----- clearance computation contract (pure math, mirrors recorder side) -----
@@ -153,7 +219,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, 0.0, 0.0,
                 recordedAltitude: altitude,
-                recordedGroundClearance: clearance);
+                recordedGroundClearance: clearance,
+                referenceFrame: ReferenceFrame.Absolute);
 
             Assert.Equal(altitude, effective);
         }
@@ -171,7 +238,8 @@ namespace Parsek.Tests.Rendering
             double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                 fakeKerbin, lat, lon,
                 recordedAltitude: 250.0,
-                recordedGroundClearance: 3.0);
+                recordedGroundClearance: 3.0,
+                referenceFrame: ReferenceFrame.Absolute);
 
             Assert.Equal(203.0, effective);
         }

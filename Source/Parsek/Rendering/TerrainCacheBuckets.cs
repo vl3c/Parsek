@@ -48,25 +48,33 @@ namespace Parsek.Rendering
         internal const double BucketDegrees = 0.001;
 
         /// <summary>
-        /// Cap on the number of cached buckets. Hit-count = number of
-        /// distinct (body, latBucket, lonBucket) triples seen in this scene.
-        /// 100k buckets at 0.001° span the full surface of a Kerbin-sized
-        /// body in latitude (~18M needed for full surface), so this cap will
-        /// only trip on truly pathological inputs. When tripped, cache stops
-        /// growing — further misses still resolve via the resolver but do
-        /// not insert into the dictionary, sacrificing speed but not
-        /// correctness.
+        /// Default cap on the number of cached buckets. Hit-count = number
+        /// of distinct (body, latBucket, lonBucket) triples seen in this
+        /// scene. 100k buckets at 0.001° span only a tiny fraction of a
+        /// Kerbin-sized body's surface (~18M needed for full coverage), so
+        /// this cap will only trip on truly pathological inputs. When
+        /// tripped, the cache stops growing — further misses still resolve
+        /// via the resolver but do not insert into the dictionary,
+        /// sacrificing speed but not correctness. The active cap is
+        /// <see cref="cap"/>; tests override via <see cref="CapForTesting"/>.
         /// </summary>
         internal const int MaxCachedBuckets = 100_000;
+
+        // Active cap — tests can lower this via CapForTesting to exercise
+        // the cap path without inserting 100k+ entries.
+        private static int cap = MaxCachedBuckets;
 
         // Process-wide cache. Cleared on scene transition. Keyed by body
         // reference (we cannot intern by name without resolution overhead) +
         // packed bucket coordinates.
         private static readonly Dictionary<BucketKey, double> Cache =
             new Dictionary<BucketKey, double>(1024);
-        private static int hitCountThisFrame;
-        private static int missCountThisFrame;
-        private static long lastFrameLogged = -1L;
+        // Hit/miss counters monotonically tracked since the last Clear()
+        // (i.e. since the current scene began). Logged via the rate-limited
+        // summary so you see "hits / misses since this scene started" — the
+        // ratio is what matters for the "cache amortises PQS" claim.
+        private static int hitCountSinceClear;
+        private static int missCountSinceClear;
         private static bool capWarnEmitted;
 
         /// <summary>
@@ -79,13 +87,17 @@ namespace Parsek.Rendering
         internal static Func<string, double, double, double> TerrainResolverForTesting;
 
         /// <summary>
-        /// Test seam — when set, replaces the <c>UnityEngine.Time.frameCount</c>
-        /// query in the per-frame summary log. Required because Unity's
-        /// ECall-backed Time properties throw SecurityException when invoked
-        /// from a vanilla CLR (xUnit), even inside try/catch (the SE fires at
-        /// JIT bind time). Default null ⇒ production path uses Unity API.
+        /// Test seam — overrides <see cref="MaxCachedBuckets"/> so unit
+        /// tests can exercise cap-warn behaviour with a small number of
+        /// inserts (P2-4 review pass). Set to a small value, populate the
+        /// cache past it, observe the warn line, and reset via
+        /// <see cref="ResetForTesting"/>.
         /// </summary>
-        internal static Func<long> FrameCountResolverForTesting;
+        internal static int CapForTesting
+        {
+            get { return cap; }
+            set { cap = value; }
+        }
 
         /// <summary>
         /// Reset all transient state. Used by the scene-transition hook in
@@ -95,9 +107,8 @@ namespace Parsek.Rendering
         {
             int countBefore = Cache.Count;
             Cache.Clear();
-            hitCountThisFrame = 0;
-            missCountThisFrame = 0;
-            lastFrameLogged = -1L;
+            hitCountSinceClear = 0;
+            missCountSinceClear = 0;
             capWarnEmitted = false;
             if (!RecordingStore.SuppressLogging)
             {
@@ -109,13 +120,13 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
-        /// Reset everything including test seam (xUnit Dispose).
+        /// Reset everything including test seams (xUnit Dispose).
         /// </summary>
         internal static void ResetForTesting()
         {
             Clear();
             TerrainResolverForTesting = null;
-            FrameCountResolverForTesting = null;
+            cap = MaxCachedBuckets;
         }
 
         /// <summary>
@@ -140,10 +151,16 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
-        /// Returns the cached terrain height (metres above mean radius) at the
-        /// given lat/lon, calling the PQS resolver on cache miss. Per-frame
-        /// hit/miss counters are emitted as a rate-limited summary the first
-        /// call after the frame index advances.
+        /// Returns the cached terrain height (metres above mean radius) at
+        /// the given lat/lon, calling the PQS resolver on cache miss. The
+        /// hit/miss summary is emitted via
+        /// <see cref="ParsekLog.VerboseRateLimited"/> at the bottom of every
+        /// call so a burst across many ghosts collapses into one line per
+        /// the rate-limit window. No per-call ECall (review pass P2-5) —
+        /// the previous <c>UnityEngine.Time.frameCount</c> probe was the
+        /// hot path's only Unity API call and defeated the "amortise PQS
+        /// query" advertisement when N concurrent surface ghosts each hit
+        /// the cache per frame.
         /// </summary>
         internal static double GetCachedSurfaceHeight(CelestialBody body, double lat, double lon)
         {
@@ -155,10 +172,11 @@ namespace Parsek.Rendering
             var key = new BucketKey(bodyName, latIdx, lonIdx);
 
             double height;
-            if (Cache.TryGetValue(key, out height))
+            bool hit = Cache.TryGetValue(key, out height);
+            if (hit)
             {
-                hitCountThisFrame++;
-                EmitFrameSummaryIfDue();
+                hitCountSinceClear++;
+                EmitFrameSummary(bodyName);
                 return height;
             }
 
@@ -168,23 +186,23 @@ namespace Parsek.Rendering
             // matches what the existing landed-ghost clamp uses).
             height = ResolveTerrainHeight(body, bodyName, lat, lon);
 
-            if (Cache.Count < MaxCachedBuckets)
+            if (Cache.Count < cap)
             {
                 Cache[key] = height;
             }
             else if (!capWarnEmitted)
             {
                 capWarnEmitted = true;
-                ParsekLog.Verbose(Tag,
+                ParsekLog.Warn(Tag,
                     string.Format(CultureInfo.InvariantCulture,
                         "TerrainCacheBuckets cap reached: bucketsCached={0} cap={1} — " +
                         "subsequent misses resolve via PQS but are not cached " +
                         "(diagnostic: too many distinct (body, lat, lon) buckets " +
                         "in this scene, expected with very long surface drives)",
-                        Cache.Count, MaxCachedBuckets));
+                        Cache.Count, cap));
             }
 
-            missCountThisFrame++;
+            missCountSinceClear++;
             ParsekLog.VerboseRateLimited(Tag, "terrain-cache-miss-detail",
                 string.Format(CultureInfo.InvariantCulture,
                     "TerrainCacheBuckets miss: body={0} lat={1:F6} lon={2:F6} " +
@@ -192,7 +210,7 @@ namespace Parsek.Rendering
                     bodyName, lat, lon, latIdx, lonIdx, height, Cache.Count),
                 5.0);
 
-            EmitFrameSummaryIfDue();
+            EmitFrameSummary(bodyName);
             return height;
         }
 
@@ -213,49 +231,24 @@ namespace Parsek.Rendering
             return body.TerrainAltitude(lat, lon, true);
         }
 
-        private static void EmitFrameSummaryIfDue()
+        private static void EmitFrameSummary(string bodyName)
         {
-            // Use UnityEngine.Time.frameCount when available; otherwise the
-            // counter never advances and the summary stays per-call rate-limited.
-            long currentFrame = TryGetUnityFrame();
-            if (currentFrame == lastFrameLogged)
-                return;
-            lastFrameLogged = currentFrame;
-
-            // Per-frame summary — VerboseRateLimited so a burst of misses
-            // across many ghosts in one frame collapses to one line per the
-            // rate-limit window.
-            ParsekLog.VerboseRateLimited(Tag, "terrain-cache-frame-summary",
+            // Hit/miss summary: VerboseRateLimited collapses bursts across
+            // many ghosts into one line per the 2 s window. No Unity API
+            // call on the hot path (P2-5 review pass — the previous
+            // EmitFrameSummaryIfDue gated on UnityEngine.Time.frameCount,
+            // which is an ECall and the only Unity API call in the cache's
+            // hot path; it defeated the "amortise PQS query" advertisement
+            // when N concurrent surface ghosts each hit the cache per frame).
+            // Counters are scene-local monotonics — they reset only on
+            // Clear() / scene transition, so the summary line shows
+            // accumulated cache pressure since the scene began.
+            ParsekLog.VerboseRateLimited(Tag, "frame-summary",
                 string.Format(CultureInfo.InvariantCulture,
-                    "TerrainCacheBuckets frame={0} hits={1} misses={2} cached={3}",
-                    currentFrame, hitCountThisFrame, missCountThisFrame, Cache.Count),
+                    "frame summary cacheHits={0} cacheMisses={1} cached={2} body={3}",
+                    hitCountSinceClear, missCountSinceClear, Cache.Count,
+                    bodyName ?? "(null)"),
                 2.0);
-            hitCountThisFrame = 0;
-            missCountThisFrame = 0;
-        }
-
-        private static long TryGetUnityFrame()
-        {
-            // Test seam: when set, bypass the Unity ECall (xUnit raises a
-            // SecurityException at JIT bind time that no try/catch can
-            // intercept; the SE fires when the JIT loads any method that
-            // textually references UnityEngine.Time.frameCount). Production
-            // seam stays null and dispatch falls through to a separate
-            // method (NativeUnityFrame) that contains the actual ECall —
-            // unit tests never call NativeUnityFrame because they always
-            // set the seam.
-            var seam = FrameCountResolverForTesting;
-            if (seam != null)
-                return seam();
-            return NativeUnityFrame();
-        }
-
-        private static long NativeUnityFrame()
-        {
-            // Isolated so the JIT only binds the ECall when this method is
-            // actually loaded (production / in-game). xUnit never reaches
-            // here because the seam short-circuits first.
-            return UnityEngine.Time.frameCount;
         }
 
         private readonly struct BucketKey : IEquatable<BucketKey>
