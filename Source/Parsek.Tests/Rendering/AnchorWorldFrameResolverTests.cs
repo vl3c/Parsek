@@ -72,10 +72,11 @@ namespace Parsek.Tests.Rendering
             public Vector3d? OrbWorldPos;
             public Vector3d? SoiWorldPos;
             public Vector3d? LoopWorldPos;
-            public int RelCalls, OrbCalls, SoiCalls, LoopCalls;
-            public string LastRelRecordingId, LastOrbRecordingId, LastSoiRecordingId, LastLoopRecordingId;
-            public AnchorSide LastRelSide, LastOrbSide, LastSoiSide, LastLoopSide;
-            public double LastRelUT, LastOrbUT, LastSoiUT, LastLoopUT;
+            public Vector3d? BubbleWorldPos;
+            public int RelCalls, OrbCalls, SoiCalls, LoopCalls, BubbleCalls;
+            public string LastRelRecordingId, LastOrbRecordingId, LastSoiRecordingId, LastLoopRecordingId, LastBubbleRecordingId;
+            public AnchorSide LastRelSide, LastOrbSide, LastSoiSide, LastLoopSide, LastBubbleSide;
+            public double LastRelUT, LastOrbUT, LastSoiUT, LastLoopUT, LastBubbleUT;
 
             public bool TryResolveRelativeBoundaryWorldPos(
                 Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
@@ -115,6 +116,16 @@ namespace Parsek.Tests.Rendering
                 LastLoopSide = side;
                 LastLoopUT = sampleUT;
                 if (LoopWorldPos.HasValue) { worldPos = LoopWorldPos.Value; return true; }
+                worldPos = default; return false;
+            }
+            public bool TryResolveBubbleEntryExitWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            {
+                BubbleCalls++;
+                LastBubbleRecordingId = rec?.RecordingId;
+                LastBubbleSide = side;
+                LastBubbleUT = boundaryUT;
+                if (BubbleWorldPos.HasValue) { worldPos = BubbleWorldPos.Value; return true; }
                 worldPos = default; return false;
             }
         }
@@ -297,6 +308,151 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(400.0, ac.Epsilon.x, 6);
         }
 
+        // --- §7.7 BubbleEntry / BubbleExit ---------------------------------
+
+        [Fact]
+        public void BubbleExit_ResolverHit_WritesEpsilonIntoSessionMap()
+        {
+            // §7.7 BubbleExit candidate lands on the Checkpoint segment's
+            // Side=Start. The resolver returns a known world position;
+            // the propagator computes ε = worldRef − smoothed.
+            var rec = MakeRec("rec-bubble-exit", ReferenceFrame.Absolute, 0, 100);
+            var stub = new StubResolver { BubbleWorldPos = new Vector3d(11, 22, 33) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            SeedSmoothed(rec, 60.0, new Vector3d(1, 2, 3));
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(60.0, AnchorSource.BubbleExit, AnchorSide.Start),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-exit-sess" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.Equal(1, stub.BubbleCalls);
+            Assert.Equal(rec.RecordingId, stub.LastBubbleRecordingId);
+            Assert.Equal(AnchorSide.Start, stub.LastBubbleSide);
+            Assert.Equal(60.0, stub.LastBubbleUT, 6);
+
+            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
+            Assert.Equal(AnchorSource.BubbleExit, ac.Source);
+            // ε = (11,22,33) - (1,2,3) = (10,20,30)
+            Assert.Equal(10.0, ac.Epsilon.x, 6);
+            Assert.Equal(20.0, ac.Epsilon.y, 6);
+            Assert.Equal(30.0, ac.Epsilon.z, 6);
+        }
+
+        [Fact]
+        public void BubbleEntry_ResolverHit_WritesEpsilonIntoSessionMap()
+        {
+            // §7.7 BubbleEntry candidate lands on the Checkpoint segment's
+            // Side=End. Same shape as BubbleExit but the side flips.
+            var rec = MakeRec("rec-bubble-entry", ReferenceFrame.Absolute, 0, 100);
+            var stub = new StubResolver { BubbleWorldPos = new Vector3d(50, 60, 70) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            SeedSmoothed(rec, 40.0, new Vector3d(45, 55, 65));
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(40.0, AnchorSource.BubbleEntry, AnchorSide.End),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-entry-sess" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.Equal(1, stub.BubbleCalls);
+            Assert.Equal(AnchorSide.End, stub.LastBubbleSide);
+            Assert.Equal(40.0, stub.LastBubbleUT, 6);
+
+            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.End, out AnchorCorrection ac));
+            Assert.Equal(AnchorSource.BubbleEntry, ac.Source);
+            // ε = (50,60,70) - (45,55,65) = (5,5,5)
+            Assert.Equal(5.0, ac.Epsilon.x, 6);
+            Assert.Equal(5.0, ac.Epsilon.y, 6);
+            Assert.Equal(5.0, ac.Epsilon.z, 6);
+        }
+
+        [Fact]
+        public void BubbleEntry_ResolverMiss_LeavesEpsilonZeroAndLogsVerbose()
+        {
+            // HR-9 visible failure: a resolver miss must reserve the slot
+            // with ε = 0 AND emit a Pipeline-Anchor Verbose so the operator
+            // can attribute the missing anchor in KSP.log.
+            var rec = MakeRec("rec-bubble-entry-miss", ReferenceFrame.Absolute, 0, 100);
+            var stub = new StubResolver { BubbleWorldPos = null };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(50.0, AnchorSource.BubbleEntry, AnchorSide.End),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-entry-miss-sess" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.End, out AnchorCorrection ac));
+            Assert.Equal(AnchorSource.BubbleEntry, ac.Source);
+            Assert.Equal(0.0, ac.Epsilon.magnitude, 6);
+            Assert.Contains(logLines,
+                l => l.Contains("[VERBOSE][Pipeline-Anchor]") && l.Contains("resolver-miss")
+                    && l.Contains("BubbleEntry"));
+        }
+
+        [Fact]
+        public void BubbleExit_NoSpline_LeavesEpsilonZeroAndLogsVerbose()
+        {
+            // When the section has no spline cached AND the section is not
+            // a Checkpoint section (so the new Kepler-dispatch path doesn't
+            // fire either), the smoothed-position evaluator returns null
+            // and the propagator surfaces a "skip-no-spline" Verbose. ε
+            // stays 0 (priority slot reserved per HR-9).
+            var rec = MakeRec("rec-bubble-exit-nospline", ReferenceFrame.Absolute, 0, 100);
+            var stub = new StubResolver { BubbleWorldPos = new Vector3d(7, 8, 9) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            // No spline, no test seam — force the evaluator to return null.
+            AnchorPropagator.SmoothedPositionForTesting = null;
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(50.0, AnchorSource.BubbleExit, AnchorSide.Start),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-exit-nospline" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
+            Assert.Equal(0.0, ac.Epsilon.magnitude, 6);
+            Assert.Contains(logLines,
+                l => l.Contains("[VERBOSE][Pipeline-Anchor]") && l.Contains("skip-no-spline")
+                    && l.Contains("BubbleExit"));
+        }
+
+        [Fact]
+        public void DeferredSource_BubbleEntry_NoLongerDeferred_ResolverIsCalled()
+        {
+            // Regression pin for the §7.7 gate removal. Pre-v0.9.1 the
+            // deferred-source switch in TryResolveSeedEpsilon early-returned
+            // for BubbleEntry / BubbleExit so the resolver was NEVER called.
+            // After the gate removal a BubbleEntry candidate must hit the
+            // resolver (BubbleCalls > 0) — a future regression that re-adds
+            // the gate would silently drop ε to zero again.
+            var rec = MakeRec("rec-bubble-no-defer", ReferenceFrame.Absolute, 0, 100);
+            var stub = new StubResolver { BubbleWorldPos = new Vector3d(1, 1, 1) };
+            AnchorPropagator.ResolverOverrideForTesting = stub;
+            SeedSmoothed(rec, 50.0, Vector3d.zero);
+            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
+            {
+                new AnchorCandidate(50.0, AnchorSource.BubbleEntry, AnchorSide.End),
+            });
+
+            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "bubble-no-defer" },
+                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
+
+            Assert.Equal(1, stub.BubbleCalls);
+            // No other resolver method should have fired — guards against
+            // a switch fall-through bug that hits the wrong dispatch.
+            Assert.Equal(0, stub.RelCalls);
+            Assert.Equal(0, stub.OrbCalls);
+            Assert.Equal(0, stub.SoiCalls);
+            Assert.Equal(0, stub.LoopCalls);
+        }
+
         // --- Deferred sources stay ε = 0 ----------------------------------
 
         [Fact]
@@ -321,6 +477,7 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0, stub.OrbCalls);
             Assert.Equal(0, stub.SoiCalls);
             Assert.Equal(0, stub.LoopCalls);
+            Assert.Equal(0, stub.BubbleCalls);
             Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
             Assert.Equal(0.0, ac.Epsilon.magnitude, 6);
         }

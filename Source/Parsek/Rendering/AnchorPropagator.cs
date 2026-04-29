@@ -36,18 +36,17 @@ namespace Parsek.Rendering
     /// Deferred sources (each emits ε = 0 and reserves the priority slot;
     /// the corresponding world-frame resolver lands in a follow-up):
     /// <list type="bullet">
-    ///   <item>§7.7 BubbleEntry / BubbleExit — needs a physics-active
-    ///   timeline scanner that classifies sections by their ambient
-    ///   physics-bubble state at the recording UT. The candidates are not
-    ///   even emitted at commit-time today (the Phase 6 builder only emits
-    ///   §7.2-§7.6, §7.9, §7.10), but the priority rank slot exists in
-    ///   the enum so the rank table is stable.</item>
     ///   <item>§7.8 CoBubblePeer — Phase 5 territory; reserved enum value
     ///   only.</item>
     ///   <item>§7.9 SurfaceContinuous — Phase 7 terrain raycast. Phase 6
     ///   emits the candidate marker so Phase 7 can hook the per-frame
     ///   resolver in without touching commit-time code.</item>
     /// </list>
+    /// §7.7 BubbleEntry / BubbleExit shipped in v0.9.1 — adjacent
+    /// TrackSection source-class transitions
+    /// (Active|Background ↔ Checkpoint) emit candidates and the resolver
+    /// reads the LAST/FIRST physics-active sample as the high-fidelity
+    /// reference.
     /// </para>
     ///
     /// <para>
@@ -232,12 +231,13 @@ namespace Parsek.Rendering
             }
 
             // Phase 1 — emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
-            // §7.6 / §7.10 the world-frame resolver computes a real ε; for
-            // §7.7 / §7.8 / §7.9 (deferred sources — see the class docstring)
+            // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
+            // for §7.8 / §7.9 (deferred sources — see the class docstring)
             // the slot is reserved with ε = 0 so the §7.11 priority resolver
             // still runs.
             int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
-                resolvedLoop = 0, deferredNoResolver = 0, deferredNoSpline = 0;
+                resolvedLoop = 0, resolvedBubble = 0,
+                deferredNoResolver = 0, deferredNoSpline = 0;
             IAnchorWorldFrameResolver activeResolver = ResolverOverrideForTesting ?? resolver;
             if (recordings != null)
             {
@@ -272,7 +272,8 @@ namespace Parsek.Rendering
                             bool resolved = TryResolveSeedEpsilon(
                                 activeResolver, surfaceLookup, r, sIdx, cand,
                                 ref resolvedRel, ref resolvedOrb, ref resolvedSoi,
-                                ref resolvedLoop, ref deferredNoResolver, ref deferredNoSpline,
+                                ref resolvedLoop, ref resolvedBubble,
+                                ref deferredNoResolver, ref deferredNoSpline,
                                 out epsilon);
 
                             var ac = new AnchorCorrection(
@@ -650,11 +651,13 @@ namespace Parsek.Rendering
                 "DAG walk summary: sessionId={0} edgesVisited={1} edgesPropagated={2} " +
                 "seedCandidatesEmitted={3} candidatesDeferredByPriority={4} " +
                 "resolvedRel={5} resolvedOrb={6} resolvedSoi={7} resolvedLoop={8} " +
-                "deferredNoResolver={9} deferredNoSpline={10} " +
-                "suppressedSkipped={11} cycleSkipped={12} durationMs={13}",
+                "resolvedBubble={9} " +
+                "deferredNoResolver={10} deferredNoSpline={11} " +
+                "suppressedSkipped={12} cycleSkipped={13} durationMs={14}",
                 sessionId, edgesVisited, edgesPropagated,
                 seedCandidatesEmitted, candidatesDeferred,
                 resolvedRel, resolvedOrb, resolvedSoi, resolvedLoop,
+                resolvedBubble,
                 deferredNoResolver, deferredNoSpline,
                 suppressedSkipped, cycleSkipped,
                 sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
@@ -681,7 +684,8 @@ namespace Parsek.Rendering
         ///   <item>OrbitalCheckpoint → <see cref="IAnchorWorldFrameResolver.TryResolveOrbitalCheckpointWorldPos"/></item>
         ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
-        ///   <item>BubbleEntry / BubbleExit / SurfaceContinuous / CoBubblePeer
+        ///   <item>BubbleEntry / BubbleExit → <see cref="IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos"/></item>
+        ///   <item>SurfaceContinuous / CoBubblePeer
         ///         → deferred (returns false, ε stays 0).</item>
         /// </list>
         /// Returns true with a finite world-frame ε; returns false on
@@ -693,15 +697,17 @@ namespace Parsek.Rendering
             Func<string, double, double, double, Vector3d> surfaceLookup,
             Recording rec, int sectionIndex, AnchorCandidate cand,
             ref int resolvedRel, ref int resolvedOrb, ref int resolvedSoi,
-            ref int resolvedLoop, ref int deferredNoResolver, ref int deferredNoSpline,
+            ref int resolvedLoop, ref int resolvedBubble,
+            ref int deferredNoResolver, ref int deferredNoSpline,
             out Vector3d epsilon)
         {
             epsilon = Vector3d.zero;
 
             // Sources that are explicitly deferred — see class docstring.
-            if (cand.Source == AnchorSource.BubbleEntry
-                || cand.Source == AnchorSource.BubbleExit
-                || cand.Source == AnchorSource.CoBubblePeer
+            // BubbleEntry / BubbleExit are NO LONGER deferred (§7.7 ships
+            // in v0.9.1) — the dispatch below handles them via the new
+            // resolver method.
+            if (cand.Source == AnchorSource.CoBubblePeer
                 || cand.Source == AnchorSource.SurfaceContinuous)
             {
                 return false;
@@ -736,6 +742,18 @@ namespace Parsek.Rendering
                     ok = resolver.TryResolveLoopAnchorWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedLoop++;
                     break;
+                case AnchorSource.BubbleEntry:
+                case AnchorSource.BubbleExit:
+                    // §7.7 priority rank 6 means a real OrbitalCheckpoint
+                    // (rank 3) ε always wins on hypothetical collision; in
+                    // practice the candidate emits on the Checkpoint
+                    // segment's own index (Side=Start for BubbleExit,
+                    // Side=End for BubbleEntry) while §7.5 candidates emit
+                    // on the ABSOLUTE neighbour's index, so real collision
+                    // is impossible.
+                    ok = resolver.TryResolveBubbleEntryExitWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
+                    if (ok) resolvedBubble++;
+                    break;
             }
             if (!ok)
             {
@@ -768,9 +786,16 @@ namespace Parsek.Rendering
         /// <see cref="SectionAnnotationStore.TryGetSmoothingSpline"/> →
         /// <see cref="TrajectoryMath.CatmullRomFit.Evaluate"/> →
         /// <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>.
-        /// Returns null when the section has no spline cached or the body
-        /// can't be resolved — caller logs the skip and falls back to
-        /// ε = 0 (reserves the priority slot).
+        /// For OrbitalCheckpoint sections (which never carry a smoothing
+        /// spline) the helper instead evaluates the analytical Kepler
+        /// position via <see cref="TrajectoryMath.FindOrbitSegment"/> +
+        /// <see cref="Orbit.getPositionAtUT"/>; without this dispatch the
+        /// §7.7 BubbleEntry/Exit candidates (which land on the Checkpoint
+        /// segment's index) would always fall through to "no spline" and
+        /// the propagator would never compute a real correction.
+        /// Returns null when the section has no spline / no checkpoint or
+        /// the body can't be resolved — caller logs the skip and falls
+        /// back to ε = 0 (reserves the priority slot).
         /// </summary>
         private static Vector3d? TryEvaluateSmoothedWorldPos(
             Recording rec, int sectionIndex, double ut,
@@ -781,6 +806,24 @@ namespace Parsek.Rendering
 
             if (rec == null || rec.TrackSections == null) return null;
             if (sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count) return null;
+
+            TrackSection section = rec.TrackSections[sectionIndex];
+
+            // OrbitalCheckpoint sections have no spline by construction —
+            // resolve via the analytical Kepler propagation instead. This
+            // is the path §7.7 BubbleEntry/Exit candidates take (they land
+            // on the Checkpoint segment's own index, where the Kepler
+            // segment is the "smoothed" reference). The shared helper
+            // covers the partial-last-checkpoint endpoint-fallback case
+            // that previously left ε = 0 when the candidate UT equalled
+            // the section's endUT but the last sampled checkpoint's
+            // endUT was a hair below — see TrajectoryMath.EvaluateOrbitSegmentAtUT.
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                return TrajectoryMath.EvaluateOrbitSegmentAtUT(
+                    section.checkpoints, ut, ResolveBody);
+            }
+
             if (!SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
                 || !spline.IsValid)
             {

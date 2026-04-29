@@ -74,6 +74,18 @@ namespace Parsek.Tests.Rendering
             return s;
         }
 
+        // §7.7 helper: section with explicit data provenance. The default
+        // MakeSection always tags TrackSectionSource.Active; BubbleEntry/Exit
+        // tests need Background and Checkpoint variants too.
+        private static TrackSection MakeSectionWithSource(
+            ReferenceFrame frame, SegmentEnvironment env, TrackSectionSource source,
+            double startUT, double endUT, string body = "Kerbin")
+        {
+            var s = MakeSection(frame, env, startUT, endUT, body);
+            s.source = source;
+            return s;
+        }
+
         private static Recording MakeRecording(string id, params TrackSection[] sections)
         {
             var rec = new Recording { RecordingId = id, VesselName = "test-" + id };
@@ -223,6 +235,221 @@ namespace Parsek.Tests.Rendering
             Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr));
             Assert.Contains(arr, c => c.Source == AnchorSource.SoiTransition && c.Side == AnchorSide.End);
             Assert.DoesNotContain(arr, c => c.Source == AnchorSource.OrbitalCheckpoint);
+        }
+
+        // --- §7.7 BubbleEntry / BubbleExit ---------------------------------
+
+        [Fact]
+        public void EmitsBubbleExit_OnActiveToCheckpointTransition()
+        {
+            // Active section followed by Checkpoint section: BubbleExit
+            // candidate at the boundary UT, lands on the Checkpoint
+            // segment's index (i+1) with Side=Start.
+            var rec = MakeRecording("rec-bubble-exit",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            // Candidate lands on section 1 (the Checkpoint segment).
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 1, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleExit
+                && c.Side == AnchorSide.Start && c.UT == 50.0);
+
+            // Section 0 (Active side) should NOT have a Bubble candidate.
+            if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr0))
+            {
+                Assert.DoesNotContain(arr0, c => c.Source == AnchorSource.BubbleExit
+                    || c.Source == AnchorSource.BubbleEntry);
+            }
+        }
+
+        [Fact]
+        public void EmitsBubbleEntry_OnCheckpointToActiveTransition()
+        {
+            // Checkpoint section followed by Active section: BubbleEntry
+            // candidate on the Checkpoint segment's index (i) with Side=End.
+            var rec = MakeRecording("rec-bubble-entry",
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            // Candidate lands on section 0 (the Checkpoint segment).
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleEntry
+                && c.Side == AnchorSide.End && c.UT == 50.0);
+        }
+
+        [Fact]
+        public void EmitsBubbleExit_OnBackgroundToCheckpointTransition()
+        {
+            // Background source counts as physics-active for §7.7 purposes.
+            var rec = MakeRecording("rec-bg-bubble-exit",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Background, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 1, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleExit
+                && c.Side == AnchorSide.Start);
+        }
+
+        [Fact]
+        public void EmitsBubbleEntry_OnCheckpointToBackgroundTransition()
+        {
+            var rec = MakeRecording("rec-bubble-entry-bg",
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Background, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleEntry
+                && c.Side == AnchorSide.End);
+        }
+
+        [Fact]
+        public void RecordingStartsWithCheckpoint_NoBubbleEntry()
+        {
+            // No prior physics-active section to read a "first" sample
+            // from — emitter must not produce a phantom BubbleEntry.
+            var rec = MakeRecording("rec-starts-checkpoint",
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 0, 50));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr))
+            {
+                Assert.DoesNotContain(arr, c => c.Source == AnchorSource.BubbleEntry
+                    || c.Source == AnchorSource.BubbleExit);
+            }
+        }
+
+        [Fact]
+        public void RecordingEndsWithCheckpoint_BubbleExitOnly_NoTrailingBubbleEntry()
+        {
+            // §7.7 emits BubbleExit at Active→Checkpoint transitions; this
+            // recording has the transition (so a BubbleExit DOES land on
+            // the Checkpoint segment), but no further section follows it
+            // so no second BubbleEntry is emitted at the very end.
+            var rec = MakeRecording("rec-ends-checkpoint",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            // BubbleExit should be present at the start of the Checkpoint
+            // segment, but no BubbleEntry at the END of it (no following
+            // physics-active section).
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 1, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleExit
+                && c.Side == AnchorSide.Start);
+            Assert.DoesNotContain(arr, c => c.Source == AnchorSource.BubbleEntry);
+        }
+
+        [Fact]
+        public void AdjacentActiveActive_NoBubbleCandidate()
+        {
+            // Two physics-active sections (no Checkpoint involvement) must
+            // produce no §7.7 candidate.
+            var rec = MakeRecording("rec-active-active",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            for (int i = 0; i < 2; i++)
+            {
+                if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, i, out var arr))
+                {
+                    Assert.DoesNotContain(arr, c => c.Source == AnchorSource.BubbleEntry
+                        || c.Source == AnchorSource.BubbleExit);
+                }
+            }
+        }
+
+        [Fact]
+        public void AdjacentCheckpointCheckpoint_NoBubbleCandidate()
+        {
+            // Two Checkpoint sections back-to-back: same source class,
+            // no transition.
+            var rec = MakeRecording("rec-ck-ck",
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            for (int i = 0; i < 2; i++)
+            {
+                if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, i, out var arr))
+                {
+                    Assert.DoesNotContain(arr, c => c.Source == AnchorSource.BubbleEntry
+                        || c.Source == AnchorSource.BubbleExit);
+                }
+            }
+        }
+
+        [Fact]
+        public void AdjacentBackgroundActive_NoBubbleCandidate()
+        {
+            // Both physics-active (same source class) — no §7.7 candidate.
+            var rec = MakeRecording("rec-bg-active",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Background, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 50, 100));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            for (int i = 0; i < 2; i++)
+            {
+                if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, i, out var arr))
+                {
+                    Assert.DoesNotContain(arr, c => c.Source == AnchorSource.BubbleEntry
+                        || c.Source == AnchorSource.BubbleExit);
+                }
+            }
+        }
+
+        [Fact]
+        public void Sandwiched_ActiveCheckpointActive_EmitsBothBubbleEntryAndExit()
+        {
+            // Active → Checkpoint → Active produces a BubbleExit on the
+            // Checkpoint segment's Start side AND a BubbleEntry on the
+            // same Checkpoint segment's End side. Both candidates land on
+            // section 1.
+            var rec = MakeRecording("rec-sandwich",
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 0, 50),
+                MakeSectionWithSource(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Checkpoint, 50, 100),
+                MakeSectionWithSource(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic,
+                    TrackSectionSource.Active, 100, 150));
+
+            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
+
+            Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 1, out var arr));
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleExit
+                && c.Side == AnchorSide.Start && c.UT == 50.0);
+            Assert.Contains(arr, c => c.Source == AnchorSource.BubbleEntry
+                && c.Side == AnchorSide.End && c.UT == 100.0);
         }
 
         // --- §7.9 SurfaceContinuous marker --------------------------------

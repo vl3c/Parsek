@@ -132,6 +132,80 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 6 §7.5 / §7.7 shared helper. Evaluates a body-relative
+        /// world position from an OrbitSegment list at the supplied UT.
+        /// When <paramref name="ut"/> falls within a segment, propagates
+        /// that segment's Kepler. When <paramref name="ut"/> is past the
+        /// last segment's endUT (or before the first segment's startUT),
+        /// falls back to the nearest endpoint segment so a partial last
+        /// or first checkpoint doesn't silently produce a null result —
+        /// this is the §7.7 BubbleEntry case where the candidate UT
+        /// equals the Checkpoint section's endUT but the last sampled
+        /// checkpoint's endUT is a hair below that, AND the §7.5 case
+        /// where the boundary UT sits at the Checkpoint section's start
+        /// or end UT but the first/last sampled checkpoint covers a
+        /// slightly narrower range.
+        ///
+        /// <para>
+        /// Returns <c>null</c> on any of: null/empty checkpoint list,
+        /// null body resolver, body resolver returning null for the
+        /// segment's bodyName, <c>Orbit.getPositionAtUT</c> throwing,
+        /// or NaN/Inf result. Callers treat null as a fail-closed
+        /// signal (HR-9 visible failure on the call site).
+        /// </para>
+        ///
+        /// <para>
+        /// Body resolution goes through the supplied delegate so
+        /// xUnit can inject a fake <see cref="CelestialBody"/> via
+        /// <see cref="Parsek.Rendering.AnchorPropagator.BodyResolverForTesting"/>
+        /// or the equivalent test seam, while production passes a
+        /// <c>FlightGlobals.Bodies</c> lookup.
+        /// </para>
+        /// </summary>
+        internal static Vector3d? EvaluateOrbitSegmentAtUT(
+            List<OrbitSegment> checkpoints,
+            double ut,
+            Func<string, CelestialBody> bodyResolver)
+        {
+            if (checkpoints == null || checkpoints.Count == 0) return null;
+            if (bodyResolver == null) return null;
+
+            OrbitSegment? maybeSeg = FindOrbitSegment(checkpoints, ut);
+            if (!maybeSeg.HasValue)
+            {
+                // Endpoint fallback: pick the segment on the side of the
+                // checkpoint range that the UT lies past. FindOrbitSegment
+                // returns null only when ut < checkpoints[0].startUT OR
+                // ut > checkpoints[Count-1].endUT, so the boundary check
+                // disambiguates which endpoint to use.
+                if (ut <= checkpoints[0].startUT)
+                    maybeSeg = checkpoints[0];
+                else
+                    maybeSeg = checkpoints[checkpoints.Count - 1];
+            }
+            OrbitSegment seg = maybeSeg.Value;
+
+            CelestialBody body = bodyResolver(seg.bodyName);
+            if (object.ReferenceEquals(body, null)) return null;
+
+            try
+            {
+                Orbit orbit = new Orbit(
+                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+                Vector3d pos = orbit.getPositionAtUT(ut);
+                if (double.IsNaN(pos.x) || double.IsNaN(pos.y) || double.IsNaN(pos.z))
+                    return null;
+                return pos;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Pure: returns true when two orbit segments represent the same underlying orbit
         /// for map-display continuity purposes. Epoch and mean anomaly are intentionally
         /// ignored because the same orbit can be serialized at different times.
