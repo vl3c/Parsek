@@ -230,6 +230,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RegularEntry_OnTimelineDataChangedReentry_DoesNotCorrupt()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 250f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            double referenceFunds = LedgerOrchestrator.Funds.GetAvailableFunds();
+
+            LedgerOrchestrator.ResetForTesting();
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 250f
+            });
+
+            int callbackCount = 0;
+            bool nestedWalkRan = false;
+            LedgerOrchestrator.OnTimelineDataChanged += () =>
+            {
+                callbackCount++;
+                if (nestedWalkRan)
+                    return;
+
+                nestedWalkRan = true;
+                LedgerOrchestrator.RecalculateAndPatch();
+            };
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.True(nestedWalkRan);
+            Assert.Equal(2, callbackCount);
+            Assert.Equal(referenceFunds, LedgerOrchestrator.Funds.GetAvailableFunds(), 3);
+        }
+
+        [Fact]
         public void RecalculateAndPatch_InitializesIfNotYetDone()
         {
             // Don't call Initialize() explicitly

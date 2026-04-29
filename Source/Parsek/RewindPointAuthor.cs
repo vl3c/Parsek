@@ -112,6 +112,17 @@ namespace Parsek
                 return null;
             }
 
+            // Finalize the context before the RP is built so focus-slot
+            // capture can use the same injected flight-globals provider and
+            // recording resolver as the deferred PID-map population.
+            var ctx = context ?? new RewindPointAuthorContext();
+            if (ctx.FlightGlobals == null) ctx.FlightGlobals = FlightGlobalsProvider.Default;
+            if (ctx.SaveAction == null) ctx.SaveAction = DefaultSaveAction;
+            if (ctx.ScenePathsProvider == null) ctx.ScenePathsProvider = DefaultScenePaths.Instance;
+            if (ctx.TimeWarp == null) ctx.TimeWarp = DefaultTimeWarpProvider.Instance;
+            if (ctx.Scenario == null) ctx.Scenario = scenario;
+            if (ctx.SaveRootProvider == null) ctx.SaveRootProvider = DefaultSaveRootProvider.Instance;
+
             var rp = new RewindPoint
             {
                 RewindPointId = rpId,
@@ -120,6 +131,7 @@ namespace Parsek
                 CreatedRealTime = DateTime.UtcNow.ToString("o"),
                 QuicksaveFilename = $"Parsek/RewindPoints/{rpId}.sfs",
                 ChildSlots = childSlots,
+                FocusSlotIndex = ResolveFocusSlotIndex(childSlots, ctx.RecordingResolver, ctx.FlightGlobals),
                 SessionProvisional = true,
                 Corrupted = false,
                 // If a re-fly session is active, the RP is speculative within that session context.
@@ -140,18 +152,8 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"RewindPoint begin: rp={rpId} bp={branchPoint.Id} slots={childSlots.Count} " +
                 $"controllablePids={(controllableChildPids?.Count ?? 0)} " +
+                $"focusSlot={rp.FocusSlotIndex} " +
                 $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
-
-            // Finalize the context the coroutine will use. We capture the
-            // flight-globals provider + the recording resolver here so unit tests
-            // can inject fakes without racing the coroutine start.
-            var ctx = context ?? new RewindPointAuthorContext();
-            if (ctx.FlightGlobals == null) ctx.FlightGlobals = FlightGlobalsProvider.Default;
-            if (ctx.SaveAction == null) ctx.SaveAction = DefaultSaveAction;
-            if (ctx.ScenePathsProvider == null) ctx.ScenePathsProvider = DefaultScenePaths.Instance;
-            if (ctx.TimeWarp == null) ctx.TimeWarp = DefaultTimeWarpProvider.Instance;
-            if (ctx.Scenario == null) ctx.Scenario = scenario;
-            if (ctx.SaveRootProvider == null) ctx.SaveRootProvider = DefaultSaveRootProvider.Instance;
 
             // Test seam: run deferred body synchronously when tests have installed a hook.
             if (SyncRunForTesting != null)
@@ -402,6 +404,47 @@ namespace Parsek
                 }
             }
             return null;
+        }
+
+        internal static int ResolveFocusSlotIndex(
+            List<ChildSlot> childSlots,
+            Func<string, uint?> resolver,
+            IFlightGlobalsProvider flightGlobals)
+        {
+            if (childSlots == null || childSlots.Count == 0)
+                return -1;
+            if (flightGlobals == null)
+                return -1;
+
+            uint? activePid = flightGlobals.GetActiveVesselPid();
+            if (!activePid.HasValue || activePid.Value == 0u)
+                return -1;
+
+            int firstMatch = -1;
+            int matches = 0;
+            for (int i = 0; i < childSlots.Count; i++)
+            {
+                var slot = childSlots[i];
+                uint? slotPid = ResolveSlotVesselPid(slot, resolver);
+                if (slotPid.HasValue && slotPid.Value == activePid.Value)
+                {
+                    if (firstMatch < 0)
+                        firstMatch = i;
+                    matches++;
+                }
+            }
+
+            if (matches > 1)
+            {
+                ParsekLog.Verbose("Rewind",
+                    $"ResolveFocusSlotIndex: activePid={activePid.Value} matched {matches} slots; " +
+                    $"using first slot={firstMatch}");
+            }
+
+            if (firstMatch >= 0)
+                return firstMatch;
+
+            return -1;
         }
 
         private static void RollbackBegin(RewindPoint rp, BranchPoint branchPoint, ParsekScenario scenario)

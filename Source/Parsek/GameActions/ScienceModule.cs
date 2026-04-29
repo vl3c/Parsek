@@ -99,9 +99,10 @@ namespace Parsek
         /// <paramref name="walkNowUT"/> is unused — the engine has already applied any UT
         /// cutoff to <paramref name="actions"/> before PrePass runs.
         /// </remarks>
-        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+        public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             ComputeTotalSpendings(actions);
+            return false;
         }
 
         /// <summary>

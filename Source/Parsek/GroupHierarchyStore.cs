@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -178,6 +179,116 @@ namespace Parsek
             }
         }
 
+        internal static int PruneUnusedHierarchyEntriesFromCommittedRecordings(string reason)
+        {
+            // [ERS-exempt] reason: this is a cleanup pass for the raw
+            // persisted group hierarchy. It must inspect all committed rows,
+            // then explicitly subtract relation-superseded ids so the
+            // hierarchy matches the recordings table's display-effective group
+            // membership without losing NotCommitted management rows.
+            var committed = RecordingStore.CommittedRecordings;
+            var scenario = ParsekScenario.Instance;
+            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+
+            var liveGroupNames = new HashSet<string>(StringComparer.Ordinal);
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null)
+                        continue;
+                    if (!string.IsNullOrEmpty(rec.RecordingId)
+                        && relationSupersededIds.Contains(rec.RecordingId))
+                        continue;
+                    if (rec.RecordingGroups == null)
+                        continue;
+                    for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                    {
+                        string groupName = rec.RecordingGroups[g];
+                        if (!string.IsNullOrEmpty(groupName))
+                            liveGroupNames.Add(groupName);
+                    }
+                }
+            }
+
+            return PruneUnusedHierarchyEntries(liveGroupNames, reason);
+        }
+
+        internal static int PruneUnusedHierarchyEntries(
+            IReadOnlyCollection<string> liveGroupNames,
+            string reason)
+        {
+            if ((groupParents == null || groupParents.Count == 0)
+                && (hiddenGroups == null || hiddenGroups.Count == 0))
+                return 0;
+
+            var keep = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>();
+            if (liveGroupNames != null)
+            {
+                foreach (var groupName in liveGroupNames)
+                {
+                    if (string.IsNullOrEmpty(groupName))
+                        continue;
+                    if (keep.Add(groupName))
+                        queue.Enqueue(groupName);
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                string current = queue.Dequeue();
+                string parent;
+                if (!groupParents.TryGetValue(current, out parent))
+                    continue;
+                if (string.IsNullOrEmpty(parent))
+                    continue;
+                if (keep.Add(parent))
+                    queue.Enqueue(parent);
+            }
+
+            var staleChildren = new List<string>();
+            foreach (var kvp in groupParents)
+            {
+                if (!keep.Contains(kvp.Key) || !keep.Contains(kvp.Value))
+                    staleChildren.Add(kvp.Key);
+            }
+
+            for (int i = 0; i < staleChildren.Count; i++)
+                groupParents.Remove(staleChildren[i]);
+
+            int hiddenRemoved = 0;
+            if (hiddenGroups != null && hiddenGroups.Count > 0)
+            {
+                var staleHidden = new List<string>();
+                foreach (var groupName in hiddenGroups)
+                {
+                    if (!keep.Contains(groupName))
+                        staleHidden.Add(groupName);
+                }
+
+                for (int i = 0; i < staleHidden.Count; i++)
+                {
+                    if (hiddenGroups.Remove(staleHidden[i]))
+                        hiddenRemoved++;
+                }
+            }
+
+            int removed = staleChildren.Count + hiddenRemoved;
+            if (removed > 0)
+            {
+                ParsekLog.Info("GroupHierarchy",
+                    $"Pruned stale group hierarchy reason={reason ?? "<none>"} " +
+                    $"hierarchyEntries={staleChildren.Count} hiddenGroups={hiddenRemoved} " +
+                    $"liveGroups={keep.Count}");
+            }
+
+            return removed;
+        }
+
         /// <summary>
         /// Removes a group from the hierarchy. Promotes its children to root-level.
         /// </summary>
@@ -290,6 +401,8 @@ namespace Parsek
         /// </summary>
         internal static void SaveInto(ConfigNode node)
         {
+            PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
+
             if (groupParents.Count > 0)
             {
                 ConfigNode hierarchyNode = node.AddNode("GROUP_HIERARCHY");

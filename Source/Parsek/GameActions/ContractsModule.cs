@@ -66,10 +66,10 @@ namespace Parsek
         /// heuristic — correct for non-rewind walks where the end of the ledger is
         /// effectively the current time).
         /// </remarks>
-        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+        public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             if (actions == null || actions.Count == 0)
-                return;
+                return false;
 
             // Track accepted contracts with deadlines: contractId -> accept action
             var tracked = new Dictionary<string, GameAction>();
@@ -142,6 +142,8 @@ namespace Parsek
                     $"PrePass: no expired deadline contracts found " +
                     $"(tracked={tracked.Count}, nowUT={nowUT}, source={nowSource})");
             }
+
+            return injected > 0;
         }
 
         /// <inheritdoc/>

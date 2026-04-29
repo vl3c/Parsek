@@ -64,13 +64,16 @@ namespace Parsek.Tests
         private sealed class FakeFlightGlobals : IFlightGlobalsProvider
         {
             private readonly Dictionary<uint, VesselSnapshot> snapshots;
-            public FakeFlightGlobals(Dictionary<uint, VesselSnapshot> snapshots)
+            private readonly uint? activeVesselPid;
+            public FakeFlightGlobals(Dictionary<uint, VesselSnapshot> snapshots, uint? activeVesselPid = null)
             {
                 this.snapshots = snapshots ?? new Dictionary<uint, VesselSnapshot>();
+                this.activeVesselPid = activeVesselPid;
             }
             public Vessel FindVesselByPid(uint pid) => null;
             public bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot)
                 => snapshots.TryGetValue(pid, out snapshot);
+            public uint? GetActiveVesselPid() => activeVesselPid;
         }
 
         /// <summary>

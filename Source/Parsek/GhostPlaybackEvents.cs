@@ -14,7 +14,8 @@ namespace Parsek
         ParentLoopPaused = 7,
         WarpHidden = 8,
         VisualLoadFailed = 9,
-        SessionSuppressed = 10
+        SessionSuppressed = 10,
+        SupersededByRelation = 11
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -45,6 +46,8 @@ namespace Parsek
                     return "visual-load-failed";
                 case GhostPlaybackSkipReason.SessionSuppressed:
                     return "session-suppressed";
+                case GhostPlaybackSkipReason.SupersededByRelation:
+                    return "superseded-by-relation";
                 default:
                     return "unknown";
             }
@@ -66,6 +69,7 @@ namespace Parsek
         public int playbackDisabled;
         public int externalVesselSuppressed;
         public int sessionSuppressed;
+        public int supersededByRelation;
         public int active;
     }
 
