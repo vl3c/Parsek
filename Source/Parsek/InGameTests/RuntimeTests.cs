@@ -14305,9 +14305,9 @@ namespace Parsek.InGameTests
                 "OutlierFlags entry not stored for recording with kraken sample");
             InGameAssert.IsTrue(flags.RejectedCount >= 1,
                 "OutlierFlags.RejectedCount " + flags.RejectedCount + " expected >= 1");
-            // SampleCount is set by the classifier on creation (the load path
-            // backfills it from frames; here it's set directly by Classify).
-            flags.SampleCount = sampleCount;
+            // SampleCount is set by Classify on creation; no need to backfill
+            // here (the LoadOrCompute install path is the only consumer that
+            // needs the backfill, since the .pann reader does not persist it).
             InGameAssert.IsTrue(flags.IsRejected(krakenIndex),
                 "Kraken sample " + krakenIndex + " not in rejected bitmap");
 
@@ -14360,16 +14360,29 @@ namespace Parsek.InGameTests
                 + " sampleCount=" + sampleCount
                 + " rejectedCount=" + flags.RejectedCount);
 
-            // The spline must be much closer to the neighbour midpoint than
-            // to the kraken sample. A 5x ratio is conservative; the kraken
-            // sample is ~5500 km from its neighbours (50° lat jump), while
-            // the spline-vs-midpoint should be sub-km.
+            // The spline must (a) sit close to the neighbour midpoint in
+            // absolute terms — a healthy implementation gives sub-km
+            // residual where Catmull-Rom's bow over a single skip is well
+            // under the 10 km bound — AND (b) be far from the kraken sample
+            // in relative terms (5x ratio). The dual gate catches both
+            // "spline tracks kraken" (ratio fails) and "spline blew up to
+            // some other large offset" (absolute fails). The kraken sample
+            // is ~5500 km from its neighbours (50° lat jump).
+            InGameAssert.IsTrue(residualToMid < 10_000.0,
+                "Spline-vs-neighbour-midpoint residual "
+                + residualToMid.ToString("F1", CultureInfo.InvariantCulture)
+                + " m exceeds 10 km absolute bound — spline is not tracking "
+                + "the cleaned interpolant");
             InGameAssert.IsTrue(residualToKraken > residualToMid * 5.0,
                 "Spline deflected toward kraken sample: residualToKraken="
                 + residualToKraken.ToString("F1", CultureInfo.InvariantCulture) + "m"
                 + " vs residualToMid="
                 + residualToMid.ToString("F1", CultureInfo.InvariantCulture) + "m");
 
+            // Clear test seams so subsequent in-game tests in the same
+            // session start from a clean slate; ResetForTesting clears
+            // BodyResolverForTesting and UseOutlierRejectionResolverForTesting
+            // alongside the dedup sets.
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();
             yield break;

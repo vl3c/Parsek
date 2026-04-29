@@ -1252,6 +1252,11 @@ namespace Parsek.Rendering
                 failureReason = "section-not-absolute";
                 return false;
             }
+            // TODO(Phase 8 follow-up): outlier-aware boundary search.
+            // Reads recordedWorld via TryFindFirstPointAtOrAfter on a flat
+            // Recording.Points list; if that sample is rejected by
+            // OutlierClassifier the propagator computes ε from a kraken
+            // sample. See docs/dev/todo-and-known-bugs.md "Phase 8 follow-ups".
             if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out TrajectoryPoint sample))
             {
                 failureReason = "no-sample";

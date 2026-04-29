@@ -174,6 +174,36 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0, flags.RejectedCount);
         }
 
+        [Fact]
+        public void OutlierClassifier_BubbleRadius_PolarKraken_DetectsLongitudeFlip()
+        {
+            // Regression for P2-2: the previous flat-earth approximation
+            // (Δlon × R × cos(meanLat)) collapsed to ≈ 0 at the poles
+            // because cos(±89°) ≈ 0.0175. A 180° longitude flip at lat
+            // ±89° still represents a real >2× radius arc near the pole;
+            // haversine catches it. Without the haversine fix, this test
+            // fails because the classifier underestimates the horizontal
+            // component to a few hundred metres and the bubble cap (2500 m)
+            // never trips.
+            var frames = new List<TrajectoryPoint>
+            {
+                MakePoint(100, 89.0, 0.0, 80000),
+                MakePoint(101, 89.0, 1.0, 80000),
+                MakePoint(102, 89.0, 181.0, 80000), // 180° longitude flip at ~pole
+                MakePoint(103, 89.0, 182.0, 80000),
+                MakePoint(104, 89.0, 183.0, 80000),
+                MakePoint(105, 89.0, 184.0, 80000),
+            };
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
+            var rec = MakeRecording("rec-polar", sec);
+            CelestialBody capturedKerbin = fakeKerbin;
+            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
+                name => name == "Kerbin" ? capturedKerbin : null);
+            Assert.True(flags.IsRejected(2),
+                "Polar 180° longitude flip should trip the bubble-radius cap (haversine math)");
+            Assert.True((flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.BubbleRadius) != 0);
+        }
+
         // ----- altitude -----
 
         [Fact]
@@ -357,6 +387,29 @@ namespace Parsek.Tests.Rendering
                 name => name == "Kerbin" ? capturedKerbin : null);
             Assert.Equal(0, flags.RejectedCount);
             Assert.Equal(0, flags.ClassifierMask);
+        }
+
+        [Fact]
+        public void OutlierClassifier_RelativeFrame_EmitsNoSectionSummary()
+        {
+            // P2-3: ineligible-section early returns (RELATIVE /
+            // OrbitalCheckpoint / null frames) MUST NOT emit the per-section
+            // Info summary because no classifier actually ran. A misleading
+            // "rejectedCount=0" line would suggest the section was inspected
+            // when it wasn't. Production never reaches this path —
+            // SmoothingPipeline.ShouldFitSection gates these out before
+            // Classify is called.
+            var frames = new List<TrajectoryPoint>();
+            for (int i = 0; i < 6; i++)
+                frames.Add(MakePoint(100 + i, 100 + i * 5, 200 + i * 5, 50 + i));
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Relative, frames);
+            var rec = MakeRecording("rec-rel-nolog", sec);
+            CelestialBody capturedKerbin = fakeKerbin;
+            OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
+                name => name == "Kerbin" ? capturedKerbin : null);
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO][Pipeline-Outlier]")
+                && l.Contains("Per-section rejection summary")
+                && l.Contains("recordingId=rec-rel-nolog"));
         }
 
         // ----- non-monotonic UT -----

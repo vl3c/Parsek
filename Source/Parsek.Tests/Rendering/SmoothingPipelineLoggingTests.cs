@@ -388,5 +388,98 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("pannPresent=")
                 && l.Contains("degradedFeatures=[]"));
         }
+
+        // --- Phase 8 Pipeline-Outlier (P3-2) ---
+
+        private static List<TrajectoryPoint> MakeKrakenClusterFrames(int count, double startUT)
+        {
+            // Alternating velocities so every interior delta trips the
+            // Acceleration ceiling — gives ~4 of 12 = 33% rejection rate,
+            // > 0.20 ClusterRateThreshold so the Cluster Warn fires.
+            var frames = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 vel = (i % 2 == 0)
+                    ? new Vector3(10f, 0f, 0f)
+                    : new Vector3(50000f + i, 0f, 0f);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i,
+                    latitude = 0.001 * i,
+                    longitude = 0.001 * i,
+                    altitude = 80000,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+            return frames;
+        }
+
+        private static Recording MakeKrakenRecording(string id, int sampleCount = 12)
+        {
+            var section = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 100.0 + sampleCount - 1,
+                anchorVesselId = 0,
+                frames = MakeKrakenClusterFrames(sampleCount, 100.0),
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            };
+            var rec = new Recording
+            {
+                RecordingId = id,
+                RecordingFormatVersion = 8,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(section);
+            return rec;
+        }
+
+        [Fact]
+        public void Outlier_ClusterWarn_DedupedAcrossRecompute()
+        {
+            // P3-2 (plan §10.2): the s_clusterWarnLogged HashSet is the only
+            // mechanism that prevents a flag-flip recompute from re-emitting
+            // the cluster Warn for the same (recordingId, sectionIndex)
+            // tuple. Calling FitAndStorePerSection twice on the same kraken-
+            // injected fixture must produce exactly ONE Warn line in total.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = MakeKrakenRecording("rec-cluster-dedup");
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            int warnsAfterFirst = logLines.FindAll(l =>
+                l.Contains("[WARN][Pipeline-Outlier]")
+                && l.Contains("Cluster threshold exceeded")
+                && l.Contains("recordingId=rec-cluster-dedup")).Count;
+            Assert.Equal(1, warnsAfterFirst);
+
+            // Recompute on the same recording — Warn must NOT re-fire.
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            int warnsAfterSecond = logLines.FindAll(l =>
+                l.Contains("[WARN][Pipeline-Outlier]")
+                && l.Contains("Cluster threshold exceeded")
+                && l.Contains("recordingId=rec-cluster-dedup")).Count;
+            Assert.Equal(1, warnsAfterSecond);
+        }
+
+        [Fact]
+        public void Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection()
+        {
+            // HR-9 visibility: a section that produced zero rejections still
+            // emits the per-section summary so the path is visibly run from
+            // KSP.log.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = MakeRecording("rec-clean-info"); // smooth fixture, no krakens
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Outlier]")
+                && l.Contains("Per-section rejection summary")
+                && l.Contains("recordingId=rec-clean-info")
+                && l.Contains("rejectedCount=0"));
+        }
     }
 }

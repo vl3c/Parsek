@@ -139,15 +139,18 @@ namespace Parsek.Rendering
             // HR-7 short-circuit: RELATIVE sections store metre-offsets in
             // latitude/longitude/altitude (not body-fixed lat/lon/alt — see
             // .claude/CLAUDE.md "Rotation / world frame"); OrbitalCheckpoint
-            // has no `frames`. The classifier returns an empty result for
-            // both. HR-9: emit the summary line so the path is visibly run.
+            // has no `frames`. Both return an empty result without emitting
+            // the per-section Info summary — the classifier did not actually
+            // run on these sections (all classifiers short-circuited), so a
+            // misleading "rejectedCount=0" line would suggest the section
+            // was inspected when it wasn't. Production never reaches this
+            // path because SmoothingPipeline.ShouldFitSection already gates
+            // RELATIVE / OrbitalCheckpoint out before Classify is called.
             if (section.referenceFrame != ReferenceFrame.Absolute
                 || section.frames == null
                 || section.frames.Count == 0)
             {
                 int sampleCt = section.frames?.Count ?? 0;
-                EmitPerSectionSummary(recordingId, sectionIndex, section.environment,
-                    sampleCt, 0, 0, 0, 0, false, thresholds);
                 return new OutlierFlags
                 {
                     SectionIndex = sectionIndex,
@@ -178,7 +181,26 @@ namespace Parsek.Rendering
             CelestialBody body = null;
             if (bodyResolver != null && !string.IsNullOrEmpty(sectionBodyName))
             {
-                try { body = bodyResolver(sectionBodyName); } catch { body = null; }
+                try
+                {
+                    body = bodyResolver(sectionBodyName);
+                }
+                catch (Exception ex)
+                {
+                    // HR-9 visibility: surface the swallowed exception so a
+                    // degenerate FlightGlobals state (e.g. mid-load Bodies
+                    // mutation) is diagnosable from KSP.log instead of
+                    // silently skipping the altitude classifier for the
+                    // whole section. Rate-limited so a save with many bad
+                    // bodyNames cannot spam. Mirrors SmoothingPipeline.ResolveBody.
+                    ParsekLog.VerboseRateLimited("Pipeline-Outlier",
+                        "classifier-body-resolve-exception",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "body resolver threw for {0}: {1}",
+                            sectionBodyName, ex.GetType().Name),
+                        5.0);
+                    body = null;
+                }
             }
 
             // Per-sample loop. Endpoints (i==0, i==count-1) skip delta-based
@@ -339,23 +361,34 @@ namespace Parsek.Rendering
         private static double ComputePositionDeltaMagnitude(
             TrajectoryPoint prev, TrajectoryPoint cur, CelestialBody body)
         {
-            // Geographic-distance approximation in metres. Body radius is the
-            // arc-length scale for lat / lon deltas; altitude contributes
-            // directly. Falls back to a flat ~60 km/deg approximation when
-            // body is missing (test harnesses without a CelestialBody) so a
-            // gross kraken teleport (50° lat jump) still trips the
-            // bubble-radius cap.
+            // Haversine great-circle distance in metres + altitude delta.
+            // Plan §1.3 specifies a single-tick position-delta cap; the
+            // earlier flat-earth approximation (Δlat × R, Δlon × R × cos(meanLat))
+            // collapsed at the poles where cos(meanLat) → 0, letting a polar
+            // longitude flip register near-zero horizontal distance.
+            // Haversine is singularity-free across the full sphere.
+            //
+            // Body radius is the arc-length scale; falls back to ~Kerbin
+            // (~600 km equivalent OOM) when body is missing (test harnesses
+            // without a CelestialBody) so a gross kraken teleport still
+            // trips the bubble-radius cap.
             double radius = (!object.ReferenceEquals(body, null) && body.Radius > 0)
                 ? body.Radius
-                : 60_000.0 * 180.0 / Math.PI; // ~60 km/deg → R_eff ≈ 3.43e6, in the same OOM as Kerbin.
-            // Convert lat/lon degrees to radians for the surface-arc estimate.
+                : 600_000.0; // Kerbin-OOM fallback for test harnesses.
             double dLatRad = (cur.latitude - prev.latitude) * Math.PI / 180.0;
-            double meanLatRad = (cur.latitude + prev.latitude) * 0.5 * Math.PI / 180.0;
             double dLonRad = (cur.longitude - prev.longitude) * Math.PI / 180.0;
-            double dLatM = dLatRad * radius;
-            double dLonM = dLonRad * radius * Math.Cos(meanLatRad);
+            double prevLatRad = prev.latitude * Math.PI / 180.0;
+            double curLatRad = cur.latitude * Math.PI / 180.0;
+            double sinHalfDLat = Math.Sin(dLatRad / 2.0);
+            double sinHalfDLon = Math.Sin(dLonRad / 2.0);
+            double a = sinHalfDLat * sinHalfDLat
+                + Math.Cos(prevLatRad) * Math.Cos(curLatRad) * sinHalfDLon * sinHalfDLon;
+            // Clamp `a` to [0, 1] to keep Asin numerically stable against
+            // tiny FP overshoot.
+            if (a < 0.0) a = 0.0; else if (a > 1.0) a = 1.0;
+            double horizontalM = 2.0 * radius * Math.Asin(Math.Sqrt(a));
             double dAltM = cur.altitude - prev.altitude;
-            return Math.Sqrt(dLatM * dLatM + dLonM * dLonM + dAltM * dAltM);
+            return Math.Sqrt(horizontalM * horizontalM + dAltM * dAltM);
         }
 
         private static bool VectorIsZero(Vector3 v)
