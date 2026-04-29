@@ -45,7 +45,10 @@ Seal sets `ChildSlot.Sealed`/`SealedRealTime`, leaves the recording and
 `RewindPointReaper` count a sealed `CommittedProvisional` slot as closed once
 every sibling slot is also closed. Sealed `NotCommitted` slots still block reap.
 The in-game test suite has Seal popup coverage for replacing an already-open
-confirmation dialog plus both confirm/cancel button lock cleanup paths.
+confirmation dialog plus both confirm/cancel button lock cleanup paths. It also
+has a synthetic runtime fixture that validates stable-leaf group membership,
+route resolution, Seal's non-mutating slot close, and last-seal RP reap without
+requiring a hand-authored save.
 
 Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
 in-place merge path may classify an unfinished outcome as
