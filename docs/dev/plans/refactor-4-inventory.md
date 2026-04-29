@@ -1,6 +1,7 @@
 # Refactor-4 Inventory
 
 **Date:** 2026-04-25.
+**Last updated:** 2026-04-29.
 **Worktree:** `Parsek-refactor-4`, branch `refactor-4`.
 **Base:** `3c863ff0` (`main`, after `git pull origin main`, already up to date).
 
@@ -21,9 +22,25 @@ file-level read before code moves.
 | Full test run | `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` ran 8,628 tests, 8,627 passed, 1 failed because `InjectAllRecordings` refused to purge a KSP save while `KSP.log` was locked |
 | Refactor baseline test command while KSP is open | `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter FullyQualifiedName!~InjectAllRecordings` passed 8,625 tests |
 
-Build warning note: the build emits MSB3026/MSB3027/MSB3021 warnings when the
-post-build copy cannot replace the deployed KSP `Parsek.dll`. This matches the
-locked KSP process/log condition above; the build itself succeeds.
+Pass key: Pass 0 is file-level read/inventory; Pass 1 is behavior-neutral
+same-file helper extraction; Pass 2 is owner proposal/scoping; Pass 3 is a
+landed cross-file extraction.
+
+Snapshot policy: Baseline, Directory Size, Largest Production Files, Growth,
+and Large Files Absent From Refactor-3 are frozen at the refactor-4 base
+`3c863ff0` unless a row explicitly says it was updated by a later closeout.
+Detailed-read notes, closure status, and the mechanical method scan track the
+current planning state for this pass. Re-measure the frozen tables only when a
+new inventory pass starts.
+
+Build warning note: the baseline build emitted MSB3026/MSB3027/MSB3021 warnings
+when the post-build copy could not replace the deployed KSP `Parsek.dll`. This
+matched the locked KSP process/log condition above; the build itself succeeded.
+Re-verify this warning shape with a fresh build before publishing a new live
+baseline.
+
+Test-count note: the frozen baseline suite was 8,628 tests. Later validation
+for PR #621 cites 9,261 tests after subsequent test additions.
 
 Closeout note after PR #621: global baseline counts above remain the original
 Pass 0 snapshot. The Pass 3 KSC split leaves
@@ -49,10 +66,10 @@ Pass 0 snapshot. The Pass 3 KSC split leaves
 |------|-------|----------------|
 | `Source/Parsek/ParsekFlight.cs` | 14,503 | Pass1-Done; post-switch auto-record trigger helpers extracted, finalization deferred |
 | `Source/Parsek/GhostVisualBuilder.cs` | 7,193 | Pass1-Deferred; visual-builder split needs owner plan and runtime validation |
-| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,596 | Pass3-Done for KSC classifier/reconciler extraction; earnings-window, vessel-cost, and recalculation helpers remain Pass1-Done |
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
+| `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,596 | Pass3-Done for KSC classifier/reconciler extraction; earnings-window, vessel-cost, and recalculation helpers remain Pass1-Done |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
-| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Deferred; high-coupling IMGUI row/tree split deferred |
+| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Done for formatter owner; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
 | `Source/Parsek/RecordingStore.cs` | 4,350 | Pass2-Done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; tree codec work deferred |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass1-Done; per-frame playback reset helper extracted |
@@ -60,26 +77,26 @@ Pass 0 snapshot. The Pass 3 KSC split leaves
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
 | `Source/Parsek/GhostMapPresence.cs` | 3,408 | Pass1-Done; proto-vessel node helpers extracted |
 | `Source/Parsek/WatchModeController.cs` | 3,197 | Pass1-Done; watch entry helpers extracted |
-| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass1-Deferred; event-handler families need owner map |
+| `Source/Parsek/GameStateRecorder.cs` | 2,004 | Pass3-Done for facility polling owner; remaining event-handler families need owner map |
 | `Source/Parsek/UI/CareerStateWindowUI.cs` | 1,867 | Pass1-Done; `Build` tab view-model helpers extracted |
-| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass1-Deferred; patch-order/reflection/UI mutation split deferred |
+| `Source/Parsek/GameActions/KspStatePatcher.cs` | 1,759 | Pass3-Done for facility patcher; remaining state families deferred |
 | `Source/Parsek/BallisticExtrapolator.cs` | 1,639 | Pass1-Deferred; math/iteration-order split deferred |
 | `Source/Parsek/RecordingOptimizer.cs` | 1,621 | Pass1-Deferred; optimizer identity/order split deferred |
-| `Source/Parsek/RecordingTree.cs` | 971 | Pass2-Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 | `Source/Parsek/TrajectoryTextSidecarCodec.cs` | 1,563 | Pass2-Done; text trajectory ConfigNode codec extracted behind `RecordingStore` wrappers |
 | `Source/Parsek/ParsekKSC.cs` | 1,520 | Pass1-Deferred; KSC/flight playback sharing deferred |
+| `Source/Parsek/RecordingTree.cs` | 971 | Pass2-Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 
 `RecordingTree.cs` remains listed here for pass-tracking continuity even though
 the record-only extraction drops it below the original largest-file threshold.
 
 ## Growth Since Refactor-3 Inventory
 
-These deltas compare files that also existed in
-`docs/dev/done/refactor/refactor-3-inventory.md`.
+These frozen deltas compare the refactor-4 base snapshot against files that
+also existed in `docs/dev/done/refactor/refactor-3-inventory.md`.
 
-| File | Refactor-3 lines | Current lines | Delta |
+| File | Refactor-3 lines | Refactor-4 base lines | Delta |
 |------|------------------|---------------|-------|
-| `LedgerOrchestrator.cs` | 900 | 6,976 | +6,076 |
+| `LedgerOrchestrator.cs` | 900 | 6,596 | +5,696 |
 | `ParsekFlight.cs` | 8,765 | 14,503 | +5,738 |
 | `GhostPlaybackLogic.cs` | 2,589 | 5,343 | +2,754 |
 | `VesselSpawner.cs` | 1,473 | 4,166 | +2,693 |
@@ -151,7 +168,7 @@ central enough that parallel edits would make review and rollback worse.
 | File | Reason |
 |------|--------|
 | `ParsekFlight.cs` | 14.5k-line scene controller, +5.7k since refactor-3 |
-| `LedgerOrchestrator.cs` | 7.0k-line GameActions hub, +6.1k since refactor-3 |
+| `LedgerOrchestrator.cs` | 6.6k-line GameActions hub, +5.7k since refactor-3 |
 | `FlightRecorder.cs` | 6.7k-line sampling/event surface |
 | `GhostPlaybackLogic.cs` | 5.3k-line playback/visual logic helper |
 | `UI/RecordingsTableUI.cs` | 4.9k-line extracted UI surface with prior coupling risk |
@@ -170,22 +187,22 @@ clearly separated by file.
 |------|-------|---------------|
 | `GhostMapPresence.cs` | 3,408 | Done; proto-vessel node helpers extracted |
 | `WatchModeController.cs` | 3,197 | Done; watch entry helpers extracted |
-| `GameStateRecorder.cs` | 2,004 | Deferred; event-handler owner map needed |
+| `GameStateRecorder.cs` | 2,004 | Pass3-Done for facility polling owner; remaining event-handler families need owner map |
 | `UI/CareerStateWindowUI.cs` | 1,867 | Done; tab view-model helpers extracted |
-| `GameActions/KspStatePatcher.cs` | 1,759 | Deferred; state-family patcher proposal needed |
+| `GameActions/KspStatePatcher.cs` | 1,759 | Pass3-Done for facility patcher; remaining state families need owner proposals |
 | `BallisticExtrapolator.cs` | 1,639 | Deferred; math/order sensitive |
 | `RecordingOptimizer.cs` | 1,621 | Deferred; optimizer identity/order sensitive |
 | `RecordingTree.cs` | 971 | Done; record-only codec extracted behind wrappers, branch point serialization and caller migration deferred |
 | `ParsekKSC.cs` | 1,520 | Deferred; KSC/flight playback owner proposal needed |
 | `CrewReservationManager.cs` | 1,447 | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal |
-| `EngineFxBuilder.cs` | 1,367 | Deferred; visual/FX builder work grouped with visual runtime validation |
-| `KerbalsModule.cs` | 1,273 | Deferred; kerbal-state and mission-outcome ownership not a Pass 1 helper target |
-| `ParsekPlaybackPolicy.cs` | 1,268 | Deferred; playback event policy split needs lifecycle owner proposal |
+| `EngineFxBuilder.cs` | 1,367 | Pass 0 read pending; visual/FX builder likely belongs with visual runtime validation |
+| `KerbalsModule.cs` | 1,273 | Pass 0 read pending; kerbal-state and mission-outcome ownership needs classification |
+| `ParsekPlaybackPolicy.cs` | 1,268 | Pass 0 read pending; playback event policy split likely needs lifecycle owner proposal |
 | `UI/TimelineWindowUI.cs` | 1,255 | Deferred; timeline filter/action ownership needed |
 | `RewindInvoker.cs` | 1,218 | Deferred; scene-load checkpoint ownership needed |
-| `VesselGhoster.cs` | 1,190 | Deferred; snapshot/ghost materialization ownership needs a focused proposal |
-| `TrajectorySidecarBinary.cs` | 1,124 | Deferred; binary sidecar codec proposal needed |
-| `Diagnostics/DiagnosticsComputation.cs` | 1,054 | Deferred; diagnostics thresholds/metrics ownership can wait for Pass 2 |
+| `VesselGhoster.cs` | 1,190 | Pass 0 read pending; snapshot/ghost materialization ownership needs classification |
+| `TrajectorySidecarBinary.cs` | 1,124 | Pass 0 read pending; binary sidecar codec ownership needs classification |
+| `Diagnostics/DiagnosticsComputation.cs` | 1,054 | Pass 0 read pending; diagnostics thresholds/metrics ownership needs classification |
 
 ### Tier 3 - Medium New/Changed Files
 
@@ -234,59 +251,69 @@ loops can fool a mechanical scan.
 
 | File | Method | Start line | Lines |
 |------|--------|------------|-------|
-| `BackgroundRecorder.cs` | `HandleBackgroundVesselSplit` | 451 | 179 |
-| `BackgroundRecorder.cs` | `InitializeLoadedState` | 2246 | 147 |
-| `FlightRecorder.cs` | `LogVisualRecordingCoverage` | 2495 | 204 |
-| `LedgerOrchestrator.cs` | `ReconcileEarningsWindow` | 338 | 221 |
-| `LedgerOrchestrator.cs` | `CreateVesselCostActions` | 804 | 148 |
-| `LedgerOrchestrator.cs` | `RecalculateAndPatchCore` | 1421 | 146 |
-| `LedgerOrchestrator.cs` | `MigrateLegacyTreeResources` | 1881 | 199 |
-| `LedgerOrchestrator.cs` | `ClassifyAction` | 4276 | 201 |
-| `LedgerOrchestrator.cs` | `ClassifyPostWalk` | 4844 | 182 |
-| `LedgerOrchestrator.cs` | `ReconcilePostWalk` | 5045 | 120 |
-| `LedgerOrchestrator.cs` | `AggregatePostWalkWindow` | 5798 | 131 |
-| `LedgerOrchestrator.cs` | `NotifyLedgerTreeCommitted` | 6482 | 122 |
-| `GhostMapPresence.cs` | `ResolveMapPresenceGhostSource` | 1135 | 223 |
-| `GhostMapPresence.cs` | `CreateGhostVesselsFromCommittedRecordings` | 2422 | 126 |
-| `GhostMapPresence.cs` | `BuildAndLoadGhostProtoVesselCore` | 3254 | 132 |
-| `GhostPlaybackEngine.cs` | `UpdatePlayback` | 335 | 410 |
-| `GhostPlaybackEngine.cs` | `RenderInRangeGhost` | 750 | 154 |
-| `GhostPlaybackEngine.cs` | `UpdateLoopingPlayback` | 1017 | 224 |
-| `GhostPlaybackEngine.cs` | `UpdateOverlapPlayback` | 1246 | 171 |
-| `GhostPlaybackEngine.cs` | `UpdateReentryFx` | 1991 | 120 |
-| `GhostPlaybackEngine.cs` | `ReusePrimaryGhostAcrossCycle` | 2569 | 136 |
-| `GhostPlaybackEngine.cs` | `TryPopulateGhostVisuals` | 2994 | 200 |
-| `GhostPlaybackLogic.cs` | `PopulateGhostInfoDictionaries` | 992 | 148 |
-| `GhostPlaybackLogic.cs` | `ReapplySpawnTimeModuleBaselinesForLoopCycle` | 1441 | 123 |
-| `GhostPlaybackLogic.cs` | `ApplyPartEvents` | 1712 | 232 |
-| `GhostPlaybackLogic.cs` | `TryGetPendingWatchActivationUT` | 5095 | 132 |
-| `ParsekFlight.cs` | `GetActiveRecordingIdForTagging` | 150 | 120 |
-| `ParsekFlight.cs` | `CapturePostSwitchPartStateTokens` | 5126 | 135 |
-| `ParsekFlight.cs` | `EvaluatePostSwitchAutoRecordTrigger` | 5262 | 155 |
-| `ParsekFlight.cs` | `StartRecording` | 7208 | 130 |
-| `ParsekFlight.cs` | `FinalizeIndividualRecording` | 9064 | 259 |
-| `ParsekFlight.cs` | `CollectNearbySpawnCandidates` | 14162 | 121 |
-| `ParsekScenario.cs` | `LoadRecordingMetadata` | 3660 | 244 |
-| `RecordingStore.cs` | `RunOptimizationPass` | 1912 | 216 |
-| `RecordingStore.cs` | `InitiateRewind` | 3464 | 141 |
-| `RecordingSidecarStore.cs` | `ReconcileReadableSidecarMirrors` | 704 | 119 |
-| `UI/RecordingsTableUI.cs` | `DrawRecordingsTableHeader` | 835 | 136 |
-| `UI/RecordingsTableUI.cs` | `DrawRecordingsWindow` | 1045 | 232 |
-| `UI/RecordingsTableUI.cs` | `DrawRecordingRow` | 1281 | 382 |
-| `UI/RecordingsTableUI.cs` | `DrawGroupTree` | 1740 | 493 |
-| `UI/RecordingsTableUI.cs` | `DrawVirtualUnfinishedFlightsGroup` | 2299 | 209 |
-| `UI/RecordingsTableUI.cs` | `DrawRecordingBlock` | 2895 | 137 |
-| `UI/RecordingsTableUI.cs` | `DrawLoopPeriodCell` | 4430 | 129 |
-| `VesselSpawner.cs` | `SpawnOrRecoverIfTooClose` | 1075 | 308 |
-| `VesselSpawner.cs` | `TryRepairSnapshotBodyProvenance` | 3175 | 144 |
-| `WatchModeController.cs` | `EnterWatchMode` | 1349 | 224 |
+| `BackgroundRecorder.cs` | `HandleBackgroundVesselSplit` | 533 | 157 |
+| `BackgroundRecorder.cs` | `OnBackgroundPhysicsFrame` | 1389 | 163 |
+| `FlightRecorder.cs` | `RestoreTrackSectionAfterFalseAlarm` | 5260 | 150 |
+| `LedgerOrchestrator.cs` | `NotifyLedgerTreeCommitted` | 3201 | 122 |
+| `LedgerLoadMigration.cs` | `MigrateLegacyTreeResources` | 158 | 199 |
+| `PostWalkActionReconciler.cs` | `ClassifyPostWalk` | 91 | 182 |
+| `PostWalkActionReconciler.cs` | `ReconcilePostWalk` | 292 | 120 |
+| `PostWalkActionReconciler.cs` | `AggregatePostWalkWindow` | 975 | 131 |
+| `GameActions/KspStatePatcher.cs` | `PatchRepeatableRecordNode` | 1099 | 120 |
+| `GameActions/KspStatePatcher.cs` | `PatchContracts` | 1343 | 224 |
+| `GhostMapPresence.cs` | `ShouldSuppressStateVectorProtoVesselForActiveReFly` | 822 | 169 |
+| `GhostMapPresence.cs` | `IsRecordingInParentChainOfActiveReFly` | 1236 | 192 |
+| `GhostMapPresence.cs` | `ResolveMapPresenceGhostSource` | 3381 | 373 |
+| `GhostMapPresence.cs` | `RefreshTrackingStationGhosts` | 4461 | 160 |
+| `GhostMapPresence.cs` | `ResolveStateVectorWorldPositionPure` | 4858 | 129 |
+| `GhostMapPresence.cs` | `CreateGhostVesselFromStateVectors` | 5165 | 266 |
+| `GhostMapPresence.cs` | `UpdateGhostOrbitFromStateVectors` | 5457 | 188 |
+| `GhostMapPresence.cs` | `CreateGhostVesselsFromCommittedRecordings` | 6072 | 126 |
+| `GhostPlaybackEngine.cs` | `UpdatePlayback` | 451 | 371 |
+| `GhostPlaybackEngine.cs` | `RenderInRangeGhost` | 892 | 196 |
+| `GhostPlaybackEngine.cs` | `UpdateLoopingPlayback` | 1201 | 325 |
+| `GhostPlaybackEngine.cs` | `UpdateOverlapPlayback` | 1531 | 208 |
+| `GhostPlaybackEngine.cs` | `UpdateExpireAndPositionOverlaps` | 1745 | 145 |
+| `GhostPlaybackEngine.cs` | `UpdateReentryFx` | 2392 | 126 |
+| `GhostPlaybackEngine.cs` | `ReusePrimaryGhostAcrossCycle` | 2995 | 159 |
+| `GhostPlaybackEngine.cs` | `TryPopulateGhostVisuals` | 3481 | 200 |
+| `GhostPlaybackLogic.cs` | `ReapplySpawnTimeModuleBaselinesForLoopCycle` | 1581 | 123 |
+| `GhostPlaybackLogic.cs` | `ApplyPartEvents` | 1852 | 201 |
+| `GhostPlaybackLogic.cs` | `TryGetPendingWatchActivationUT` | 5369 | 132 |
+| `ParsekFlight.cs` | `GetActiveRecordingIdForTagging` | 183 | 123 |
+| `ParsekFlight.cs` | `CapturePostSwitchPartStateTokens` | 6098 | 135 |
+| `ParsekFlight.cs` | `StartRecording` | 8408 | 130 |
+| `ParsekFlight.cs` | `EnsureActiveRecordingTerminalState` | 10181 | 147 |
+| `ParsekFlight.cs` | `FinalizeIndividualRecording` | 10389 | 302 |
+| `ParsekFlight.cs` | `CollectNearbySpawnCandidates` | 18111 | 121 |
+| `ParsekScenario.cs` | `SaveActiveTreeIfAny` | 625 | 127 |
+| `ParsekScenario.cs` | `HandleRewindOnLoad` | 2001 | 124 |
+| `ParsekScenario.cs` | `TryRestoreActiveTreeNode` | 2720 | 138 |
+| `ParsekScenario.cs` | `SpliceMissingCommittedRecordingsIntoLoadedTree` | 3448 | 193 |
+| `ParsekScenario.cs` | `RefreshLoadedRecordingFromCommittedSplit` | 3680 | 121 |
+| `RecordingStore.cs` | `RunOptimizationSplitPass` | 2074 | 147 |
+| `RecordingSidecarStore.cs` | `LoadRecordingFilesFromPathsInternal` | 187 | 149 |
+| `RecordingSidecarStore.cs` | `SaveRecordingFilesToPathsInternal` | 712 | 156 |
+| `RecordingSidecarStore.cs` | `ReconcileReadableSidecarMirrors` | 869 | 128 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingsTableHeader` | 879 | 136 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingsWindow` | 1089 | 234 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingRow` | 1327 | 419 |
+| `UI/RecordingsTableUI.cs` | `DrawGroupTree` | 1823 | 494 |
+| `UI/RecordingsTableUI.cs` | `DrawVirtualUnfinishedFlightsGroup` | 2383 | 204 |
+| `UI/RecordingsTableUI.cs` | `DrawRecordingBlock` | 3053 | 138 |
+| `UI/RecordingsTableUI.cs` | `DrawLoopPeriodCell` | 4323 | 129 |
+| `VesselSpawner.cs` | `SpawnAtPosition` | 959 | 128 |
+| `VesselSpawner.cs` | `SpawnOrRecoverIfTooClose` | 1143 | 278 |
+| `VesselSpawner.cs` | `TryRepairSnapshotBodyProvenance` | 3687 | 164 |
+| `WatchModeController.cs` | `EnterWatchMode` | 1441 | 175 |
+| `Rendering/AnchorPropagator.cs` | `Run` | 193 | 469 |
 
 ## Pass 0 Detailed Read Notes
 
 ### `Source/Parsek/GameActions/LedgerOrchestrator.cs`
 
-The file is no longer just the compact 900-line hub recorded during
-refactor-3. It now contains several distinct bands:
+At the Pass 0 detailed read, the file was no longer just the compact 900-line
+hub recorded during refactor-3. It contained several distinct bands:
 
 - module initialization, resource tracker availability, and seed state
 - commit-window earnings reconciliation
@@ -297,6 +324,9 @@ refactor-3. It now contains several distinct bands:
 - KSC action expectation reconciliation
 - post-walk reconciliation and aggregation
 - facility slot and pending-science notification helpers
+
+Several of those bands have since moved to focused owners, as recorded in the
+Pass 3 notes below.
 
 Pass 1 should stay same-file only. The best candidates are phase extractions
 inside `ReconcileEarningsWindow`, `CreateVesselCostActions`, and
@@ -343,17 +373,29 @@ Pass 3 KSC split completed:
 - `LedgerOrchestrator` keeps compatibility facades for `ClassifyAction`,
   `ReconcileKscAction`, `ResourceChannelTag`, and
   `KscReconcileEpsilonSeconds`.
-- KSC event entry points, ledger writes, sequence assignment, post-walk
-  reconciliation, legacy migration/load repair, ledger mutation, and
-  resource/currency mutation order remain in `LedgerOrchestrator`.
+- KSC event entry points, ledger writes, sequence assignment, ledger mutation,
+  and resource/currency mutation order remain in `LedgerOrchestrator`.
 - Validation for the landed slice: build passed, focused ledger/career gate
   passed 326 tests, and the full non-injection xUnit gate passed 9,261 tests.
 
-Remaining LedgerOrchestrator cross-file decomposition candidates are ledger
-migration/load repair, post-walk reconciliation, recovery-funds pairing, and
-rollout adoption. These regions are large enough to justify future proposals,
-but they still share tolerances, ledger/action classification details, and
-commit-window state.
+Additional Pass 3 splits landed after the original inventory:
+
+- `PostWalkActionReconciler` now owns post-walk classification,
+  reconciliation, aggregation, and post-walk-only DTOs/constants behind
+  `LedgerOrchestrator` facades.
+- `LedgerLoadMigration` now owns old-save event migration, legacy tree-resource
+  migration, load repair, broken-ledger recovery, and migration helper
+  compatibility wrappers.
+- `LedgerRecoveryFundsPairing` now owns vessel recovery funds pairing,
+  deferred recovery requests, repair of legacy recovery dedup keys, and related
+  test-facing accessors behind `LedgerOrchestrator` facades.
+- `LedgerRolloutAdoption` now owns rollout spending/adoption matching and its
+  helper state behind `LedgerOrchestrator` facades.
+
+Remaining LedgerOrchestrator cross-file decomposition candidates are now
+narrower: commit-window earnings reconciliation, vessel-cost action creation,
+recalculation/patch orchestration, science reconciliation helpers shared across
+commit-window and post-walk paths, and tree-commit notification.
 
 Magic-value follow-up candidates include the resource tolerances used by
 earnings/post-walk reconciliation, `KscReconcileEpsilonSeconds`,
@@ -378,8 +420,18 @@ The main ownership bands are:
 - group tree drawing in `DrawGroupTree` and
   `DrawVirtualUnfinishedFlightsGroup`
 - command and confirmation handlers
-- sort, format, and grouping data helpers
+- sort and grouping data helpers
+- stateless table formatting helpers now owned by `RecordingsTableFormatters`
 - stats, tooltip, and loop-period helpers
+
+Pass 1 completed:
+
+- Extracted stateless altitude, speed, distance, start/end position, and
+  resource/inventory/crew manifest formatting into
+  `RecordingsTableFormatters`. `RecordingsTableUI` keeps forwarding wrappers
+  for existing tests and callers, while `ResolveParentVesselName` stays in the
+  table owner because it depends on committed tree lookup through
+  `RecordingStore`.
 
 Pass 1 deferred:
 
@@ -805,8 +857,18 @@ Pass 1 deferred:
   facility polling mixes live KSP reads, cache updates, direct-ledger forwarding,
   and emitted counters. These should wait for an event-handler owner map.
 
-Pass 2 discussion only: contract, crew, resource, milestone, and facility
-event handler owners.
+Pass 3 facility-polling slice completed:
+
+- `GameStateFacilityRecorder` now owns facility/building cache state, seeding,
+  polling, and pure transition helpers.
+- `GameStateRecorder` keeps the existing `SeedFacilityCacheFromCurrentState`,
+  `PollFacilityState`, `CheckFacilityTransitions`, and
+  `CheckBuildingTransitions` call surfaces as facades.
+- Cross-family policy, event emission, recording tagging, suppression flags,
+  and direct-ledger forwarding remain in `GameStateRecorder`.
+
+Pass 2 discussion remains for contract, crew, resource/science, milestone,
+strategy lifecycle, and other event handler owners.
 
 ### `Source/Parsek/GameActions/KspStatePatcher.cs`
 
@@ -828,7 +890,12 @@ Pass 1 deferred:
   Same-file extraction would mostly pass mutable counter/context bags without
   clarifying ownership.
 
-Pass 2 discussion only: separate patchers per state family.
+Pass 3 facility-family split completed:
+
+- `FacilityStatePatcher` now owns facility level and destruction patch behavior.
+- `KspStatePatcher.PatchFacilities` and `PatchDestructionState` remain as
+  wrappers so existing call signatures and patch order stay stable.
+- Remaining patch families still need separate owner proposals before moving.
 
 ### `Source/Parsek/BallisticExtrapolator.cs`
 
@@ -979,17 +1046,26 @@ Pass 1 is closed for the mapped files. Files marked Done received
 behavior-neutral same-file helper extraction and validation. Files marked
 Deferred were reviewed and left inline because the next useful change is either
 semantic, architectural, runtime-visual, math-sensitive, or UI-order-sensitive.
+Files marked Pass 0 read pending were tiered mechanically but do not yet have a
+detailed read note.
 
 | File | Pass 1 result |
 | --- | --- |
 | `GhostVisualBuilder.cs` | Deferred; visual-builder helper split needs runtime visual validation and an owner plan. |
-| `UI/RecordingsTableUI.cs` | Deferred; IMGUI row/tree extraction needs field ownership map. |
+| `UI/RecordingsTableUI.cs` | Done for `RecordingsTableFormatters`; IMGUI row/tree extraction still needs field ownership map. |
 | `ParsekFlight.cs` | Done for post-switch auto-record; finalization split deferred to Pass 2. |
 | `FlightRecorder.cs` | Done for visual coverage logging; remaining part-event poller work deferred. |
 | `GhostPlaybackLogic.cs` | Done for dictionary population and part events; remaining spawn policy cleanup deferred. |
+| `BackgroundRecorder.cs` | Done for split discovery and loaded-state helper extraction. |
 | `RecordingStore.cs` | Pass 2 first through fifth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
-| `GameStateRecorder.cs` | Deferred; resource/milestone/facility handler families need owner map. |
-| `GameActions/KspStatePatcher.cs` | Deferred; patch-order/reflection/UI mutation paths need state-family patcher proposal. |
+| `GhostPlaybackEngine.cs` | Done for per-frame playback reset helper extraction. |
+| `ParsekScenario.cs` | Done for recording metadata load helper extraction. |
+| `VesselSpawner.cs` | Done for spawn-state snapshot override helper extraction. |
+| `GhostMapPresence.cs` | Done for proto-vessel node helper extraction. |
+| `WatchModeController.cs` | Done for watch entry helper extraction. |
+| `GameStateRecorder.cs` | Pass3-Done for `GameStateFacilityRecorder`; remaining handler families still need owner map. |
+| `UI/CareerStateWindowUI.cs` | Done for `Build` tab view-model helper extraction. |
+| `GameActions/KspStatePatcher.cs` | Pass3-Done for `FacilityStatePatcher`; remaining patch families still need owner proposals. |
 | `BallisticExtrapolator.cs` | Deferred; math and iteration-order sensitive. |
 | `RecordingOptimizer.cs` | Deferred; recording identity/order sensitive. |
 | `RecordingTree.cs` | Done for record-only codec extraction; branch point serialization and selective raw-record caller migration deferred. |
@@ -997,12 +1073,12 @@ semantic, architectural, runtime-visual, math-sensitive, or UI-order-sensitive.
 | `UI/TimelineWindowUI.cs` | Deferred; timeline filter/action model ownership needed. |
 | `RewindInvoker.cs` | Deferred; scene-load checkpoint sequence should remain visible until service ownership is proposed. |
 | `CrewReservationManager.cs` | Deferred; reservation/roster/Harmony-patch ownership needs a focused proposal. |
-| `EngineFxBuilder.cs` | Deferred; grouped with visual/FX builder runtime validation. |
-| `KerbalsModule.cs` | Deferred; kerbal-state and mission-outcome ownership not a Pass 1 helper target. |
-| `ParsekPlaybackPolicy.cs` | Deferred; playback event policy split needs lifecycle owner proposal. |
-| `VesselGhoster.cs` | Deferred; snapshot/ghost materialization ownership needs a focused proposal. |
-| `TrajectorySidecarBinary.cs` | Deferred; binary sidecar codec proposal needed. |
-| `Diagnostics/DiagnosticsComputation.cs` | Deferred; diagnostics thresholds/metrics ownership can wait for Pass 2. |
+| `EngineFxBuilder.cs` | Pass 0 read pending; likely grouped with visual/FX builder runtime validation. |
+| `KerbalsModule.cs` | Pass 0 read pending; kerbal-state and mission-outcome ownership needs classification. |
+| `ParsekPlaybackPolicy.cs` | Pass 0 read pending; playback event policy split likely needs lifecycle owner proposal. |
+| `VesselGhoster.cs` | Pass 0 read pending; snapshot/ghost materialization ownership needs classification. |
+| `TrajectorySidecarBinary.cs` | Pass 0 read pending; binary sidecar codec ownership needs classification. |
+| `Diagnostics/DiagnosticsComputation.cs` | Pass 0 read pending; diagnostics thresholds/metrics ownership needs classification. |
 | Tier 3 examples | Deferred except `Timeline/TimelineBuilder.cs`, which was the Pass 1 canary. |
 
 ## Static State Scan Note
@@ -1025,10 +1101,10 @@ raw scan with a manual map for the high-risk owners:
 ## Next Investigation Priorities
 
 1. Prepare the next Pass 3 owner proposal before moving more code across files:
-   candidates include LedgerOrchestrator post-walk/migration/recovery-rollout
+   candidates include remaining LedgerOrchestrator commit-window/recalculation
    bands, visual builders, foreground/background part-event pollers,
-   KSC/flight playback, event handler families, state patchers, and rewind
-   invocation.
+   KSC/flight playback, remaining event handler families, remaining state patcher
+   families, and rewind invocation.
 2. Compare `RecordingStore.cs`, `TrajectorySidecarBinary.cs`, and snapshot
    sidecar helpers for repeated binary/text serialization patterns before any
    deduplication. Initial result: `refactor-4-pass2-storage-sidecars.md`
