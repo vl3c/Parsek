@@ -125,7 +125,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
 - `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
 - `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
-- `RecordingGroupStore.cs` - recording group membership/orchestration helpers (auto-generated tree groups, group mutations, standalone auto-assignment mirror)
+- `RecordingGroupStore.cs` - recording group membership/orchestration helpers (auto-generated tree groups, group mutations, and in-memory mirror of `Recording.AutoAssignedStandaloneGroupName`)
 - `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
 - `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
 - `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to RecordingGroupStore

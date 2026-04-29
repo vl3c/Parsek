@@ -2287,7 +2287,7 @@ namespace Parsek
 
         internal static void MarkAutoAssignedStandaloneGroupForTesting(Recording rec, string groupName)
         {
-            MarkAutoAssignedStandaloneGroup(rec, groupName);
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, groupName);
         }
 
         /// <summary>
