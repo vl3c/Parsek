@@ -10124,12 +10124,14 @@ namespace Parsek
             RecordingFinalizationCache cache,
             string consumerPath,
             bool allowStale,
-            out RecordingFinalizationCacheApplyResult result)
+            out RecordingFinalizationCacheApplyResult result,
+            bool allowAlreadyFinalizedRepair = false)
         {
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                AllowAlreadyFinalizedRepair = allowAlreadyFinalizedRepair
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
@@ -10169,6 +10171,92 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        internal static bool ShouldRepairExistingTerminalFromDestroyedCache(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (recording == null || cache == null)
+                return false;
+            if (!recording.TerminalStateValue.HasValue)
+                return false;
+            if (!cache.TerminalState.HasValue
+                || cache.TerminalState.Value != TerminalState.Destroyed)
+                return false;
+
+            TerminalState existing = recording.TerminalStateValue.Value;
+            if (existing == TerminalState.Destroyed)
+            {
+                LogDestroyedCacheRepairRejected(recording, cache, commitUT, existing, "alreadyDestroyed");
+                return false;
+            }
+
+            // The cache is allowed to correct the in-flight ballistic fallback
+            // SubOrbital is the speculative state stamped when the vessel was
+            // still on a ballistic path. Orbiting is deliberately excluded:
+            // it requires stronger periapsis/situation evidence and is treated
+            // as a stable spawn endpoint, not a prediction to repair.
+            if (existing != TerminalState.SubOrbital)
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "existingTerminalNotSubOrbital");
+                return false;
+            }
+
+            if (!IsCacheTerminalAtOrBeforeCommit(cache, commitUT))
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "futureOrInvalidTerminalUT");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsCacheTerminalAtOrBeforeCommit(
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (cache == null)
+                return false;
+            if (double.IsNaN(commitUT) || double.IsInfinity(commitUT))
+                return false;
+            if (double.IsNaN(cache.TerminalUT) || double.IsInfinity(cache.TerminalUT))
+                return false;
+
+            return cache.TerminalUT <= commitUT + 1e-6;
+        }
+
+        private static void LogDestroyedCacheRepairRejected(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT,
+            TerminalState existing,
+            string reason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Flight",
+                $"finalization-cache-repair-rejected-{recording?.RecordingId ?? "null"}-{reason}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Finalization cache repair skipped: rec={0} reason={1} " +
+                    "existingTerminal={2} cacheTerminal={3} terminalUT={4:F3} commitUT={5:F3}",
+                    recording?.DebugName ?? "(null)",
+                    reason ?? "(null)",
+                    existing,
+                    cache?.TerminalState?.ToString() ?? "(null)",
+                    cache != null ? cache.TerminalUT : double.NaN,
+                    commitUT));
         }
 
         /// <summary>
@@ -10453,6 +10541,23 @@ namespace Parsek
                 sceneExitSuppliedTerminalOrbit =
                     sceneExitLifetimeExtended
                     && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
+            }
+
+            if (isLeaf
+                && ShouldRepairExistingTerminalFromDestroyedCache(
+                    rec,
+                    finalizationCache,
+                    commitUT)
+                && TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecordingRepair",
+                    allowStale: finalizeVessel == null,
+                    out _,
+                    allowAlreadyFinalizedRepair: true))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
             }
 
             // Determine terminal state for recordings that don't have one yet

@@ -11,6 +11,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 636. Destroyed staged flights could miss Unfinished Flights when finalization stamped stale SubOrbital ~~done~~
+
+**Status:** ~~done~~ — fixed in the destroyed-stages Unfinished Flights
+worktree.
+
+The 2026-04-29 Kerbal X repro staged into an upper/root vessel and a
+probe-controlled booster, then let both crash. Runtime logs showed the
+upper/root recording had a fresh `Destroyed` finalizer cache, but
+`FinalizeIndividualRecording` skipped cache application because an earlier
+`SubOrbital` terminal was already present. Unfinished Flights then rejected the
+focus slot as `stableTerminalFocusSlot`. The probe/booster recording had
+`Destroyed`, but also carried a later child BranchPoint for the crash/debris
+event; the classifier rejected it as `downstreamBp` before reaching the
+`Destroyed => crashed` rule.
+
+Fix: `FinalizeIndividualRecording` now allows a `Destroyed` finalizer cache to
+repair an existing `SubOrbital` terminal on an effective leaf, using the
+cache-applier's already-finalized repair mode so stale predicted tails are
+replaced only when the cached destruction UT is not in the future. Stable
+endpoints such as `Landed`, `Splashed`, and `Orbiting` are not overwritten.
+`UnfinishedFlightClassifier` now treats a `Destroyed` chain tip as conclusive
+when its downstream BranchPoint has no resolved Rewind Point route of its own,
+so crash/debris bookkeeping BPs do not hide playable Re-Fly slots while real
+downstream RPs still take precedence.
+
 ## 635. Stable-leaf Unfinished Flights were forward-only after Rewind Point splits ~~done~~
 
 **Status:** ~~done~~ — fixed in the stable-leaves worktree stacked on the
