@@ -36,6 +36,9 @@ namespace Parsek
         /// </summary>
         public const string GroupName = "Unfinished Flights";
 
+        public const string Tooltip =
+            "Vessels and kerbals that ended up in a state where you might want to re-fly them -- crashed, abandoned in orbit, stranded on a surface. Click Fly to take control at the separation moment; click Seal to close the slot permanently if you're done with it.";
+
         /// <summary>
         /// True iff <paramref name="name"/> equals the virtual group name.
         /// System groups are read-only, cannot be hidden, and reject

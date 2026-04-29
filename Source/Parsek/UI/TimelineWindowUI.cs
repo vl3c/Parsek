@@ -1006,7 +1006,7 @@ namespace Parsek
                 rp, slotListIndex, out reason);
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Re-fly the destroyed sibling from the staging split"
+                ? "Re-fly this unfinished flight from the separation moment"
                 : (reason ?? "Re-Fly unavailable");
             if (GUILayout.Button(new GUIContent("Fly", tooltip), GUILayout.Width(width)))
             {

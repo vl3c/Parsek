@@ -489,6 +489,7 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
+        internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
         internal const string OrbitalCheckpointStateVectorRejectSaferSegment = "orbital-checkpoint-state-vector-safer-segment-source";
         internal const string OrbitalCheckpointStateVectorRejectNotSoiGap = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
@@ -4626,10 +4627,15 @@ namespace Parsek
                 return;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
             List<int> eligibleIndices = null;
             for (int i = 0; i < committed.Count; i++)
             {
-                var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[i], currentUT, chains);
+                var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
+                    committed[i],
+                    currentUT,
+                    chains,
+                    relationSupersededIds);
                 if (!needsSpawn)
                     continue;
 
@@ -4663,7 +4669,12 @@ namespace Parsek
                 return false;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[index], currentUT, chains);
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
+                committed[index],
+                currentUT,
+                chains,
+                relationSupersededIds);
             if (!needsSpawn)
                 return false;
 
@@ -5768,6 +5779,27 @@ namespace Parsek
             double currentUT,
             Dictionary<uint, GhostChain> chains)
         {
+            // [ERS-exempt] Tracking Station materialization predicates operate
+            // on raw committed recordings because action selections and map
+            // ghosts carry raw recording ids/indices. Subtract explicit
+            // supersede relations here so callers using the convenience
+            // overload get the same display-effective spawn eligibility as
+            // the batch handoff path.
+            var relationSupersededIds =
+                CurrentRelationSupersededRecordingIds(RecordingStore.CommittedRecordings);
+            return ShouldSpawnAtTrackingStationEnd(
+                rec,
+                currentUT,
+                chains,
+                relationSupersededIds);
+        }
+
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            HashSet<string> relationSupersededIds)
+        {
             if (rec == null)
                 return (false, "null");
 
@@ -5776,6 +5808,11 @@ namespace Parsek
 
             if (currentUT < rec.EndUT)
                 return (false, TrackingStationSpawnSkipBeforeEnd);
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && relationSupersededIds != null
+                && relationSupersededIds.Contains(rec.RecordingId))
+                return (false, TrackingStationSpawnSkipSupersededByRelation);
 
             bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
                 && RecordingStore.IsChainLooping(rec.ChainId);
@@ -5790,6 +5827,15 @@ namespace Parsek
                 return (false, NormalizeTrackingStationSpawnSuppressionReason(chainSuppressed.reason));
 
             return spawnResult;
+        }
+
+        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+            IReadOnlyList<Recording> committed)
+        {
+            var scenario = ParsekScenario.Instance;
+            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
         }
 
         internal static bool ShouldPreserveIdentityForTrackingStationSpawn(

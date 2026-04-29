@@ -11,6 +11,125 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## 635. Stable-leaf Unfinished Flights were forward-only after Rewind Point splits ~~done~~
+
+**Status:** ~~done~~ — fixed in the stable-leaves worktree stacked on the
+invocation-linearization prerequisite.
+
+The stable-leaves design extended Unfinished Flights beyond crash-only leaves:
+after a multi-controllable split, a non-focused controllable child that later
+ends `Orbiting` or `SubOrbital` can still be an unfinished mission because the
+player never actively flew it to a final outcome. Stranded EVA kerbals whose
+terminal state is not `Boarded` are also unfinished, including legacy rows that
+do not have a focused-slot signal. Stable terminal outcomes (`Landed`,
+`Splashed`, `Recovered`, `Docked`, `Boarded`) remain forward-only, and debris or
+non-controllable slots are excluded.
+
+Fix: `RewindPoint` now persists `FocusSlotIndex`; `RewindPointAuthor` captures
+it from the active vessel PID at split time; the Unfinished Flights predicate is
+centralized in `UnfinishedFlightClassifier`; original tree commit and fresh
+re-fly supersede commit both use the same slot-aware classifier to promote
+qualifying leaves to `CommittedProvisional`. Legacy vessel rows with
+`FocusSlotIndex=-1` stay excluded for orbiting/suborbital terminal states so old
+saves do not accidentally surface stable focused flights as unfinished.
+If multiple split slots unexpectedly match the active vessel PID, capture keeps
+the first match and logs the aliasing. Fresh-provisional merge classification now
+preflights before supersede relations, tombstones, or journal writes; a missing
+Site B-1 slot lookup aborts without durable merge mutations when the terminal
+outcome needs slot-aware stable-leaf/EVA handling, rather than silently falling
+back to the v0.9 terminal-kind rule.
+
+UI fix: Unfinished Flight rows now show `Fly` plus an explicit `Seal` action.
+Seal sets `ChildSlot.Sealed`/`SealedRealTime`, leaves the recording and
+`MergeState` unchanged, removes that slot from Unfinished Flights, and lets
+`RewindPointReaper` count a sealed `CommittedProvisional` slot as closed once
+every sibling slot is also closed. Sealed `NotCommitted` slots still block reap.
+The in-game test suite has Seal popup coverage for replacing an already-open
+confirmation dialog plus both confirm/cancel button lock cleanup paths. It also
+has a synthetic runtime fixture that validates stable-leaf group membership,
+route resolution, Seal's non-mutating slot close, and last-seal RP reap without
+requiring a hand-authored save.
+
+v2 follow-up: stable terminal leaves that the default predicate excluded can now
+be manually Stashed from the Recordings table while their Rewind Point still
+exists. Stash sets `ChildSlot.Stashed`/`StashedRealTime`, leaves the recording and
+`MergeState` unchanged, makes the row appear under Unfinished Flights with the
+same `Fly` and `Seal` actions, and makes `RewindPointReaper` treat an unsealed
+stashed `Immutable` slot as still open. Stash does not resurrect already-reaped
+RP quicksaves; all-closed stable splits can still disappear before the player
+has a slot to stash. Under the existing B2-A in-place re-fly policy, the merge
+confirmation clears `ChildSlot.Stashed` before forcing the recording `Immutable`
+so an in-place Stashed re-fly closes and reaps like other in-place stable-leaf
+commits.
+
+Diagnostics follow-up: Settings -> Diagnostics now shows live RP breakdown
+counts next to total rewind-point quicksave disk usage: crashed-open,
+stable-open, and sealed-pending. The split is monitoring only; TTL cleanup or a
+manual bulk-wipe action remains deferred because it needs a separate destructive
+cleanup policy.
+
+Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
+in-place merge path may classify an unfinished outcome as
+`CommittedProvisional`, but immediately forces the same recording back to
+`Immutable` and reaps the RP because the merge confirmation is treated as the
+player's final commitment to that slot. It does not auto-seal the slot and does
+not create a fresh provisional; B2-B still requires a deeper recorder/merge
+rearchitecture.
+
+## 634. Re-fly chain extension wrote origin-rooted star supersede rows instead of linear prior-tip rows ~~done~~
+
+**Status:** ~~done~~ — fixed in the invocation-linearization worktree.
+
+The §11.2 stable-leaves prerequisite investigation found that
+`MergeCrashedReFlyCreatesCPSupersedeTest` is an in-game single-merge smoke
+test, not a headless chain-extension regression. Running
+`dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter
+MergeCrashedReFlyCreatesCPSupersedeTest` on 2026-04-28 built successfully
+but found no matching xUnit test, and source inspection showed the in-game
+test only asserts the first crashed provisional remains visible after merge.
+It never constructs a second re-fly and never asserts the second relation is
+`{priorTip -> newRecording}`.
+
+The actual bug was the prerequisite design's star graph: invocation stamped
+the slot origin as the supersede target, and `SupersedeCommit.AppendRelations`
+rooted closure at `marker.OriginChildRecordingId`. Repeated re-flies therefore
+wrote `{origin -> attempt1}`, `{origin -> attempt2}`, ...; the forward walker
+uses the first matching relation, so the oldest re-fly won and later attempts
+were not the dominant effective slot recording.
+
+Fix: `ReFlySessionMarker.SupersedeTargetId` now persists the prior effective
+tip, `RewindInvoker.AtomicMarkerWrite` computes that prior tip once before the
+in-place/fresh-provisional branch, `SupersedeCommit.AppendRelations` roots the
+closure at `SupersedeTargetId ?? OriginChildRecordingId`, and
+`EffectiveState.ComputeSubtreeClosureInternal` includes the root override in
+its cache key. Headless tests now cover marker round-trip and weak validation,
+pending-tree marker targets, fresh-provisional and in-place marker stamping,
+root-override closure equivalence/caching, linear append relations, and the
+hybrid legacy-star plus new-linear graph. When a restored origin still has the
+matching vessel PID but an existing supersede relation makes a different
+recording the slot's prior tip, invocation rejects the in-place path and creates
+a fresh provisional so commit cannot write a two-node supersede cycle.
+
+§11.3 Site B-2 result: in-place re-fly merges cannot naturally extend the
+slot chain in this PR; only the fresh-provisional path supports chain
+extension. Preserve the existing B2-A force-Immutable in-place handling.
+`MergeDialog.TryCommitReFlySupersede`'s in-place path is already architected
+around one recording acting as both slot effective state and supersede target,
+with optimizer-split tip resolution, self-link skips, session-owned chain
+cleanup, RP reap, and durable save in that branch.
+Switching it to B2-B fresh-provisional would require a deeper recorder/merge
+rearchitecture than this prerequisite PR. The limitation remains documented:
+in-place re-fly merges close the slot via `MergeState.Immutable`; natural
+chain extension is supported on the fresh-provisional path.
+
+---
+
+## Done — v0.9.1 test harness hardening
+
+- ~~AtomicMarkerWrite xUnit flake on first/full runs.~~ `AtomicMarkerWrite_InPlaceContinuation_ExceptionDoesNotRemoveOrigin` could fail with `storedOrigin == null` during full-suite execution even though 50 standalone targeted runs were clean. The named `"Sequential"` collection serialized its own members but had no `CollectionDefinition`, so xUnit could still run it beside other collections. Fix: add `SequentialCollectionDefinition` with `DisableParallelization = true` plus a meta-test pinning that harness contract.
+
+---
+
 ## Done — v0.9.1 Phase 6 anchor taxonomy + DAG propagation
 
 - ~~Phase 6: emit AnchorCandidate entries for §7.2–§7.10 at commit time.~~ Implemented in `Source/Parsek/Rendering/AnchorCandidateBuilder.cs`; wired into `SmoothingPipeline.FitAndStorePerSection`.
@@ -398,6 +517,26 @@ Regression coverage: `WatchModeControllerTests.ShouldExitWatchAfterCutoffDebounc
 bogus frame followed by within-range frame: counter resets, no exit) and
 `RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold`
 (N consecutive cutoff frames trip the exit at exactly the threshold).
+
+**Follow-up (2026-04-29, `logs/2026-04-29_2112_reflight-supersede-investigation`):**
+the same camera-reset symptom reproduced after watching ghost `#0 "Kerbal X"`
+through upper/lower stage separation, but this was not the one-frame
+FloatingOrigin/Krakensbane seam that PR #617 debounced. The cached distance
+stayed bad for the whole 3-frame debounce window, so watch mode correctly
+exited. Root cause: immediately after the RELATIVE-to-ABSOLUTE section
+boundary, ABSOLUTE playback and watch-distance resolution could fall back to
+the flattened `traj.Points` list. That list can contain RELATIVE v6
+anchor-local metre-offset samples adjacent to ABSOLUTE latitude/longitude/
+altitude samples; interpolating across them as body-fixed coordinates produced
+a planet-scale false position, terrain clamp, and ~800 km distance spike even
+though the section-local ABSOLUTE frame was around 54 km altitude. Fix:
+flight playback, loop playback, and watch cutoff distance resolution now use
+the active ABSOLUTE `TrackSection.frames` when present, reserving the flat-list
+path for legacy/no-section data only. Regression coverage:
+`ZoneRenderingTests.TryGetAbsoluteSectionPlaybackFrames_AbsoluteSection_UsesSectionFrames`
+and
+`ZoneRenderingTests.TryGetAbsoluteSectionPlaybackFrames_RelativeSection_ReturnsFalse`
+plus the empty-frame guard.
 
 ## 626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle
 
@@ -4438,7 +4577,9 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 
 **Follow-up (2026-04-26, `logs/2026-04-26_2258_refly-upper-stage-instability`):** the slot-scrubbed temp save still carried old `sidecarEpoch` metadata from the Rewind Point quicksave while the committed `.prec` sidecars had newer epochs from post-RP optimizer/merge writes. On FLIGHT load, `RecordingStore` therefore skipped the active upper-stage/root sidecars as epoch mismatches, forcing bad state-vector fallbacks (`stateVecAlt=0`) and making the upper-stage orbit/trajectory unstable. The same package showed the replacement upper-stage tip had no explicit start/end metadata after optimizer split/trim, and the old probe-booster row was correctly superseded in ERS but still visible through raw-index consumers. The final-state complaint was not optimizer damage: the upper-stage exo half had a sub-surface periapsis, so it was a ballistic arc even though KSP reported `ORBITING` at scene exit. Fixed by refreshing recording `sidecarEpoch` values in the temp save from current sidecars before `GamePersistence.LoadGame` without downgrading when the temp save already has a newer epoch, stamping exact explicit bounds after optimizer split/trim, classifying live `ORBITING` vessels with sub-surface periapsis or unbound eccentricity as `SubOrbital`, and applying explicit supersede-relation suppression in the raw-index Recordings table, KSC playback, and Tracking Station map-ghost surfaces. The raw-index Recordings table now reuses one frame-local supersede relation list through group/block/row rendering instead of re-reading it per row. Regression coverage: `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_RefreshesRecordingSidecarEpochsFromCurrentSidecar`, `ReFlySaveScrubTests.ScrubQuicksaveToSelectedSlot_DoesNotDowngradeNewerSfsSidecarEpoch`, `RecordingOptimizerTests.SplitAtSection_BothHalvesHaveValidUTRanges`, `RecordingOptimizerTests.TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds`, `TreeCommitTests.DetermineTerminalStateFromOrbitEvidence_OrbitingSubSurfacePeriapsis_ReturnsSubOrbital`, `TreeCommitTests.DetermineTerminalStateFromOrbitEvidence_OrbitingUnbound_ReturnsSubOrbital`, `GhostMapPresenceTests.ChainAware_SupersedeRelationSuppressesOldRecording`, `KscGhostPlaybackTests.ShouldShowInKSC_SupersededRelation_ReturnsFalse`, `RecordingsTableUITests.BuildGroupTreeData_SupersededRelation_HidesOldRecording`, and `EffectiveStateTests.IsSupersededByRelation_NotCommittedSuperseded_True`. Separate follow-ups remain for non-scrub Rewind Point quicksave loads, short warp-window state-vector/orbit-segment source flicker, and Tracking Station `relative-anchor-unresolved` handling when the absolute-shadow fallback is available but not wired into that path.
 
-**Status:** CLOSED 2026-04-27.
+**Follow-up (2026-04-29, `logs/2026-04-29_2112_reflight-supersede-investigation`):** the Kerbal X Probe booster re-flight wrote the expected supersede row (`9e2308... -> 4fb8...`) and ERS skipped one superseded recording, but FLIGHT still fed the raw committed list into `GhostPlaybackEngine`, so the old one-point Destroyed booster recording spawned as a ghost. The same save exposed two cleanup gaps: stale auto-group hierarchy entries (`Kerbal X (2) / Debris -> Kerbal X (2)`) survived after their recordings were wiped/superseded and rendered as 0-recording UI groups, and a fully orphaned supersede row (`3e278... -> 478b...`) warned on every load even though neither endpoint existed. Fixed by adding a shared relation-superseded recording-id set for raw-index compatibility paths (flight flags, deferred spawns, held ghost retries, spawn-death checks, Tracking Station spawn handoff, Tracking Station action-context materialization), pruning hierarchy entries from display-effective group membership on load/save/wipe, and removing only fully orphaned supersede rows during load-time sweep while preserving one-sided orphans. Regression coverage: `FlightPlaybackExplainabilityTests.ComputePlaybackFlags_SupersededByRelation_SkipsGhostAndSpawn`, `DeferredSpawnTests.FlushDeferredSpawns_PurgesSupersededRelationQueues`, `DeferredSpawnTests.RetryHeldGhostSpawns_ReleasesSupersededRelationWithoutRetry`, `DeferredSpawnTests.RunSpawnDeathChecks_SkipsSupersededRelationRecording`, `TrackingStationSpawnTests.ShouldSpawnAtTrackingStationEnd_SupersededByRelation_ReturnsFalse`, `TrackingStationSpawnTests.TryRunTrackingStationSpawnHandoffForIndex_SupersededRelation_DoesNotMaterialize`, `GhostTrackingStationPatchTests.BuildActionContext_SupersededRelation_DisablesMaterialize`, `GroupManagementTests.PruneUnusedHierarchyEntries_KeepsLiveAncestorsAndRemovesStaleAutoGroups`, `GroupManagementTests.ClearCommitted_PrunesGroupHierarchy`, and `LoadTimeSweepTests.FullyOrphanSupersede_RemovedAtLoadTime`.
+
+**Status:** CLOSED 2026-04-29.
 
 ---
 

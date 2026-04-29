@@ -169,15 +169,17 @@ namespace Parsek
                 return false;
             }
 
-            if (scenario.RecordingSupersedes == null)
-                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
-            if (scenario.LedgerTombstones == null)
-                scenario.LedgerTombstones = new List<LedgerTombstone>();
-
             string sessionId = marker.SessionId ?? "<no-id>";
             string provisionalId = provisional.RecordingId ?? "<no-id>";
             double startedUT = SafeNow();
             string startedRealTime = DateTime.UtcNow.ToString("o");
+
+            SupersedeCommit.PreflightMergeStateClassification(marker, provisional, scenario);
+
+            if (scenario.RecordingSupersedes == null)
+                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
 
             // Step 1: write the journal + Durable Save #1 barrier (phase=Begin).
             // Design §6.6 step 1 / §10.8.

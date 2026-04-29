@@ -39,6 +39,10 @@ namespace Parsek
 
         private static object suppressionCacheMarkerIdentity;
         private static int suppressionCacheStoreVersion = int.MinValue;
+        // Runtime suppression uses the marker origin. Merge-time append can
+        // walk from SupersedeTargetId for one commit, so the root participates
+        // in the single-slot cache discriminator.
+        private static string suppressionCacheRootOverride;
         private static HashSet<string> suppressionCache;
 
         /// <summary>Resets all caches. For unit tests only.</summary>
@@ -57,6 +61,7 @@ namespace Parsek
 
                 suppressionCacheMarkerIdentity = null;
                 suppressionCacheStoreVersion = int.MinValue;
+                suppressionCacheRootOverride = null;
                 suppressionCache = null;
             }
         }
@@ -154,14 +159,57 @@ namespace Parsek
             {
                 var slot = rp.ChildSlots[i];
                 if (slot == null) continue;
-                string effective = slot.EffectiveRecordingId(effectiveSupersedes);
+                string origin = slot.OriginChildRecordingId;
+                if (string.Equals(origin, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
+                string effective = EffectiveRecordingId(origin, effectiveSupersedes);
                 if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
                     return i;
-                if (string.Equals(slot.OriginChildRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes))
                     return i;
             }
 
             return -1;
+        }
+
+        private static bool IsInSupersedeForwardTrail(
+            string originRecordingId,
+            string targetRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            // Needed for hybrid legacy-star plus new-linear graphs where a
+            // mid-chain recording is still part of the slot even when it is no
+            // longer the EffectiveRecordingId tip.
+            if (string.IsNullOrEmpty(originRecordingId)
+                || string.IsNullOrEmpty(targetRecordingId)
+                || supersedes == null
+                || supersedes.Count == 0)
+                return false;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>();
+            visited.Add(originRecordingId);
+            queue.Enqueue(originRecordingId);
+
+            while (queue.Count > 0)
+            {
+                string current = queue.Dequeue();
+                for (int i = 0; i < supersedes.Count; i++)
+                {
+                    var rel = supersedes[i];
+                    if (rel == null) continue;
+                    if (!string.Equals(rel.OldRecordingId, current, StringComparison.Ordinal))
+                        continue;
+                    string next = rel.NewRecordingId;
+                    if (string.IsNullOrEmpty(next)) continue;
+                    if (string.Equals(next, targetRecordingId, StringComparison.Ordinal))
+                        return true;
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -183,59 +231,57 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True iff <paramref name="rec"/> is an Unfinished Flight per design §3.1.
-        /// Current formulation: the recording is committed-visible
-        /// (<c>Immutable</c> legacy/original child or <c>CommittedProvisional</c>
-        /// live rewind slot), the terminal indicates a crash (see
-        /// <see cref="IsTerminalCrashed"/>), the parent BranchPoint carries
-        /// a RewindPoint, and the recording resolves to one of that RewindPoint's
-        /// child slots.
+        /// Computes the subset of <paramref name="recordings"/> replaced by an
+        /// explicit supersede relation. This is the raw-index compatibility
+        /// helper for systems that still iterate <see cref="RecordingStore.CommittedRecordings"/>
+        /// but must suppress old recordings consistently with ERS.
+        /// </summary>
+        internal static HashSet<string> ComputeSupersededRecordingIdsByRelation(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (recordings == null || recordings.Count == 0)
+                return result;
+            if (supersedes == null || supersedes.Count == 0)
+                return result;
+
+            var liveIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                liveIds.Add(rec.RecordingId);
+            }
+
+            for (int i = 0; i < supersedes.Count; i++)
+            {
+                var rel = supersedes[i];
+                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId))
+                    continue;
+                if (string.IsNullOrEmpty(rel.NewRecordingId))
+                    continue;
+                if (!liveIds.Contains(rel.OldRecordingId))
+                    continue;
+                if (string.Equals(rel.OldRecordingId, rel.NewRecordingId, StringComparison.Ordinal))
+                    continue;
+                result.Add(rel.OldRecordingId);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> is an Unfinished Flight: committed
+        /// visible, mapped to a RewindPoint child slot, not sealed, and with a
+        /// qualifying terminal outcome per <see cref="UnfinishedFlightClassifier"/>.
         /// </summary>
         public static bool IsUnfinishedFlight(Recording rec)
         {
             if (rec == null) return false;
 
             string recId = rec.RecordingId ?? "<no-id>";
-
-            if (rec.MergeState != MergeState.Immutable
-                && rec.MergeState != MergeState.CommittedProvisional)
-            {
-                ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                    $"mergeState-{recId}",
-                    $"IsUnfinishedFlight=false rec={recId} reason=mergeState:{rec.MergeState}");
-                return false;
-            }
-            // Chain-walk for the terminal check: merge-time SplitAtSection
-            // splits a single live recording at env boundaries (atmo→exo) into
-            // chained segments. The chain HEAD carries the parentBranchPointId
-            // (→ RewindPoint link), the chain TIP carries the terminal state.
-            // Checking the head's own terminal would always read null for a
-            // multi-segment chain and silently exclude destroyed siblings
-            // from Unfinished Flights. Walk forward and use the tip.
-            Recording terminalRec = ResolveChainTerminalRecording(rec);
-            if (!IsTerminalCrashed(terminalRec))
-            {
-                ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                    $"notCrashed-{recId}",
-                    $"IsUnfinishedFlight=false rec={recId} reason=notCrashed:{terminalRec.TerminalStateValue} " +
-                    $"(tip={(ReferenceEquals(terminalRec, rec) ? "self" : terminalRec.RecordingId ?? "<no-id>")})");
-                return false;
-            }
-            // Accept either the branch-parent link (`ParentBranchPointId`
-            // for the split's new children) or the branch-child link
-            // (`ChildBranchPointId` for the surviving active parent).
-            // Breakup RPs include the active parent as a controllable
-            // output, so it must be able to resolve to the RP too when it
-            // later crashes.
-            string parentBpId = rec.ParentBranchPointId;
-            string childBpId = rec.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBpId) && string.IsNullOrEmpty(childBpId))
-            {
-                ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                    $"noParentBp-{recId}",
-                    $"IsUnfinishedFlight=false rec={recId} reason=noParentBp");
-                return false;
-            }
 
             var scenario = ParsekScenario.Instance;
             // Use object.ReferenceEquals to bypass Unity.Object's overloaded
@@ -250,65 +296,24 @@ namespace Parsek
                 return false;
             }
 
-            int missingSlotMatches = 0;
-            List<string> missingSlotCandidates = null;
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = scenario.RecordingSupersedes
-                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
-            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            RewindPoint rp;
+            int slotListIndex;
+            string resolveReason;
+            if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    rec, out rp, out slotListIndex, out resolveReason))
             {
-                var rp = scenario.RewindPoints[i];
-                if (rp == null) continue;
-                bool matchesParent = !string.IsNullOrEmpty(parentBpId)
-                    && string.Equals(rp.BranchPointId, parentBpId, StringComparison.Ordinal);
-                bool matchesChild = !string.IsNullOrEmpty(childBpId)
-                    && string.Equals(rp.BranchPointId, childBpId, StringComparison.Ordinal);
-                if (matchesParent || matchesChild)
-                {
-                    // The parent BP has an RP — and RewindPoint existence IS the
-                    // design §5.4 "BranchPoint.RewindPointId != null" check,
-                    // since BranchPoint.RewindPointId is backfilled from the
-                    // persisted RewindPoint list. The recording must still map
-                    // to a child slot; debris under the same BP is not invokable
-                    // and must not surface as a disabled Unfinished Flight row.
-                    string matchedBp = matchesParent ? parentBpId : childBpId;
-                    string side = matchesParent ? "parent" : "active-parent-child";
-                    int slotListIndex = ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
-                    if (slotListIndex < 0)
-                    {
-                        missingSlotMatches++;
-                        if (missingSlotCandidates == null)
-                            missingSlotCandidates = new List<string>();
-                        missingSlotCandidates.Add(
-                            $"{(rp.RewindPointId ?? "<no-rp>")}@{(matchedBp ?? "<none>")}");
-                        continue;
-                    }
-
-                    ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                        $"match-{recId}",
-                        $"IsUnfinishedFlight=true rec={recId} bp={matchedBp} side={side} " +
-                        $"rp={rp.RewindPointId} slotListIndex={slotListIndex}");
-                    return true;
-                }
-            }
-
-            if (missingSlotMatches > 0)
-            {
-                string candidates = missingSlotCandidates != null && missingSlotCandidates.Count > 0
-                    ? string.Join(",", missingSlotCandidates.ToArray())
-                    : "<none>";
                 ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                    $"noMatchingRpSlot-{recId}",
-                    $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRpSlot " +
-                    $"matches={missingSlotMatches} candidates={candidates}");
+                    $"{resolveReason}-{recId}",
+                    $"IsUnfinishedFlight=false rec={recId} reason={resolveReason} " +
+                    $"parentBp={rec.ParentBranchPointId ?? "<none>"} childBp={rec.ChildBranchPointId ?? "<none>"} " +
+                    $"rpCount={scenario.RewindPoints.Count}");
                 return false;
             }
 
-            ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                $"noMatchingRP-{recId}",
-                $"IsUnfinishedFlight=false rec={recId} reason=noMatchingRP " +
-                $"parentBp={parentBpId ?? "<none>"} childBp={childBpId ?? "<none>"} " +
-                $"rpCount={scenario.RewindPoints.Count}");
-            return false;
+            var slot = rp.ChildSlots[slotListIndex];
+            string qualifyReason;
+            return UnfinishedFlightClassifier.TryQualify(
+                rec, slot, rp, true, out qualifyReason);
         }
 
         /// <summary>
@@ -465,7 +470,8 @@ namespace Parsek
                     return ersCache;
                 }
 
-                var suppressed = ComputeSessionSuppressedSubtreeInternal(marker);
+                var suppressed = ComputeSubtreeClosureInternal(
+                    marker, marker?.OriginChildRecordingId);
                 var source = RecordingStore.CommittedRecordings;
                 var result = new List<Recording>(source.Count);
                 int raw = source.Count;
@@ -601,7 +607,9 @@ namespace Parsek
         /// </summary>
         public static IReadOnlyCollection<string> ComputeSessionSuppressedSubtree(ReFlySessionMarker marker)
         {
-            var cached = ComputeSessionSuppressedSubtreeInternal(marker);
+            if (marker == null)
+                return Array.Empty<string>();
+            var cached = ComputeSubtreeClosureInternal(marker, marker.OriginChildRecordingId);
             if (cached == null) return Array.Empty<string>();
             // Defensive copy: callers get an isolated snapshot so mutations (if they
             // ever happened) cannot corrupt the shared cache.
@@ -618,15 +626,16 @@ namespace Parsek
             if (rec == null) return false;
             if (marker == null) return false;
             if (string.IsNullOrEmpty(rec.RecordingId)) return false;
-            var closure = ComputeSessionSuppressedSubtreeInternal(marker);
+            var closure = ComputeSubtreeClosureInternal(marker, marker.OriginChildRecordingId);
             return closure != null && closure.Contains(rec.RecordingId);
         }
 
         // Internal closure computation that returns the cached HashSet directly
         // so ComputeERS can do O(1) membership checks.
-        private static HashSet<string> ComputeSessionSuppressedSubtreeInternal(ReFlySessionMarker marker)
+        internal static HashSet<string> ComputeSubtreeClosureInternal(
+            ReFlySessionMarker marker, string rootOverride)
         {
-            if (marker == null || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            if (marker == null || string.IsNullOrEmpty(rootOverride))
                 return null;
 
             int storeVersion = RecordingStore.StateVersion;
@@ -635,13 +644,17 @@ namespace Parsek
             {
                 if (suppressionCache != null
                     && ReferenceEquals(suppressionCacheMarkerIdentity, marker)
-                    && suppressionCacheStoreVersion == storeVersion)
+                    && suppressionCacheStoreVersion == storeVersion
+                    && string.Equals(
+                        suppressionCacheRootOverride,
+                        rootOverride,
+                        StringComparison.Ordinal))
                 {
                     return suppressionCache;
                 }
 
                 var result = new HashSet<string>(StringComparer.Ordinal);
-                result.Add(marker.OriginChildRecordingId);
+                result.Add(rootOverride);
 
                 // Build a recording-id -> Recording lookup so the walk is O(N)
                 // rather than O(N^2) per committed recording.
@@ -691,7 +704,7 @@ namespace Parsek
                 // EnqueueChainSiblings — those are by-construction same physical
                 // vessel and the chain identity guarantees the same PID.
                 var queue = new Queue<string>();
-                queue.Enqueue(marker.OriginChildRecordingId);
+                queue.Enqueue(rootOverride);
 
                 int mixedParentHalts = 0;
                 int childrenAdded = 0;
@@ -794,9 +807,10 @@ namespace Parsek
                 suppressionCache = result;
                 suppressionCacheMarkerIdentity = marker;
                 suppressionCacheStoreVersion = storeVersion;
+                suppressionCacheRootOverride = rootOverride;
 
                 ParsekLog.Verbose("ReFlySession",
-                    $"SessionSuppressedSubtree: {result.Count} recording(s) closed from origin={marker.OriginChildRecordingId} " +
+                    $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
                     $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
                     $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
 

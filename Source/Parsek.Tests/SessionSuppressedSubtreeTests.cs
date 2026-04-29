@@ -111,7 +111,7 @@ namespace Parsek.Tests
             return scenario;
         }
 
-        private static ReFlySessionMarker Marker(string originId)
+        private static ReFlySessionMarker Marker(string originId, string supersedeTargetId = null)
         {
             return new ReFlySessionMarker
             {
@@ -119,6 +119,7 @@ namespace Parsek.Tests
                 TreeId = "tree_1",
                 ActiveReFlyRecordingId = "rec_provisional",
                 OriginChildRecordingId = originId,
+                SupersedeTargetId = supersedeTargetId,
                 RewindPointId = "rp_1",
                 InvokedUT = 0.0
             };
@@ -232,6 +233,121 @@ namespace Parsek.Tests
             InstallScenario(marker: null);
             var closure = EffectiveState.ComputeSessionSuppressedSubtree(null);
             Assert.Empty(closure);
+        }
+
+        [Fact]
+        public void NullOrigin_ReturnsEmpty()
+        {
+            InstallScenario(Marker(null));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker(null));
+
+            Assert.Empty(closure);
+        }
+
+        [Fact]
+        public void PublicWrapper_ReturnsDefensiveCopy()
+        {
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            var child = Rec("rec_child", "tree_1", parentBranchPointId: "bp_c");
+            var bp = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_child" });
+            InstallTree("tree_1",
+                new List<Recording> { origin, child },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin");
+            InstallScenario(marker);
+
+            var first = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            var mutable = Assert.IsType<HashSet<string>>(first);
+            mutable.Add("rec_poison");
+            var second = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.DoesNotContain("rec_poison", second);
+            Assert.Contains("rec_child", second);
+        }
+
+        [Fact]
+        public void InternalClosure_OriginRootMatchesPublicWrapper()
+        {
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            var child = Rec("rec_child", "tree_1", parentBranchPointId: "bp_c");
+            var bp = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_child" });
+            InstallTree("tree_1",
+                new List<Recording> { origin, child },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin");
+            InstallScenario(marker);
+
+            var publicClosure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            var internalClosure = EffectiveState.ComputeSubtreeClosureInternal(
+                marker, marker.OriginChildRecordingId);
+
+            Assert.True(new HashSet<string>(publicClosure).SetEquals(internalClosure));
+        }
+
+        [Fact]
+        public void PublicWrapper_RemainsOriginRootedWhenSupersedeTargetDiffers()
+        {
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_origin");
+            var originChild = Rec("rec_origin_child", "tree_1", parentBranchPointId: "bp_origin");
+            var prior = Rec("rec_prior_tip", "tree_1", childBranchPointId: "bp_prior");
+            var priorChild = Rec("rec_prior_child", "tree_1", parentBranchPointId: "bp_prior");
+            var bpOrigin = Bp("bp_origin", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_origin_child" });
+            var bpPrior = Bp("bp_prior", BranchPointType.Undock,
+                parents: new List<string> { "rec_prior_tip" },
+                children: new List<string> { "rec_prior_child" });
+            InstallTree("tree_1",
+                new List<Recording> { origin, originChild, prior, priorChild },
+                new List<BranchPoint> { bpOrigin, bpPrior });
+            var marker = Marker("rec_origin", supersedeTargetId: "rec_prior_tip");
+            InstallScenario(marker);
+
+            var publicClosure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            var mergeClosure = EffectiveState.ComputeSubtreeClosureInternal(
+                marker, marker.SupersedeTargetId);
+
+            Assert.Contains("rec_origin", publicClosure);
+            Assert.Contains("rec_origin_child", publicClosure);
+            Assert.DoesNotContain("rec_prior_tip", publicClosure);
+            Assert.DoesNotContain("rec_prior_child", publicClosure);
+            Assert.Contains("rec_prior_tip", mergeClosure);
+            Assert.Contains("rec_prior_child", mergeClosure);
+        }
+
+        [Fact]
+        public void InternalClosure_CacheKeyIncludesRootOverride()
+        {
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_origin");
+            var originChild = Rec("rec_origin_child", "tree_1", parentBranchPointId: "bp_origin");
+            var prior = Rec("rec_prior_tip", "tree_1", childBranchPointId: "bp_prior");
+            var priorChild = Rec("rec_prior_child", "tree_1", parentBranchPointId: "bp_prior");
+            var bpOrigin = Bp("bp_origin", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_origin_child" });
+            var bpPrior = Bp("bp_prior", BranchPointType.Undock,
+                parents: new List<string> { "rec_prior_tip" },
+                children: new List<string> { "rec_prior_child" });
+            InstallTree("tree_1",
+                new List<Recording> { origin, originChild, prior, priorChild },
+                new List<BranchPoint> { bpOrigin, bpPrior });
+            var marker = Marker("rec_origin");
+            InstallScenario(marker);
+
+            var originClosure = EffectiveState.ComputeSubtreeClosureInternal(
+                marker, "rec_origin");
+            var priorClosure = EffectiveState.ComputeSubtreeClosureInternal(
+                marker, "rec_prior_tip");
+
+            Assert.Contains("rec_origin_child", originClosure);
+            Assert.DoesNotContain("rec_prior_child", originClosure);
+            Assert.Contains("rec_prior_child", priorClosure);
+            Assert.DoesNotContain("rec_origin_child", priorClosure);
         }
 
         [Fact]

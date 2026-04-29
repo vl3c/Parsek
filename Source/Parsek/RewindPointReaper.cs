@@ -11,10 +11,13 @@ namespace Parsek
     ///
     /// <para>
     /// A <see cref="RewindPoint"/> becomes reap-eligible when every child
-    /// slot's effective recording has reached <see cref="MergeState.Immutable"/>
-    /// — at that point no slot can be re-flown any more, so the on-disk
-    /// quicksave and the scenario entry are dead weight. Session-provisional
-    /// RPs (<see cref="RewindPoint.SessionProvisional"/> still true) are
+    /// slot's effective recording is closed: <see cref="MergeState.Immutable"/>
+    /// unless the slot is unsealed, stashed, and still qualifies as an
+    /// Unfinished Flight, or a sealed
+    /// <see cref="MergeState.CommittedProvisional"/>. At that point no slot
+    /// can be re-flown any more, so the on-disk quicksave and the scenario
+    /// entry are dead weight. Session-provisional RPs
+    /// (<see cref="RewindPoint.SessionProvisional"/> still true) are
     /// always retained; Phase 10's <see cref="MergeJournalOrchestrator.TagRpsForReap"/>
     /// flips that flag at merge time so the first post-merge reap pass can
     /// claim them.
@@ -90,6 +93,7 @@ namespace Parsek
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
             string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            int sealedSlotsContributingTotal = 0;
 
             // Snapshot of eligible RPs + matching indices so we don't mutate
             // while iterating.
@@ -107,8 +111,10 @@ namespace Parsek
                         $"while re-fly session {scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} is active");
                     continue;
                 }
-                if (!IsReapEligible(rp, supersedes))
+                int sealedSlotsContributing;
+                if (!IsReapEligible(rp, supersedes, out sealedSlotsContributing))
                     continue;
+                sealedSlotsContributingTotal += sealedSlotsContributing;
                 toReap.Add(rp);
                 toReapIndices.Add(i);
             }
@@ -116,7 +122,8 @@ namespace Parsek
             if (toReap.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)}");
+                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"sealedSlotsContributing=0");
                 return 0;
             }
 
@@ -155,7 +162,8 @@ namespace Parsek
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
-                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)}");
+                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
+                $"sealedSlotsContributing={sealedSlotsContributingTotal.ToString(CultureInfo.InvariantCulture)}");
 
             return toReap.Count;
         }
@@ -164,7 +172,7 @@ namespace Parsek
         /// A <see cref="RewindPoint"/> is reap-eligible when <b>all</b> of:
         /// <list type="bullet">
         ///   <item><description><see cref="RewindPoint.SessionProvisional"/> is false (the owning session has merged).</description></item>
-        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a live <see cref="Recording"/> with <see cref="MergeState.Immutable"/>.</description></item>
+        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed, stashed, and still qualifies as an Unfinished Flight, or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
         /// </list>
         /// A slot whose OriginChildRecordingId is null/blank is treated as
         /// terminal-Immutable (there is no recording that could still be
@@ -175,6 +183,16 @@ namespace Parsek
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
+            int sealedSlotsContributing;
+            return IsReapEligible(rp, supersedes, out sealedSlotsContributing);
+        }
+
+        private static bool IsReapEligible(
+            RewindPoint rp,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out int sealedSlotsContributing)
+        {
+            sealedSlotsContributing = 0;
             if (rp == null) return false;
             if (rp.SessionProvisional) return false;
 
@@ -201,8 +219,23 @@ namespace Parsek
                     continue;
                 }
 
-                if (rec.MergeState != MergeState.Immutable)
+                if (rec.MergeState == MergeState.NotCommitted)
                     return false;
+                if (rec.MergeState == MergeState.Immutable)
+                {
+                    if (slot.Stashed
+                        && !slot.Sealed
+                        && UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed: true))
+                        return false;
+                    continue;
+                }
+                if (slot.Sealed)
+                {
+                    sealedSlotsContributing++;
+                    continue;
+                }
+
+                return false;
             }
 
             return true;

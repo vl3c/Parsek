@@ -19,6 +19,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
@@ -29,6 +30,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             GhostPlaybackLogic.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
         }
 
         #region ShouldFlushDeferredSpawns
@@ -306,6 +308,122 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushDeferredSpawns_PurgesSupersededRelationQueues()
+        {
+            var oldRec = new Recording
+            {
+                RecordingId = "rec-old-superseded",
+                VesselName = "Old Booster",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var newRec = new Recording
+            {
+                RecordingId = "rec-new-superseding",
+                VesselName = "New Booster"
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(oldRec);
+            RecordingStore.AddRecordingWithTreeForTesting(newRec);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_deferred",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                int spawnCalls = 0;
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host)
+                {
+                    IsWarpActiveOverrideForTesting = () => false,
+                    CurrentUTOverrideForTesting = () => 200.0,
+                    SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++
+                };
+                policy.pendingSpawnRecordingIds.Add(oldRec.RecordingId);
+                policy.pendingFlagReplayRecordingIds.Add(oldRec.RecordingId);
+                policy.pendingWatchRecordingId = oldRec.RecordingId;
+
+                policy.FlushDeferredSpawns();
+
+                Assert.Equal(0, spawnCalls);
+                Assert.Empty(policy.pendingSpawnRecordingIds);
+                Assert.Empty(policy.pendingFlagReplayRecordingIds);
+                Assert.Null(policy.pendingWatchRecordingId);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[Policy]")
+                    && line.Contains("Purged 1 deferred spawn/flag replay id(s)")
+                    && line.Contains("clearedWatch=True"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void RetryHeldGhostSpawns_ReleasesSupersededRelationWithoutRetry()
+        {
+            var oldRec = new Recording
+            {
+                RecordingId = "rec-held-old",
+                VesselName = "Held Old Booster",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var newRec = new Recording
+            {
+                RecordingId = "rec-held-new",
+                VesselName = "Held New Booster"
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(oldRec);
+            RecordingStore.AddRecordingWithTreeForTesting(newRec);
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            int spawnCalls = 0;
+            int destroyCalls = 0;
+            string destroyReason = null;
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                CurrentRealTimeOverrideForTesting = () => 1f,
+                RelationSupersededIdsOverrideForTesting = committed =>
+                    new HashSet<string> { oldRec.RecordingId },
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
+                DestroyGhostOverrideForTesting = (index, reason) =>
+                {
+                    destroyCalls++;
+                    destroyReason = reason;
+                }
+            };
+            policy.heldGhosts[0] = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = oldRec.RecordingId,
+                vesselName = oldRec.VesselName
+            };
+
+            using (ParsekLog.SuppressScope())
+            {
+                policy.RetryHeldGhostSpawns();
+            }
+
+            Assert.Equal(0, spawnCalls);
+            Assert.Equal(1, destroyCalls);
+            Assert.Equal("held-superseded-by-relation", destroyReason);
+            Assert.Empty(policy.heldGhosts);
+            Assert.False(oldRec.VesselSpawned);
+            Assert.Equal(0u, oldRec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
         public void HandleAllGhostsDestroying_ClearsPendingFlagReplayQueue()
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
@@ -466,6 +584,61 @@ namespace Parsek.Tests
                     l.Contains("[Policy]")
                     && l.Contains("Spawn-death detected")
                     && l.Contains("Healthy Spawned"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void RunSpawnDeathChecks_SkipsSupersededRelationRecording()
+        {
+            var oldRec = new Recording
+            {
+                RecordingId = "rec-policy-old",
+                VesselName = "Superseded Spawned",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 123456u,
+                SpawnAbandoned = false,
+                SpawnDeathCount = 0,
+            };
+            var newRec = new Recording
+            {
+                RecordingId = "rec-policy-new",
+                VesselName = "Superseding Spawned",
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(oldRec);
+            RecordingStore.AddRecordingWithTreeForTesting(newRec);
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = null,
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_spawn_death",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host);
+
+                policy.RunSpawnDeathChecks();
+
+                Assert.True(oldRec.VesselSpawned);
+                Assert.Equal(123456u, oldRec.SpawnedVesselPersistentId);
+                Assert.Equal(0, oldRec.SpawnDeathCount);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Policy]")
+                    && l.Contains("RunSpawnDeathChecks: skipped 1 superseded-by-relation recording"));
             }
             finally
             {
