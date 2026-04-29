@@ -251,6 +251,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NonDestroyedWithParentAndChildRewindPoints_PrefersChildRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.SubOrbital,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                RpWithFocus("rp_new", "bp_new", 0, "rec_focus", "rec_stage")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(1, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
         public void DestroyedAgainstOlderRewindPointWithRealDownstreamRoute_NotMemberForOlderPoint()
         {
             var rec = Rec(
