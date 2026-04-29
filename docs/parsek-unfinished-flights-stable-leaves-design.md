@@ -25,7 +25,7 @@ The v1 feature covers:
 - **Broadened predicate.** `EffectiveState.IsUnfinishedFlight` is extended to include stable-terminal non-focus controllable leaves and stranded EVA kerbals. The structural-leaf gate, controllable-subject gate, and slot-still-open gate are all preserved or tightened.
 - **One Unfinished Flights group, broader membership.** No new virtual group. The existing tooltip and group affordances stay; the predicate behind it changes.
 - **Per-row Seal action.** A new in-table action that closes a slot permanently without touching the underlying recording, so the player can clear over-included rows and let the reaper free disk space.
-- **Three new persistent fields.** `ChildSlot.Sealed` (+ `SealedRealTime`), `RewindPoint.FocusSlotIndex`, `ReFlySessionMarker.SupersedeTargetId`. All back-compat.
+- **New persistent fields.** `ChildSlot.Sealed` (+ `SealedRealTime`), `ChildSlot.Parked` (+ `ParkedRealTime`), `RewindPoint.FocusSlotIndex`, and `ReFlySessionMarker.SupersedeTargetId`. All back-compat.
 - **Helper extraction.** `TryResolveRewindPointForRecording` and friends move from `UI/RecordingsTableUI.cs` into a new `UnfinishedFlightClassifier` static class so non-UI consumers (`RecordingStore`, `SupersedeCommit`) can call them without a layering inversion.
 - **Closure-helper split.** `EffectiveState.ComputeSessionSuppressedSubtree(marker)` becomes a thin wrapper around a new `ComputeSubtreeClosureInternal(marker, rootOverride)` so merge-time supersede append can re-root the closure walk while runtime ghost suppression stays origin-rooted.
 
@@ -34,7 +34,7 @@ The v1 feature covers:
 - ~~**Park-from-not-UF affordance.** A complementary UI action that adds a row the default predicate excluded (e.g. a Landed rover the player wants re-flyable later, a focus-continuation upper stage they decided to come back to). Deferred to v2 unless playtest shows demand.~~ Implemented in the v2 follow-up as `ChildSlot.Parked` while the RP still exists; already-reaped RP quicksaves are not resurrected.
 - **Voluntary-action heuristics.** A1/A2/A4 orbit-shift / mid-chain-surface / body-change classifiers that R1-R3 explored. Explicitly rejected upstream of v1; over-inclusion is handled by the Seal button instead.
 - **Migration sweep for legacy star-shaped supersede graphs.** §6.4 covers the topology change; the existing star portions in legacy saves are tolerated as-is.
-- **Auto-purge of long-lived sealed RPs.** No TTL-based reaper extension. Disk usage is the player's responsibility via the Seal button, surfaced through the existing Settings → Diagnostics line.
+- **Auto-purge of long-lived sealed RPs.** No TTL-based reaper extension. Disk usage is the player's responsibility via the Seal button, surfaced through the Settings → Diagnostics disk-usage line and its crashed/stable/sealed-pending RP breakdown.
 
 ### 1.4 Prerequisites
 
@@ -176,7 +176,7 @@ The reaper (§6.5) treats `slot.Sealed == true` as equivalent-to-Immutable for c
 
 ## 5. Data Model
 
-Five new persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
+New persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
 
 ### 5.1 ChildSlot.Sealed / SealedRealTime + Parked / ParkedRealTime
 
@@ -830,7 +830,7 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 ## 10. Risks
 
-- **Disk usage growth.** Stable-leaf RPs persist until Sealed or all sibling slots close. Bounded by player diligence with the Seal button + by the FocusSlotIndex gate (which prevents routine focus-continuation upper stages from inflating the count). Mitigation: existing Settings → Diagnostics RP disk-usage line gets a Crashed-vs-StableLeaf breakdown.
+- **Disk usage growth.** Stable-leaf RPs persist until Sealed or all sibling slots close. Bounded by player diligence with the Seal button + by the FocusSlotIndex gate (which prevents routine focus-continuation upper stages from inflating the count). Mitigation: the Settings → Diagnostics RP disk-usage line includes live crashed-open, stable-open, and sealed-pending RP buckets next to the byte/file total.
 
 - **Over-inclusion.** The simple terminal-state classifier surfaces some cases where the player meaningfully flew or didn't intend to leave a vessel and it ended Orbiting/SubOrbital (Mun-transfer-and-park, briefly-nudged-probe, deep-space probe carried by transfer stage and undocked there). The Seal button is the design's answer. **Do not re-introduce voluntary-action heuristics** — that path was explicitly rejected in R1-R3.
 
@@ -902,11 +902,11 @@ Implemented as a follow-up. The Recordings table shows a `Park` button for stabl
 
 ### 11.5 v2 Auto-purge of long-lived sealed RPs
 
-Out of scope for v1. The Settings → Diagnostics RP disk-usage line is the v1 monitoring story. v2 could add a TTL-based reaper extension or a "Wipe All Sealed RPs" button.
+Out of scope for v1. The Settings → Diagnostics RP disk-usage line plus the §11.6 split buckets are the monitoring story. A later v2 could add a TTL-based reaper extension or a "Wipe All Sealed RPs" button, but this design does not invent destructive cleanup policy.
 
 ### 11.6 v2 Split disk-usage diagnostic
 
-The existing Settings → Diagnostics line shows total RP disk usage. v2 splits it into Crashed RPs vs Stable-Unconcluded RPs vs Sealed-but-not-yet-reaped RPs counts.
+Implemented as a read-only follow-up. The Settings → Diagnostics line still shows total RP disk usage, and now also reports live RP buckets: crashed-open RPs, stable-open RPs, and sealed-pending RPs. Buckets are explanatory and may overlap when a single RP contains both sealed and still-open slots; this is monitoring only, not an auto-purge trigger.
 
 ---
 

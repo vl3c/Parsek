@@ -17,16 +17,22 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
         private readonly string tempRoot;
 
         public DiskUsageDiagnosticsTests()
         {
             priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            RecordingStore.SuppressLogging = true;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             RewindPointDiskUsage.ResetForTesting();
 
             // Per-test temp dir so fixtures do not stomp each other under the
@@ -40,6 +46,10 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             RewindPointDiskUsage.ResetForTesting();
 
             try
@@ -58,6 +68,78 @@ namespace Parsek.Tests
             string path = Path.Combine(tempRoot, name);
             File.WriteAllBytes(path, new byte[byteLength]);
             return path;
+        }
+
+        private static Recording Rec(
+            string id,
+            MergeState state,
+            TerminalState? terminal,
+            string parentBranchPointId,
+            bool isDebris = false,
+            string evaCrewName = null)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                MergeState = state,
+                TerminalStateValue = terminal,
+                ParentBranchPointId = parentBranchPointId,
+                IsDebris = isDebris,
+                EvaCrewName = evaCrewName
+            };
+        }
+
+        private static ChildSlot Slot(
+            int index,
+            string originRecordingId,
+            bool sealedSlot = false,
+            bool parkedSlot = false)
+        {
+            return new ChildSlot
+            {
+                SlotIndex = index,
+                OriginChildRecordingId = originRecordingId,
+                Controllable = true,
+                Sealed = sealedSlot,
+                SealedRealTime = sealedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
+                Parked = parkedSlot,
+                ParkedRealTime = parkedSlot ? "2026-04-29T12:01:00.0000000Z" : null
+            };
+        }
+
+        private static RewindPoint Rp(
+            string id,
+            string branchPointId,
+            int focusSlotIndex,
+            params ChildSlot[] slots)
+        {
+            return new RewindPoint
+            {
+                RewindPointId = id,
+                BranchPointId = branchPointId,
+                UT = 0.0,
+                QuicksaveFilename = id + ".sfs",
+                SessionProvisional = false,
+                FocusSlotIndex = focusSlotIndex,
+                ChildSlots = new List<ChildSlot>(slots ?? Array.Empty<ChildSlot>())
+            };
+        }
+
+        private static ParsekScenario InstallScenario(params RewindPoint[] rps)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(rps ?? Array.Empty<RewindPoint>()),
+                ActiveReFlySessionMarker = null,
+                ActiveMergeJournal = null
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+            return scenario;
         }
 
         [Fact]
@@ -121,6 +203,96 @@ namespace Parsek.Tests
             var fresh = RewindPointDiskUsage.GetSnapshot(tempRoot);
             Assert.Equal(300L, fresh.TotalBytes);
             Assert.Equal(2, fresh.FileCount);
+        }
+
+        [Fact]
+        public void DiskUsage_LiveBreakdownCountsCrashedStableAndSealedPendingRps()
+        {
+            // Regression: the diagnostics line needs to explain why RP files
+            // still exist, not just show bytes. Buckets are per-RP and can
+            // overlap when one RP has both sealed and still-open slots.
+            var crash = Rec("rec_crash", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, "bp_crash");
+            var focus = Rec("rec_focus", MergeState.Immutable,
+                TerminalState.Landed, "bp_stable");
+            var probe = Rec("rec_probe", MergeState.CommittedProvisional,
+                TerminalState.Orbiting, "bp_stable");
+            var sealedCrash = Rec("rec_sealed", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, "bp_sealed");
+
+            RecordingStore.AddRecordingWithTreeForTesting(crash, "tree_crash");
+            RecordingStore.AddRecordingWithTreeForTesting(focus, "tree_stable");
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_stable");
+            RecordingStore.AddRecordingWithTreeForTesting(sealedCrash, "tree_sealed");
+
+            var scenario = InstallScenario(
+                Rp("rp_crash", "bp_crash", 0, Slot(0, "rec_crash")),
+                Rp("rp_stable", "bp_stable", 0,
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_probe")),
+                Rp("rp_sealed", "bp_sealed", 0,
+                    Slot(0, "rec_sealed", sealedSlot: true)));
+
+            var snap = RewindPointDiskUsage.Compute(tempRoot, nowSeconds: 0.0, scenario);
+
+            Assert.Equal(3, snap.Live.RewindPointCount);
+            Assert.Equal(1, snap.Live.CrashedOpenCount);
+            Assert.Equal(1, snap.Live.StableOpenCount);
+            Assert.Equal(1, snap.Live.SealedPendingCount);
+        }
+
+        [Fact]
+        public void DiskUsage_FormatLineIncludesLiveBreakdown()
+        {
+            var snap = new RewindPointDiskUsage.Snapshot
+            {
+                TotalBytes = 1024L,
+                FileCount = 3,
+                Live = new RewindPointDiskUsage.LiveBreakdown
+                {
+                    RewindPointCount = 4,
+                    CrashedOpenCount = 1,
+                    StableOpenCount = 2,
+                    SealedPendingCount = 1
+                }
+            };
+
+            string line = RewindPointDiskUsage.FormatLine(snap);
+
+            Assert.Contains("Rewind point disk usage: 1.0 KB", line);
+            Assert.Contains("3 files", line);
+            Assert.Contains("live=4", line);
+            Assert.Contains("crashed=1", line);
+            Assert.Contains("stable=2", line);
+            Assert.Contains("sealed-pending=1", line);
+        }
+
+        [Fact]
+        public void DiskUsage_CacheInvalidatesWhenScenarioStateChanges()
+        {
+            // Regression: the 10s disk cache must not freeze the live RP
+            // breakdown after a Seal/Park/merge path bumps scenario state.
+            double fakeNow = 2000.0;
+            RewindPointDiskUsage.ClockSourceForTesting = () => fakeNow;
+            WriteFile("rp_a.sfs", 100);
+            var crash = Rec("rec_crash", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, "bp_crash");
+            RecordingStore.AddRecordingWithTreeForTesting(crash, "tree_crash");
+
+            var scenario = InstallScenario();
+            var first = RewindPointDiskUsage.GetSnapshot(tempRoot, scenario);
+            Assert.Equal(0, first.Live.RewindPointCount);
+
+            scenario.RewindPoints.Add(Rp("rp_crash", "bp_crash", 0, Slot(0, "rec_crash")));
+            scenario.BumpSupersedeStateVersion();
+            fakeNow = 2001.0;
+
+            var changed = RewindPointDiskUsage.GetSnapshot(tempRoot, scenario);
+
+            Assert.Equal(100L, changed.TotalBytes);
+            Assert.Equal(1, changed.FileCount);
+            Assert.Equal(1, changed.Live.RewindPointCount);
+            Assert.Equal(1, changed.Live.CrashedOpenCount);
         }
     }
 }

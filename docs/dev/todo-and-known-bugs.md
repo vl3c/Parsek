@@ -62,6 +62,12 @@ confirmation clears `ChildSlot.Parked` before forcing the recording `Immutable`
 so an in-place Parked re-fly closes and reaps like other in-place stable-leaf
 commits.
 
+Diagnostics follow-up: Settings -> Diagnostics now shows live RP breakdown
+counts next to total rewind-point quicksave disk usage: crashed-open,
+stable-open, and sealed-pending. The split is monitoring only; TTL cleanup or a
+manual bulk-wipe action remains deferred because it needs a separate destructive
+cleanup policy.
+
 Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
 in-place merge path may classify an unfinished outcome as
 `CommittedProvisional`, but immediately forces the same recording back to

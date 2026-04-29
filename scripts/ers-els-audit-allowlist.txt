@@ -43,6 +43,13 @@ Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
 Source/Parsek/UI/SettingsWindowUI.cs
 
+# RewindPointDiskUsage builds a Settings-only retained-RP diagnostic line.
+# It resolves each slot's already-walked effective id against the raw committed
+# list so the explicit scenario overload can classify a supplied scenario rather
+# than only ParsekScenario.Instance. The raw read is documented at the call site
+# with an inline [ERS-exempt] comment; no ledger reads.
+Source/Parsek/RewindPointDiskUsage.cs
+
 # --- Phase 4 ERS-exempt files ---
 # RewindPointAuthor captures PidSlotMap / RootPartPidMap at a multi-controllable
 # split (design §5.1). The author correlates each ChildSlot to a live vessel by
