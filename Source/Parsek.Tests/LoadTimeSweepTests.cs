@@ -128,7 +128,8 @@ namespace Parsek.Tests
             string activeId,
             string originId,
             string rpId,
-            double invokedUt = 500.0)
+            double invokedUt = 500.0,
+            string supersedeTargetId = null)
         {
             return new ReFlySessionMarker
             {
@@ -136,6 +137,7 @@ namespace Parsek.Tests
                 TreeId = treeId,
                 ActiveReFlyRecordingId = activeId,
                 OriginChildRecordingId = originId,
+                SupersedeTargetId = supersedeTargetId,
                 RewindPointId = rpId,
                 InvokedUT = invokedUt,
                 InvokedRealTime = "2026-04-18T00:00:00Z",
@@ -248,13 +250,17 @@ namespace Parsek.Tests
                 supersedeTarget: "rec_origin", treeId: "tree_pending");
             var origin = Rec("rec_origin", MergeState.CommittedProvisional,
                 treeId: "tree_pending");
+            var priorTip = Rec("rec_prior_tip", MergeState.CommittedProvisional,
+                treeId: "tree_pending");
             tree.AddOrReplaceRecording(active);
             tree.AddOrReplaceRecording(origin);
+            tree.AddOrReplaceRecording(priorTip);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
-            var marker = Marker("sess_1", "tree_pending", "rec_active", "rec_origin", "rp_1");
+            var marker = Marker("sess_1", "tree_pending", "rec_active", "rec_origin", "rp_1",
+                supersedeTargetId: "rec_prior_tip");
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { rp },
                 marker: marker);
@@ -262,9 +268,36 @@ namespace Parsek.Tests
             LoadTimeSweep.Run();
 
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("rec_prior_tip",
+                scenario.ActiveReFlySessionMarker.SupersedeTargetId);
             Assert.Single(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") && l.Contains("Marker valid sess=sess_1"));
+        }
+
+        [Fact]
+        public void MarkerValidator_InvalidSupersedeTarget_ClearsFieldAndLogsWarning()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_active", MergeState.NotCommitted, sessionId: "sess_1"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
+            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
+                supersedeTargetId: "rec_missing_target");
+            InstallScenario(rps: new List<RewindPoint> { rp }, marker: marker);
+
+            var result = MarkerValidator.Validate(marker);
+
+            Assert.True(result.Valid);
+            Assert.Null(marker.SupersedeTargetId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Marker invalid field=SupersedeTargetId; clearing")
+                && l.Contains("rec_missing_target"));
         }
 
         [Fact]
@@ -747,10 +780,75 @@ namespace Parsek.Tests
 
             LoadTimeSweep.Run();
 
-            // Relation survives per §3.5 invariant 7.
+            // One-sided relation survives per §3.5 invariant 7 because it can
+            // still suppress the old recording.
             Assert.Single(scenario.RecordingSupersedes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") && l.Contains("Orphan relation=rsr_orphan"));
+        }
+
+        [Fact]
+        public void FullyOrphanSupersede_RemovedAtLoadTime()
+        {
+            InstallTree("tree_1",
+                new List<Recording> { Rec("rec_present", MergeState.Immutable) },
+                new List<BranchPoint>());
+            var rel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_fully_orphan",
+                OldRecordingId = "rec_vanished_old",
+                NewRecordingId = "rec_vanished_new",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { rel });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Fully orphaned relation=rsr_fully_orphan")
+                && l.Contains("removing"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Orphan relation=rsr_fully_orphan"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("removedFullyOrphanSupersedes=1"));
+        }
+
+        [Fact]
+        public void SupersedeFullyOrphanedByZombieDiscard_RemovedSameLoad()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie_old", MergeState.NotCommitted, sessionId: "sess_dead"),
+                    Rec("rec_zombie_new", MergeState.NotCommitted, sessionId: "sess_dead"),
+                },
+                new List<BranchPoint>());
+            var rel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_zombie_pair",
+                OldRecordingId = "rec_zombie_old",
+                NewRecordingId = "rec_zombie_new",
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { rel });
+
+            LoadTimeSweep.Run();
+
+            Assert.Null(FindRecording("rec_zombie_old"));
+            Assert.Null(FindRecording("rec_zombie_new"));
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Fully orphaned relation=rsr_zombie_pair")
+                && l.Contains("removing"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("discarded=2")
+                && l.Contains("removedFullyOrphanSupersedes=1"));
         }
 
         [Fact]
@@ -853,9 +951,15 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording> { zombie, stray },
                 new List<BranchPoint>());
-            var orphanRel = new RecordingSupersedeRelation
+            var retainedOrphanRel = new RecordingSupersedeRelation
             {
                 RelationId = "rsr_orphan",
+                OldRecordingId = "rec_stray",
+                NewRecordingId = "rec_y",
+            };
+            var fullyOrphanRel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_fully_orphan",
                 OldRecordingId = "rec_x",
                 NewRecordingId = "rec_y",
             };
@@ -869,7 +973,7 @@ namespace Parsek.Tests
                 creatingSessionId: "sess_dead");
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { zombieRp },
-                supersedes: new List<RecordingSupersedeRelation> { orphanRel },
+                supersedes: new List<RecordingSupersedeRelation> { retainedOrphanRel, fullyOrphanRel },
                 tombstones: new List<LedgerTombstone> { orphanTomb });
 
             LoadTimeSweep.Run();
@@ -880,6 +984,7 @@ namespace Parsek.Tests
                 l.Contains("Marker valid=False") &&
                 l.Contains("discarded=1") &&
                 l.Contains("orphanSupersedes=1") &&
+                l.Contains("removedFullyOrphanSupersedes=1") &&
                 l.Contains("orphanTombstones=1") &&
                 l.Contains("strayFields=1") &&
                 l.Contains("discardedRps=1"));

@@ -827,16 +827,24 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
                 throw new InvalidOperationException("AtomicMarkerWrite: no ParsekScenario instance");
 
-            // Resolve the origin recording. If it survived the Limbo-restore
-            // and its VesselPersistentId matches the strip-selected pid, the
-            // recorder will continue writing into THIS recording; we point
-            // the marker at it directly with no placeholder. Otherwise we
-            // build a fresh placeholder.
+            // Resolve the origin recording. If it survived the Limbo-restore,
+            // is still the slot's effective tip, and its VesselPersistentId
+            // matches the strip-selected pid, the recorder will continue
+            // writing into THIS recording; we point the marker at it directly
+            // with no placeholder. If the slot already supersedes origin, a
+            // fresh placeholder is required so commit appends priorTip -> new
+            // instead of creating origin -> priorTip -> origin cycles.
+            string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes);
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
+            bool originIsPriorTip = string.Equals(
+                priorTip,
+                selected.OriginChildRecordingId,
+                StringComparison.Ordinal);
             bool inPlaceContinuation =
                 originChild != null
                 && IsCommittedRecording(originChild)
-                && originChild.VesselPersistentId == stripResult.SelectedPid;
+                && originChild.VesselPersistentId == stripResult.SelectedPid
+                && originIsPriorTip;
 
             Recording provisional = null;
             string activeReFlyRecordingId = null;
@@ -878,6 +886,11 @@ namespace Parsek
                 else
                 {
                     provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
+                    // The merge path consumes marker.SupersedeTargetId. This
+                    // recording-level copy is a transient diagnostic on the
+                    // NotCommitted placeholder and is cleared with the rest of
+                    // the provisional fields at merge time.
+                    provisional.SupersedeTargetId = priorTip;
                     activeReFlyRecordingId = provisional.RecordingId;
                     treeIdForMarker = provisional.TreeId;
 
@@ -892,6 +905,7 @@ namespace Parsek
                     TreeId = treeIdForMarker,
                     ActiveReFlyRecordingId = activeReFlyRecordingId,
                     OriginChildRecordingId = selected.OriginChildRecordingId,
+                    SupersedeTargetId = priorTip,
                     RewindPointId = rp.RewindPointId,
                     InvokedUT = SafeNow(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
@@ -940,6 +954,7 @@ namespace Parsek
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
                 $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
+                $"supersedeTarget={priorTip ?? "<none>"} " +
                 $"tree={treeIdForMarker ?? "<none>"} " +
                 $"inPlaceContinuation={inPlaceContinuation}");
         }

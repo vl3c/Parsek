@@ -66,7 +66,12 @@ namespace Parsek.Tests
 
         // ---------- Helpers -----------------------------------------------
 
-        private static Recording Rec(string id, MergeState state)
+        private static Recording Rec(
+            string id,
+            MergeState state,
+            TerminalState? terminal = null,
+            string evaCrewName = null,
+            string parentBranchPointId = null)
         {
             return new Recording
             {
@@ -74,6 +79,9 @@ namespace Parsek.Tests
                 VesselName = id,
                 TreeId = "tree_1",
                 MergeState = state,
+                TerminalStateValue = terminal,
+                EvaCrewName = evaCrewName,
+                ParentBranchPointId = parentBranchPointId,
             };
         }
 
@@ -88,13 +96,21 @@ namespace Parsek.Tests
             };
         }
 
-        private static ChildSlot Slot(int index, string originRecordingId)
+        private static ChildSlot Slot(
+            int index,
+            string originRecordingId,
+            bool sealedSlot = false,
+            bool stashedSlot = false)
         {
             return new ChildSlot
             {
                 SlotIndex = index,
                 OriginChildRecordingId = originRecordingId,
                 Controllable = true,
+                Sealed = sealedSlot,
+                SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
+                Stashed = stashedSlot,
+                StashedRealTime = stashedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
             };
         }
 
@@ -197,6 +213,100 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reap_StashedImmutableSlot_RetainedUntilSealed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_b", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var stashedSlot = Slot(1, "rec_b", stashedSlot: true);
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"), stashedSlot);
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+
+            stashedSlot.Sealed = true;
+            stashedSlot.SealedRealTime = "2026-04-29T12:01:00.0000000Z";
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_StashedBoardedEvaImmutableSlot_CountsAsClosed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_eva", MergeState.Immutable, TerminalState.Boarded,
+                        "Jebediah Kerman", parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"),
+                Slot(1, "rec_eva", stashedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Contains("rp_1", deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_StashedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            var eva = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                "Jebediah Kerman", parentBranchPointId: "bp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    eva,
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"),
+                Slot(1, "rec_eva", stashedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Empty(deletedRpIds);
+
+            eva.TerminalStateValue = TerminalState.Boarded;
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+        }
+
+        [Fact]
         public void Reap_AnySlotNotCommitted_Retained()
         {
             var bp = Bp("bp_1", "rp_1");
@@ -240,6 +350,96 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_CommittedProvisionalSealedSlot_CountsAsClosed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.CommittedProvisional),
+                    Rec("rec_b", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ReapOrphanedRPs:")
+                && l.Contains("sealedSlotsContributing=1"));
+        }
+
+        [Fact]
+        public void Reap_NotCommittedSealedSlot_StillRetained()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.NotCommitted),
+                    Rec("rec_b", MergeState.Immutable),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_MixedClosedAndOpenSlots_ReapsAfterLastUnsealedSlotIsSealed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_immutable", MergeState.Immutable),
+                    Rec("rec_open", MergeState.CommittedProvisional),
+                    Rec("rec_sealed", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { bp });
+            var openSlot = Slot(1, "rec_open");
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_immutable"),
+                openSlot,
+                Slot(2, "rec_sealed", sealedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+
+            openSlot.Sealed = true;
+            openSlot.SealedRealTime = "2026-04-28T12:01:00.0000000Z";
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ReapOrphanedRPs:")
+                && l.Contains("sealedSlotsContributing=2"));
         }
 
         // ---------- File delete -------------------------------------------

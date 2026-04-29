@@ -85,13 +85,16 @@ namespace Parsek.Tests
         private sealed class FakeFlightGlobals : IFlightGlobalsProvider
         {
             private readonly Dictionary<uint, VesselSnapshot> snapshots;
-            public FakeFlightGlobals(Dictionary<uint, VesselSnapshot> snapshots)
+            private readonly uint? activeVesselPid;
+            public FakeFlightGlobals(Dictionary<uint, VesselSnapshot> snapshots, uint? activeVesselPid = null)
             {
                 this.snapshots = snapshots ?? new Dictionary<uint, VesselSnapshot>();
+                this.activeVesselPid = activeVesselPid;
             }
             public Vessel FindVesselByPid(uint pid) => null;
             public bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot)
                 => snapshots.TryGetValue(pid, out snapshot);
+            public uint? GetActiveVesselPid() => activeVesselPid;
         }
 
         private sealed class FakeScenePaths : RewindPointAuthor.IScenePaths
@@ -256,6 +259,115 @@ namespace Parsek.Tests
                 finally { RewindPointAuthor.SyncRunForTesting = null; }
             }
             finally { HighLogic.LoadedScene = GameScenes.LOADING; }
+        }
+
+        [Fact]
+        public void Begin_CapturesFocusedSlotIndex_WhenActiveVesselMatchesSlotPid()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            try
+            {
+                MakeScenario();
+                var bp = MakeBp("bp_focus");
+                var slots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_mothership"),
+                    Slot(1, "rec_probe")
+                };
+
+                RewindPointAuthor.SyncRunForTesting = (rp, ctx) => { };
+                try
+                {
+                    RewindPoint rp = RewindPointAuthor.Begin(
+                        bp,
+                        slots,
+                        new List<uint> { 100u, 200u },
+                        new RewindPointAuthorContext
+                        {
+                            FlightGlobals = new FakeFlightGlobals(
+                                new Dictionary<uint, VesselSnapshot>(), activeVesselPid: 200u),
+                            RecordingResolver = recId =>
+                                recId == "rec_mothership" ? (uint?)100u :
+                                recId == "rec_probe" ? (uint?)200u :
+                                null
+                        });
+
+                    Assert.NotNull(rp);
+                    Assert.Equal(1, rp.FocusSlotIndex);
+                    Assert.Contains(logLines, l =>
+                        l.Contains("[Rewind]") && l.Contains("focusSlot=1"));
+                }
+                finally { RewindPointAuthor.SyncRunForTesting = null; }
+            }
+            finally { HighLogic.LoadedScene = GameScenes.LOADING; }
+        }
+
+        [Fact]
+        public void Begin_CapturesNoFocusSignal_WhenActiveVesselDoesNotMatchAnySlot()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            try
+            {
+                MakeScenario();
+                var bp = MakeBp("bp_no_focus");
+                var slots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_a"),
+                    Slot(1, "rec_b")
+                };
+
+                RewindPointAuthor.SyncRunForTesting = (rp, ctx) => { };
+                try
+                {
+                    RewindPoint rp = RewindPointAuthor.Begin(
+                        bp,
+                        slots,
+                        new List<uint> { 100u, 200u },
+                        new RewindPointAuthorContext
+                        {
+                            FlightGlobals = new FakeFlightGlobals(
+                                new Dictionary<uint, VesselSnapshot>(), activeVesselPid: 999u),
+                            RecordingResolver = recId =>
+                                recId == "rec_a" ? (uint?)100u :
+                                recId == "rec_b" ? (uint?)200u :
+                                null
+                        });
+
+                    Assert.NotNull(rp);
+                    Assert.Equal(-1, rp.FocusSlotIndex);
+                }
+                finally { RewindPointAuthor.SyncRunForTesting = null; }
+            }
+            finally { HighLogic.LoadedScene = GameScenes.LOADING; }
+        }
+
+        [Fact]
+        public void ResolveFocusSlotIndex_MultiplePidMatches_ReturnsFirstAndLogs()
+        {
+            var slots = new List<ChildSlot>
+            {
+                Slot(0, "rec_a"),
+                Slot(1, "rec_b"),
+                Slot(2, "rec_c")
+            };
+            var flightGlobals = new FakeFlightGlobals(
+                new Dictionary<uint, VesselSnapshot>(), activeVesselPid: 200u);
+
+            int focusSlot = RewindPointAuthor.ResolveFocusSlotIndex(
+                slots,
+                recId => recId == "rec_a" ? (uint?)200u :
+                         recId == "rec_b" ? (uint?)100u :
+                         recId == "rec_c" ? (uint?)200u :
+                         null,
+                flightGlobals);
+
+            Assert.Equal(0, focusSlot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("ResolveFocusSlotIndex")
+                && l.Contains("activePid=200")
+                && l.Contains("matched 2 slots")
+                && l.Contains("using first slot=0"));
         }
 
         /// <summary>§7.1: a single-controllable output does not trigger Begin — the

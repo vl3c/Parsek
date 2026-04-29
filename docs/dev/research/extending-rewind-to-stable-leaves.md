@@ -907,8 +907,8 @@ In-game tests:
 ### 9.6 Documentation
 
 - Update `parsek-rewind-to-separation-design.md` §1.2 ("Out of scope: stable-end splits") and §7.31 ("intended behaviour, not a limitation") -- both are reversed by this extension.
-- New `parsek-unfinished-flights-extension-design.md` (or fold into a v0.10 revision of the rewind-to-separation doc) once this research note is promoted.
-- `roadmap.md` entry under v0.10+.
+- New `parsek-unfinished-flights-extension-design.md` (or fold into a future revision of the rewind-to-separation doc) once this research note is promoted.
+- `roadmap.md` entry under the next 0.9.x patch (no fixed version number until the patch ships).
 - CHANGELOG: "Unfinished Flights now also surfaces stable leaves left hanging -- probes deployed and forgotten in orbit, stranded EVA kerbals. Each row now has a Fly button and a Seal button (Seal marks the slot final so the rewind point can be cleaned up). Vessels that auto-parachuted to a safe landing still don't appear (they reached a stable conclusion)."
 
 ---
@@ -959,7 +959,7 @@ R17 is ready to promote to a formal design doc, modulo one explicit unresolved i
 
 **Promotion to a formal design doc requires resolving §7.0 (UI layout) and confirming §9.2.1 (v0.9 invocation rewrite is in scope, not a separate v0.9 fix PR).** If the v0.9 invocation change is treated as a prerequisite separate-PR rather than part of this feature, the feature blocks on that PR landing first.
 
-Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` (or merge into a v0.10 revision of the rewind-to-separation doc) following the design-doc template in `development-workflow.md` step 3. Resolve the §7.0 UI layout question with a UX mock during the design-doc phase. Plan + build cycle follows.
+Promote this to `Parsek/docs/parsek-unfinished-flights-stable-leaves-design.md` (or merge into a future revision of the rewind-to-separation doc) following the design-doc template in `development-workflow.md` step 3. Resolve the §7.0 UI layout question with a UX mock during the design-doc phase. Plan + build cycle follows.
 
 ---
 

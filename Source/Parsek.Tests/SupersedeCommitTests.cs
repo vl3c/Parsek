@@ -46,6 +46,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            MergeJournalOrchestrator.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
             RecordingStore.SuppressLogging = priorStoreSuppress;
@@ -94,6 +95,17 @@ namespace Parsek.Tests
             };
         }
 
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0,
+            };
+        }
+
         private static void InstallTree(string treeId, List<Recording> recordings,
             List<BranchPoint> branchPoints)
         {
@@ -132,7 +144,8 @@ namespace Parsek.Tests
 
         private static ReFlySessionMarker Marker(
             string originId, string provisionalId,
-            string sessionId = "sess_1", string treeId = "tree_1")
+            string sessionId = "sess_1", string treeId = "tree_1",
+            string supersedeTargetId = null)
         {
             return new ReFlySessionMarker
             {
@@ -140,6 +153,7 @@ namespace Parsek.Tests
                 TreeId = treeId,
                 ActiveReFlyRecordingId = provisionalId,
                 OriginChildRecordingId = originId,
+                SupersedeTargetId = supersedeTargetId,
                 RewindPointId = "rp_1",
                 InvokedUT = 0.0,
             };
@@ -227,6 +241,202 @@ namespace Parsek.Tests
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
         }
 
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_ProducesCommittedProvisional()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=stableLeafUnconcluded"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTarget()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            var priorTip = Rec("rec_prior_tip", "tree_1", terminal: TerminalState.Orbiting);
+            InstallTree("tree_1",
+                new List<Recording> { origin, priorTip },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_prior_tip");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional",
+                supersedeTargetId: "rec_prior_tip");
+            var scenario = InstallScenario(marker);
+            scenario.RecordingSupersedes.Add(Rel("rec_origin", "rec_prior_tip"));
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                }
+            });
+
+            Assert.False(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                provisional, out _, out _, out _));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_prior_tip" && r.NewRecordingId == "rec_provisional");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_provisional");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("slot=1")
+                && l.Contains("classifierReason=stableLeafUnconcluded"));
+        }
+
+        [Fact]
+        public void OrbitingFocusStableLeaf_ProducesImmutable()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 1,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_other", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminalFocusSlot"));
+        }
+
+        [Fact]
+        public void OrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+            scenario.RecordingSupersedes.Add(Rel("rec_prior_old", "rec_prior_new"));
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb_existing",
+                ActionId = "act_existing",
+                RetiringRecordingId = "rec_prior_new",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_origin",
+                KerbalEndStateField = KerbalEndState.Dead,
+                UT = 12.0,
+            });
+            int relationCountBefore = scenario.RecordingSupersedes.Count;
+            int tombstoneCountBefore = scenario.LedgerTombstones.Count;
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.CommitSupersede(
+                    scenario.ActiveReFlySessionMarker, provisional));
+
+            Assert.Contains("Site B-1 slot lookup failed", ex.Message);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Equal("rec_origin", provisional.SupersedeTargetId);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Equal(relationCountBefore, scenario.RecordingSupersedes.Count);
+            Assert.Equal(tombstoneCountBefore, scenario.LedgerTombstones.Count);
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.NewRecordingId == "rec_provisional");
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == "act_death");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
+        [Fact]
+        public void ChainTipOrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional_head", "tree_1",
+                null, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            provisional.ChainId = "chain_stable";
+            provisional.ChainIndex = 0;
+            var tip = Rec("rec_provisional_tip", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Orbiting);
+            tip.ChainId = "chain_stable";
+            tip.ChainIndex = 1;
+            RecordingStore.AddRecordingWithTreeForTesting(tip, "tree_1");
+            var tree = RecordingStore.CommittedTrees.Single(t => t.Id == "tree_1");
+            tree.AddOrReplaceRecording(provisional);
+            tree.AddOrReplaceRecording(tip);
+            var marker = Marker("rec_origin", "rec_provisional_head");
+            var scenario = InstallScenario(marker);
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SupersedeCommit.FlipMergeStateAndClearTransient(
+                    marker, provisional, scenario, preserveMarker: false));
+
+            Assert.Contains("Site B-1 slot lookup failed", ex.Message);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("terminal=Orbiting")
+                && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
         // ---------- Subtree supersede ---------------------------------------
 
         [Fact]
@@ -311,10 +521,10 @@ namespace Parsek.Tests
         [Fact]
         public void ChainExtendsThroughCrashedReFly()
         {
-            // The crashed provisional commits as CommittedProvisional and
-            // remains an Unfinished Flight per §7.43 — because
-            // IsUnfinishedFlight now routes through TerminalKindClassifier,
-            // and the parent BP has an RP attached.
+            // The crashed provisional commits as CommittedProvisional so the
+            // slot-level Unfinished Flights predicate can keep a real RP slot
+            // open. This fixture predates slot resolution and only guards the
+            // commit-state / visibility half of the chain-extension behavior.
             var origin = Rec("rec_origin", "tree_1",
                 parentBranchPointId: "bp_parent",
                 terminal: TerminalState.Destroyed);
@@ -343,13 +553,9 @@ namespace Parsek.Tests
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
 
-            // After commit the provisional must satisfy IsUnfinishedFlight:
-            // MergeState committed-ish + crashed + parent BP has RP.
-            // IsUnfinishedFlight in Phase 2 checks for MergeState.Immutable,
-            // but Phase 8's commit produces CommittedProvisional for crashed
-            // outcomes. The §7.43 chain-extension behavior is that the
-            // provisional stays rewindable; the assertion here is on the
-            // post-commit state that makes that possible.
+            // The §7.43 chain-extension behavior is that the provisional stays
+            // visible and committed-ish; separate tests cover slot-level UF
+            // membership once a RewindPoint child slot exists.
             var provisionalVisible = EffectiveState.IsVisible(provisional, scenario.RecordingSupersedes);
             Assert.True(provisionalVisible,
                 "provisional must be visible in ERS after commit (nothing supersedes it)");
@@ -357,6 +563,91 @@ namespace Parsek.Tests
             // Origin is now superseded → NOT visible.
             Assert.False(EffectiveState.IsVisible(
                 origin, scenario.RecordingSupersedes));
+        }
+
+        [Fact]
+        public void AppendRelations_ChainExtension_RootsAtSupersedeTargetPriorTip()
+        {
+            var origin = Rec("rec_origin", "tree_1");
+            var priorTip = Rec("rec_refly1", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin, priorTip },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_refly2", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_refly1");
+            var marker = Marker("rec_origin", "rec_refly2",
+                supersedeTargetId: "rec_refly1");
+            var scenario = InstallScenario(marker);
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_refly1"
+                    && r.NewRecordingId == "rec_refly2");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin"
+                    && r.NewRecordingId == "rec_refly2");
+            Assert.Equal("rec_refly2", EffectiveState.EffectiveRecordingId(
+                "rec_origin",
+                new List<RecordingSupersedeRelation>
+                {
+                    Rel("rec_origin", "rec_refly1"),
+                    scenario.RecordingSupersedes[0],
+                }));
+        }
+
+        [Fact]
+        public void HybridStarAndLinearGraph_ResolvesDominantTipAndAllSlotTrails()
+        {
+            const string bpId = "bp_probe_split";
+            var origin = Rec("probeOrig", "tree_probe", parentBranchPointId: bpId);
+            var reFly1 = Rec("probeReFly1", "tree_probe", parentBranchPointId: bpId);
+            var reFly2 = Rec("probeReFly2", "tree_probe", parentBranchPointId: bpId);
+            InstallTree("tree_probe",
+                new List<Recording> { origin, reFly1, reFly2 },
+                new List<BranchPoint>());
+            var reFly3 = AddProvisional("probeReFly3", "tree_probe",
+                TerminalState.Destroyed, supersedeTargetId: "probeReFly1");
+            reFly3.ParentBranchPointId = bpId;
+
+            var marker = Marker("probeOrig", "probeReFly3",
+                treeId: "tree_probe",
+                supersedeTargetId: "probeReFly1");
+            var scenario = InstallScenario(marker);
+            scenario.RecordingSupersedes.Add(Rel("probeOrig", "probeReFly1"));
+            scenario.RecordingSupersedes.Add(Rel("probeOrig", "probeReFly2"));
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_probe",
+                BranchPointId = bpId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "probeOrig",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            SupersedeCommit.AppendRelations(marker, reFly3, scenario);
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "probeReFly1"
+                    && r.NewRecordingId == "probeReFly3");
+            Assert.Equal("probeReFly3", EffectiveState.EffectiveRecordingId(
+                "probeOrig", scenario.RecordingSupersedes));
+
+            Assert.True(RecordingsTableUI.TryResolveRewindPointForRecording(
+                reFly3, out var rpForNewTip, out int slotForNewTip));
+            Assert.Same(scenario.RewindPoints[0], rpForNewTip);
+            Assert.Equal(0, slotForNewTip);
+
+            Assert.True(RecordingsTableUI.TryResolveRewindPointForRecording(
+                reFly2, out var rpForOrphanBranch, out int slotForOrphanBranch));
+            Assert.Same(scenario.RewindPoints[0], rpForOrphanBranch);
+            Assert.Equal(0, slotForOrphanBranch);
         }
 
         // ---------- Transient fields / marker cleanup ----------------------
@@ -697,6 +988,263 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("in-place continuation reaped 1 orphaned RP")
                 && l.Contains("post-merge"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocus_ForcedImmutable_DoesNotSealSlot()
+        {
+            const string kBpId = "bp_inplace_stable_leaf";
+            var origin = Rec("rec_probe", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Orbiting);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_probe" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_probe", provisionalId: "rec_probe");
+            var scenario = InstallScenario(marker);
+            var probeSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_probe",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_inplace_stable_leaf",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_focus",
+                        Controllable = true,
+                    },
+                    probeSlot,
+                },
+            });
+
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.False(probeSlot.Sealed);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, deletes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("mergeState=CommittedProvisional"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation forced")
+                && l.Contains("CommittedProvisional")
+                && l.Contains("Immutable"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_ClearsStashedAndReaps()
+        {
+            const string kBpId = "bp_inplace_stashed_leaf";
+            var origin = Rec("rec_rover", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_rover" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_rover", provisionalId: "rec_rover");
+            var scenario = InstallScenario(marker);
+            var roverSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_rover",
+                Controllable = true,
+                Stashed = true,
+                StashedRealTime = "2026-04-29T12:00:00.0000000Z",
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_inplace_stashed_leaf",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_focus",
+                        Controllable = true,
+                    },
+                    roverSlot,
+                },
+            });
+
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.False(roverSlot.Stashed);
+            Assert.Null(roverSlot.StashedRealTime);
+            Assert.False(roverSlot.Sealed);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, deletes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("classifierReason=stashedStableLeaf")
+                && l.Contains("mergeState=CommittedProvisional"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation cleared stashed")
+                && l.Contains("rec=rec_rover"));
+        }
+
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedClearResolverMiss_LogsVerbose()
+        {
+            const string kBpId = "bp_inplace_stashed_miss";
+            var origin = Rec("rec_rover", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_rover" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_rover", provisionalId: "rec_rover");
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_inplace_stashed_miss",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_other",
+                        Controllable = true,
+                        Stashed = true,
+                        StashedRealTime = "2026-04-29T12:00:00.0000000Z",
+                    },
+                },
+            });
+
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, deletes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("could not resolve stashed slot to clear")
+                && l.Contains("rec=rec_rover")
+                && l.Contains("reason=noMatchingRpSlot"));
         }
 
         // The runtime `old==new` self-skip defense in
@@ -1438,7 +1986,7 @@ namespace Parsek.Tests
         // SAME new in-place flight. The fix builds the skip set from the
         // full chain membership (TreeId + ChainId + ChainBranch matches
         // from RecordingStore.CommittedRecordings — the same scope
-        // EffectiveState.ComputeSessionSuppressedSubtreeInternal +
+        // EffectiveState.ComputeSubtreeClosureInternal +
         // EnqueueChainSiblings use) so no in-place chain segment ends up
         // with a row pointing at another member.
 
