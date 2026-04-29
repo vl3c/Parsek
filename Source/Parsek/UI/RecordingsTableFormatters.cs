@@ -126,6 +126,7 @@ namespace Parsek
             if (start == null && end == null)
                 return null;
 
+            // Merge keys from both dictionaries.
             var keys = new SortedSet<string>();
             if (start != null)
                 foreach (var k in start.Keys) keys.Add(k);
@@ -162,6 +163,7 @@ namespace Parsek
                 }
                 else
                 {
+                    // Start only - show amount / maxAmount.
                     double amt = 0;
                     double max = 0;
                     if (start.TryGetValue(key, out var ra))
@@ -191,6 +193,7 @@ namespace Parsek
             if (start == null && end == null)
                 return null;
 
+            // Merge keys from both dictionaries.
             var keys = new SortedSet<string>();
             if (start != null)
                 foreach (var k in start.Keys) keys.Add(k);
@@ -227,6 +230,7 @@ namespace Parsek
                 }
                 else
                 {
+                    // Start only - show count.
                     int count = 0;
                     if (start.TryGetValue(key, out var item))
                         count = item.count;
@@ -252,6 +256,7 @@ namespace Parsek
             if (start == null && end == null)
                 return null;
 
+            // Merge keys from both dictionaries.
             var keys = new SortedSet<string>();
             if (start != null)
                 foreach (var k in start.Keys) keys.Add(k);
@@ -288,6 +293,7 @@ namespace Parsek
                 }
                 else
                 {
+                    // Start only - show count.
                     int count = 0;
                     if (start.TryGetValue(key, out var sc))
                         count = sc;

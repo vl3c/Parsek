@@ -69,9 +69,9 @@ Pass 0 snapshot. The Pass 3 KSC split leaves
 | `Source/Parsek/FlightRecorder.cs` | 6,689 | Pass1-Done; visual coverage logging helpers extracted |
 | `Source/Parsek/GameActions/LedgerOrchestrator.cs` | 6,596 | Pass3-Done for KSC classifier/reconciler extraction; earnings-window, vessel-cost, and recalculation helpers remain Pass1-Done |
 | `Source/Parsek/GhostPlaybackLogic.cs` | 5,343 | Pass1-Done; ghost info population and part-event helpers extracted |
-| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass1-Done for formatter owner; high-coupling IMGUI row/tree split deferred |
+| `Source/Parsek/UI/RecordingsTableUI.cs` | 4,868 | Pass3-Done for formatter owner; high-coupling IMGUI row/tree split deferred |
 | `Source/Parsek/BackgroundRecorder.cs` | 4,489 | Pass1-Done; split discovery and loaded-state helpers extracted |
-| `Source/Parsek/RecordingStore.cs` | 4,350 | Pass2-Done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; tree codec work deferred |
+| `Source/Parsek/RecordingStore.cs` | 4,350 | Pass2-Done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, `RecordingManifestCodec`, and `RecordingGroupStore`; tree codec work deferred |
 | `Source/Parsek/GhostPlaybackEngine.cs` | 4,312 | Pass1-Done; per-frame playback reset helper extracted |
 | `Source/Parsek/ParsekScenario.cs` | 4,172 | Pass1-Done; recording metadata load helpers extracted |
 | `Source/Parsek/VesselSpawner.cs` | 4,166 | Pass1-Done; spawn-state snapshot override helper extracted |
@@ -173,7 +173,7 @@ central enough that parallel edits would make review and rollback worse.
 | `GhostPlaybackLogic.cs` | 5.3k-line playback/visual logic helper |
 | `UI/RecordingsTableUI.cs` | 4.9k-line extracted UI surface with prior coupling risk |
 | `BackgroundRecorder.cs` | 4.5k-line background sampling surface |
-| `RecordingStore.cs` | 4.4k-line storage surface, +1.4k since refactor-3; Pass 2 sidecar commit batch, save/load paths, text trajectory codec, and manifest codec extracted |
+| `RecordingStore.cs` | 4.4k-line storage surface, +1.4k since refactor-3; Pass 2 sidecar commit batch, save/load paths, text trajectory codec, manifest codec, and group store extracted |
 | `GhostPlaybackEngine.cs` | 4.3k-line engine core |
 | `ParsekScenario.cs` | 4.2k-line save/load/lifecycle host |
 | `VesselSpawner.cs` | 4.2k-line spawn/snapshot utility |
@@ -291,7 +291,7 @@ loops can fool a mechanical scan.
 | `ParsekScenario.cs` | `TryRestoreActiveTreeNode` | 2720 | 138 |
 | `ParsekScenario.cs` | `SpliceMissingCommittedRecordingsIntoLoadedTree` | 3448 | 193 |
 | `ParsekScenario.cs` | `RefreshLoadedRecordingFromCommittedSplit` | 3680 | 121 |
-| `RecordingStore.cs` | `RunOptimizationSplitPass` | 2074 | 147 |
+| `RecordingStore.cs` | `RunOptimizationSplitPass` | 1727 | 147 |
 | `RecordingSidecarStore.cs` | `LoadRecordingFilesFromPathsInternal` | 187 | 149 |
 | `RecordingSidecarStore.cs` | `SaveRecordingFilesToPathsInternal` | 712 | 156 |
 | `RecordingSidecarStore.cs` | `ReconcileReadableSidecarMirrors` | 869 | 128 |
@@ -424,7 +424,7 @@ The main ownership bands are:
 - stateless table formatting helpers now owned by `RecordingsTableFormatters`
 - stats, tooltip, and loop-period helpers
 
-Pass 1 completed:
+Pass 3 formatter extraction completed:
 
 - Extracted stateless altitude, speed, distance, start/end position, and
   resource/inventory/crew manifest formatting into
@@ -440,6 +440,13 @@ Pass 1 deferred:
   share IMGUI call order, static per-frame buffers, edit/confirmation state,
   cross-link scrolling, and group-picker state. Extracting them now would add
   callback plumbing without proving an ownership boundary.
+- Keep `FormatAltitude`/`FormatDistance` and the three manifest formatter
+  shapes deliberately duplicated for this behavior-neutral move. A later
+  formatter cleanup can fold the distance units through one helper and consider
+  a shared manifest template after direct owner tests are in place.
+- Existing formatter tests still target `RecordingsTableUI`/`ParsekUI`
+  wrappers. Retarget them to `RecordingsTableFormatters` before deleting the
+  wrapper layer.
 
 The existing TODO to migrate rows to recording-id-keyed state is semantic work
 and remains deferred. A cross-file split should wait until Pass 2 produces a
@@ -520,8 +527,9 @@ Pass 2 discussion only: `RcsFxBuilder`, `VariantVisualRules`,
 
 ### `Source/Parsek/RecordingStore.cs`
 
-This file combines recording/tree commit, grouping, optimization, deletion,
-rewind, trajectory serialization, manifests, file I/O, and sidecar mirrors.
+This file combines recording/tree commit, grouping wrappers, optimization,
+deletion, rewind, trajectory serialization, manifests, file I/O, and sidecar
+mirrors.
 
 Pass 1 completed:
 
@@ -580,6 +588,14 @@ Pass 2 fifth slice completed:
   for `RecordingTree`, `ParsekScenario`, tests, and generators while tree record
   save/load, sidecar orchestration, trajectory codecs, snapshot codecs, sidecar
   epoch ownership, and `FilesDirty` mutation remain outside the manifest codec.
+
+Pass 2 sixth slice completed after merging `origin/main`:
+
+- Extracted `RecordingGroupStore` into `Source/Parsek/RecordingGroupStore.cs`
+  for auto-generated tree groups, standalone auto-assignment tracking, group
+  hierarchy coordination, and UI group mutation helpers. `RecordingStore` keeps
+  compatibility wrappers and still owns the timeline state hub, tree commit
+  pipeline, optimizer orchestration, deletion, and rewind entry points.
 
 Validation:
 
@@ -1052,12 +1068,12 @@ detailed read note.
 | File | Pass 1 result |
 | --- | --- |
 | `GhostVisualBuilder.cs` | Deferred; visual-builder helper split needs runtime visual validation and an owner plan. |
-| `UI/RecordingsTableUI.cs` | Done for `RecordingsTableFormatters`; IMGUI row/tree extraction still needs field ownership map. |
+| `UI/RecordingsTableUI.cs` | Pass3-Done for `RecordingsTableFormatters` (post-PR-657 size: 4,781 lines); IMGUI row/tree extraction still needs field ownership map. |
 | `ParsekFlight.cs` | Done for post-switch auto-record; finalization split deferred to Pass 2. |
 | `FlightRecorder.cs` | Done for visual coverage logging; remaining part-event poller work deferred. |
 | `GhostPlaybackLogic.cs` | Done for dictionary population and part events; remaining spawn policy cleanup deferred. |
 | `BackgroundRecorder.cs` | Done for split discovery and loaded-state helper extraction. |
-| `RecordingStore.cs` | Pass 2 first through fifth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, and `RecordingManifestCodec`; grouping, optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
+| `RecordingStore.cs` | Pass 2 first through sixth slices done for `SidecarFileCommitBatch`, save/load-path `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`, `RecordingManifestCodec`, and `RecordingGroupStore`; optimization, deletion, and rewind wrappers remain with `RecordingStore` until separately approved. |
 | `GhostPlaybackEngine.cs` | Done for per-frame playback reset helper extraction. |
 | `ParsekScenario.cs` | Done for recording metadata load helper extraction. |
 | `VesselSpawner.cs` | Done for spawn-state snapshot override helper extraction. |
