@@ -194,6 +194,37 @@ namespace Parsek
         private bool _useCoBubbleBlend = true;
 
         /// <summary>
+        /// Phase 8 of the ghost trajectory rendering pipeline (design doc
+        /// §14, §18 Phase 8). When true, kraken-event single-frame
+        /// teleports are rejected before the smoothing spline is fit so the
+        /// spline does not deflect through physics-glitch samples. Off →
+        /// the spline fits raw samples (legacy behaviour). Default true.
+        ///
+        /// <para>
+        /// The flag participates in the <c>.pann</c> ConfigurationHash
+        /// (HR-10 freshness): flipping it invalidates every cached
+        /// <c>.pann</c> with outlier flags so a stale empty block can't
+        /// masquerade as fresh.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use outlier rejection",
+            toolTip = "When on (Phase 8), kraken-event samples are rejected before smoothing. Off → spline fits raw samples including kraken spikes.")]
+        public bool useOutlierRejection
+        {
+            get { return _useOutlierRejection; }
+            set
+            {
+                if (_useOutlierRejection == value) return;
+                bool prev = _useOutlierRejection;
+                _useOutlierRejection = value;
+                NotifyUseOutlierRejectionChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseOutlierRejection(value);
+            }
+        }
+        private bool _useOutlierRejection = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -503,6 +534,19 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-CoBubble", $"useCoBubbleBlend: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Outlier log line when
+        /// <see cref="useOutlierRejection"/> flips. Phase 8 spec (design doc
+        /// §19.2 Outlier Rejection row "Settings flag flip") requires
+        /// Info-level visibility for the rollout gate so a developer can
+        /// attribute a visual artifact to the toggle moment in KSP.log.
+        /// </summary>
+        internal static void NotifyUseOutlierRejectionChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Outlier", $"useOutlierRejection: {oldValue}->{newValue}");
         }
     }
 }

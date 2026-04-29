@@ -198,5 +198,99 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("recA"));
             Assert.Equal(0, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording("recA"));
         }
+
+        // -------------------------------------------------------------------
+        //  Phase 8 outlier-flags map round-trip (design doc §17.3.1)
+        // -------------------------------------------------------------------
+
+        private static OutlierFlags MakeOutlierFlags(int sectionIndex, int sampleCount, byte mask)
+        {
+            bool[] perSample = new bool[sampleCount];
+            int rejected = 0;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                if ((i % 4) == 1) { perSample[i] = true; rejected++; }
+            }
+            return new OutlierFlags
+            {
+                SectionIndex = sectionIndex,
+                ClassifierMask = mask,
+                PackedBitmap = OutlierFlags.BuildPackedBitmap(perSample),
+                RejectedCount = rejected,
+                SampleCount = sampleCount,
+            };
+        }
+
+        [Fact]
+        public void PutGet_OutlierFlags_RoundTrip()
+        {
+            // What makes it fail: a corrupted Put / Get pair would lose the
+            // bitmap or return a different value, breaking the cache contract.
+            OutlierFlags input = MakeOutlierFlags(0, 12, mask: 1);
+            SectionAnnotationStore.PutOutlierFlags("recA", 0, input);
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("recA", 0, out var output));
+            Assert.NotNull(output);
+            Assert.Equal(input.SectionIndex, output.SectionIndex);
+            Assert.Equal(input.ClassifierMask, output.ClassifierMask);
+            Assert.Equal(input.PackedBitmap, output.PackedBitmap);
+            Assert.Equal(input.RejectedCount, output.RejectedCount);
+            Assert.Equal(input.SampleCount, output.SampleCount);
+        }
+
+        [Fact]
+        public void PutOutlierFlags_OverwritesExisting()
+        {
+            SectionAnnotationStore.PutOutlierFlags("recA", 0, MakeOutlierFlags(0, 8, mask: 1));
+            OutlierFlags v2 = MakeOutlierFlags(0, 16, mask: 4);
+            SectionAnnotationStore.PutOutlierFlags("recA", 0, v2);
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("recA", 0, out var output));
+            Assert.Equal(v2.SampleCount, output.SampleCount);
+            Assert.Equal(v2.ClassifierMask, output.ClassifierMask);
+        }
+
+        [Fact]
+        public void Get_OutlierFlags_Missing_ReturnsFalse()
+        {
+            Assert.False(SectionAnnotationStore.TryGetOutlierFlags("missing", 0, out _));
+        }
+
+        [Fact]
+        public void RemoveRecording_ClearsOutlierFlags()
+        {
+            SectionAnnotationStore.PutOutlierFlags("recA", 0, MakeOutlierFlags(0, 8, mask: 1));
+            SectionAnnotationStore.PutOutlierFlags("recA", 1, MakeOutlierFlags(1, 8, mask: 2));
+            Assert.Equal(2, SectionAnnotationStore.GetOutlierFlagsCountForRecording("recA"));
+
+            SectionAnnotationStore.RemoveRecording("recA");
+
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("recA"));
+            Assert.False(SectionAnnotationStore.TryGetOutlierFlags("recA", 0, out _));
+        }
+
+        [Fact]
+        public void Clear_ClearsAllFourMaps()
+        {
+            // What makes it fail: Phase 8 added a fourth map; if Clear
+            // forgets it, the outlier flags would leak across scene-exit
+            // invalidation.
+            SectionAnnotationStore.PutSmoothingSpline("recA", 0, MakeSpline(0.0, 1.0, 1f));
+            SectionAnnotationStore.PutAnchorCandidates("recA", 0, new[]
+            {
+                new AnchorCandidate(10.0, AnchorSource.Loop, AnchorSide.Start),
+            });
+            SectionAnnotationStore.PutOutlierFlags("recA", 0, MakeOutlierFlags(0, 8, mask: 1));
+
+            SectionAnnotationStore.Clear();
+
+            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("recA"));
+            Assert.Equal(0, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording("recA"));
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("recA"));
+        }
+
+        [Fact]
+        public void GetOutlierFlagsCountForRecording_ReturnsZeroWhenAbsent()
+        {
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("never-stored"));
+        }
     }
 }

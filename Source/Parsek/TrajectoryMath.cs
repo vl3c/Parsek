@@ -727,6 +727,22 @@ namespace Parsek
             internal static SmoothingSpline Fit(
                 IList<TrajectoryPoint> samples, double tension, out string failureReason)
             {
+                return Fit(samples, tension, out failureReason, rejected: null);
+            }
+
+            /// <summary>
+            /// Phase 8 overload: when <paramref name="rejected"/> is non-null,
+            /// samples whose <c>rejected.IsRejected(i)</c> is true are
+            /// excluded from the fit (no knot, no control). After filtering,
+            /// the effective sample count must still meet the 4-sample
+            /// minimum or the fit returns invalid with a populated
+            /// <paramref name="failureReason"/> so the orchestrator can fall
+            /// through to the legacy bracket lerp (HR-9 visible failure).
+            /// </summary>
+            internal static SmoothingSpline Fit(
+                IList<TrajectoryPoint> samples, double tension, out string failureReason,
+                OutlierFlags rejected)
+            {
                 failureReason = null;
 
                 if (samples == null)
@@ -740,30 +756,35 @@ namespace Parsek
                     return default(SmoothingSpline);
                 }
 
-                int count = samples.Count;
-                double[] knots = new double[count];
-                float[] ctrlX = new float[count]; // latitude (deg)
-                float[] ctrlY = new float[count]; // longitude (deg, unwrapped)
-                float[] ctrlZ = new float[count]; // altitude (m)
+                int rawCount = samples.Count;
+                int rawRejectedCount = rejected != null ? rejected.RejectedCount : 0;
+                // Pre-allocate to the worst case (no rejections) and trim later.
+                double[] knots = new double[rawCount];
+                float[] ctrlX = new float[rawCount];
+                float[] ctrlY = new float[rawCount];
+                float[] ctrlZ = new float[rawCount];
 
                 double prevUT = double.NegativeInfinity;
                 double prevLon = double.NaN;
-                for (int i = 0; i < count; i++)
+                int kept = 0;
+                for (int i = 0; i < rawCount; i++)
                 {
+                    if (rejected != null && rejected.IsRejected(i)) continue;
+
                     var p = samples[i];
                     if (!IsFinite(p.ut) || !IsFinite(p.latitude) || !IsFinite(p.longitude) || !IsFinite(p.altitude))
                     {
                         failureReason = $"sample {i} contains NaN or non-finite component (ut={p.ut} lat={p.latitude} lon={p.longitude} alt={p.altitude})";
                         return default(SmoothingSpline);
                     }
-                    if (i > 0 && p.ut <= prevUT)
+                    if (kept > 0 && p.ut <= prevUT)
                     {
                         failureReason = $"non-monotonic UT at sample {i}: {p.ut} <= {prevUT}";
                         return default(SmoothingSpline);
                     }
 
                     double lon = p.longitude;
-                    if (i > 0)
+                    if (kept > 0)
                     {
                         // Unwrap longitude: keep consecutive deltas within +/-180 deg so
                         // a sequence crossing the antimeridian fits as a continuous
@@ -773,13 +794,31 @@ namespace Parsek
                         else if (delta < -180.0) lon += 360.0;
                     }
 
-                    knots[i] = p.ut;
-                    ctrlX[i] = (float)p.latitude;
-                    ctrlY[i] = (float)lon;
-                    ctrlZ[i] = (float)p.altitude;
+                    knots[kept] = p.ut;
+                    ctrlX[kept] = (float)p.latitude;
+                    ctrlY[kept] = (float)lon;
+                    ctrlZ[kept] = (float)p.altitude;
 
                     prevUT = p.ut;
                     prevLon = lon;
+                    kept++;
+                }
+
+                if (kept < 4)
+                {
+                    failureReason = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "after-rejection sample count {0} < min 4 (rejected {1} of {2})",
+                        kept, rawRejectedCount, rawCount);
+                    return default(SmoothingSpline);
+                }
+
+                if (kept < rawCount)
+                {
+                    // Trim to actual kept count.
+                    Array.Resize(ref knots, kept);
+                    Array.Resize(ref ctrlX, kept);
+                    Array.Resize(ref ctrlY, kept);
+                    Array.Resize(ref ctrlZ, kept);
                 }
 
                 return new SmoothingSpline

@@ -65,6 +65,18 @@ namespace Parsek.Rendering
         private static byte[] s_cachedConfigurationHash;
         private static bool s_cachedConfigurationHashAnchorFlag;
         private static bool s_cachedConfigurationHashCoBubbleFlag;
+        // Phase 8 (design doc §14, §17.3.1 ConfigurationHash table). The
+        // useOutlierRejection flag participates in the cache key so a flip
+        // invalidates every cached .pann via config-hash-drift (HR-10).
+        private static bool s_cachedConfigurationHashOutlierFlag;
+
+        // Phase 8 cluster-warn dedup (design doc §19.2 Outlier Rejection
+        // "Cluster threshold exceeded → low-fidelity tag" Warn). Per-session
+        // dedup keyed by "recordingId|sectionIndex" so a flag-flip recompute
+        // during the same session doesn't double-emit. Cleared by
+        // ResetForTesting. Same FrameDecisionLoggedCap-style bound as Phase 4.
+        private static readonly object s_clusterWarnLock = new object();
+        private static readonly HashSet<string> s_clusterWarnLogged = new HashSet<string>();
 
         // Phase 4: dedup per (recordingId, sectionIndex) so the per-section
         // Pipeline-Frame "lift to inertial decision" Verbose line fires exactly
@@ -191,11 +203,38 @@ namespace Parsek.Rendering
                 if (inertial)
                     samplesForFit = LiftFramesToInertial(section.frames, body);
 
+                // Phase 8 (design doc §14, §18 Phase 8): classify samples
+                // before the spline is fit so kraken-event single-frame
+                // teleports do not deflect the spline through their
+                // implausible coordinates. The classifier is gated on the
+                // useOutlierRejection rollout flag; off → null flags →
+                // legacy fit-everything behaviour.
+                OutlierFlags outliers = null;
+                if (ResolveUseOutlierRejection())
+                {
+                    OutlierThresholds thresholds = OutlierThresholds.Default;
+                    Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
+                    outliers = OutlierClassifier.Classify(
+                        rec, i, thresholds, classifierBodyResolver);
+                    if (outliers != null && outliers.RejectedCount > 0)
+                    {
+                        SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
+                        // Cluster warn (§19.2 "Cluster threshold exceeded →
+                        // low-fidelity tag"). Per-session dedup so a flag-
+                        // flip recompute does not double-log.
+                        bool clusterBitSet = (outliers.ClassifierMask
+                            & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
+                        if (clusterBitSet)
+                            EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
+                    }
+                }
+
                 var sw = Stopwatch.StartNew();
                 SmoothingSpline spline = TrajectoryMath.CatmullRomFit.Fit(
                     samplesForFit,
                     SmoothingConfiguration.Default.Tension,
-                    out string failureReason);
+                    out string failureReason,
+                    rejected: outliers);
                 sw.Stop();
 
                 if (!spline.IsValid)
@@ -331,6 +370,37 @@ namespace Parsek.Rendering
         // the next bucket).
         private const int FrameDecisionLoggedCap = 4096;
 
+        // Phase 8 cluster-warn dedup cap (mirrors FrameDecisionLoggedCap).
+        // Realistic ceiling per save is low thousands of (recording, section)
+        // tuples; the cap protects long-running sessions from unbounded
+        // growth.
+        private const int ClusterWarnLoggedCap = 4096;
+
+        private static void EmitClusterWarnOnce(string recordingId, int sectionIndex,
+            OutlierFlags outliers, OutlierThresholds thresholds)
+        {
+            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            lock (s_clusterWarnLock)
+            {
+                if (!s_clusterWarnLogged.Add(key)) return;
+                if (s_clusterWarnLogged.Count >= ClusterWarnLoggedCap)
+                {
+                    int prevSize = s_clusterWarnLogged.Count;
+                    s_clusterWarnLogged.Clear();
+                    s_clusterWarnLogged.Add(key);
+                    ParsekLog.Info("Pipeline-Outlier",
+                        $"Cluster-warn dedup set exceeded cap ({prevSize}/{ClusterWarnLoggedCap}); cleared. " +
+                        $"Next cluster trips for already-seen (recordingId, sectionIndex) keys will re-fire.");
+                }
+            }
+            double rate = outliers.SampleCount > 0
+                ? (double)outliers.RejectedCount / outliers.SampleCount
+                : 0.0;
+            ParsekLog.Warn("Pipeline-Outlier", string.Format(CultureInfo.InvariantCulture,
+                "Cluster threshold exceeded → low-fidelity tag: recordingId={0} sectionIndex={1} rejectionRate={2:F3} threshold={3:F3}",
+                recordingId, sectionIndex, rate, thresholds.ClusterRateThreshold));
+        }
+
         private static void LogFrameDecisionOnce(string recordingId, int sectionIndex,
             SegmentEnvironment env, byte frameTag, string bodyName)
         {
@@ -415,6 +485,7 @@ namespace Parsek.Rendering
                             out List<KeyValuePair<int, SmoothingSpline>> splines,
                             out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
                             out List<CoBubbleOffsetTrace> coBubbleTraces,
+                            out List<KeyValuePair<int, OutlierFlags>> outlierFlags,
                             out string readFailure))
                     {
                         // HR-10: clear any prior in-memory entries for this recording
@@ -473,12 +544,33 @@ namespace Parsek.Rendering
                             }
                         }
 
+                        // Phase 8: install OutlierFlags from the read list.
+                        // The reader does not persist SampleCount; backfill
+                        // from the live section's frames count so IsRejected
+                        // bounds-checks correctly.
+                        int outlierFlagsInstalled = 0;
+                        for (int i = 0; i < outlierFlags.Count; i++)
+                        {
+                            int sIdx = outlierFlags[i].Key;
+                            OutlierFlags f = outlierFlags[i].Value;
+                            if (f == null) continue;
+                            if (rec.TrackSections != null
+                                && sIdx >= 0 && sIdx < rec.TrackSections.Count
+                                && rec.TrackSections[sIdx].frames != null)
+                            {
+                                f.SampleCount = rec.TrackSections[sIdx].frames.Count;
+                            }
+                            SectionAnnotationStore.PutOutlierFlags(recordingId, sIdx, f);
+                            outlierFlagsInstalled++;
+                        }
+
                         long bytes = SafeFileLength(pannPath);
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
                             $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
                             $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
-                            $"coBubbleTracesAccepted={acceptedTraces} coBubbleTracesDiscarded={discardedTraces}");
+                            $"coBubbleTracesAccepted={acceptedTraces} coBubbleTracesDiscarded={discardedTraces} " +
+                            $"outlierFlagsCount={outlierFlagsInstalled}");
                         return;
                     }
 
@@ -835,6 +927,7 @@ namespace Parsek.Rendering
                 s_cachedConfigurationHash = null;
                 s_cachedConfigurationHashAnchorFlag = false;
                 s_cachedConfigurationHashCoBubbleFlag = false;
+                s_cachedConfigurationHashOutlierFlag = false;
             }
             lock (s_frameDecisionLock)
             {
@@ -844,10 +937,15 @@ namespace Parsek.Rendering
             {
                 s_deferredValidations.Clear();
             }
+            lock (s_clusterWarnLock)
+            {
+                s_clusterWarnLogged.Clear();
+            }
             BodyResolverForTesting = null;
             TreeResolverForTesting = null;
             UseCoBubbleBlendResolverForTesting = null;
             PeerPannPathResolverForTesting = null;
+            UseOutlierRejectionResolverForTesting = null;
             AnchorCandidateBuilder.ResetForTesting();
         }
 
@@ -1283,19 +1381,22 @@ namespace Parsek.Rendering
         {
             // Read the flags through their resolver helpers so the test
             // overrides and production settings flow through one path. The
-            // cache is invalidated whenever either flag flips.
+            // cache is invalidated whenever any flag flips.
             bool anchorFlag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
             bool coBubbleFlag = ResolveUseCoBubbleBlend();
+            bool outlierFlag = ResolveUseOutlierRejection();
             lock (s_configHashLock)
             {
                 if (s_cachedConfigurationHash == null
                     || s_cachedConfigurationHashAnchorFlag != anchorFlag
-                    || s_cachedConfigurationHashCoBubbleFlag != coBubbleFlag)
+                    || s_cachedConfigurationHashCoBubbleFlag != coBubbleFlag
+                    || s_cachedConfigurationHashOutlierFlag != outlierFlag)
                 {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default, anchorFlag, coBubbleFlag);
+                        SmoothingConfiguration.Default, anchorFlag, coBubbleFlag, outlierFlag);
                     s_cachedConfigurationHashAnchorFlag = anchorFlag;
                     s_cachedConfigurationHashCoBubbleFlag = coBubbleFlag;
+                    s_cachedConfigurationHashOutlierFlag = outlierFlag;
                 }
                 return s_cachedConfigurationHash;
             }
@@ -1325,6 +1426,27 @@ namespace Parsek.Rendering
             return settings?.useCoBubbleBlend ?? true;
         }
 
+        /// <summary>
+        /// Phase 8 test seam: when set, returned in place of
+        /// <see cref="ParsekSettings.useOutlierRejection"/>. Mirrors
+        /// <see cref="UseCoBubbleBlendResolverForTesting"/>'s shape.
+        /// </summary>
+        internal static System.Func<bool> UseOutlierRejectionResolverForTesting;
+
+        /// <summary>
+        /// Resolves the Phase 8 <c>useOutlierRejection</c> flag through the
+        /// test seam first, then through <see cref="ParsekSettings.Current"/>.
+        /// Defaults to true when <c>Current</c> is null (matches the shipped
+        /// default).
+        /// </summary>
+        internal static bool ResolveUseOutlierRejection()
+        {
+            var seam = UseOutlierRejectionResolverForTesting;
+            if (seam != null) return seam();
+            ParsekSettings settings = ParsekSettings.Current;
+            return settings?.useOutlierRejection ?? true;
+        }
+
         private static long SafeFileLength(string path)
         {
             try { return new FileInfo(path).Length; }
@@ -1345,6 +1467,7 @@ namespace Parsek.Rendering
             string recordingId = rec.RecordingId;
             var splines = new List<KeyValuePair<int, SmoothingSpline>>();
             var anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
+            var outlierFlagsList = new List<KeyValuePair<int, OutlierFlags>>();
             if (rec.TrackSections != null)
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
@@ -1358,6 +1481,14 @@ namespace Parsek.Rendering
                         && cands != null && cands.Length > 0)
                     {
                         anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(i, cands));
+                    }
+                    // Phase 8: collect outlier flags. Empty / null entries
+                    // are skipped — the absence of an entry is the canonical
+                    // "no krakens detected in this section" representation.
+                    if (SectionAnnotationStore.TryGetOutlierFlags(recordingId, i, out OutlierFlags flags)
+                        && flags != null && flags.PackedBitmap != null && flags.RejectedCount > 0)
+                    {
+                        outlierFlagsList.Add(new KeyValuePair<int, OutlierFlags>(i, flags));
                     }
                 }
             }
@@ -1391,13 +1522,14 @@ namespace Parsek.Rendering
                     configHash,
                     splines,
                     anchorCandidates,
-                    coBubbleTraces);
+                    coBubbleTraces,
+                    outlierFlagsList);
 
                 long bytes = SafeFileLength(pannPath);
                 ParsekLog.Verbose("Pipeline-Sidecar",
                     $"Pannotations write OK: recordingId={recordingId} bytes={bytes} path={pannPath} " +
                     $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
-                    $"coBubbleTraceCount={coBubbleCount}");
+                    $"coBubbleTraceCount={coBubbleCount} outlierFlagsCount={outlierFlagsList.Count}");
             }
             catch (Exception ex)
             {

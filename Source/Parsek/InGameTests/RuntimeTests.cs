@@ -14200,6 +14200,183 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region Pipeline-Outlier (Phase 8)
+
+        /// <summary>
+        /// Phase 8 outlier-rejection in-game smoke test (design doc §14, §18
+        /// Phase 8 done-condition, §20.5 Phase 8 row). Builds a synthetic
+        /// ExoBallistic section with one kraken-magnitude velocity spike at
+        /// sample 5, runs the SmoothingPipeline orchestrator, and asserts:
+        /// (a) the OutlierFlags entry is stored under the recording id with
+        /// sample 5 marked as rejected, (b) the SmoothingSpline is still fit
+        /// (kraken sample is excluded; the remaining 11 samples meet the
+        /// MinSamplesPerSection 4-sample minimum), (c) evaluating the
+        /// resulting spline at the kraken UT does NOT deflect toward the
+        /// kraken's lat/lon — it tracks the linear interpolation of the
+        /// neighbours within a generous tolerance.
+        /// </summary>
+        /// <remarks>
+        /// What makes it fail: a regression that disables the classifier,
+        /// drops the OutlierFlags from the store, or stops the spline Fit
+        /// from honouring the rejected bitmap will let the spline interpolate
+        /// THROUGH the kraken's lat/lon and the world-space residual at the
+        /// kraken UT will exceed tolerance. The xUnit suite covers the
+        /// orchestrator + classifier behaviour in synthetic-body land; this
+        /// test pins the live KSP body-resolution + world-position chain.
+        /// </remarks>
+        [InGameTest(Category = "Pipeline-Outlier", Scene = GameScenes.FLIGHT,
+            Description = "Kraken-spike sample is rejected; spline fits through neighbors")]
+        public IEnumerator Pipeline_Outlier_Kraken()
+        {
+            const string recordingId = "in-game-pipeline-outlier-kraken";
+            const int sectionIndex = 0;
+            const int sampleCount = 12;
+            const int krakenIndex = 5;
+            const double dutPerSample = 1.0;
+            const double startUT = 2000.0;
+
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
+            yield return null;
+
+            // Build a smooth ExoBallistic section with one kraken velocity
+            // spike. Velocity-based acceleration classifier requires non-zero
+            // velocities on both sides; baseline is 100 m/s growing linearly,
+            // kraken is 100,000 m/s (Δv ≈ 100,000 m/s² ≫ 50 m/s² ceiling).
+            var frames = new List<TrajectoryPoint>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                Vector3 vel = (i == krakenIndex)
+                    ? new Vector3(100000f, 0f, 0f)
+                    : new Vector3(100f + i, 0f, 0f);
+                double lat = 0.5 + i * 0.0005;
+                double lon = 1.0 + i * 0.001;
+                double alt = 80000 + i * 50;
+                if (i == krakenIndex)
+                {
+                    // Position-space kraken too: lat += 50° puts the spline
+                    // far from the linear interpolation of neighbours if the
+                    // sample is NOT rejected. Bubble-radius classifier also
+                    // catches this.
+                    lat += 50.0;
+                    alt += 100000;
+                }
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = lat,
+                    longitude = lon,
+                    altitude = alt,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = 8,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (sampleCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = (float)(1.0 / dutPerSample),
+            });
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+
+            // (a) OutlierFlags stored, sample krakenIndex rejected.
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetOutlierFlags(
+                    recordingId, sectionIndex, out Parsek.Rendering.OutlierFlags flags),
+                "OutlierFlags entry not stored for recording with kraken sample");
+            InGameAssert.IsTrue(flags.RejectedCount >= 1,
+                "OutlierFlags.RejectedCount " + flags.RejectedCount + " expected >= 1");
+            // SampleCount is set by the classifier on creation (the load path
+            // backfills it from frames; here it's set directly by Classify).
+            flags.SampleCount = sampleCount;
+            InGameAssert.IsTrue(flags.IsRejected(krakenIndex),
+                "Kraken sample " + krakenIndex + " not in rejected bitmap");
+
+            // (b) Spline still valid (krakenIndex excluded; 11 kept ≥ 4).
+            InGameAssert.IsTrue(
+                Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                    && spline.IsValid,
+                "SmoothingSpline must still fit after one kraken sample is rejected");
+
+            // (c) Spline at kraken UT does NOT deflect to kraken's lat. The
+            // neighbour-interpolation midpoint between samples 4 and 6 should
+            // be well inside the smooth range — far from the kraken's
+            // lat += 50° spike. Use a generous tolerance because the spline
+            // is operating in inertial-longitude space (FrameTag=1) and we
+            // measure world-position residual.
+            double krakenUT = startUT + krakenIndex * dutPerSample;
+            Vector3d splineLLA = TrajectoryMath.CatmullRomFit.Evaluate(spline, krakenUT);
+            Vector3d splineWorld;
+            if (spline.FrameTag == 1)
+            {
+                Vector3d lowered = TrajectoryMath.FrameTransform.LowerFromInertialToWorld(
+                    splineLLA.x, splineLLA.y, splineLLA.z, kerbin, krakenUT);
+                splineWorld = lowered;
+            }
+            else
+            {
+                splineWorld = kerbin.GetWorldSurfacePosition(splineLLA.x, splineLLA.y, splineLLA.z);
+            }
+            // Linear midpoint of neighbours 4 and 6 in body-fixed lat/lon/alt.
+            TrajectoryPoint p4 = frames[krakenIndex - 1];
+            TrajectoryPoint p6 = frames[krakenIndex + 1];
+            double midLat = 0.5 * (p4.latitude + p6.latitude);
+            double midLon = 0.5 * (p4.longitude + p6.longitude);
+            double midAlt = 0.5 * (p4.altitude + p6.altitude);
+            Vector3d midWorld = kerbin.GetWorldSurfacePosition(midLat, midLon, midAlt);
+            // Kraken's "deflected" world for comparison.
+            TrajectoryPoint krakenP = frames[krakenIndex];
+            Vector3d krakenWorld = kerbin.GetWorldSurfacePosition(
+                krakenP.latitude, krakenP.longitude, krakenP.altitude);
+
+            double residualToMid = (splineWorld - midWorld).magnitude;
+            double residualToKraken = (splineWorld - krakenWorld).magnitude;
+
+            ParsekLog.Info("Pipeline-Outlier",
+                "Pipeline_Outlier_Kraken: residualToMid="
+                + residualToMid.ToString("F1", CultureInfo.InvariantCulture) + "m"
+                + " residualToKraken="
+                + residualToKraken.ToString("F1", CultureInfo.InvariantCulture) + "m"
+                + " sampleCount=" + sampleCount
+                + " rejectedCount=" + flags.RejectedCount);
+
+            // The spline must be much closer to the neighbour midpoint than
+            // to the kraken sample. A 5x ratio is conservative; the kraken
+            // sample is ~5500 km from its neighbours (50° lat jump), while
+            // the spline-vs-midpoint should be sub-km.
+            InGameAssert.IsTrue(residualToKraken > residualToMid * 5.0,
+                "Spline deflected toward kraken sample: residualToKraken="
+                + residualToKraken.ToString("F1", CultureInfo.InvariantCulture) + "m"
+                + " vs residualToMid="
+                + residualToMid.ToString("F1", CultureInfo.InvariantCulture) + "m");
+
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            yield break;
+        }
+
+        #endregion
+
         #region Pipeline-Anchor Phase 6 per-source
 
         // -------------------------------------------------------------------

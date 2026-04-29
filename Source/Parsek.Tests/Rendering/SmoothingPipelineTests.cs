@@ -1193,5 +1193,191 @@ namespace Parsek.Tests.Rendering
                     && l.Contains("recordingId=rec-flag-flip")
                     && l.Contains("reason=config-hash-drift"));
         }
+
+        // --- Phase 8 outlier-rejection wiring ---
+
+        private static List<TrajectoryPoint> MakeFramesWithVelocity(
+            int count, double startUT, double dutPerSample,
+            int krakenIndex = -1, float krakenVelMag = 50000f)
+        {
+            var frames = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 vel = new Vector3(10 + i, 0, 0);
+                if (i == krakenIndex)
+                {
+                    vel = new Vector3(krakenVelMag, 0, 0); // huge accel from prev
+                }
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.1 + i * 0.01,
+                    longitude = 1.0 + i * 0.05,
+                    altitude = 80000 + i * 100,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+            return frames;
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_KrakenSampleRejected_FlagsStored()
+        {
+            // What makes it fail: classifier doesn't run, OR runs but
+            // doesn't store flags. Either way the spline silently smooths
+            // through a kraken spike — the visible regression Phase 8 is
+            // designed to prevent.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = new Recording { RecordingId = "rec-k", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            // 12 frames with a velocity spike at index 5.
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("rec-k", 0, out OutlierFlags flags));
+            Assert.NotNull(flags);
+            Assert.True(flags.RejectedCount >= 1);
+            // The spline must still fit (we have 11 kept ≥ 4).
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-k", 0, out var spline));
+            Assert.True(spline.IsValid);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ClassifierOff_NoFlagsStored()
+        {
+            // What makes it fail: rollout-gate broken. With the gate off the
+            // classifier must NOT run.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => false;
+            var rec = new Recording { RecordingId = "rec-koff", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetOutlierFlags("rec-koff", 0, out _));
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-koff"));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_TooManyOutliers_FitFailsAndWarns()
+        {
+            // 6-sample section with alternating kraken accels so every
+            // interior transition fires the Acceleration classifier. After
+            // rejection the kept count drops below 4 → fit invalid →
+            // Pipeline-Smoothing Warn surfaces.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var frames = new List<TrajectoryPoint>();
+            // velocities: 10, 50000, 10, 50001, 10, 50002 — every adjacent
+            // pair has a 50000 m/s delta over 1 sec ≫ 50 m/s² ExoBallistic
+            // ceiling. Endpoints (i=0, i=5) skip; the remaining 4 interior
+            // samples (i=1..4) all reject. 6 samples - 4 rejected = 2 < 4.
+            for (int i = 0; i < 6; i++)
+            {
+                Vector3 vel = (i % 2 == 0)
+                    ? new Vector3(10, 0, 0)
+                    : new Vector3(50000 + i, 0, 0);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = 100.0 + i,
+                    latitude = 0.001 * i,
+                    longitude = 0.001 * i,
+                    altitude = 80000,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+            var rec = new Recording { RecordingId = "rec-many", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 105.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-many", 0, out _));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("Catmull-Rom fit failed")
+                && l.Contains("recordingId=rec-many")
+                && l.Contains("after-rejection"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_OutlierFlags_RoundTrip()
+        {
+            // Write a .pann with outlier flags, clear store, load → flags
+            // re-installed under the recording id.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = new Recording { RecordingId = "rec-rt", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            string pannPath = Path.Combine(tempDir, "rec-rt.pann");
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+            int storedCount = SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-rt");
+            Assert.True(storedCount >= 1);
+
+            // Reset store and re-load.
+            SectionAnnotationStore.ResetForTesting();
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            Assert.Equal(storedCount, SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-rt"));
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("rec-rt", 0, out var roundTripped));
+            // SampleCount backfilled from the live section's frames count.
+            Assert.Equal(frames.Count, roundTripped.SampleCount);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ConfigHash_OutlierFlagFlip_ChangesHash()
+        {
+            // Phase 8 freshness: useOutlierRejection participates in the
+            // ConfigurationHash so a flip invalidates cached .pann files.
+            byte[] flagOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default,
+                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: true);
+            byte[] flagOff = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default,
+                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: false);
+            Assert.NotEqual(flagOn, flagOff);
+        }
     }
 }
