@@ -110,6 +110,56 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Phase 9 (design doc §12, §17.3.2, §18 Phase 9): adds a synthetic
+        /// structural-event snapshot point with the
+        /// <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/> bit set on
+        /// <see cref="TrajectoryPoint.flags"/>. Mirrors the ConfigNode shape of
+        /// <see cref="AddPoint"/> plus a <c>flags</c> value the binary codec
+        /// round-trips at v10. Test fixtures using this method must also pin
+        /// <see cref="WithFormatVersion"/> to <see cref="RecordingStore.StructuralEventFlagFormatVersion"/>
+        /// (or rely on the default of <see cref="RecordingStore.CurrentRecordingFormatVersion"/>),
+        /// otherwise the v9-or-older binary writer drops the byte.
+        /// </summary>
+        public RecordingBuilder WithStructuralEventSnapshot(
+            double ut, double lat, double lon, double alt,
+            string body = "Kerbin",
+            float rotX = 0, float rotY = 0, float rotZ = 0, float rotW = 1,
+            double funds = 0, float science = 0, float rep = 0)
+        {
+            // Apply default rotation if caller left rotation at identity (0,0,0,1)
+            if (hasDefaultRotation && rotX == 0 && rotY == 0 && rotZ == 0 && rotW == 1)
+            {
+                rotX = defaultRotX;
+                rotY = defaultRotY;
+                rotZ = defaultRotZ;
+                rotW = defaultRotW;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            var pt = new ConfigNode("POINT");
+            pt.AddValue("ut", ut.ToString("R", ic));
+            pt.AddValue("lat", lat.ToString("R", ic));
+            pt.AddValue("lon", lon.ToString("R", ic));
+            pt.AddValue("alt", alt.ToString("R", ic));
+            pt.AddValue("rotX", rotX.ToString("R", ic));
+            pt.AddValue("rotY", rotY.ToString("R", ic));
+            pt.AddValue("rotZ", rotZ.ToString("R", ic));
+            pt.AddValue("rotW", rotW.ToString("R", ic));
+            pt.AddValue("body", body);
+            pt.AddValue("funds", funds.ToString("R", ic));
+            pt.AddValue("science", science.ToString("R", ic));
+            pt.AddValue("rep", rep.ToString("R", ic));
+            // Phase 9: flags byte. ConfigNode-form fixtures don't round-trip
+            // through the binary codec — tests asserting on the binary path
+            // build TrajectoryPoint directly. The "flags" value is recorded
+            // here so any future text-codec extension can pick it up.
+            pt.AddValue("flags",
+                ((byte)TrajectoryPointFlags.StructuralEventSnapshot).ToString(ic));
+            points.Add(pt);
+            return this;
+        }
+
         public RecordingBuilder AddOrbitSegment(double startUT, double endUT,
             double inc = 0, double ecc = 0, double sma = 700000,
             double lan = 0, double argPe = 0, double mna = 0, double epoch = 0,

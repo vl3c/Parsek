@@ -1252,15 +1252,52 @@ namespace Parsek.Rendering
                 failureReason = "section-not-absolute";
                 return false;
             }
-            // TODO(Phase 8 follow-up): outlier-aware boundary search.
-            // Reads recordedWorld via TryFindFirstPointAtOrAfter on a flat
-            // Recording.Points list; if that sample is rejected by
-            // OutlierClassifier the propagator computes ε from a kraken
-            // sample. See docs/dev/todo-and-known-bugs.md "Phase 8 follow-ups".
-            if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out TrajectoryPoint sample))
+            // Phase 9 (design doc §12, §15.17, §18 Phase 9): prefer a
+            // StructuralEventSnapshot-flagged sample at the exact event UT over
+            // the legacy closest-at-or-after path. The flagged sample carries the
+            // recorder's physics-precision capture at the structural event UT, so
+            // anchor ε at re-fly merge points lands at meter-scale instead of
+            // tens-of-meters tick-interpolation noise. Recordings without the
+            // flag (format ≤ v9) miss every flagged-sample lookup and fall through
+            // to TryFindFirstPointAtOrAfter — exactly today's behaviour.
+            // Tolerance: 1.0s — conservative, well above a single physics tick;
+            // production candidate UTs come straight from BranchPoint.UT which
+            // matches the flagged sample's UT to physics precision, so the
+            // tolerance just guards against round-trip jitter.
+            const double Phase9FlaggedTolerance = 1.0;
+            int flaggedIdx = AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                rec.Points, ut, Phase9FlaggedTolerance);
+            TrajectoryPoint sample;
+            if (flaggedIdx >= 0)
             {
-                failureReason = "no-sample";
-                return false;
+                sample = rec.Points[flaggedIdx];
+                ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                    "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
+                    "flagged=true sampleUT={3} delta={4}",
+                    rec.RecordingId, sectionIndex,
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    sample.ut.ToString("R", CultureInfo.InvariantCulture),
+                    (sample.ut - ut).ToString("R", CultureInfo.InvariantCulture)));
+            }
+            else
+            {
+                // TODO(Phase 8 follow-up): outlier-aware boundary search.
+                // Reads recordedWorld via TryFindFirstPointAtOrAfter on a flat
+                // Recording.Points list; if that sample is rejected by
+                // OutlierClassifier the propagator computes ε from a kraken
+                // sample. See docs/dev/todo-and-known-bugs.md "Phase 8 follow-ups".
+                if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out sample))
+                {
+                    failureReason = "no-sample";
+                    return false;
+                }
+                ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                    "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
+                    "flagged=false sampleUT={3} delta={4}",
+                    rec.RecordingId, sectionIndex,
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    sample.ut.ToString("R", CultureInfo.InvariantCulture),
+                    (sample.ut - ut).ToString("R", CultureInfo.InvariantCulture)));
             }
             if (!TryLookupSurfacePosition(
                     surfaceLookup, sample.bodyName,

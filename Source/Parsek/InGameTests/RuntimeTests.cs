@@ -13718,6 +13718,153 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        /// <summary>
+        /// Phase 9 (design doc §12, §17.3.2, §18 Phase 9): structural-event snapshot
+        /// flag survives a `.prec` binary round-trip and lands at the exact event UT
+        /// in the section's frames list. The test builds a synthetic recording with
+        /// a flagged point at a known dock UT, writes it to disk via
+        /// <see cref="TrajectorySidecarBinary"/>, reads it back, and asserts the
+        /// flag is preserved bit-for-bit. The flagged sample is then fed to
+        /// <see cref="Parsek.Rendering.AnchorCandidateBuilder.TryFindFlaggedSampleAtUT"/>
+        /// to pin the anchor-side consumer behaviour.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "Phase 9 structural-event snapshot survives .prec round-trip and resolves to the dock UT")]
+        public IEnumerator Pipeline_Smoothing_StructuralEvent_FlagSampleAlignedToBranchPointUT()
+        {
+            const string recordingId = "in-game-pipeline-phase9-structural";
+            const double dockUT = 60000.0;
+
+            // Synthetic frames: regular tick at 9.95s before dock, flagged
+            // sample exactly at the dock UT, regular tick 0.05s after.
+            // Anchor lookup with tolerance >= 0.1s must pick the flagged one
+            // even though the unflagged tick at +0.05s is also within range.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = dockUT - 0.05,
+                    latitude = 0.001, longitude = 0.001, altitude = 81000,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                },
+                FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+                {
+                    ut = dockUT,
+                    latitude = 0.002, longitude = 0.002, altitude = 81100,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                }),
+                new TrajectoryPoint
+                {
+                    ut = dockUT + 0.05,
+                    latitude = 0.003, longitude = 0.003, altitude = 81200,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                },
+            };
+
+            // Pre-write assertion: helper-built point carries the flag.
+            InGameAssert.AreEqual(
+                (int)TrajectoryPointFlags.StructuralEventSnapshot,
+                (int)frames[1].flags,
+                "ApplyStructuralEventFlag must set bit 0 on the freshly built point");
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                SidecarEpoch = 1,
+            };
+            for (int i = 0; i < frames.Count; i++)
+                rec.Points.Add(frames[i]);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = frames[0].ut,
+                endUT = frames[frames.Count - 1].ut,
+                sampleRateHz = 20f,
+                frames = new List<TrajectoryPoint>(frames),
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            string tempPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "parsek-phase9-ingame-" + System.Guid.NewGuid().ToString("N") + ".prec");
+            try
+            {
+                TrajectorySidecarBinary.Write(tempPath, rec, sidecarEpoch: 1);
+                yield return null;
+
+                bool probed = TrajectorySidecarBinary.TryProbe(
+                    tempPath, out TrajectorySidecarProbe probe);
+                InGameAssert.IsTrue(probed, "TryProbe must succeed on the just-written .prec");
+                InGameAssert.AreEqual(
+                    RecordingStore.StructuralEventFlagFormatVersion,
+                    probe.FormatVersion,
+                    "Round-tripped file must report v10 format version");
+
+                var restored = new Recording();
+                TrajectorySidecarBinary.Read(tempPath, restored, probe);
+                yield return null;
+
+                // Flagged sample preserved in the section's frames (and the
+                // section-authoritative rebuild copies frames into Points).
+                InGameAssert.AreEqual(1, restored.TrackSections.Count,
+                    "Restored recording must contain exactly one TrackSection");
+                var sec = restored.TrackSections[0];
+                InGameAssert.AreEqual(3, sec.frames.Count,
+                    "Restored section must contain all 3 frames");
+
+                int flaggedIndex = -1;
+                for (int i = 0; i < sec.frames.Count; i++)
+                {
+                    if (((TrajectoryPointFlags)sec.frames[i].flags
+                        & TrajectoryPointFlags.StructuralEventSnapshot)
+                        == TrajectoryPointFlags.StructuralEventSnapshot)
+                    {
+                        InGameAssert.AreEqual(-1, flaggedIndex,
+                            "Exactly one flagged sample must round-trip");
+                        flaggedIndex = i;
+                    }
+                }
+                InGameAssert.IsTrue(flaggedIndex >= 0,
+                    "At least one flagged sample must round-trip");
+                InGameAssert.AreEqual(dockUT, sec.frames[flaggedIndex].ut,
+                    "Flagged sample's UT must match the original dock UT");
+
+                // Anchor-side consumer: TryFindFlaggedSampleAtUT prefers the
+                // flagged sample over the unflagged one within tolerance.
+                int idx = Parsek.Rendering.AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                    sec.frames, dockUT, tolerance: 0.1);
+                InGameAssert.AreEqual(flaggedIndex, idx,
+                    "TryFindFlaggedSampleAtUT must prefer the flagged sample at dock UT");
+
+                ParsekLog.Info("Pipeline-Smoothing",
+                    "Pipeline_Smoothing_StructuralEvent_FlagSampleAlignedToBranchPointUT: "
+                    + "dockUT=" + dockUT.ToString("F1", CultureInfo.InvariantCulture)
+                    + " flaggedIndex=" + flaggedIndex
+                    + " roundTripFormatVersion=" + probe.FormatVersion);
+            }
+            finally
+            {
+                if (System.IO.File.Exists(tempPath))
+                {
+                    try { System.IO.File.Delete(tempPath); } catch { }
+                }
+            }
+
+            yield break;
+        }
+
         #endregion
 
         #region Pipeline-Anchor (Phase 2)

@@ -514,6 +514,52 @@ namespace Parsek.Rendering
         //  Helpers
         // -------------------------------------------------------------------
 
+        /// <summary>
+        /// Phase 9 (design doc §12, §15.17, §18 Phase 9): scan
+        /// <paramref name="frames"/> for a <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-
+        /// flagged sample within <paramref name="tolerance"/> seconds of <paramref name="ut"/>.
+        /// Returns the index of the closest flagged sample, or -1 when none exists.
+        /// Callers fall through to the legacy "closest sample" path on miss
+        /// (<see cref="TrajectoryPointFlags.None"/> on every legacy point produces -1
+        /// every time, which is the §15.17 backwards-compat behaviour).
+        ///
+        /// <para>Tolerance is measured in seconds. The recorder writes the flagged
+        /// snapshot at the exact event UT, so production callers pass a tight
+        /// tolerance (≤ a single physics tick). Tests can pass larger values to
+        /// pin the priority semantics.</para>
+        ///
+        /// <para>O(N) over <paramref name="frames"/>; bounded by per-section sample
+        /// count (small). The list is in monotonic UT order, so an early-out
+        /// short-circuits when the scan walks past <paramref name="ut"/> +
+        /// <paramref name="tolerance"/>.</para>
+        /// </summary>
+        internal static int TryFindFlaggedSampleAtUT(
+            IList<TrajectoryPoint> frames, double ut, double tolerance)
+        {
+            if (frames == null || frames.Count == 0) return -1;
+            if (tolerance < 0.0) tolerance = 0.0;
+
+            int bestIdx = -1;
+            double bestDist = double.PositiveInfinity;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                TrajectoryPoint pt = frames[i];
+                double d = pt.ut - ut;
+                if (d > tolerance) break; // sorted: no future flagged sample can be closer
+                if (d < -tolerance) continue;
+                if (((TrajectoryPointFlags)pt.flags & TrajectoryPointFlags.StructuralEventSnapshot)
+                    == TrajectoryPointFlags.None)
+                    continue;
+                double absD = d < 0 ? -d : d;
+                if (absD < bestDist)
+                {
+                    bestDist = absD;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
+        }
+
         private static void AddCandidate(
             Dictionary<int, List<AnchorCandidate>> output, int sectionIdx, AnchorCandidate c)
         {

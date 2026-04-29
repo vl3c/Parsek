@@ -242,6 +242,29 @@ namespace Parsek.Rendering
         {
             pt = default;
             if (samples == null || samples.Count == 0) return false;
+            // Phase 9 (design doc §12, §15.17, §18 Phase 9): prefer a
+            // StructuralEventSnapshot-flagged sample at the boundary UT over the
+            // legacy closest-sample path. Recordings without the flag (format ≤ v9)
+            // miss every flagged-sample lookup and fall through to today's nearest-
+            // neighbour behaviour. Same tolerance reasoning as
+            // RenderSessionState.Phase9FlaggedTolerance — 1.0s is conservative
+            // relative to a physics tick.
+            const double Phase9FlaggedTolerance = 1.0;
+            int flaggedIdx = AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                samples, boundaryUT, Phase9FlaggedTolerance);
+            if (flaggedIdx >= 0)
+            {
+                pt = samples[flaggedIdx];
+                ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                    "boundary frame sample selected: side={0} ut={1} flagged=true " +
+                    "sampleUT={2} delta={3}",
+                    side,
+                    boundaryUT.ToString("R", CultureInfo.InvariantCulture),
+                    pt.ut.ToString("R", CultureInfo.InvariantCulture),
+                    (pt.ut - boundaryUT).ToString("R", CultureInfo.InvariantCulture)));
+                return true;
+            }
+
             // Find sample closest to boundaryUT. For exact alignment (the
             // common case — the boundary is itself a recorded sample) this
             // returns the matching point directly.
@@ -257,6 +280,13 @@ namespace Parsek.Rendering
                 }
             }
             pt = samples[best];
+            ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                "boundary frame sample selected: side={0} ut={1} flagged=false " +
+                "sampleUT={2} delta={3}",
+                side,
+                boundaryUT.ToString("R", CultureInfo.InvariantCulture),
+                pt.ut.ToString("R", CultureInfo.InvariantCulture),
+                (pt.ut - boundaryUT).ToString("R", CultureInfo.InvariantCulture)));
             return true;
         }
 

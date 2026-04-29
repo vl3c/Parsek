@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is9()
+        public void CurrentRecordingFormatVersion_Is10()
         {
-            Assert.Equal(9, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(10, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -57,6 +57,12 @@ namespace Parsek.Tests
         public void TerrainGroundClearanceFormatVersion_Is9()
         {
             Assert.Equal(9, RecordingStore.TerrainGroundClearanceFormatVersion);
+        }
+
+        [Fact]
+        public void StructuralEventFlagFormatVersion_Is10()
+        {
+            Assert.Equal(10, RecordingStore.StructuralEventFlagFormatVersion);
         }
 
         // Cross-codec sync guard. The binary `.prec` codec gates the seam-flag
@@ -72,6 +78,20 @@ namespace Parsek.Tests
             Assert.Equal(
                 RecordingStore.BoundarySeamFlagFormatVersion,
                 TrajectorySidecarBinary.BoundarySeamFlagBinaryVersion);
+        }
+
+        // Phase 9 sync guard — same drift-pinning rationale as the v8 seam.
+        // RecordingStore.StructuralEventFlagFormatVersion drives the
+        // RecordingFormatVersion stamp + version-selection ladder;
+        // TrajectorySidecarBinary.StructuralEventFlagBinaryVersion gates the
+        // per-point flags byte read/write. Drift would silently break v10
+        // round-trip.
+        [Fact]
+        public void StructuralEventFlag_FormatVersion_MatchesBinaryVersion()
+        {
+            Assert.Equal(
+                RecordingStore.StructuralEventFlagFormatVersion,
+                TrajectorySidecarBinary.StructuralEventFlagBinaryVersion);
         }
 
         [Fact]

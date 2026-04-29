@@ -52,7 +52,14 @@ namespace Parsek
         // in WritePoint / ReadPoint and the sparse-list paths; legacy readers
         // default-NaN. Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
         internal const int TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion;
-        private const int CurrentBinaryVersion = TerrainGroundClearanceBinaryVersion;
+        // Phase 9 (design doc §12, §17.3.2, §18 Phase 9): per-point `flags` byte
+        // appended after recordedGroundClearance on every TrajectoryPoint's binary
+        // record. Gated on `binaryVersion >= StructuralEventFlagBinaryVersion`
+        // in WritePoint / ReadPoint and the sparse-list paths; legacy v9-and-older
+        // readers default flags=0 (HR-9 fall-through to interpolated event ε per
+        // §15.17). Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
+        internal const int StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion;
+        private const int CurrentBinaryVersion = StructuralEventFlagBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -140,6 +147,8 @@ namespace Parsek
             var table = BuildStringTable(rec);
             int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
                 ? CurrentBinaryVersion
+                : rec.RecordingFormatVersion >= TerrainGroundClearanceBinaryVersion
+                    ? TerrainGroundClearanceBinaryVersion
                 : rec.RecordingFormatVersion >= BoundarySeamFlagBinaryVersion
                     ? BoundarySeamFlagBinaryVersion
                 : rec.RecordingFormatVersion >= RelativeAbsoluteShadowBinaryVersion
@@ -363,6 +372,7 @@ namespace Parsek
                 || version == RelativeLocalFrameBinaryVersion
                 || version == RelativeAbsoluteShadowBinaryVersion
                 || version == BoundarySeamFlagBinaryVersion
+                || version == TerrainGroundClearanceBinaryVersion
                 || version == CurrentBinaryVersion;
         }
 
@@ -425,10 +435,16 @@ namespace Parsek
             // Phase 7 (v9): recordedGroundClearance double tail. Legacy v2 readers
             // never reach this branch (the LegacyBinaryVersion path is selected for
             // v < 3); v3-v8 readers stop reading at the reputation field above.
-            // Position-stable: this is the last per-point field, so adding it does
-            // not desynchronise any earlier-version reader.
+            // Position-stable: this stays before the v10 flags byte so v9 readers
+            // still terminate cleanly after the double.
             if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
                 writer.Write(pt.recordedGroundClearance);
+            // Phase 9 (v10): per-point flags byte. Position-stable: appended after
+            // the v9 clearance double so v9 readers stop short of it harmlessly
+            // (they never read the byte and default-init flags=0). New readers
+            // gate on `binaryVersion >= StructuralEventFlagBinaryVersion`.
+            if (binaryVersion >= StructuralEventFlagBinaryVersion)
+                writer.Write(pt.flags);
         }
 
         private static TrajectoryPoint ReadPoint(BinaryReader reader, List<string> stringTable, int binaryVersion)
@@ -460,6 +476,13 @@ namespace Parsek
             pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
                 ? reader.ReadDouble()
                 : double.NaN;
+            // Phase 9 (v10): per-point flags byte — gated on
+            // `binaryVersion >= StructuralEventFlagBinaryVersion`. Legacy v2-v9
+            // readers default flags=0, which AnchorCandidateBuilder interprets as
+            // "no structural-event snapshot — use interpolated event ε" (§15.17).
+            pt.flags = (binaryVersion >= StructuralEventFlagBinaryVersion)
+                ? reader.ReadByte()
+                : (byte)0;
             return pt;
         }
 
@@ -823,12 +846,18 @@ namespace Parsek
 
                 // Phase 7 (v9): per-point recordedGroundClearance double appended
                 // after the optional reputation override field. Position-stable —
-                // appears at the END of every point's record so legacy v8 readers
-                // (which stop after reputation) keep their stream alignment. New
-                // readers gate on `binaryVersion >= TerrainGroundClearanceBinaryVersion`
-                // and default-NaN on `< 9` (HR-9 fall-through to legacy altitude path).
+                // legacy v8 readers stop after reputation. New readers gate on
+                // `binaryVersion >= TerrainGroundClearanceBinaryVersion` and
+                // default-NaN on `< 9` (HR-9 fall-through to legacy altitude path).
                 if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
                     writer.Write(pt.recordedGroundClearance);
+                // Phase 9 (v10): per-point flags byte appended at the very end of
+                // each sparse sample's record. Position-stable — legacy v9 readers
+                // stop after the clearance double. New readers gate on
+                // `binaryVersion >= StructuralEventFlagBinaryVersion` and default
+                // flags=0 on `< 10` (HR-9 fall-through to interpolated event ε).
+                if (binaryVersion >= StructuralEventFlagBinaryVersion)
+                    writer.Write(pt.flags);
             }
         }
 
@@ -945,12 +974,21 @@ namespace Parsek
                     pt.reputation = reader.ReadSingle();
                 }
 
-                // Phase 7 (v9): per-point recordedGroundClearance read at the END
-                // of each sample's record. Gated on `binaryVersion >= 9`; legacy
-                // v3-v8 readers default-NaN to indicate "no clearance captured".
+                // Phase 7 (v9): per-point recordedGroundClearance read after the
+                // last optional override field. Gated on `binaryVersion >= 9`;
+                // legacy v3-v8 readers default-NaN to indicate "no clearance
+                // captured".
                 pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
                     ? reader.ReadDouble()
                     : double.NaN;
+
+                // Phase 9 (v10): per-point flags byte at the very end of each
+                // sample's record. Gated on `binaryVersion >= 10`; legacy v3-v9
+                // readers default flags=0 to indicate "no structural-event
+                // snapshot — use interpolated event ε" (§15.17).
+                pt.flags = (binaryVersion >= StructuralEventFlagBinaryVersion)
+                    ? reader.ReadByte()
+                    : (byte)0;
 
                 points.Add(pt);
             }
