@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 
 - Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Fly` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
 - Stable terminal Rewind Point leaves that are still backed by an RP can now be Parked from the Recordings table. Parked slots appear under Unfinished Flights with the same `Fly` and `Seal` actions without changing the recording's merge state; the existing in-place re-fly commit policy still closes them.
+- Settings Diagnostics now splits rewind-point disk usage into live crashed, stable, and sealed-pending RP counts so stable-leaf cleanup pressure is visible without reading the save file.
 
 ### Tests
 
