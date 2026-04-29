@@ -176,9 +176,9 @@ The reaper (§6.5) treats `slot.Sealed == true` as equivalent-to-Immutable for c
 
 ## 5. Data Model
 
-Three new persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
+Five new persistent fields. All back-compat: legacy ConfigNodes load with safe defaults.
 
-### 5.1 ChildSlot.Sealed + SealedRealTime
+### 5.1 ChildSlot.Sealed / SealedRealTime + Parked / ParkedRealTime
 
 File: `Source/Parsek/ChildSlot.cs`.
 
@@ -205,6 +205,24 @@ public class ChildSlot
     /// only; null when Sealed is false.
     /// </summary>
     public string SealedRealTime;
+
+    /// <summary>
+    /// True when the player invoked the per-row Park action on this slot,
+    /// promoting a default-excluded stable terminal leaf into Unfinished
+    /// Flights. Excluded only when the slot is Sealed or the structural
+    /// classifier closes it (for example boarded EVA / downstream BP).
+    ///
+    /// Default false; legacy saves load with false. Park is only possible
+    /// while the backing RewindPoint still exists; it does not resurrect
+    /// already-reaped RP quicksaves.
+    /// </summary>
+    public bool Parked;
+
+    /// <summary>
+    /// Wall-clock ISO-8601 UTC timestamp the Park was applied. Diagnostic
+    /// only; null when Parked is false.
+    /// </summary>
+    public string ParkedRealTime;
 }
 ```
 
@@ -220,6 +238,8 @@ CHILD_SLOT
     disabledReason = ...         # omitted when null
     sealed = True                # omitted when False (NEW)
     sealedRealTime = 2026-...    # omitted when null (NEW)
+    parked = True                # omitted when False (NEW)
+    parkedRealTime = 2026-...    # omitted when null (NEW)
 }
 ```
 
