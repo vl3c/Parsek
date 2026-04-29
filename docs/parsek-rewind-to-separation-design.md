@@ -6,7 +6,7 @@
 
 **Status:** shipped in v0.9.0.
 **Pre-implementation spec:** `docs/dev/done/parsek-rewind-separation-design.md` (archived as-is alongside the v0.9 rollout). This document supersedes it as the source of truth for what actually shipped.
-**Related docs:** `parsek-flight-recorder-design.md`, `parsek-recording-finalization-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-routes-design.md`.
+**Related docs:** `parsek-flight-recorder-design.md`, `parsek-recording-finalization-design.md`, `parsek-timeline-design.md`, `parsek-game-actions-and-resources-recorder-design.md`, `parsek-logistics-supply-routes-design.md`.
 
 ---
 
@@ -408,7 +408,7 @@ File: `Source/Parsek/RecordingSupersedeRelation.cs`.
 | `UT` | `double` | `Planetarium.UT` at which the merge occurred. |
 | `CreatedRealTime` | `string` | Wall-clock ISO-8601 UTC. |
 
-Stored in `ParsekScenario.RecordingSupersedes`. Append-only. Never mutated. Removed only by whole-tree discard (`TreeDiscardPurge.PurgeTree`, §6.17). Orphan relations (rare; endpoint missing from `RecordingStore`) stay in place with a Warn log on every load (`LoadTimeSweep.cs:274`); the forward walk in `EffectiveState.EffectiveRecordingId` handles an unresolved `NewRecordingId` as a chain terminator.
+Stored in `ParsekScenario.RecordingSupersedes`. Append-only during normal play. Removed by whole-tree discard (`TreeDiscardPurge.PurgeTree`, §6.17), and by load-time cleanup when a row is fully orphaned (both endpoint ids are missing from `RecordingStore`). One-sided orphan relations stay in place with a Warn log on every load (`LoadTimeSweep.cs`) because an old-present/new-missing row still suppresses the retired old recording; the forward walk in `EffectiveState.EffectiveRecordingId` handles an unresolved `NewRecordingId` as a chain terminator.
 
 Node layout (emitted as `ENTRY` children of the `RECORDING_SUPERSEDES` parent node):
 
@@ -1048,10 +1048,10 @@ Original BG-crash had a vessel-destruction rep penalty (not kerbal-death; just "
 Journaled commit + finisher triggered by journal presence on load, regardless of marker state. Five distinct crash windows covered. **Shipped (test)**: `MergeCrashRecoveryMatrixTests` + `MergeJournalOrchestratorTests` + in-game `MergeInterruptionRecoveryTest` / `JournalFinisherMarkerPresentVariantTest`.
 
 ### 7.46 EffectiveRecordingId walk direction + orphan handling
-Walks forward via `RecordingSupersedes`. Cycle detection via visited set (`EffectiveState.cs:88`). Orphan relation (new endpoint missing) treated as chain terminator at prior node; log Warn. Orphan NOT removed. **Shipped (test)**: `EffectiveStateTests` + `ChildSlotEffectiveRecordingIdTests`.
+Walks forward via `RecordingSupersedes`. Cycle detection via visited set (`EffectiveState.cs:88`). One-sided orphan relation (new endpoint missing) is treated as a chain terminator at prior node and logs Warn. Fully orphaned rows are removed by load-time sweep before they can warn forever. **Shipped (test)**: `EffectiveStateTests` + `ChildSlotEffectiveRecordingIdTests`.
 
 ### 7.47 Orphan supersede relation on load
-Step 4 of load sweep logs Warn; does NOT delete. Walk treats the orphan as terminator. **Shipped (test)**: `LoadTimeSweepTests`.
+Step 4 of load sweep logs Warn and retains one-sided orphans; fully orphaned rows (`oldResolved=false && newResolved=false`) are removed because neither endpoint can affect effective state. Walk treats retained one-sided orphans as terminators. **Shipped (test)**: `LoadTimeSweepTests`.
 
 ### 7.48 Immutable-merged re-fly — player wants to retry anyway
 They cannot. `Immutable` seals the slot. To retry, the player must Full-Revert, which clears the rewind point + supersede / tombstone state for the tree (the committed recordings stay in the timeline). **Shipped (integration)**: documented behavior + `TreeDiscardPurgeTests` for the full-revert path.
@@ -1235,6 +1235,7 @@ Supersede relation writes + ERS-effective observations. Used by `SupersedeCommit
 - Advisory: `Info: Narrow v1: physical playback replaced; career state unchanged except kerbal deaths`.
 - Cycle detection: `Warn: EffectiveRecordingId: cycle detected in supersede chain starting from <id> ...`.
 - Orphan relation on load: `Warn: Orphan supersede relation=<relId> oldResolved=<b> newResolved=<b>`.
+- Fully orphaned relation on load: `Info: Fully orphaned relation=<relId> old=<oid> new=<nid>; removing`.
 - Tree-discard purge count: `Info: PurgeTree: removed <N> supersedes with endpoint in tree=<id>`.
 
 ### 11.6 `[LedgerSwap]`

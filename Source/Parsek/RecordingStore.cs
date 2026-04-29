@@ -142,20 +142,6 @@ namespace Parsek
             LegacyMergeStateMigrationCount = 0;
             legacyMergeStateMigrationLogEmitted = false;
         }
-        // Auto-assigned-standalone-group tracking has two storage locations:
-        //   1. Recording.AutoAssignedStandaloneGroupName (authoritative, persisted
-        //      via RecordingTree save/load as `autoAssignedStandaloneGroup`).
-        //   2. autoAssignedStandaloneGroupsByRecordingId (static, in-memory only).
-        // The dict exists so test recordings without a persisted field (built via
-        // RecordingBuilder / direct .Add calls) still resolve through
-        // TryGetAutoAssignedStandaloneGroup. Invariant: every mutation goes through
-        // MarkAutoAssignedStandaloneGroup / ClearAutoAssignedStandaloneGroup so the
-        // field and dict stay aligned. Do NOT write to either directly from outside
-        // these helpers (Recording.cs field deserialization is the one exception
-        // and is reconciled by TryGet's first branch).
-        private static readonly Dictionary<string, string> autoAssignedStandaloneGroupsByRecordingId =
-            new Dictionary<string, string>(StringComparer.Ordinal);
-
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
         // this, the existing real vessel is the player's reverted/active vessel, not
@@ -624,6 +610,7 @@ namespace Parsek
             committedTrees.Clear();
             ClearRewindReplayTargetScope();
             BumpStateVersion();
+            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("clear-committed");
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
@@ -718,9 +705,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A crash-terminal child under a Rewind Point is an unfinished flight:
-        /// the recording is committed, but its rewind slot stays open until a
-        /// later successful re-fly supersedes it. Legacy/default recordings are
+        /// A child under a Rewind Point that qualifies as an unfinished flight
+        /// is committed, but its rewind slot stays open until a later successful
+        /// re-fly or explicit Seal closes it. Legacy/default recordings are
         /// born Immutable, so stamp that precise shape during the normal tree
         /// commit path.
         /// </summary>
@@ -736,19 +723,33 @@ namespace Parsek
             {
                 if (rec == null) continue;
                 if (rec.MergeState != MergeState.Immutable) continue;
-                if (TerminalKindClassifier.Classify(rec) != TerminalKind.Crashed) continue;
-                if (string.IsNullOrEmpty(rec.ParentBranchPointId)) continue;
+                if (!UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec, tree)) continue;
 
-                var parentBp = FindBranchPointById(tree, rec.ParentBranchPointId);
-                if (parentBp == null || string.IsNullOrEmpty(parentBp.RewindPointId))
-                    continue;
-
-                if (!HasRewindPointSlotForRecording(rec, parentBp.RewindPointId, out string slotRejectReason))
+                RewindPoint rp;
+                int slotListIndex;
+                string slotRejectReason;
+                if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                        rec, out rp, out slotListIndex, out slotRejectReason))
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
-                        $"CommitTree: crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
                         $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={slotRejectReason} " +
-                        $"bp={parentBp.Id ?? "<no-bp>"} rp={parentBp.RewindPointId}");
+                        $"parentBp={rec.ParentBranchPointId ?? "<none>"} childBp={rec.ChildBranchPointId ?? "<none>"}");
+                    continue;
+                }
+
+                if (rp.ChildSlots == null || slotListIndex < 0 || slotListIndex >= rp.ChildSlots.Count)
+                    continue;
+
+                var slot = rp.ChildSlots[slotListIndex];
+                string qualifyReason;
+                if (!UnfinishedFlightClassifier.TryQualify(
+                        rec, slot, rp, true, out qualifyReason, tree))
+                {
+                    ParsekLog.Verbose("UnfinishedFlights",
+                        $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={qualifyReason} " +
+                        $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex}");
                     continue;
                 }
 
@@ -756,9 +757,10 @@ namespace Parsek
                 rec.FilesDirty = true;
                 promoted++;
                 ParsekLog.Info("UnfinishedFlights",
-                    $"CommitTree: promoted crash-terminal RP child rec={rec.RecordingId ?? "<no-id>"} " +
-                    $"vessel='{rec.VesselName ?? "<unnamed>"}' bp={parentBp.Id ?? "<no-bp>"} " +
-                    $"rp={parentBp.RewindPointId} to CommittedProvisional");
+                    $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
+                    $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                    $"to CommittedProvisional");
             }
 
             if (promoted > 0)
@@ -879,367 +881,34 @@ namespace Parsek
                     $"CommitTree: promoted {promoted.ToString(CultureInfo.InvariantCulture)} normal staging RP(s)");
         }
 
-        /// <summary>
-        /// Auto-groups tree recordings under a unique group name.
-        /// Debris recordings get a "Debris" subgroup under the main group.
-        /// Uses GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
-        /// into one group (bug #104).
-        /// </summary>
         private static void AutoGroupTreeRecordings(RecordingTree tree)
         {
-            if (string.IsNullOrEmpty(tree.TreeName) || tree.Recordings.Count <= 1)
-                return;
-
-            string groupName = GenerateUniqueGroupName(tree.TreeName);
-            int debrisCount = 0;
-            int crewCount = 0;
-            string debrisGroupName = null;
-            string crewGroupName = null;
-            tree.AutoGeneratedRootGroupName = groupName;
-            tree.AutoGeneratedDebrisGroupName = null;
-            tree.AutoGeneratedCrewGroupName = null;
-
-            foreach (var rec in tree.Recordings.Values)
-            {
-                string targetGroup = groupName;
-                if (rec.IsDebris)
-                {
-                    // Create debris subgroup on first debris recording
-                    if (debrisGroupName == null)
-                    {
-                        debrisGroupName = groupName + " / Debris";
-                        GroupHierarchyStore.SetGroupParent(debrisGroupName, groupName);
-                    }
-                    targetGroup = debrisGroupName;
-                    tree.AutoGeneratedDebrisGroupName = debrisGroupName;
-                    debrisCount++;
-                }
-                else if (!string.IsNullOrEmpty(rec.EvaCrewName))
-                {
-                    // EVA recordings belong under a dedicated crew subgroup for the mission.
-                    if (crewGroupName == null)
-                    {
-                        crewGroupName = groupName + " / Crew";
-                        GroupHierarchyStore.SetGroupParent(crewGroupName, groupName);
-                    }
-                    targetGroup = crewGroupName;
-                    tree.AutoGeneratedCrewGroupName = crewGroupName;
-                    crewCount++;
-                }
-
-                if (rec.RecordingGroups == null)
-                    rec.RecordingGroups = new List<string>();
-                if (!rec.RecordingGroups.Contains(targetGroup))
-                    rec.RecordingGroups.Add(targetGroup);
-                ClearAutoAssignedStandaloneGroup(rec);
-            }
-
-            int mainCount = tree.Recordings.Count - debrisCount - crewCount;
-            if (debrisCount > 0 || crewCount > 0)
-            {
-                var details = new List<string>();
-                if (mainCount > 0)
-                    details.Add($"{mainCount} main under '{groupName}'");
-                if (crewCount > 0)
-                    details.Add($"{crewCount} crew under '{crewGroupName}'");
-                if (debrisCount > 0)
-                    details.Add($"{debrisCount} debris under '{debrisGroupName}'");
-                ParsekLog.Info("RecordingStore",
-                    $"Auto-grouped {string.Join(", ", details)}");
-            }
-            else
-            {
-                ParsekLog.Info("RecordingStore",
-                    $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
-            }
-        }
-
-        private static string ResolveTreeRootGroupName(RecordingTree tree)
-        {
-            if (tree == null) return null;
-
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (rec.RecordingGroups == null || rec.RecordingGroups.Count == 0)
-                    continue;
-
-                string groupName = rec.RecordingGroups[0];
-                string parent;
-                while (GroupHierarchyStore.TryGetGroupParent(groupName, out parent))
-                    groupName = parent;
-                return groupName;
-            }
-
-            return null;
+            RecordingGroupStore.AutoGroupTreeRecordings(tree, committedRecordings);
         }
 
         internal static bool IsAutoGeneratedTreeGroup(string groupName)
         {
-            if (string.IsNullOrEmpty(groupName))
-                return false;
-
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                var tree = committedTrees[i];
-                EnsureAutoGeneratedTreeGroups(tree);
-                if (string.IsNullOrEmpty(tree.AutoGeneratedRootGroupName))
-                    continue;
-
-                if (string.Equals(groupName, tree.AutoGeneratedRootGroupName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(groupName, tree.AutoGeneratedDebrisGroupName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(groupName, tree.AutoGeneratedCrewGroupName, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
+            return RecordingGroupStore.IsAutoGeneratedTreeGroup(groupName, committedTrees);
         }
 
         internal static bool IsPermanentRootGroup(string groupName)
         {
-            return string.Equals(groupName, GloopsGroupName, StringComparison.OrdinalIgnoreCase);
+            return RecordingGroupStore.IsPermanentRootGroup(groupName);
         }
 
         internal static bool IsPermanentGroup(string groupName)
         {
-            return IsPermanentRootGroup(groupName)
-                || IsAutoGeneratedTreeGroup(groupName);
-        }
-
-        private static void EnsureAutoGeneratedTreeGroups(RecordingTree tree)
-        {
-            if (tree == null || !string.IsNullOrEmpty(tree.AutoGeneratedRootGroupName))
-                return;
-
-            string rootGroupName, debrisGroupName, crewGroupName;
-            if (TryInferAutoGeneratedTreeGroups(tree,
-                out rootGroupName, out debrisGroupName, out crewGroupName))
-            {
-                tree.AutoGeneratedRootGroupName = rootGroupName;
-                tree.AutoGeneratedDebrisGroupName = debrisGroupName;
-                tree.AutoGeneratedCrewGroupName = crewGroupName;
-                // Best-effort migration from pre-#265 saves: RecordingGroups[0] is
-                // assumed to be the user's primary group. If the user reordered
-                // groups before the fix landed, the inference can pick a wrong
-                // primary — log loud so a misinference is easy to spot in KSP.log.
-                ParsekLog.Info("RecordingStore",
-                    $"EnsureAutoGeneratedTreeGroups: inferred groups for tree '{tree.TreeName}' " +
-                    $"(root='{rootGroupName ?? "null"}', debris='{debrisGroupName ?? "null"}', " +
-                    $"crew='{crewGroupName ?? "null"}') from first-group heuristic");
-            }
-        }
-
-        private static bool TryInferAutoGeneratedTreeGroups(RecordingTree tree,
-            out string rootGroupName, out string debrisGroupName, out string crewGroupName)
-        {
-            rootGroupName = null;
-            debrisGroupName = null;
-            crewGroupName = null;
-
-            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
-                return false;
-
-            Recording rootRec;
-            if (!string.IsNullOrEmpty(tree.RootRecordingId)
-                && tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
-            {
-                rootGroupName = GetPrimaryGroup(rootRec);
-            }
-
-            foreach (var rec in tree.Recordings.Values)
-            {
-                string primaryGroup = GetPrimaryGroup(rec);
-                if (string.IsNullOrEmpty(primaryGroup))
-                    continue;
-
-                if (string.IsNullOrEmpty(rootGroupName)
-                    && !rec.IsDebris
-                    && string.IsNullOrEmpty(rec.EvaCrewName))
-                {
-                    rootGroupName = primaryGroup;
-                }
-
-                if (rec.IsDebris
-                    && string.IsNullOrEmpty(debrisGroupName)
-                    && !string.Equals(primaryGroup, rootGroupName, StringComparison.OrdinalIgnoreCase))
-                    debrisGroupName = primaryGroup;
-
-                if (!string.IsNullOrEmpty(rec.EvaCrewName)
-                    && string.IsNullOrEmpty(crewGroupName)
-                    && !string.Equals(primaryGroup, rootGroupName, StringComparison.OrdinalIgnoreCase))
-                    crewGroupName = primaryGroup;
-            }
-
-            return !string.IsNullOrEmpty(rootGroupName);
-        }
-
-        private static string GetPrimaryGroup(Recording rec)
-        {
-            if (rec == null || rec.RecordingGroups == null || rec.RecordingGroups.Count == 0)
-                return null;
-            return rec.RecordingGroups[0];
-        }
-
-        private static string ResolveAdoptedTreeGroup(string rootGroupName, Recording rec)
-        {
-            if (string.IsNullOrEmpty(rootGroupName) || rec == null)
-                return rootGroupName;
-
-            if (rec.IsDebris)
-            {
-                string debrisGroupName = rootGroupName + " / Debris";
-                GroupHierarchyStore.SetGroupParent(debrisGroupName, rootGroupName);
-                return debrisGroupName;
-            }
-
-            if (!string.IsNullOrEmpty(rec.EvaCrewName))
-            {
-                string crewGroupName = rootGroupName + " / Crew";
-                GroupHierarchyStore.SetGroupParent(crewGroupName, rootGroupName);
-                return crewGroupName;
-            }
-
-            return rootGroupName;
-        }
-
-        private static bool GroupBelongsToRootHierarchy(string groupName, string rootGroupName)
-        {
-            if (string.IsNullOrEmpty(groupName) || string.IsNullOrEmpty(rootGroupName))
-                return false;
-
-            string current = groupName;
-            while (!string.IsNullOrEmpty(current))
-            {
-                if (string.Equals(current, rootGroupName, StringComparison.OrdinalIgnoreCase))
-                    return true;
-
-                string parent;
-                if (!GroupHierarchyStore.TryGetGroupParent(current, out parent))
-                    break;
-                current = parent;
-            }
-
-            return false;
+            return RecordingGroupStore.IsPermanentGroup(groupName, committedTrees);
         }
 
         internal static void MarkAutoAssignedStandaloneGroup(Recording rec, string groupName)
         {
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || IsInvalidGroupName(groupName))
-                return;
-
-            rec.AutoAssignedStandaloneGroupName = groupName;
-            autoAssignedStandaloneGroupsByRecordingId[rec.RecordingId] = groupName;
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, groupName);
         }
 
-        /// <summary>
-        /// Clears the auto-assigned-standalone-group marker. Must be called from
-        /// every group-mutation entry point (AddRecordingToGroup, RemoveRecordingFromGroup,
-        /// AddChainToGroup, RemoveChainFromGroup, RenameGroup, RemoveGroupFromAll,
-        /// ReplaceGroupOnAll). If a new group-mutation path is added, call this here
-        /// too — otherwise a manual edit will silently get re-adopted on the next
-        /// tree commit (bug #265 / #376).
-        /// </summary>
-        private static void ClearAutoAssignedStandaloneGroup(Recording rec)
-        {
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                return;
-
-            rec.AutoAssignedStandaloneGroupName = null;
-            autoAssignedStandaloneGroupsByRecordingId.Remove(rec.RecordingId);
-        }
-
-        private static bool TryGetAutoAssignedStandaloneGroup(Recording rec, out string groupName)
-        {
-            groupName = null;
-            if (rec == null)
-                return false;
-
-            if (!string.IsNullOrEmpty(rec.AutoAssignedStandaloneGroupName))
-            {
-                groupName = rec.AutoAssignedStandaloneGroupName;
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                    autoAssignedStandaloneGroupsByRecordingId[rec.RecordingId] = groupName;
-                return true;
-            }
-
-            if (string.IsNullOrEmpty(rec.RecordingId))
-                return false;
-
-            return autoAssignedStandaloneGroupsByRecordingId.TryGetValue(rec.RecordingId, out groupName);
-        }
-
-        private static bool ShouldAdoptRecordingIntoTreeGroup(Recording rec, string rootGroupName)
-        {
-            if (rec == null)
-                return false;
-
-            if (rec.RecordingGroups == null || rec.RecordingGroups.Count == 0)
-                return true;
-
-            for (int i = 0; i < rec.RecordingGroups.Count; i++)
-            {
-                if (GroupBelongsToRootHierarchy(rec.RecordingGroups[i], rootGroupName))
-                    return false;
-            }
-
-            if (rec.RecordingGroups.Count != 1 || GroupHierarchyStore.HasGroupParent(rec.RecordingGroups[0]))
-                return false;
-
-            string autoGroupName;
-            if (!TryGetAutoAssignedStandaloneGroup(rec, out autoGroupName))
-                return false;
-
-            return string.Equals(rec.RecordingGroups[0], autoGroupName, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Adopts orphaned committed recordings that belong to this tree but were
-        /// committed as standalone before the tree (e.g., split segments committed
-        /// via deferred merge dialog before the tree revert/commit).
-        /// Matches by TreeId or by vessel PID + overlapping time range.
-        /// </summary>
         private static void AdoptOrphanedRecordingsIntoTreeGroup(RecordingTree tree)
         {
-            if (string.IsNullOrEmpty(tree.TreeName))
-                return;
-
-            string rootGroupName = ResolveTreeRootGroupName(tree);
-            if (rootGroupName == null)
-                return;
-
-            // Collect tree vessel PIDs and time range for matching
-            var treePids = new HashSet<uint>();
-            double treeStartUT = double.MaxValue, treeEndUT = 0;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (rec.VesselPersistentId != 0)
-                    treePids.Add(rec.VesselPersistentId);
-                if (rec.StartUT < treeStartUT) treeStartUT = rec.StartUT;
-                if (rec.EndUT > treeEndUT) treeEndUT = rec.EndUT;
-            }
-
-            int adopted = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var cr = committedRecordings[i];
-
-                bool match = cr.TreeId == tree.Id;
-                if (!match && treePids.Contains(cr.VesselPersistentId)
-                    && cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60)
-                    match = true;
-
-                if (!match) continue;
-                if (!ShouldAdoptRecordingIntoTreeGroup(cr, rootGroupName)) continue;
-
-                string targetGroup = ResolveAdoptedTreeGroup(rootGroupName, cr);
-                cr.RecordingGroups = new List<string> { targetGroup };
-                ClearAutoAssignedStandaloneGroup(cr);
-                adopted++;
-                ParsekLog.Info("RecordingStore",
-                    $"Adopted orphaned recording '{cr.VesselName}' (id={cr.RecordingId}) into group '{targetGroup}'");
-            }
-            if (adopted > 0)
-                ParsekLog.Info("RecordingStore",
-                    $"Adopted {adopted} orphaned recording(s) into tree group '{rootGroupName}'");
+            RecordingGroupStore.AdoptOrphanedRecordingsIntoTreeGroup(tree, committedRecordings);
         }
 
         /// <summary>
@@ -2471,9 +2140,7 @@ namespace Parsek
         /// </summary>
         internal static bool IsInvalidGroupName(string name)
         {
-            return string.IsNullOrEmpty(name) ||
-                   name.Contains("=") || name.Contains("{") || name.Contains("}") ||
-                   name.Contains("\n") || name.Contains("\r");
+            return RecordingGroupStore.IsInvalidGroupName(name);
         }
 
         /// <summary>
@@ -2481,17 +2148,7 @@ namespace Parsek
         /// </summary>
         public static List<string> GetGroupNames()
         {
-            var names = new HashSet<string>();
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var groups = committedRecordings[i].RecordingGroups;
-                if (groups == null) continue;
-                for (int j = 0; j < groups.Count; j++)
-                    names.Add(groups[j]);
-            }
-            var result = new List<string>(names);
-            result.Sort(StringComparer.OrdinalIgnoreCase);
-            return result;
+            return RecordingGroupStore.GetGroupNames(committedRecordings);
         }
 
         /// <summary>
@@ -2501,37 +2158,7 @@ namespace Parsek
         /// </summary>
         internal static string GenerateUniqueGroupName(string baseName)
         {
-            if (string.IsNullOrEmpty(baseName))
-            {
-                ParsekLog.Verbose("RecordingStore",
-                    "GenerateUniqueGroupName: baseName is null/empty, returning 'Chain'");
-                baseName = "Chain";
-            }
-
-            var existing = new HashSet<string>(GetGroupNames(), System.StringComparer.OrdinalIgnoreCase);
-            if (!existing.Contains(baseName))
-            {
-                ParsekLog.Verbose("RecordingStore",
-                    $"GenerateUniqueGroupName: '{baseName}' is unique, returning unchanged");
-                return baseName;
-            }
-
-            for (int n = 2; n < 1000; n++)
-            {
-                string candidate = $"{baseName} ({n})";
-                if (!existing.Contains(candidate))
-                {
-                    ParsekLog.Info("RecordingStore",
-                        $"GenerateUniqueGroupName: '{baseName}' already exists, using '{candidate}'");
-                    return candidate;
-                }
-            }
-
-            // Safety fallback — should never happen in practice
-            string fallback = $"{baseName} ({Guid.NewGuid().ToString("N").Substring(0, 6)})";
-            ParsekLog.Warn("RecordingStore",
-                $"GenerateUniqueGroupName: exhausted 999 candidates for '{baseName}', using fallback '{fallback}'");
-            return fallback;
+            return RecordingGroupStore.GenerateUniqueGroupName(baseName, committedRecordings);
         }
 
         /// <summary>
@@ -2539,16 +2166,7 @@ namespace Parsek
         /// </summary>
         public static void AddRecordingToGroup(int index, string groupName)
         {
-            if (index < 0 || index >= committedRecordings.Count || IsInvalidGroupName(groupName)) return;
-            var rec = committedRecordings[index];
-            if (rec.RecordingGroups == null)
-                rec.RecordingGroups = new List<string>();
-            if (!rec.RecordingGroups.Contains(groupName))
-            {
-                rec.RecordingGroups.Add(groupName);
-                ClearAutoAssignedStandaloneGroup(rec);
-                ParsekLog.Info("RecordingStore", $"Recording '{rec.VesselName}' added to group '{groupName}'");
-            }
+            RecordingGroupStore.AddRecordingToGroup(index, groupName, committedRecordings);
         }
 
         /// <summary>
@@ -2556,15 +2174,7 @@ namespace Parsek
         /// </summary>
         public static void RemoveRecordingFromGroup(int index, string groupName)
         {
-            if (index < 0 || index >= committedRecordings.Count || string.IsNullOrEmpty(groupName)) return;
-            var rec = committedRecordings[index];
-            if (rec.RecordingGroups != null && rec.RecordingGroups.Remove(groupName))
-            {
-                if (rec.RecordingGroups.Count == 0)
-                    rec.RecordingGroups = null;
-                ClearAutoAssignedStandaloneGroup(rec);
-                ParsekLog.Info("RecordingStore", $"Recording '{rec.VesselName}' removed from group '{groupName}'");
-            }
+            RecordingGroupStore.RemoveRecordingFromGroup(index, groupName, committedRecordings);
         }
 
         /// <summary>
@@ -2572,12 +2182,7 @@ namespace Parsek
         /// </summary>
         public static List<int> GetChainMemberIndices(string chainId)
         {
-            var indices = new List<int>();
-            if (string.IsNullOrEmpty(chainId)) return indices;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                if (committedRecordings[i].ChainId == chainId)
-                    indices.Add(i);
-            return indices;
+            return RecordingGroupStore.GetChainMemberIndices(chainId, committedRecordings);
         }
 
         /// <summary>
@@ -2585,23 +2190,7 @@ namespace Parsek
         /// </summary>
         public static void AddChainToGroup(string chainId, string groupName)
         {
-            if (string.IsNullOrEmpty(chainId) || IsInvalidGroupName(groupName)) return;
-            var members = GetChainMemberIndices(chainId);
-            int count = 0;
-            for (int i = 0; i < members.Count; i++)
-            {
-                var rec = committedRecordings[members[i]];
-                if (rec.RecordingGroups == null)
-                    rec.RecordingGroups = new List<string>();
-                if (!rec.RecordingGroups.Contains(groupName))
-                {
-                    rec.RecordingGroups.Add(groupName);
-                    ClearAutoAssignedStandaloneGroup(rec);
-                    count++;
-                }
-            }
-            if (count > 0)
-                ParsekLog.Info("RecordingStore", $"Chain '{chainId}': {count} members added to group '{groupName}'");
+            RecordingGroupStore.AddChainToGroup(chainId, groupName, committedRecordings);
         }
 
         /// <summary>
@@ -2609,22 +2198,7 @@ namespace Parsek
         /// </summary>
         public static void RemoveChainFromGroup(string chainId, string groupName)
         {
-            if (string.IsNullOrEmpty(chainId) || string.IsNullOrEmpty(groupName)) return;
-            var members = GetChainMemberIndices(chainId);
-            int count = 0;
-            for (int i = 0; i < members.Count; i++)
-            {
-                var rec = committedRecordings[members[i]];
-                if (rec.RecordingGroups != null && rec.RecordingGroups.Remove(groupName))
-                {
-                    if (rec.RecordingGroups.Count == 0)
-                        rec.RecordingGroups = null;
-                    ClearAutoAssignedStandaloneGroup(rec);
-                    count++;
-                }
-            }
-            if (count > 0)
-                ParsekLog.Info("RecordingStore", $"Chain '{chainId}': {count} members removed from group '{groupName}'");
+            RecordingGroupStore.RemoveChainFromGroup(chainId, groupName, committedRecordings);
         }
 
         /// <summary>
@@ -2632,60 +2206,7 @@ namespace Parsek
         /// </summary>
         public static bool RenameGroup(string oldName, string newName)
         {
-            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName)
-                return false;
-
-            if (IsPermanentRootGroup(oldName))
-            {
-                ParsekLog.Warn("RecordingStore", $"RenameGroup: cannot rename permanent root group '{oldName}'");
-                return false;
-            }
-
-            // Check for collision
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var groups = committedRecordings[i].RecordingGroups;
-                if (groups != null && groups.Contains(newName))
-                {
-                    ParsekLog.Warn("RecordingStore", $"RenameGroup: cannot rename '{oldName}' to '{newName}' — name already exists");
-                    return false;
-                }
-            }
-
-            int updated = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var groups = committedRecordings[i].RecordingGroups;
-                if (groups != null)
-                {
-                    int idx = groups.IndexOf(oldName);
-                    if (idx >= 0)
-                    {
-                        groups[idx] = newName;
-                        ClearAutoAssignedStandaloneGroup(committedRecordings[i]);
-                        updated++;
-                    }
-                }
-            }
-            RenameAutoGeneratedTreeGroups(oldName, newName);
-            ParsekLog.Info("RecordingStore", $"RenameGroup: '{oldName}' → '{newName}' ({updated} recordings updated)");
-            return true;
-        }
-
-        private static void RenameAutoGeneratedTreeGroups(string oldName, string newName)
-        {
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                var tree = committedTrees[i];
-                EnsureAutoGeneratedTreeGroups(tree);
-
-                if (string.Equals(tree.AutoGeneratedRootGroupName, oldName, StringComparison.OrdinalIgnoreCase))
-                    tree.AutoGeneratedRootGroupName = newName;
-                if (string.Equals(tree.AutoGeneratedDebrisGroupName, oldName, StringComparison.OrdinalIgnoreCase))
-                    tree.AutoGeneratedDebrisGroupName = newName;
-                if (string.Equals(tree.AutoGeneratedCrewGroupName, oldName, StringComparison.OrdinalIgnoreCase))
-                    tree.AutoGeneratedCrewGroupName = newName;
-            }
+            return RecordingGroupStore.RenameGroup(oldName, newName, committedRecordings, committedTrees);
         }
 
         /// <summary>
@@ -2694,21 +2215,7 @@ namespace Parsek
         /// </summary>
         public static int RemoveGroupFromAll(string groupName)
         {
-            if (string.IsNullOrEmpty(groupName)) return 0;
-            int updated = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var rec = committedRecordings[i];
-                if (rec.RecordingGroups != null && rec.RecordingGroups.Remove(groupName))
-                {
-                    if (rec.RecordingGroups.Count == 0)
-                        rec.RecordingGroups = null;
-                    ClearAutoAssignedStandaloneGroup(rec);
-                    updated++;
-                }
-            }
-            ParsekLog.Info("RecordingStore", $"RemoveGroupFromAll: '{groupName}' removed from {updated} recordings");
-            return updated;
+            return RecordingGroupStore.RemoveGroupFromAll(groupName, committedRecordings);
         }
 
         /// <summary>
@@ -2717,26 +2224,7 @@ namespace Parsek
         /// </summary>
         public static int ReplaceGroupOnAll(string groupName, string parentGroup)
         {
-            if (string.IsNullOrEmpty(groupName)) return 0;
-            int updated = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var rec = committedRecordings[i];
-                if (rec.RecordingGroups == null) continue;
-                int idx = rec.RecordingGroups.IndexOf(groupName);
-                if (idx < 0) continue;
-                if (parentGroup != null && !rec.RecordingGroups.Contains(parentGroup))
-                    rec.RecordingGroups[idx] = parentGroup;
-                else
-                    rec.RecordingGroups.RemoveAt(idx);
-                if (rec.RecordingGroups.Count == 0)
-                    rec.RecordingGroups = null;
-                ClearAutoAssignedStandaloneGroup(rec);
-                updated++;
-            }
-            string dest = parentGroup ?? "(standalone)";
-            ParsekLog.Info("RecordingStore", $"ReplaceGroupOnAll: '{groupName}' → '{dest}' on {updated} recordings");
-            return updated;
+            return RecordingGroupStore.ReplaceGroupOnAll(groupName, parentGroup, committedRecordings);
         }
 
         /// <summary>
@@ -2747,7 +2235,7 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             BumpStateVersion();
-            autoAssignedStandaloneGroupsByRecordingId.Clear();
+            RecordingGroupStore.ResetForTesting();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
@@ -2799,7 +2287,7 @@ namespace Parsek
 
         internal static void MarkAutoAssignedStandaloneGroupForTesting(Recording rec, string groupName)
         {
-            MarkAutoAssignedStandaloneGroup(rec, groupName);
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, groupName);
         }
 
         /// <summary>

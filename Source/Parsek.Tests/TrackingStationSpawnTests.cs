@@ -19,6 +19,7 @@ namespace Parsek.Tests
             ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            ParsekScenario.SetInstanceForTesting(null);
         }
 
         public void Dispose()
@@ -27,6 +28,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostMapPresence.ResetForTesting();
             ParsekSettingsPersistence.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -150,6 +152,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtTrackingStationEnd_SupersededByRelation_ReturnsFalse()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-old", pid: 555);
+            var relationSupersededIds = new HashSet<string> { rec.RecordingId };
+
+            var (needsSpawn, reason) = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                rec,
+                rec.EndUT + 1,
+                chains: null,
+                relationSupersededIds: relationSupersededIds);
+
+            Assert.False(needsSpawn);
+            Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation, reason);
+        }
+
+        [Fact]
         public void ShouldSkipTrackingStationDuplicateSpawn_ExistingRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
@@ -207,6 +225,36 @@ namespace Parsek.Tests
             Assert.Equal(777u, selected.SpawnedVesselPersistentId);
             Assert.False(other.VesselSpawned);
             Assert.Equal(0u, other.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TryRunTrackingStationSpawnHandoffForIndex_SupersededRelation_DoesNotMaterialize()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "old", pid: 777);
+            var newRec = MakeEligibleTrackingStationRecording(id: "new", pid: 888);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_tracking",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(_ => false);
+
+            bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { oldRec, newRec },
+                0,
+                oldRec.EndUT + 1);
+
+            Assert.False(handled);
+            Assert.False(oldRec.VesselSpawned);
+            Assert.Equal(0u, oldRec.SpawnedVesselPersistentId);
         }
 
         [Fact]

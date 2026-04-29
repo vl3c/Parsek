@@ -16,6 +16,7 @@ namespace Parsek.Tests
                 TreeId = "tree_xyz",
                 ActiveReFlyRecordingId = "rec_prov",
                 OriginChildRecordingId = "rec_child0",
+                SupersedeTargetId = "rec_tip0",
                 RewindPointId = "rp_a1b2",
                 InvokedUT = 1742810.25,
                 InvokedRealTime = "2026-04-17T23:15:00Z"
@@ -31,6 +32,7 @@ namespace Parsek.Tests
             Assert.Equal("tree_xyz", restored.TreeId);
             Assert.Equal("rec_prov", restored.ActiveReFlyRecordingId);
             Assert.Equal("rec_child0", restored.OriginChildRecordingId);
+            Assert.Equal("rec_tip0", restored.SupersedeTargetId);
             Assert.Equal("rp_a1b2", restored.RewindPointId);
             Assert.Equal(1742810.25, restored.InvokedUT);
             Assert.Equal("2026-04-17T23:15:00Z", restored.InvokedRealTime);
@@ -47,6 +49,7 @@ namespace Parsek.Tests
                 TreeId = "tree",
                 ActiveReFlyRecordingId = "rec_active",
                 OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
                 RewindPointId = "rp",
                 InvokedUT = 0.0
             };
@@ -59,9 +62,26 @@ namespace Parsek.Tests
             Assert.Equal("tree", restored.TreeId);
             Assert.Equal("rec_active", restored.ActiveReFlyRecordingId);
             Assert.Equal("rec_origin", restored.OriginChildRecordingId);
+            Assert.Equal("rec_origin", restored.SupersedeTargetId);
             Assert.Equal("rp", restored.RewindPointId);
             Assert.Equal(0.0, restored.InvokedUT);
             Assert.Null(restored.InvokedRealTime);
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_LegacyWithoutSupersedeTarget_LoadsNull()
+        {
+            var node = new ConfigNode("REFLY_SESSION_MARKER");
+            node.AddValue("sessionId", "sess");
+            node.AddValue("treeId", "tree");
+            node.AddValue("activeReFlyRecordingId", "rec_active");
+            node.AddValue("originChildRecordingId", "rec_origin");
+            node.AddValue("rewindPointId", "rp");
+            node.AddValue("invokedUT", "0");
+
+            var restored = ReFlySessionMarker.LoadFrom(node);
+
+            Assert.Null(restored.SupersedeTargetId);
         }
     }
 }

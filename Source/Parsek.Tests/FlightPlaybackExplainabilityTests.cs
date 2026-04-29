@@ -58,6 +58,7 @@ namespace Parsek.Tests
             Assert.Equal("warp-hidden", GhostPlaybackSkipReason.WarpHidden.ToLogToken());
             Assert.Equal("visual-load-failed", GhostPlaybackSkipReason.VisualLoadFailed.ToLogToken());
             Assert.Equal("session-suppressed", GhostPlaybackSkipReason.SessionSuppressed.ToLogToken());
+            Assert.Equal("superseded-by-relation", GhostPlaybackSkipReason.SupersededByRelation.ToLogToken());
         }
 
         [Fact]
@@ -81,6 +82,13 @@ namespace Parsek.Tests
                     hasRenderableData: true,
                     playbackEnabled: true,
                     externalVesselSuppressed: true));
+            Assert.Equal(
+                GhostPlaybackSkipReason.SupersededByRelation,
+                ParsekFlight.ResolveGhostPlaybackSkipReason(
+                    hasRenderableData: true,
+                    playbackEnabled: true,
+                    externalVesselSuppressed: true,
+                    supersededByRelation: true));
             Assert.Equal(
                 GhostPlaybackSkipReason.None,
                 ParsekFlight.ResolveGhostPlaybackSkipReason(
@@ -124,6 +132,50 @@ namespace Parsek.Tests
                 logLines,
                 line => line.Contains("reason=playback-disabled")
                     && line.Contains("suppressed=1"));
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_SupersededByRelation_SkipsGhostAndSpawn()
+        {
+            RecordingStore.ResetForTesting();
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_old_new",
+                        OldRecordingId = "rec-old",
+                        NewRecordingId = "rec-new"
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var oldRec = MakeRecording("rec-old", "Old Probe");
+                oldRec.VesselSnapshot = new ConfigNode("VESSEL");
+                oldRec.TerminalStateValue = TerminalState.Orbiting;
+                var newRec = MakeRecording("rec-new", "New Probe");
+                var committed = new List<Recording> { oldRec, newRec };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.SupersededByRelation, flags[0].skipReason);
+                Assert.False(flags[0].needsSpawn);
+                Assert.False(flags[1].skipGhost);
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-old")
+                    && line.Contains("reason=superseded-by-relation")
+                    && line.Contains("supersededByRelation=True"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
         }
 
         [Fact]
@@ -200,7 +252,8 @@ namespace Parsek.Tests
                 playbackDisabled = 11,
                 externalVesselSuppressed = 12,
                 sessionSuppressed = 13,
-                active = 14
+                supersededByRelation = 14,
+                active = 15
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -219,7 +272,8 @@ namespace Parsek.Tests
             Assert.Contains("playbackDisabled=11", message);
             Assert.Contains("externalVesselSuppressed=12", message);
             Assert.Contains("sessionSuppressed=13", message);
-            Assert.Contains("active=14", message);
+            Assert.Contains("supersededByRelation=14", message);
+            Assert.Contains("active=15", message);
         }
 
         [Fact]
