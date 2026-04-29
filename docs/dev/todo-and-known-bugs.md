@@ -50,6 +50,18 @@ has a synthetic runtime fixture that validates stable-leaf group membership,
 route resolution, Seal's non-mutating slot close, and last-seal RP reap without
 requiring a hand-authored save.
 
+v2 follow-up: stable terminal leaves that the default predicate excluded can now
+be manually Parked from the Recordings table while their Rewind Point still
+exists. Park sets `ChildSlot.Parked`/`ParkedRealTime`, leaves the recording and
+`MergeState` unchanged, makes the row appear under Unfinished Flights with the
+same `Fly` and `Seal` actions, and makes `RewindPointReaper` treat an unsealed
+parked `Immutable` slot as still open. Park does not resurrect already-reaped RP
+quicksaves; all-closed stable splits can still disappear before the player has a
+slot to park. Under the existing B2-A in-place re-fly policy, the merge
+confirmation clears `ChildSlot.Parked` before forcing the recording `Immutable`
+so an in-place Parked re-fly closes and reaps like other in-place stable-leaf
+commits.
+
 Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
 in-place merge path may classify an unfinished outcome as
 `CommittedProvisional`, but immediately forces the same recording back to

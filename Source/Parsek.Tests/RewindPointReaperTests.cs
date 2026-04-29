@@ -66,7 +66,12 @@ namespace Parsek.Tests
 
         // ---------- Helpers -----------------------------------------------
 
-        private static Recording Rec(string id, MergeState state)
+        private static Recording Rec(
+            string id,
+            MergeState state,
+            TerminalState? terminal = null,
+            string evaCrewName = null,
+            string parentBranchPointId = null)
         {
             return new Recording
             {
@@ -74,6 +79,9 @@ namespace Parsek.Tests
                 VesselName = id,
                 TreeId = "tree_1",
                 MergeState = state,
+                TerminalStateValue = terminal,
+                EvaCrewName = evaCrewName,
+                ParentBranchPointId = parentBranchPointId,
             };
         }
 
@@ -88,7 +96,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static ChildSlot Slot(int index, string originRecordingId, bool sealedSlot = false)
+        private static ChildSlot Slot(
+            int index,
+            string originRecordingId,
+            bool sealedSlot = false,
+            bool parkedSlot = false)
         {
             return new ChildSlot
             {
@@ -97,6 +109,8 @@ namespace Parsek.Tests
                 Controllable = true,
                 Sealed = sealedSlot,
                 SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
+                Parked = parkedSlot,
+                ParkedRealTime = parkedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
             };
         }
 
@@ -188,6 +202,66 @@ namespace Parsek.Tests
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
                 Slot(0, "rec_a"), Slot(1, "rec_b"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Contains("rp_1", deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_ParkedImmutableSlot_RetainedUntilSealed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_b", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var parkedSlot = Slot(1, "rec_b", parkedSlot: true);
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"), parkedSlot);
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+
+            parkedSlot.Sealed = true;
+            parkedSlot.SealedRealTime = "2026-04-29T12:01:00.0000000Z";
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_ParkedBoardedEvaImmutableSlot_CountsAsClosed()
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_eva", MergeState.Immutable, TerminalState.Boarded,
+                        "Jebediah Kerman", parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"),
+                Slot(1, "rec_eva", parkedSlot: true));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();

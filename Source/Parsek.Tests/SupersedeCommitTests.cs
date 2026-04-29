@@ -1078,6 +1078,97 @@ namespace Parsek.Tests
                 && l.Contains("Immutable"));
         }
 
+        [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_ParkedStableLeaf_ClearsParkedAndReaps()
+        {
+            const string kBpId = "bp_inplace_parked_leaf";
+            var origin = Rec("rec_rover", "tree_1",
+                parentBranchPointId: kBpId,
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed);
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                BranchPoints = new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = kBpId,
+                        Type = BranchPointType.Breakup,
+                        UT = 0.0,
+                        ChildRecordingIds = new List<string> { "rec_rover" },
+                    },
+                },
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = Marker(originId: "rec_rover", provisionalId: "rec_rover");
+            var scenario = InstallScenario(marker);
+            var roverSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_rover",
+                Controllable = true,
+                Parked = true,
+                ParkedRealTime = "2026-04-29T12:00:00.0000000Z",
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_inplace_parked_leaf",
+                BranchPointId = kBpId,
+                UT = 0.0,
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_focus",
+                        Controllable = true,
+                    },
+                    roverSlot,
+                },
+            });
+
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deletes++;
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.False(roverSlot.Parked);
+            Assert.Null(roverSlot.ParkedRealTime);
+            Assert.False(roverSlot.Sealed);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, deletes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("classifierReason=parkedStableLeaf")
+                && l.Contains("mergeState=CommittedProvisional"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation cleared Parked")
+                && l.Contains("rec=rec_rover"));
+        }
+
         // The runtime `old==new` self-skip defense in
         // `SupersedeCommit.AppendRelations` was removed when the placeholder-
         // and-redirect cascade was retired (item 11), but PR #590 re-introduced

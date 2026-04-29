@@ -645,6 +645,7 @@ namespace Parsek
                             "(merge is the player's commitment; no separate provisional " +
                             "exists to track a future re-fly)");
                     }
+                    ClearParkedSlotForInPlaceCommit(provisional, scenario);
 
                     // Reap the RP whose only slot is now Immutable (the
                     // recording we just flipped). The journaled merge runs
@@ -735,6 +736,36 @@ namespace Parsek
             }
 
             return ReFlyMergeCommitResult.Completed;
+        }
+
+        private static void ClearParkedSlotForInPlaceCommit(
+            Recording provisional,
+            ParsekScenario scenario)
+        {
+            if (provisional == null || object.ReferenceEquals(null, scenario))
+                return;
+
+            RewindPoint rp;
+            int slotListIndex;
+            if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    provisional, out rp, out slotListIndex)
+                || rp?.ChildSlots == null
+                || slotListIndex < 0
+                || slotListIndex >= rp.ChildSlots.Count)
+                return;
+
+            var slot = rp.ChildSlots[slotListIndex];
+            if (slot == null || !slot.Parked)
+                return;
+
+            slot.Parked = false;
+            slot.ParkedRealTime = null;
+            scenario.BumpSupersedeStateVersion();
+            ParsekLog.Info("MergeDialog",
+                $"TryCommitReFlySupersede: in-place continuation cleared Parked " +
+                $"slot={slotListIndex} rec={provisional.RecordingId ?? "<no-id>"} " +
+                $"rp={rp.RewindPointId ?? "<no-rp>"} " +
+                "(merge is the player's commitment; no separate provisional exists)");
         }
 
         // Raw committed-list scan by id. Kept local to the merge path so we

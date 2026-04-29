@@ -176,6 +176,18 @@ namespace Parsek
                 return false;
             }
 
+            if (slot?.Parked == true && ParkedTerminalQualifies(chainTip, terminal.Value))
+            {
+                int parkedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
+                int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
+                reason = "parkedStableLeaf";
+                LogVerdict(true, recId, reason,
+                    WithBranchSide(
+                        $"slot={parkedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} parkedRealTime={slot.ParkedRealTime ?? "<none>"}",
+                        branchSide));
+                return true;
+            }
+
             if (terminal.Value != TerminalState.Orbiting
                 && terminal.Value != TerminalState.SubOrbital)
             {
@@ -234,6 +246,101 @@ namespace Parsek
                     $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
                     branchSide));
             return false;
+        }
+
+        internal static bool TryResolveParkableRewindPointForRecording(
+            Recording rec,
+            out RewindPoint rp,
+            out int slotListIndex,
+            out string reason)
+        {
+            rp = null;
+            slotListIndex = -1;
+            reason = null;
+
+            if (rec == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario)
+                    ? scenario.RecordingSupersedes
+                    : null;
+            if (!EffectiveState.IsVisible(rec, supersedes))
+            {
+                reason = "recording is superseded";
+                return false;
+            }
+
+            string resolveReason;
+            if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex, out resolveReason)
+                || rp?.ChildSlots == null
+                || slotListIndex < 0
+                || slotListIndex >= rp.ChildSlots.Count)
+            {
+                reason = resolveReason ?? "noMatchingRpSlot";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            var slot = rp.ChildSlots[slotListIndex];
+            if (slot == null)
+            {
+                reason = "slot-null";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            if (slot.Parked)
+            {
+                reason = "alreadyParked";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            if (slot.Sealed)
+            {
+                reason = "slotSealed";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            string defaultReason;
+            if (TryQualify(rec, slot, rp, true, out defaultReason))
+            {
+                reason = "alreadyUnfinishedFlight";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            if (!IsManualParkOverrideReason(defaultReason))
+            {
+                reason = defaultReason ?? "notParkable";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec);
+            TerminalState? terminal = chainTip?.TerminalStateValue;
+            if (!terminal.HasValue || !ParkedTerminalQualifies(chainTip, terminal.Value))
+            {
+                reason = defaultReason ?? "notParkable";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            reason = null;
+            return true;
         }
 
         internal static bool TryResolveRewindPointForRecording(
@@ -359,7 +466,11 @@ namespace Parsek
         internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
         {
             reason = null;
-            if (!IsUnfinishedFlightCandidateShape(rec))
+            bool defaultCandidate = IsUnfinishedFlightCandidateShape(rec);
+            bool parkedCandidate = !defaultCandidate
+                && IsPotentialManualParkShape(rec)
+                && HasParkedResolvedSlot(rec);
+            if (!defaultCandidate && !parkedCandidate)
             {
                 reason = "not an unfinished flight";
                 return false;
@@ -382,6 +493,51 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        private static bool IsPotentialManualParkShape(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.MergeState != MergeState.Immutable
+                && rec.MergeState != MergeState.CommittedProvisional)
+                return false;
+            if (string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
+
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
+            return terminalRec != null && terminalRec.TerminalStateValue.HasValue;
+        }
+
+        private static bool HasParkedResolvedSlot(Recording rec)
+        {
+            RewindPoint rp;
+            int slotListIndex;
+            string reason;
+            if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex, out reason))
+                return false;
+
+            return rp?.ChildSlots != null
+                && slotListIndex >= 0
+                && slotListIndex < rp.ChildSlots.Count
+                && rp.ChildSlots[slotListIndex]?.Parked == true;
+        }
+
+        private static bool ParkedTerminalQualifies(Recording chainTip, TerminalState terminal)
+        {
+            if (terminal == TerminalState.Destroyed)
+                return false;
+            if (terminal == TerminalState.Boarded
+                && !string.IsNullOrEmpty(chainTip?.EvaCrewName))
+                return false;
+            return true;
+        }
+
+        private static bool IsManualParkOverrideReason(string reason)
+        {
+            return string.Equals(reason, "stableTerminal", StringComparison.Ordinal)
+                || string.Equals(reason, "stableTerminalFocusSlot", StringComparison.Ordinal)
+                || string.Equals(reason, "noFocusSignalOrbiting", StringComparison.Ordinal);
         }
 
         private static int ResolveSlotListIndexByReference(RewindPoint rp, ChildSlot slot)

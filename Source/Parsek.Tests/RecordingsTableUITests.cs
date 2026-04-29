@@ -59,7 +59,11 @@ namespace Parsek.Tests
         }
 
         private static ChildSlot MakeSlot(
-            int slotIndex, string recId, bool disabled = false, string disabledReason = null)
+            int slotIndex,
+            string recId,
+            bool disabled = false,
+            string disabledReason = null,
+            bool parked = false)
         {
             return new ChildSlot
             {
@@ -67,7 +71,9 @@ namespace Parsek.Tests
                 OriginChildRecordingId = recId,
                 Controllable = true,
                 Disabled = disabled,
-                DisabledReason = disabledReason
+                DisabledReason = disabledReason,
+                Parked = parked,
+                ParkedRealTime = parked ? "2026-04-29T11:12:13.0000000Z" : null
             };
         }
 
@@ -202,6 +208,94 @@ namespace Parsek.Tests
             Assert.False(resolved);
             Assert.Null(resolvedRp);
             Assert.Equal(-1, slotListIndex);
+        }
+
+        [Fact]
+        public void TryResolveParkableUnfinishedFlightRewindPoint_LandedChildFindsRpSlot()
+        {
+            var landed = new Recording
+            {
+                RecordingId = "rec_landed",
+                VesselName = "Safe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed") }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+                landed, out RewindPoint resolvedRp, out int slotListIndex, out string reason);
+
+            Assert.True(resolved);
+            Assert.Null(reason);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void ParkedLandedChildResolvesAsUnfinishedFlightAndNoLongerParkable()
+        {
+            var landed = new Recording
+            {
+                RecordingId = "rec_landed",
+                VesselName = "Safe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed", parked: true) }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool ufResolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                landed, out RewindPoint ufRp, out int ufSlot);
+            bool parkResolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+                landed, out RewindPoint parkRp, out int parkSlot, out string reason);
+
+            Assert.True(ufResolved);
+            Assert.Same(rp, ufRp);
+            Assert.Equal(0, ufSlot);
+            Assert.False(parkResolved);
+            Assert.Null(parkRp);
+            Assert.Equal(-1, parkSlot);
+            Assert.Equal("alreadyParked", reason);
+        }
+
+        [Fact]
+        public void TryResolveParkableUnfinishedFlightRewindPoint_AlreadyUnfinishedFlightReturnsFalse()
+        {
+            var crash = new Recording
+            {
+                RecordingId = "rec_crash",
+                VesselName = "Crash Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_crash") }
+            });
+
+            bool resolved = RecordingsTableUI.TryResolveParkableUnfinishedFlightRewindPoint(
+                crash, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.False(resolved);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+            Assert.Equal("alreadyUnfinishedFlight", reason);
         }
 
         [Fact]
