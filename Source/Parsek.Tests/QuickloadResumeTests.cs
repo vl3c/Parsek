@@ -50,6 +50,7 @@ namespace Parsek.Tests
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekScenario.ClearPendingQuickloadResumeContext();
             ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             FlightRecorder.QuickloadResumeUTProviderForTesting = null;
@@ -1157,6 +1158,171 @@ namespace Parsek.Tests
             {
                 ParsekScenario.SetInstanceForTesting(null);
             }
+        }
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_ReFlyScopeSurvivesMissingScenarioInstance()
+        {
+            // Regression for the Re-Fly load ordering: OnLoad knows the marker when
+            // it arms the quickload-resume context, but recorder resume can run after
+            // the scenario singleton has been replaced or temporarily unavailable.
+            // The captured pending context must still protect post-RP sibling
+            // continuations from the tree-wide trim/prune path.
+            var tree = MakeTree("refly_context_tree", "ReFly Context Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 200.0;
+            activeRec.ExplicitEndUT = 280.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+
+            var siblingRec = tree.Recordings["child_refly_context_tree_1"];
+            siblingRec.Points.Clear();
+            siblingRec.TrackSections.Clear();
+            siblingRec.ExplicitStartUT = 280.0;
+            siblingRec.ExplicitEndUT = 696.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 696.0 });
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_refly_context_610",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = activeRec.RecordingId,
+                    OriginChildRecordingId = activeRec.RecordingId,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            ParsekScenario.SetInstanceForTesting(null);
+
+            var recorder = new FlightRecorder { ActiveTree = tree };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 203.0;
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            Assert.Equal(203.0, activeRec.ExplicitEndUT);
+            Assert.True(tree.Recordings.ContainsKey(siblingRec.RecordingId));
+            Assert.Equal(696.0, siblingRec.ExplicitEndUT);
+            Assert.Equal(2, siblingRec.Points.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:")
+                && l.Contains("trimScope=ActiveRecOnly")
+                && l.Contains("sess=sess_refly_context_610"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Quickload tree trim:"));
+        }
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling()
+        {
+            // Production ordering: the active tree restore arms the quickload
+            // context before RewindInvoker.AtomicMarkerWrite can create the
+            // Re-Fly marker. Refresh after marker-finalizing OnLoad phases must
+            // upgrade the stored scope from TreeWide to ActiveRecOnly.
+            var tree = MakeTree("late_marker_tree", "Late Marker Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.ExplicitStartUT = 200.0;
+            activeRec.ExplicitEndUT = 280.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+
+            var siblingRec = tree.Recordings["child_late_marker_tree_1"];
+            siblingRec.Points.Clear();
+            siblingRec.ExplicitStartUT = 280.0;
+            siblingRec.ExplicitEndUT = 696.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 280.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 696.0 });
+
+            var scenario = new ParsekScenario();
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
+            {
+                SessionId = "sess_late_marker_610",
+                TreeId = tree.Id,
+                ActiveReFlyRecordingId = activeRec.RecordingId,
+                OriginChildRecordingId = activeRec.RecordingId,
+            };
+            ParsekScenario.RefreshPendingQuickloadTrimScope();
+            ParsekScenario.SetInstanceForTesting(null);
+
+            var recorder = new FlightRecorder { ActiveTree = tree };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 203.0;
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            Assert.Equal(203.0, activeRec.ExplicitEndUT);
+            Assert.True(tree.Recordings.ContainsKey(siblingRec.RecordingId));
+            Assert.Equal(696.0, siblingRec.ExplicitEndUT);
+            Assert.Equal(2, siblingRec.Points.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:")
+                && l.Contains("trimScope=ActiveRecOnly")
+                && l.Contains("sess=sess_late_marker_610"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Quickload tree trim:"));
+        }
+
+        [Fact]
+        public void PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide()
+        {
+            // LoadTimeSweep can clear an invalid marker after the pending context
+            // has already been armed. Refresh must downgrade the stored scope so a
+            // stale marker cannot preserve future-only recordings on a plain resume.
+            var tree = MakeTree("cleared_marker_tree", "Cleared Marker Tree", 2);
+            var activeRec = tree.Recordings[tree.ActiveRecordingId];
+            activeRec.Points.Clear();
+            activeRec.TrackSections.Clear();
+            activeRec.ExplicitStartUT = 100.0;
+            activeRec.ExplicitEndUT = 180.0;
+            activeRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            activeRec.Points.Add(new TrajectoryPoint { ut = 180.0 });
+
+            var siblingRec = tree.Recordings["child_cleared_marker_tree_1"];
+            siblingRec.Points.Clear();
+            siblingRec.TrackSections.Clear();
+            siblingRec.ExplicitStartUT = 170.0;
+            siblingRec.ExplicitEndUT = 200.0;
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 170.0 });
+            siblingRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_cleared_marker_610",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = activeRec.RecordingId,
+                    OriginChildRecordingId = activeRec.RecordingId,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+
+            scenario.ActiveReFlySessionMarker = null;
+            ParsekScenario.RefreshPendingQuickloadTrimScope();
+            ParsekScenario.SetInstanceForTesting(null);
+
+            var recorder = new FlightRecorder { ActiveTree = tree };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
+
+            logLines.Clear();
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+
+            Assert.Equal(150.0, activeRec.ExplicitEndUT);
+            Assert.Equal(150.0, siblingRec.ExplicitEndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload resume prep:")
+                && l.Contains("trimScope=TreeWide")
+                && l.Contains("no-active-refly-marker"));
+            Assert.Contains(logLines, l => l.Contains("Quickload tree trim:"));
         }
 
         [Fact]

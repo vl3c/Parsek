@@ -1288,10 +1288,23 @@ log line — `trimScope=ActiveRecOnly (refly-active sess=… markerTree=… orig
 or `trimScope=TreeWide (no-active-refly-marker | refly-marker-tree-mismatch …)`
 — so the branch is auditable from `KSP.log` alone.
 
+**Follow-up (2026-04-30):** the first fix still chose the trim scope at
+recorder-resume time by reading `ParsekScenario.Instance`. That left a
+load-order hole: `OnLoad` can see the Re-Fly marker and arm a pending
+quickload-resume context, but the later recorder resume may run after
+the scenario singleton has been replaced or is temporarily unavailable,
+falling back to `TreeWide` and destroying the sibling continuations
+again. `ConfigurePendingQuickloadResumeContext` now captures
+`QuickloadTrimScope` + reason at arm time, `OnLoad` refreshes that
+captured scope after `DispatchRewindPostLoadIfPending` +
+`LoadTimeSweep.Run` have finalized marker state, and
+`PrepareQuickloadResumeStateIfNeeded` consumes that pending-context
+decision instead of rereading the singleton.
+
 **Unity-overload trap:** the natural `if (ParsekScenario.Instance != null)`
 check returns false in unit tests because `ParsekScenario` is a
 `UnityEngine.MonoBehaviour` whose overloaded `==` operator treats
-non-Awake'd instances as fake-destroyed. Production used `?.` which
+non-Awake'd instances as fake-destroyed. The arm-time marker read uses `?.`, which
 the C# spec defines as reference-equality; we mirrored that
 (`var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;`)
 so the integration test for the `ActiveRecOnly` branch actually
@@ -1310,9 +1323,23 @@ cutoff is preserved with all its data + track sections + part events),
 (sanity for F9 quickload), and
 `PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim`
 (stale/unrelated marker can't accidentally protect a different
-tree). All 8947 tests pass.
+tree). Follow-up coverage adds
+`PrepareQuickloadResumeStateIfNeeded_ReFlyScopeSurvivesMissingScenarioInstance`,
+which arms the pending context from a matching Re-Fly marker, clears the
+scenario singleton before recorder resume, and asserts the sibling
+recording remains untrimmed.
 
-**Status:** Open until merged.
+**Review follow-up (2026-04-30):** the first context-capture patch armed
+the scope too early. Production arms the quickload-resume context before
+the later OnLoad phases that can create or clear the Re-Fly marker, so
+the stored scope could still be stale. Fixed by adding
+`RefreshPendingQuickloadTrimScope()` after `LoadTimeSweep.Run()` in both
+load branches. Added regressions for marker-created-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling`)
+and marker-cleared-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide`).
+
+**Status:** Closed with follow-up hardening on 2026-04-30.
 
 ---
 
