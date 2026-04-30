@@ -33,11 +33,27 @@ namespace Parsek
             ptNode.AddValue("funds", pt.funds.ToString("R", ic));
             ptNode.AddValue("science", pt.science.ToString("R", ic));
             ptNode.AddValue("rep", pt.reputation.ToString("R", ic));
+            // Phase 7: emit recordedGroundClearance only when finite. Non-
+            // SurfaceMobile points carry NaN and the text mirror stays terse;
+            // SurfaceMobile points emit a real clearance value so a debug-time
+            // `.prec.txt` mirror is sufficient to reason about Phase 7 terrain
+            // correction without dropping into the binary codec.
+            if (!double.IsNaN(pt.recordedGroundClearance))
+            {
+                ptNode.AddValue("clearance", pt.recordedGroundClearance.ToString("R", ic));
+            }
         }
 
         private static TrajectoryPoint DeserializePoint(ConfigNode ptNode, NumberStyles ns, CultureInfo ic)
         {
-            var pt = new TrajectoryPoint();
+            // Phase 7: text codec is the debug mirror only (post-refactor-4 the
+            // canonical sidecar is binary). Default clearance to NaN sentinel —
+            // legacy text mirrors lack the `clearance` value entirely and must
+            // play back via the legacy altitude path.
+            var pt = new TrajectoryPoint
+            {
+                recordedGroundClearance = double.NaN
+            };
 
             double.TryParse(ptNode.GetValue("ut"), ns, ic, out pt.ut);
             double.TryParse(ptNode.GetValue("lat"), ns, ic, out pt.latitude);
@@ -68,6 +84,19 @@ namespace Parsek
             float.TryParse(ptNode.GetValue("rep"), ns, ic, out rep);
             pt.science = science;
             pt.reputation = rep;
+
+            // Phase 7: parse `clearance` if present. Absent ⇒ NaN sentinel
+            // (already set by the field initializer above) ⇒ legacy fallback
+            // to stored altitude at render time.
+            string clearanceRaw = ptNode.GetValue("clearance");
+            if (!string.IsNullOrEmpty(clearanceRaw))
+            {
+                double clearance;
+                if (double.TryParse(clearanceRaw, ns, ic, out clearance))
+                {
+                    pt.recordedGroundClearance = clearance;
+                }
+            }
 
             return pt;
         }

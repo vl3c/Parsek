@@ -229,6 +229,18 @@ namespace Parsek
             public bool trackSectionActive;
             public List<TrackSection> trackSections = new List<TrackSection>();
 
+            // Phase 7: per-SurfaceMobile-section ground-clearance accumulators
+            // (background side mirror of FlightRecorder's foreground state).
+            // Reset on `StartBackgroundTrackSection`, populated by the
+            // background sampler when env == SurfaceMobile && Absolute, and
+            // summarised at section close so a `.prec` written from background
+            // recording surfaces the same clearance distribution diagnostic as
+            // foreground (HR-9 visibility parity).
+            public int surfaceMobileSamplesThisSection;
+            public double surfaceMobileMinClearanceThisSection = double.NaN;
+            public double surfaceMobileMaxClearanceThisSection = double.NaN;
+            public double surfaceMobileClearanceSumThisSection;
+
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
 
@@ -1219,6 +1231,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 7 (review pass 3): pure gate predicate for the background
+        /// SurfaceMobile clearance computation. Mirrors the inline gate in
+        /// <see cref="FlightRecorder.CommitRecordedPoint"/> so xUnit can pin
+        /// the four-condition AND without needing a live <c>Vessel</c> /
+        /// <c>FlightGlobals</c> runtime. The actual <c>TerrainAltitude</c>
+        /// call stays inline at the call site (Unity-only API).
+        ///
+        /// <para>All four conditions must hold for the BG sampler to
+        /// populate <c>recordedGroundClearance</c>: a section must be
+        /// active (no orphaned samples), the section must be
+        /// <see cref="ReferenceFrame.Absolute"/> (RELATIVE sections store
+        /// metres in lat/lon/alt — terrain math would be nonsense), the
+        /// environment must be <see cref="SegmentEnvironment.SurfaceMobile"/>
+        /// (terrain correction is meaningful only for ground-following
+        /// vessels), and the body must have a PQS controller (gas giants
+        /// without surface mesh return zero from <c>TerrainAltitude</c>,
+        /// which would produce a wrong-sign clearance).</para>
+        /// </summary>
+        internal static bool ShouldEmitBackgroundSurfaceMobileClearance(
+            bool trackSectionActive,
+            ReferenceFrame frame,
+            SegmentEnvironment env,
+            bool hasPqsController)
+        {
+            return trackSectionActive
+                && frame == ReferenceFrame.Absolute
+                && env == SegmentEnvironment.SurfaceMobile
+                && hasPqsController;
+        }
+
+        /// <summary>
         /// Pure decision: should a background vessel split be skipped because
         /// the parent recording's generation already meets the cascade-depth cap?
         /// True means HandleBackgroundVesselSplit returns without creating any
@@ -1533,6 +1576,35 @@ namespace Parsek
             }
 
             TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
+
+            // Phase 7 (design doc §13, §18 Phase 7): for SurfaceMobile sections
+            // recorded by the loaded-background sampler, capture per-sample
+            // ground clearance so playback applies continuous terrain
+            // correction at render time. Mirrors `FlightRecorder.CommitRecordedPoint`
+            // for parity (a rover that drops out of focus and continues
+            // recording in background must keep emitting v9-shape clearance,
+            // not silently fall through to NaN). Mutates `point` BEFORE the
+            // flat list / section append so both stores see the same value.
+            // Non-SurfaceMobile / RELATIVE-frame / missing-PQS keep NaN, the
+            // sentinel for the legacy altitude path.
+            bool hasPqs = bgVessel != null && bgVessel.mainBody != null && bgVessel.mainBody.pqsController != null;
+            if (ShouldEmitBackgroundSurfaceMobileClearance(
+                    state.trackSectionActive,
+                    state.trackSectionActive ? state.currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
+                    state.trackSectionActive ? state.currentTrackSection.environment : SegmentEnvironment.SurfaceMobile,
+                    hasPqs))
+            {
+                double terrainHeight = bgVessel.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
+                point.recordedGroundClearance = point.altitude - terrainHeight;
+                state.surfaceMobileSamplesThisSection++;
+                if (double.IsNaN(state.surfaceMobileMinClearanceThisSection)
+                    || point.recordedGroundClearance < state.surfaceMobileMinClearanceThisSection)
+                    state.surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
+                if (double.IsNaN(state.surfaceMobileMaxClearanceThisSection)
+                    || point.recordedGroundClearance > state.surfaceMobileMaxClearanceThisSection)
+                    state.surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
+                state.surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
+            }
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -2935,7 +3007,10 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: BG-recorded vessels don't reach SurfaceMobile sections
+                // (they're packed/on-rails); leave clearance as NaN sentinel.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -3010,7 +3085,9 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: NaN sentinel for non-SurfaceMobile points.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -3177,6 +3254,13 @@ namespace Parsek
                 maxAltitude = float.NaN
             };
             state.trackSectionActive = true;
+            // Phase 7: reset per-section clearance accumulators (mirror
+            // FlightRecorder.StartNewTrackSection). Even when the new section
+            // is non-SurfaceMobile, resetting is cheap and keeps state crisp.
+            state.surfaceMobileSamplesThisSection = 0;
+            state.surfaceMobileMinClearanceThisSection = double.NaN;
+            state.surfaceMobileMaxClearanceThisSection = double.NaN;
+            state.surfaceMobileClearanceSumThisSection = 0.0;
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -3378,6 +3462,33 @@ namespace Parsek
                 $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={sectionDuration.ToString("F2", CultureInfo.InvariantCulture)}s " +
                 $"pid={state.vesselPid}");
+
+            // Phase 7: per-SurfaceMobile-section clearance distribution
+            // diagnostic. Mirrors FlightRecorder.CloseCurrentTrackSection so
+            // BG-recorded rovers surface the same `clearanceMin/Max/Avg/N`
+            // line as foreground-recorded rovers. Suppressed when no
+            // SurfaceMobile samples were captured (non-SurfaceMobile sections
+            // and Relative-frame sections leave the counter at zero).
+            if (state.currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && state.surfaceMobileSamplesThisSection > 0)
+            {
+                CultureInfo ic = CultureInfo.InvariantCulture;
+                double avg = state.surfaceMobileClearanceSumThisSection / state.surfaceMobileSamplesThisSection;
+                ParsekLog.Verbose("Pipeline-Terrain",
+                    $"BG section close env=SurfaceMobile pid={state.vesselPid} " +
+                    $"clearanceMin={state.surfaceMobileMinClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceMax={state.surfaceMobileMaxClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceAvg={avg.ToString("F3", ic)}m " +
+                    $"N={state.surfaceMobileSamplesThisSection}");
+            }
+
+            // Defensive accumulator reset (mirrors P3-3 follow-up on
+            // FlightRecorder.CloseCurrentTrackSection — closing without
+            // immediately opening must not leave stale state).
+            state.surfaceMobileSamplesThisSection = 0;
+            state.surfaceMobileMinClearanceThisSection = double.NaN;
+            state.surfaceMobileMaxClearanceThisSection = double.NaN;
+            state.surfaceMobileClearanceSumThisSection = 0.0;
         }
 
         /// <summary>

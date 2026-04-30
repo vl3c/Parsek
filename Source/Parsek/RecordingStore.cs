@@ -59,7 +59,8 @@ namespace Parsek
         public const int RelativeLocalFrameFormatVersion = 6;
         public const int RelativeAbsoluteShadowFormatVersion = 7;
         public const int BoundarySeamFlagFormatVersion = 8;
-        public const int CurrentRecordingFormatVersion = BoundarySeamFlagFormatVersion;
+        public const int TerrainGroundClearanceFormatVersion = 9;
+        public const int CurrentRecordingFormatVersion = TerrainGroundClearanceFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -90,6 +91,13 @@ namespace Parsek
         //     binary bump because TrajectorySidecarBinary.WriteTrackSections is positional; legacy v7
         //     readers see a default-false flag (`v < 8` skips the byte). See
         //     docs/dev/plans/optimizer-persistence-split.md §5.3.
+        // v9: TrajectoryPoint.recordedGroundClearance per-sample double for SurfaceMobile sections
+        //     (Phase 7 of the ghost trajectory rendering pipeline, design doc §13). NaN sentinel
+        //     for legacy points and non-SurfaceMobile environments — playback falls through to the
+        //     altitude-only path. Render-time correction:
+        //         rendered_altitude = current_terrain_height(lat, lon) + recordedGroundClearance.
+        //     Mandatory binary bump because TrajectorySidecarBinary's per-point layout is positional;
+        //     legacy v8 readers ignore the new doubles, new readers default-NaN on `v < 9`.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {

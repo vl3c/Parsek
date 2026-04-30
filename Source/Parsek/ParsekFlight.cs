@@ -1708,6 +1708,12 @@ namespace Parsek
             sceneChangeInProgress = true;
             RecordingStore.PendingDestinationScene = scene;
 
+            // Phase 7 (design doc §13.2, §18 Phase 7): clear the per-scene
+            // terrain-height bucket cache. Terrain is regenerated each session
+            // and on body switches; stale bucket values would yield wrong
+            // ground clearances at the destination scene's lat/lon.
+            Parsek.Rendering.TerrainCacheBuckets.Clear();
+
             // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
             // F5/F9 quickloads (UT regresses across the transition) and
             // discard any pending stashed this transition. Bug A (2026-04-09).
@@ -15068,6 +15074,9 @@ namespace Parsek
                     altitude = positioned.altitude,
                     rotation = positioned.rotation,
                     bodyName = positioned.body,
+                    // Phase 7: synthetic terminal point for landed ghost clamp;
+                    // playback path uses recorded altitude directly, no clearance.
+                    recordedGroundClearance = double.NaN,
                 };
                 syntheticPoint = ApplyLandedGhostClearance(
                     syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
@@ -15199,10 +15208,32 @@ namespace Parsek
             }
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
+            // Phase 7 (design doc §13.1, §18 Phase 7): when both endpoints
+            // carry a recorded ground clearance (SurfaceMobile section in a
+            // v9+ recording), substitute the interpolated altitude with
+            // current_terrain + clearance so the rendered ghost stays at
+            // constant clearance even when KSP regenerates terrain mesh
+            // between sessions. NaN sentinel on either endpoint ⇒ silent
+            // fall-through to the legacy altitude path (HR-9).
+            //
+            // referenceFrame=Absolute: this method's callers route RELATIVE
+            // sections through IGhostPositioner.InterpolateAndPositionRelative,
+            // and OrbitalCheckpoint sections through
+            // TryInterpolateAndPositionCheckpointSection (orbit propagation),
+            // so the points reaching here are always Absolute-frame body-
+            // fixed lat/lon/alt. The explicit argument is the P2-1 safety
+            // gate at the helper.
+            double effectiveAltBefore = ResolvePhase7EffectiveAltitude(
+                bodyBefore, before.latitude, before.longitude, before.altitude,
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
+            double effectiveAltAfter = ResolvePhase7EffectiveAltitude(
+                bodyAfter, after.latitude, after.longitude, after.altitude,
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
+
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, before.altitude);
+                before.latitude, before.longitude, effectiveAltBefore);
             Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, after.altitude);
+                after.latitude, after.longitude, effectiveAltAfter);
 
             Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
@@ -15325,8 +15356,8 @@ namespace Parsek
                     mode = GhostPosMode.CoBubble,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
                     interpolatedRot = interpolatedRot,
@@ -15345,8 +15376,8 @@ namespace Parsek
                     mode = GhostPosMode.PointInterp,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
                     interpolatedRot = interpolatedRot,
@@ -15620,8 +15651,14 @@ namespace Parsek
                 : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
             if (object.ReferenceEquals(body, null)) return false;
 
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            double altBefore = ResolvePhase7EffectiveAltitude(
+                body, before.latitude, before.longitude, before.altitude,
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
+            double altAfter = ResolvePhase7EffectiveAltitude(
+                body, after.latitude, after.longitude, after.altitude,
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
             Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
 
             // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
@@ -16155,8 +16192,27 @@ namespace Parsek
                 return;
             }
 
+            // Phase 7 (design doc §13.1, §18 Phase 7): apply continuous terrain
+            // correction when the recorded SurfaceMobile section captured a
+            // ground clearance. Effective altitude = current_terrain + clearance.
+            // NaN sentinel ⇒ legacy / non-SurfaceMobile point ⇒ fall through to
+            // the recorded altitude (HR-9 silent fall-through). See
+            // ResolvePhase7EffectiveAltitude for the per-frame cache lookup
+            // and Pipeline-Terrain logging.
+            //
+            // PositionGhostAt only services Absolute-frame TrajectoryPoints
+            // (RELATIVE-frame playback uses InterpolateAndPositionRelative,
+            // OrbitalCheckpoint uses orbit-driven positioning) — so the
+            // helper's referenceFrame argument is hard-coded Absolute. The
+            // helper still NaN-fall-throughs on legacy/non-SurfaceMobile
+            // points; the explicit Absolute argument is the P2-1 safety
+            // gate against any future caller routing a Relative point here.
+            double effectiveAltitude = ResolvePhase7EffectiveAltitude(
+                body, point.latitude, point.longitude, point.altitude,
+                point.recordedGroundClearance, ReferenceFrame.Absolute);
+
             Vector3d worldPos = body.GetWorldSurfacePosition(
-                point.latitude, point.longitude, point.altitude);
+                point.latitude, point.longitude, effectiveAltitude);
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             ghost.transform.position = worldPos;
@@ -16168,10 +16224,85 @@ namespace Parsek
                 ghost = ghost,
                 mode = GhostPosMode.SinglePoint,
                 bodyBefore = body,
-                latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
+                latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
             });
+        }
+
+        /// <summary>
+        /// Phase 7 (design doc §13.1, §18 Phase 7) — pure helper: given a
+        /// recorded altitude and a recordedGroundClearance, returns the
+        /// altitude to render at. When clearance is NaN (legacy point or
+        /// non-SurfaceMobile environment), returns the recorded altitude
+        /// unchanged (HR-9 silent fall-through). When clearance is finite,
+        /// looks up the current terrain height at lat/lon via
+        /// <see cref="Parsek.Rendering.TerrainCacheBuckets"/> and returns
+        /// <c>terrain + clearance</c>. If the cache returns NaN (PQS
+        /// unspun, body missing) we fall back to the recorded altitude rather
+        /// than producing an invalid world position.
+        ///
+        /// <para>The <paramref name="referenceFrame"/> parameter is a
+        /// **safety gate** (review pass P2-1): when the section is
+        /// <see cref="ReferenceFrame.Relative"/> (anchor-local metres in
+        /// lat/lon/alt — see CLAUDE.md "Rotation / world frame") or
+        /// <see cref="ReferenceFrame.OrbitalCheckpoint"/>, the helper
+        /// short-circuits to <paramref name="recordedAltitude"/> regardless
+        /// of clearance. Today's recorder never writes a finite clearance on
+        /// a non-Absolute point, so this path is unreachable in practice —
+        /// but a future codec / optimizer / merge that surfaced a finite
+        /// clearance on a RELATIVE point would otherwise interpret metre-
+        /// scale lat/lon as degrees and produce a position deep inside the
+        /// planet. Pin the contract at the renderer.</para>
+        /// </summary>
+        internal static double ResolvePhase7EffectiveAltitude(
+            CelestialBody body, double latitude, double longitude,
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame)
+        {
+            if (double.IsNaN(recordedGroundClearance))
+                return recordedAltitude;
+            if (referenceFrame != ReferenceFrame.Absolute)
+            {
+                // P2-1: defensive short-circuit. A RELATIVE-frame point
+                // stores anchor-local metres in latitude/longitude/altitude;
+                // applying terrain correction would mix metres with degrees
+                // catastrophically. OrbitalCheckpoint sections have no
+                // per-point latitude/longitude/altitude payload either.
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "non-absolute-frame-skip",
+                    $"ResolvePhase7EffectiveAltitude: skipping terrain correction " +
+                    $"for non-Absolute frame={referenceFrame} " +
+                    $"clearance={recordedGroundClearance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"— returning recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                    $"(future-codec safety gate; today's recorder never writes " +
+                    $"finite clearance on non-Absolute points)",
+                    5.0);
+                return recordedAltitude;
+            }
+            if (object.ReferenceEquals(body, null))
+                return recordedAltitude;
+
+            double currentTerrain = Parsek.Rendering.TerrainCacheBuckets.GetCachedSurfaceHeight(
+                body, latitude, longitude);
+            if (double.IsNaN(currentTerrain))
+            {
+                // Cache returned NaN (PQS not spun, body has no controller).
+                // HR-9 fall-through to recorded altitude — better one frame
+                // of altitude pop than clipping into terrain (design §13.3).
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "effective-altitude-pqs-miss",
+                    $"ResolvePhase7EffectiveAltitude: terrain NaN at " +
+                    $"body={body.bodyName} lat={latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"lon={longitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"— falling back to recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m",
+                    5.0);
+                return recordedAltitude;
+            }
+
+            return currentTerrain + recordedGroundClearance;
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility

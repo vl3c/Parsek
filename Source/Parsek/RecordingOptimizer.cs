@@ -663,7 +663,12 @@ namespace Parsek
                         bodyName = after.bodyName,
                         funds = before.funds + (after.funds - before.funds) * t,
                         science = before.science + (after.science - before.science) * tf,
-                        reputation = before.reputation + (after.reputation - before.reputation) * tf
+                        reputation = before.reputation + (after.reputation - before.reputation) * tf,
+                        // Phase 7: lerp clearance between adjacent points; if either
+                        // is NaN (legacy / non-SurfaceMobile) the result is NaN and
+                        // playback falls through to the legacy altitude path.
+                        recordedGroundClearance = before.recordedGroundClearance
+                            + (after.recordedGroundClearance - before.recordedGroundClearance) * t
                     };
                     // Insert as last point of first half (at splitPointIdx, before the second half starts)
                     original.Points.Insert(splitPointIdx, boundaryPoint.Value);
@@ -2142,7 +2147,10 @@ namespace Parsek
                 bodyName = !string.IsNullOrEmpty(after.bodyName) ? after.bodyName : before.bodyName,
                 funds = before.funds + (after.funds - before.funds) * t,
                 science = before.science + (after.science - before.science) * tf,
-                reputation = before.reputation + (after.reputation - before.reputation) * tf
+                reputation = before.reputation + (after.reputation - before.reputation) * tf,
+                // Phase 7: lerp clearance; NaN propagates through arithmetic.
+                recordedGroundClearance = before.recordedGroundClearance
+                    + (after.recordedGroundClearance - before.recordedGroundClearance) * t
             };
         }
 

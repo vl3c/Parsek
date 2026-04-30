@@ -837,7 +837,10 @@ namespace Parsek
                 bodyName = prevPoint.bodyName,
                 funds = prevPoint.funds,
                 science = prevPoint.science,
-                reputation = prevPoint.reputation
+                reputation = prevPoint.reputation,
+                // Phase 7: lerp clearance across the seam (NaN propagates).
+                recordedGroundClearance = Lerp(
+                    prevPoint.recordedGroundClearance, nextPoint.recordedGroundClearance, t)
             };
             return true;
         }

@@ -571,7 +571,12 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "boundary-seam-binary-roundtrip",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion // v8
+                // Pin to v8 explicitly so this test pins the seam-flag round-trip
+                // at its introduction version, independent of later format bumps
+                // (e.g. Phase 7's v9). The seam flag is gated on
+                // BoundarySeamFlagFormatVersion, so the contract under test is
+                // "v8 writer + v8 reader preserve the flag".
+                RecordingFormatVersion = RecordingStore.BoundarySeamFlagFormatVersion
             };
             rec.Points.Add(new TrajectoryPoint
             {
