@@ -109,6 +109,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 - ~~P2-4: CHANGELOG entry violated project style (≤ 2 sentences, user-facing only).~~ The Phase 8 bullet was 6 sentences with embedded technical detail (per-environment thresholds, byte offsets, AlgorithmStampVersion bump). Trimmed to two sentences focused on user-visible behaviour; tech detail stays in the corresponding entries here.
 - ~~P3-2: Cluster-Warn dedup regression test missing (plan §10.2 line item).~~ New `Outlier_ClusterWarn_DedupedAcrossRecompute` test in `SmoothingPipelineLoggingTests.cs` calls `FitAndStorePerSection` twice on the same kraken-clustered fixture and asserts exactly one Cluster Warn line emits across both calls. Pins the `s_clusterWarnLogged` HashSet behaviour. Companion `Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection` test pins the HR-9-visibility contract for clean sections.
 - ~~P3-4: `Pipeline_Outlier_Kraken` in-game test residual ratio too coarse + leaked overrides.~~ Added an absolute residual cap (10 km) alongside the existing 5x ratio so the test fails if the spline blows up to some other large offset. Removed the redundant `flags.SampleCount = sampleCount` line (Classify already sets it). The test already calls `SmoothingPipeline.ResetForTesting` before `yield break`, which clears `BodyResolverForTesting` and `UseOutlierRejectionResolverForTesting` (and `s_clusterWarnLogged`); a comment now documents that explicitly.
+
+## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
+
+**Status:** Historical, deferred — not active correctness work.
+
+See `docs/dev/plans/refly-postmerge-relative-to-absolute.md`.
+Current `main` already carries the runtime correctness fixes that made the
+plan less urgent: section-local ABSOLUTE playback at boundaries, stale live
+relative-anchor detection, and active Re-Fly same-PID anchor bypass. Do not
+pull this into the stabilization queue as an optimization project.
+
+The plan remains useful as a future data-canonicalization reference if
+dead parent-chain RELATIVE metadata or redundant v7+ shadow payloads become
+worth cleaning up. If revived, keep the review constraints in the plan:
+boundary ownership follows `TrajectoryMath.FindTrackSectionForUT`,
+parent-chain discovery must be transitive and #614-safe, zero PIDs never
+match, and legacy v6 or partial-shadow skips must retain explicit runtime
+fallback or warning semantics.
+
 ## 637. Track remaining refactor opportunities after Refactor-4 archive
 
 **Status:** TODO - active reference in
