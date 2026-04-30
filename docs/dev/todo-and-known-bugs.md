@@ -4752,26 +4752,39 @@ the vessel is right now" hint.
 flag set by `ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording`
 on every record it repairs from the committed tree. New
 `ParsekFlight.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording`
-helper consults the flag in both
+and `ShouldPreserveRestoredSceneExitTerminalState` helpers consult the
+flag before scene-exit finalizer/cache fallback and in both
 `FinalizeIndividualRecording`'s leaf scene-exit branch and
 `EnsureActiveRecordingTerminalState`'s active-non-leaf scene-exit
-branch; when the flag is set, the inference is skipped, the flag is
-cleared on read, the existing
+branch. When the flag is set and the live vessel is missing, cache /
+finalizer terminal mutation is bypassed, the inference is skipped, the
+flag is cleared on read, the existing
 `PopulateTerminalOrbitFromLastSegment` orbit-metadata recovery still
 runs (so the orbit fingerprint survives for ghost-map playback), and a
 structured `FinalizeTreeRecordings: skipping Landed/Splashed inference
 for '<id>' (vessel pid=<pid>) — repaired from committed tree this frame
 … (lastPtAlt=<alt>m maxDist=<m> orbitSegs=<n>)` INFO line is emitted.
+If the committed-tree repair already restored a terminal state, the
+same guard preserves that terminal and logs
+`FinalizeTreeRecordings: preserving repaired terminalState=<state> ...`
+instead of allowing the destroyed-cache repair path to overwrite it.
+The active-recording ensure pass now runs only for true non-leaf active
+recordings, preventing an active leaf from being finalized once by the
+per-recording pass, clearing the restore flag, and then being finalized
+again by `EnsureActiveRecordingTerminalState`.
 The orbit-then-land legitimate Landed-inference path
 (`Bug278FinalizeLimboTests.EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory`,
 `SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog`)
 is unchanged because the flag is only set by the repair helper.
 
-Tests: `Bug572FollowupFinalizeRestoredTests` (5 cases — leaf strip
-casualty, active-non-leaf strip casualty, normal unloaded landing
-regression guard, orbit-then-land regression guard, and an
-end-to-end pin that the flag is cleared on read so a downstream
-finalize call cannot accidentally re-trigger).
+Tests: `Bug572FollowupFinalizeRestoredTests` (11 cases — leaf strip
+casualty, leaf cache-fallback skip, existing-terminal cache-repair
+skip, full-tree active-leaf double-pass guard, active-non-leaf strip
+casualty, active-non-leaf cache-fallback skip, true-non-leaf ensure
+gate, effective-leaf ensure skip, normal unloaded landing regression
+guard, orbit-then-land regression guard, and an end-to-end pin that the
+flag is cleared on read so a downstream finalize call cannot
+accidentally re-trigger).
 
 Plan in
 `docs/dev/plans/refly-finalize-stripped-vessel-landed-fix.md`.

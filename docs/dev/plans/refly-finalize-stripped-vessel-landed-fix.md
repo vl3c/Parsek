@@ -15,7 +15,11 @@ overwritten with `Landed`, `OrbitSegments` are ignored, and the
 ghost-map trajectory ends up wrong.
 
 Chosen: **Option A — track recordings restored from the committed
-tree this frame and skip the Landed/Splashed inference for them.**
+tree this frame and preserve their repaired terminal state while the
+scene-exit path sees no live vessel.** The guard skips the cache /
+finalizer terminal mutation sources as well as the final
+Landed/Splashed inference branch; all three are scene-exit evidence,
+not committed-tree truth, for a Re-Fly strip casualty.
 
 Rejected alternatives:
 
@@ -39,9 +43,14 @@ Rejected alternatives:
 
 Option A is surgical, has clear lifecycle (set on restore, cleared on
 read in finalize), and directly addresses the second-order companion
-to PR #572's repair. The user's specific case is fully solved by the
-flag alone because the committed copy's recording carried no terminal
-state.
+to PR #572's repair. The user's specific case is solved by the flag
+alone because the committed copy's recording carried no terminal
+state, and the broader cache/finalizer gate prevents adjacent
+scene-exit sources from reintroducing the same clobber before the
+surface-inference branch runs. The active-recording ensure pass is
+restricted to true non-leaf active recordings so an already-processed
+active leaf cannot be finalized a second time after clearing the
+transient restore flag.
 
 ## Files touched
 
@@ -50,11 +59,14 @@ state.
 - `Source/Parsek/ParsekScenario.cs` —
   `RestoreCommittedSidecarPayloadIntoActiveTreeRecording` sets the flag.
 - `Source/Parsek/ParsekFlight.cs` — new
-  `ShouldSkipSceneExitSurfaceInferenceForRestoredRecording` helper
-  consulted from `FinalizeIndividualRecording`'s leaf scene-exit branch
-  and `EnsureActiveRecordingTerminalState`'s active-non-leaf scene-exit
-  branch. Both branches log a structured `[Flight]` skip line and clear
-  the flag on read.
+  `ShouldSkipSceneExitSurfaceInferenceForRestoredRecording` /
+  `ShouldPreserveRestoredSceneExitTerminalState` helpers consulted
+  before scene-exit finalizer/cache fallback and from
+  `FinalizeIndividualRecording`'s leaf scene-exit branch plus
+  `EnsureActiveRecordingTerminalState`'s active-non-leaf scene-exit
+  branch. `ShouldEnsureActiveRecordingTerminalState` keeps the active
+  ensure pass scoped to true non-leaves. The terminal-preserve paths
+  clear the flag on read.
 - `Source/Parsek.Tests/Bug572FollowupFinalizeRestoredTests.cs` — new.
 - `docs/dev/todo-and-known-bugs.md`, `CHANGELOG.md`.
 
@@ -68,6 +80,10 @@ state.
 - `FinalizeTreeRecordings: skipping Landed/Splashed inference for
   active recording '<id>' (vessel pid=<pid>) — recording was repaired
   from committed tree this frame …` — non-leaf active-recording branch.
+- `FinalizeTreeRecordings: preserving repaired terminalState=<state>
+  for '<id>' (vessel pid=<pid>) — recording was repaired from committed
+  tree this frame …` — restored leaf already had a terminal state and
+  scene-exit cache repair was skipped.
 
 These match the existing `[Flight]` `FinalizeTreeRecordings: …` style.
 
