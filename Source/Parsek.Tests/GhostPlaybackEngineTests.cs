@@ -253,6 +253,152 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Relative endpoint helpers
+
+        [Fact]
+        public void ResolveRecordingEndpointPlaybackUT_UsesLastPointUT()
+        {
+            var traj = new MockTrajectory
+            {
+                EndUTOverride = 200.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 150.0 },
+                },
+            };
+
+            Assert.Equal(150.0, GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj));
+        }
+
+        [Fact]
+        public void ResolveRecordingEndpointPlaybackUT_NoPointsUsesOrbitEndUT()
+        {
+            var traj = new MockTrajectory
+            {
+                EndUTOverride = 300.0,
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 100.0, endUT = 250.0 },
+                },
+            };
+
+            Assert.Equal(250.0, GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj));
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAnchorAtUT_RelativeEndpointReturnsSectionAnchor()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorVesselId = 42u,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out uint anchorPid);
+
+            Assert.True(result);
+            Assert.Equal(42u, anchorPid);
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAnchorAtUT_SinglePointRelativeEndpointStillRoutesRelative()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+            };
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorVesselId = 3151978247u,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out uint anchorPid);
+
+            Assert.True(result);
+            Assert.Equal(3151978247u, anchorPid);
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionFallsBackToLoopAnchor()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.LoopAnchorVesselId = 77u;
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorVesselId = 0u,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+                traj, 110.0, out uint anchorPid);
+
+            Assert.True(result);
+            Assert.Equal(77u, anchorPid);
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionWithNoAnchorStillRoutesRelative()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorVesselId = 0u,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+                traj, 110.0, out uint anchorPid);
+
+            Assert.True(result);
+            Assert.Equal(0u, anchorPid);
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAnchorAtUT_AbsoluteEndpointReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+                traj, 110.0, out uint anchorPid);
+
+            Assert.False(result);
+            Assert.Equal(0u, anchorPid);
+        }
+
+        #endregion
+
         // ===================================================================
         // EffectiveLoopStartUT / EffectiveLoopEndUT — static helpers
         // ===================================================================

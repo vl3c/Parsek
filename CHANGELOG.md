@@ -162,6 +162,8 @@ All notable changes to Parsek are documented here.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
 
+- `#613` Non-loop past-end holds, hidden/watch priming, and single-point playback now resolve the active `TrackSection` before positioning. RELATIVE endpoints route through anchor-relative playback and suppress completion/explosion side effects when the Re-Fly rewind has retired the anchor, so final-frame ghosts no longer interpret metre offsets as body-fixed lat/lon/alt or fire policy from an origin-positioned transform.
+
 - Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands; watch range also has 300 km entry / 305 km exit hysteresis so near-cutoff transfers do not immediately pop the camera back out.
 
 - `#615` Re-Fly post-spawn no longer churns crew stand-ins after the rescue path placed the original kerbal back on the spawned vessel; the guard skips the stand-in recreate only when the kerbal is currently on the SAME vessel where the rescue placed them (pid-scoped marker), so fresh reservations on the active player vessel still get their swap stand-in even if the kerbal happened to be rescued onto a different vessel earlier in the same session.

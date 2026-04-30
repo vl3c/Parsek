@@ -1647,6 +1647,27 @@ machine and `OnGhostCreated` path complete without camera retargeting,
 while resolved anchors still emit exactly one retarget with the spawned
 state's `cameraPivot`.
 
+**P1 review follow-up (past-end endpoint):** The non-loop
+`HandlePastEndGhost` path still called `PositionGhostAtRecordingEndpoint`,
+which fell through to `PositionAtPoint(traj.Points[last])` for point-backed
+recordings. For v6+ RELATIVE track sections those `latitude` /
+`longitude` / `altitude` fields are anchor-local metre offsets, not
+body-fixed degrees and altitude, so a post-Re-Fly final-frame hold could
+position the ghost through the wrong contract and then fire completion or
+explosion side effects from the stale/origin transform. Fix:
+`PositionGhostAtRecordingEndpoint`, `PositionLoadedGhostAtPlaybackUT`, and
+normal single-point in-range playback now resolve the covering
+`TrackSection` first; RELATIVE sections dispatch through
+`IGhostPositioner.InterpolateAndPositionRelative` using the section anchor
+or `LoopAnchorVesselId` fallback, while non-RELATIVE sections keep the
+existing direct point/surface/orbit paths. `HandlePastEndGhost` clears and
+reads `anchorRetiredThisFrame` around endpoint positioning and suppresses
+the completion/explosion side effects plus transient FX when the endpoint
+anchor retires. New headless coverage in
+`GhostPlaybackEngineTests` pins the endpoint-UT resolver, inclusive final
+RELATIVE-section lookup, single-point RELATIVE routing decision, loop-anchor
+fallback, zero-anchor retire routing, and ABSOLUTE-section non-match.
+
 **Status:** Open until merged.
 
 ---
