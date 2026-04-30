@@ -994,9 +994,113 @@ namespace Parsek.Tests
             Assert.True(suppressed);
             // Success reason now exposes where the active PID came from
             // so the load-window vs steady-state distinction is auditable.
-            Assert.Contains("activePidSource=search-tree:" + TreeId, reason);
+            Assert.Contains("activePidSource=marker-tree:" + TreeId, reason);
             Assert.Contains("relationship=parent", reason);
             Assert.Contains("found-victim-in-parent-chain", reason);
+        }
+
+        [Fact]
+        public void Suppresses_LoadWindowShape_StaleCommittedActive_PrefersMarkerTreePending()
+        {
+            // Follow-up to #611 line 1258: the composed search list can contain
+            // a stale committed tree before the pending post-load tree. If the
+            // active recording id exists in both, first-match-wins selects the
+            // stale tree, misses the parent topology, and the doubled-vessel
+            // suppression fails. The marker TreeId must make the pending tree win.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            marker.TreeId = "tree-pending";
+
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+
+            var staleTree = new RecordingTree { Id = "tree-stale" };
+            staleTree.Recordings["rec-booster"] = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = "tree-stale",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = boosterPid,
+            };
+
+            var pendingTree = new RecordingTree { Id = "tree-pending" };
+            pendingTree.Recordings["rec-capsule"] = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = "tree-pending",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065u,
+                ChildBranchPointId = ParentBpId,
+            };
+            pendingTree.Recordings["rec-booster"] = new Recording
+            {
+                RecordingId = "rec-booster",
+                TreeId = "tree-pending",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = boosterPid,
+                ParentBranchPointId = ParentBpId,
+            };
+            pendingTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = ParentBpId,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-capsule" },
+                ChildRecordingIds = new List<string> { "rec-booster" },
+            });
+
+            var search = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                new List<RecordingTree> { staleTree },
+                pendingTree);
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: search,
+                out string reason);
+
+            Assert.True(suppressed);
+            Assert.Contains("activePidSource=marker-tree:tree-pending", reason);
+            Assert.Contains("treeId=tree-pending", reason);
+            Assert.Contains("victim=rec-capsule", reason);
+        }
+
+        [Fact]
+        public void Suppresses_WhenMarkerTreeMissing_FallsBackToLegacyFirstMatch()
+        {
+            // A stale or partial marker must not disable the older first-match
+            // behavior. When TreeId is absent from the search list, both the
+            // PID lookup and the parent-chain walk should still use the first
+            // tree containing the active recording.
+            const uint boosterPid = 2676381515u;
+            var marker = InPlaceMarker("rec-booster");
+            marker.TreeId = "tree-missing";
+
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid));
+
+            var search = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+            search[0].Recordings["rec-booster"].VesselPersistentId = boosterPid;
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: search,
+                out string reason);
+
+            Assert.True(suppressed);
+            Assert.Contains("activePidSource=search-tree:" + TreeId, reason);
+            Assert.Contains("treeId=" + TreeId, reason);
+            Assert.Contains("victim=rec-capsule", reason);
         }
 
         [Fact]

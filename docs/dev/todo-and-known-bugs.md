@@ -1397,7 +1397,17 @@ vs steady-state distinction is auditable; the rejection reason carries
 "predicate didn't fire" diagnosis can see exactly which lookup source
 came up empty.
 
-**Tests:** 9 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
+**Follow-up (2026-04-30):** the composed-tree fix still had a
+first-match trap when a stale committed tree and the pending post-load
+tree both contained the active recording id. The PID lookup and parent-chain
+walk could select the stale committed tree before reaching the pending tree,
+miss the parent BranchPoint topology, and leave the doubled-vessel suppression
+inactive. Both lookups now prefer `ReFlySessionMarker.TreeId` first, falling
+back to the older first-match behavior only when the marker tree is absent.
+The walk trace includes `treeId=<id>` so this selection is visible in the
+`create-state-vector-*` reason string.
+
+**Tests:** 11 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
 `ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs`,
 `ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly`,
 `ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending`,
@@ -1412,6 +1422,11 @@ search trees, with `VesselPersistentId` set on the tree's recording —
 and asserts the success reason carries `activePidSource=search-tree:`),
 and `NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts`
 (asserts the new rejection reason format). The existing
+`Suppresses_LoadWindowShape_StaleCommittedActive_PrefersMarkerTreePending`
+case covers the stale-committed-first duplicate-id shape and asserts the
+pending marker tree is used. `Suppresses_WhenMarkerTreeMissing_FallsBackToLegacyFirstMatch`
+asserts a stale/missing marker tree id still falls back to the legacy
+first-match tree behavior. The existing
 `NotSuppressed_WhenCommittedListIsNull` test was updated to reflect
 the unified bail behavior; the existing `Suppresses_…_VictimIsParent`
 and docking-target no-suppress tests use `Assert.StartsWith` since
