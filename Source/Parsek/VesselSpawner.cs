@@ -2049,14 +2049,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds a set of crew names from the given list that are spawn-blocking
-        /// (strictly Dead, OR Missing-and-not-reserved). Reserved crew that are
-        /// Missing are NOT included: they will be rescued to Available before the
-        /// snapshot is loaded (see <see cref="RescueReservedMissingCrewInSnapshot"/>),
-        /// so they are spawnable even though <see cref="IsCrewDeadInRoster"/>
-        /// returns true for them today. This carve-out is symmetric with the
-        /// reserved-keep branch in <see cref="RemoveDeadCrewFromSnapshot"/>
-        /// (#170 / #608).
+        /// Builds a set of crew names from the given list that are spawn-blocking.
+        /// Only StrictlyDead (RosterStatus.Dead) crew block spawn — Dead is
+        /// permanent. Missing crew are NOT blocking, regardless of reservation:
+        /// Missing is transient (KSP's natural respawn timer flips Missing back
+        /// to Available after the respawn cooldown), and the spawn pipeline
+        /// rescues every Missing snapshot crew member to Available before
+        /// <c>ProtoVessel.Load</c> (see
+        /// <see cref="RescueReservedMissingCrewInSnapshot"/>). The reserved-only
+        /// carve-out from #608/#609 was extended in #687 to cover unreserved
+        /// Missing crew too: a plain Rewind that strips a previously-spawned
+        /// Parsek vessel marks its kerbals Missing without setting up
+        /// reservations, but the recording's end-of-playback spawn must still
+        /// re-create the vessel with those (transiently Missing) kerbals.
         /// Runtime-only: accesses HighLogic.CurrentGame.CrewRoster.
         /// Returns an empty set if the roster is unavailable.
         /// </summary>
@@ -2065,16 +2070,10 @@ namespace Parsek
             var deadSet = new HashSet<string>();
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return deadSet;
-            var reserved = CrewReservationManager.CrewReplacements;
             for (int i = 0; i < crewNames.Count; i++)
             {
                 string name = crewNames[i];
                 if (IsCrewStrictlyDeadInRoster(name, roster))
-                {
-                    deadSet.Add(name);
-                    continue;
-                }
-                if (IsCrewDeadInRoster(name, roster) && !reserved.ContainsKey(name))
                     deadSet.Add(name);
             }
             return deadSet;
@@ -2165,29 +2164,33 @@ namespace Parsek
             var deadSet = BuildDeadCrewSet(snapshotCrew);
             bool block = ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet);
 
-            // (#608/#609) When the carve-out lets a snapshot through that the
-            // pre-fix code would have abandoned, log a Verbose breakdown so
-            // playtest logs make the recovery visible. Pre-fix decision used
-            // IsCrewDeadInRoster (Dead OR Missing) for every name, so the old
-            // would-have-blocked predicate is "every snapshot name is Dead OR
-            // Missing in the roster". A reservation-only carve-out means at
-            // least one ReservedMissingRescuable entry made the difference.
+            // (#608/#609/#687) When the carve-out lets a snapshot through that
+            // the pre-fix code would have abandoned, log a Verbose breakdown
+            // so playtest logs make the recovery visible. Pre-fix decision
+            // used IsCrewDeadInRoster (Dead OR Missing) for every name, so the
+            // old would-have-blocked predicate is "every snapshot name is Dead
+            // OR Missing in the roster". The carve-out now covers BOTH
+            // reserved+Missing (#608/#609) and unreserved+Missing (#687) — at
+            // least one ReservedMissingRescuable or MissingNotReserved entry
+            // made the difference.
             if (!block && snapshotCrew.Count > 0)
             {
                 var classified = ClassifySnapshotCrew(snapshotCrew);
                 bool wouldHaveBlocked = true;
                 bool anyReservedMissing = false;
+                bool anyMissingNotReserved = false;
                 for (int i = 0; i < classified.Count; i++)
                 {
                     var c = classified[i].Value;
                     if (c == SpawnableClassification.Alive) { wouldHaveBlocked = false; }
                     else if (c == SpawnableClassification.ReservedMissingRescuable) anyReservedMissing = true;
+                    else if (c == SpawnableClassification.MissingNotReserved) anyMissingNotReserved = true;
                 }
-                if (wouldHaveBlocked && anyReservedMissing)
+                if (wouldHaveBlocked && (anyReservedMissing || anyMissingNotReserved))
                 {
                     ParsekLog.Verbose("Spawner",
-                        "Spawn-block carve-out applied (#608/#609): allowing spawn that pre-fix would " +
-                        "have abandoned because reserved+Missing crew is rescuable — " +
+                        "Spawn-block carve-out applied (#608/#609/#687): allowing spawn that pre-fix would " +
+                        "have abandoned because Missing crew is rescuable — " +
                         FormatSpawnableClassificationSummary(classified));
                 }
             }
@@ -2737,22 +2740,29 @@ namespace Parsek
 
         /// <summary>
         /// (#608/#609) Pre-spawn pass: for each crew name in the snapshot that is
-        /// reserved AND currently Missing in the roster, flip the roster status
-        /// back to Available so KSP's <c>ProtoVessel.Load → Part.RegisterCrew</c>
-        /// path can place them on the spawned vessel cleanly. Reserved+Missing
-        /// is the post-Re-Fly-strip state where the original capsule was
-        /// destroyed (KSP marked the crew Missing) but the recording is about
-        /// to materialize and bring them back.
+        /// currently Missing in the roster, flip the roster status back to
+        /// Available so KSP's <c>ProtoVessel.Load → Part.RegisterCrew</c> path
+        /// can place them on the spawned vessel cleanly. Missing is transient
+        /// (KSP's natural respawn timer flips it to Available after the
+        /// respawn cooldown); rescuing here just accelerates that for the
+        /// snapshot KSP is about to load.
+        ///
+        /// <para>Reserved+Missing is the post-Re-Fly-strip state where the
+        /// original capsule was destroyed (KSP marked the crew Missing) but
+        /// the recording is about to materialize and bring them back (#608/#609).
+        /// Unreserved+Missing is the plain-Rewind strip case (#687) — the
+        /// snapshot's originals are Missing but no reservation maps them
+        /// because the rewind quicksave wiped scenario-side reservation state.
+        /// Both shapes are rescued; only reserved rescues feed the pid-scoped
+        /// marker pipeline (no stand-in lifecycle exists for unreserved).</para>
         ///
         /// <para>Mirrors the rescue branches in
         /// <see cref="CrewReservationManager.ReserveCrewIn"/> and
         /// <see cref="CrewReservationManager.PlaceOrphanedReplacements"/> so
         /// the three runtime paths agree on Missing-rescue semantics.</para>
         ///
-        /// <para>Guards: skip strictly Dead crew (Dead is permanent —
-        /// <see cref="RemoveDeadCrewFromSnapshot"/> will strip them). Skip
-        /// non-reserved Missing crew (those should not be silently rescued —
-        /// they were Missing for an external reason).</para>
+        /// <para>Guard: skip strictly Dead crew (Dead is permanent —
+        /// <see cref="RemoveDeadCrewFromSnapshot"/> will strip them).</para>
         /// </summary>
         public static void RescueReservedMissingCrewInSnapshot(ConfigNode snapshot)
         {
@@ -2761,14 +2771,21 @@ namespace Parsek
 
         /// <summary>
         /// Pid-scoping overload (#615 P1 review fourth pass). Collects the
-        /// names actually flipped from Missing -> Available into
-        /// <paramref name="rescuedNames"/> so the caller can call
+        /// names of RESERVED kerbals actually flipped from Missing -> Available
+        /// into <paramref name="rescuedNames"/> so the caller can call
         /// <see cref="CrewReservationManager.MarkRescuePlaced(string, ulong)"/>
         /// for each name once <c>ProtoVessel.Load</c> has assigned the new
         /// vessel's persistentId. The marker MUST be pid-scoped: a stale
         /// name-only marker from a long-past rescue would suppress a later
         /// unrelated fresh reservation for the same kerbal who happens to be
         /// on the active player vessel.
+        ///
+        /// <para>#687: unreserved+Missing snapshot crew are also rescued here.
+        /// They have no stand-in to suppress, so the rescue-placed marker is
+        /// not set (and unreserved names are NOT added to
+        /// <paramref name="rescuedNames"/>). This covers the plain-Rewind
+        /// strip case where the snapshot still references the originals but
+        /// the live game lost reservations across the quicksave reload.</para>
         /// </summary>
         public static void RescueReservedMissingCrewInSnapshot(
             ConfigNode snapshot, List<string> rescuedNames)
@@ -2782,9 +2799,9 @@ namespace Parsek
                 return;
             }
             var reserved = CrewReservationManager.CrewReplacements;
-            if (reserved == null || reserved.Count == 0) return;
 
-            int rescued = 0;
+            int rescuedReserved = 0;
+            int rescuedUnreserved = 0;
             using (SuppressionGuard.Crew())
             {
                 foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
@@ -2794,28 +2811,43 @@ namespace Parsek
                     {
                         string name = crewNames[i];
                         if (string.IsNullOrEmpty(name)) continue;
-                        if (!reserved.ContainsKey(name)) continue;
                         ProtoCrewMember pcm = roster[name];
                         if (pcm == null) continue;
                         if (pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing) continue;
                         pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                        rescued++;
-                        // #615 P1 review (fourth pass): the rescue-placed
-                        // marker is now pid-scoped — the caller marks each
-                        // rescued name with the spawned vessel's pid AFTER
-                        // ProtoVessel.Load assigns one. Collect rescued names
-                        // here so the caller can wire them to the new pid.
-                        if (rescuedNames != null)
-                            rescuedNames.Add(name);
-                        ParsekLog.Info("Spawner",
-                            $"Rescued reserved+Missing crew '{name}' -> Available before snapshot load (#608/#609; pending pid mark)");
+
+                        bool isReserved = reserved != null && reserved.ContainsKey(name);
+                        if (isReserved)
+                        {
+                            rescuedReserved++;
+                            // #615 P1 review (fourth pass): the rescue-placed
+                            // marker is pid-scoped — the caller marks each
+                            // reserved rescued name with the spawned vessel's
+                            // pid AFTER ProtoVessel.Load assigns one. Only
+                            // RESERVED rescues need the marker (it suppresses
+                            // ApplyToRoster stand-in re-creation); unreserved
+                            // rescues have no stand-in lifecycle to suppress.
+                            if (rescuedNames != null)
+                                rescuedNames.Add(name);
+                            ParsekLog.Info("Spawner",
+                                $"Rescued reserved+Missing crew '{name}' -> Available before snapshot load (#608/#609; pending pid mark)");
+                        }
+                        else
+                        {
+                            rescuedUnreserved++;
+                            ParsekLog.Info("Spawner",
+                                $"Rescued unreserved+Missing crew '{name}' -> Available before snapshot load (#687)");
+                        }
                     }
                 }
             }
 
-            if (rescued > 0)
+            int total = rescuedReserved + rescuedUnreserved;
+            if (total > 0)
                 ParsekLog.Info("Spawner",
-                    $"Spawn prep: rescued {rescued} reserved+Missing crew member(s) -> Available (#608/#609; rescuedNames={(rescuedNames != null ? rescuedNames.Count.ToString() : "null")})");
+                    $"Spawn prep: rescued {total} Missing crew member(s) -> Available " +
+                    $"(reserved={rescuedReserved}; unreserved={rescuedUnreserved}; #608/#609/#687; " +
+                    $"rescuedNames={(rescuedNames != null ? rescuedNames.Count.ToString() : "null")})");
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
