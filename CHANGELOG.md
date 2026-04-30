@@ -31,6 +31,10 @@ All notable changes to Parsek are documented here.
 - Background-recorded peer vessels now receive structural-event snapshot points at the same dock / undock / EVA / joint-break UT as the focused recorder, so independently recorded halves of the same structural event no longer fall back to one-tick interpolated anchor alignment. Parent split closure trims deferred post-branch samples and flushes the active background `TrackSection` before dropping loaded state, keeping flagged boundary frames visible to section-based anchor paths.
 - Anchor propagation now avoids kraken-classified raw boundary samples when Phase 8 outlier flags are available, selecting a clean same-section frame instead of computing correction from a rejected spike.
 
+### Log Hygiene
+
+- Collapsed `TreeDestruction.AreAllLeavesTerminal` per-leaf verbose diagnostics into one counted summary per call, downgraded the routine `Extrapolator` NullSolver patched-conic fallback from WARN to verbose, and corrected non-NullSolver snapshot-failure WARN text to say the live-orbit fallback is skipped.
+
 ### Enhancements
 
 - Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Fly` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
