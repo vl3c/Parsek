@@ -15543,7 +15543,9 @@ namespace Parsek
                     ghost.SetActive(false);
                     return;
                 }
-                PositionGhostAt(ghost, before);
+                // Forward recordingId so PositionGhostAt applies and seeds
+                // the Re-Fly tree anchor offset on this single-point exit.
+                PositionGhostAt(ghost, before, recordingId);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
             }
@@ -15551,7 +15553,7 @@ namespace Parsek
             // Degenerate segment (t == 0 from zero-duration segment)
             if (t == 0f && before.ut == after.ut)
             {
-                PositionGhostAt(ghost, before);
+                PositionGhostAt(ghost, before, recordingId);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
             }
