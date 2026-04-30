@@ -18,6 +18,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            GhostPlaybackLogic.ResetForTesting();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -205,8 +206,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SetEngineAudio_DeferredPlaybackCapLeavesOnlyFinalBatchEnginesSelected()
+        public void SetEngineAudio_DeferredPlaybackCapEnforcesOnceAfterBatch()
         {
+            int enforceCount = 0;
+            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapOverrideForTesting = _ =>
+            {
+                enforceCount++;
+                return true;
+            };
             var infos = new List<AudioGhostInfo>();
             var state = new GhostPlaybackState
             {
@@ -229,28 +236,32 @@ namespace Parsek.Tests
 
             for (int i = 0; i < 4; i++)
             {
-                GhostPlaybackLogic.SetEngineAudio(
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
                     state,
                     new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
                     1f,
-                    enforcePlaybackCap: false);
+                    enforcePlaybackCap: false));
             }
             for (int i = 0; i < 4; i++)
             {
-                GhostPlaybackLogic.SetEngineAudio(
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
                     state,
                     new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
                     0f,
-                    enforcePlaybackCap: false);
+                    enforcePlaybackCap: false));
             }
             for (int i = 4; i < 8; i++)
             {
-                GhostPlaybackLogic.SetEngineAudio(
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
                     state,
                     new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
                     1f,
-                    enforcePlaybackCap: false);
+                    enforcePlaybackCap: false));
             }
+
+            Assert.Equal(0, enforceCount);
+            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            Assert.Equal(1, enforceCount);
 
             var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
                 new List<AudioGhostInfo>(state.audioInfos.Values),
