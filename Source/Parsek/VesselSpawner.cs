@@ -559,12 +559,16 @@ namespace Parsek
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
-                // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
+                // (#608/#609/#687) Rescue Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
-                // and the snapshot is loadable by ProtoVessel.Load.
+                // and the snapshot is loadable by ProtoVessel.Load. Both
+                // reserved+Missing (post-Re-Fly strip) and unreserved+Missing
+                // (post-plain-Rewind strip) shapes are rescued.
                 // #615 P1 review (fourth pass): collect rescued names; the
-                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
-                // when the new vessel's persistentId is known.
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load when
+                // the new vessel's persistentId is known. Only RESERVED
+                // rescues are collected — unreserved rescues have no stand-in
+                // lifecycle for the marker to suppress.
                 var rescuedNames = new List<string>();
                 RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
 
@@ -1003,12 +1007,15 @@ namespace Parsek
                     NormalizeOrbitalSpawnMetadata(spawnNode, ut);
 
                 // Crew handling
-                // (#608/#609) Rescue reserved+Missing crew BEFORE the keep/remove
+                // (#608/#609/#687) Rescue Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
-                // and the snapshot is loadable by ProtoVessel.Load.
+                // and the snapshot is loadable by ProtoVessel.Load. Both
+                // reserved+Missing and unreserved+Missing shapes are rescued.
                 // #615 P1 review (fourth pass): collect rescued names; the
-                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load
-                // when the new vessel's persistentId is known.
+                // pid-scoped MarkRescuePlaced call happens AFTER pv.Load when
+                // the new vessel's persistentId is known. Only RESERVED
+                // rescues are collected — unreserved rescues have no stand-in
+                // lifecycle for the marker to suppress.
                 var rescuedNames = new List<string>();
                 RescueReservedMissingCrewInSnapshot(spawnNode, rescuedNames);
                 RemoveDeadCrewFromSnapshot(spawnNode);
@@ -2088,7 +2095,7 @@ namespace Parsek
         {
             Alive = 0,                    // Available / Assigned / Crew
             ReservedMissingRescuable = 1, // Missing but reserved — will be rescued at spawn time
-            MissingNotReserved = 2,       // Missing, no reservation — counts toward block
+            MissingNotReserved = 2,       // Missing, no reservation — rescued to Available before load (#687)
             StrictlyDead = 3,             // Dead — counts toward block, never rescuable
         }
 
@@ -2934,8 +2941,12 @@ namespace Parsek
 
         /// <summary>
         /// Checks whether a crew member is strictly Dead (not Missing) in the KSP crew roster.
-        /// Used by RemoveDeadCrewFromSnapshot for reserved crew: Missing is potentially stale
-        /// state from save manipulation, but Dead is permanent and must override reservation. (#170)
+        /// Dead is permanent and unconditionally blocks/strips the kerbal across all spawn paths;
+        /// Missing is transient (KSP's natural respawn timer recovers it) and is rescued to
+        /// Available before snapshot load. Called from <see cref="BuildDeadCrewSet"/>,
+        /// <see cref="ClassifySnapshotCrew"/>, and <see cref="RemoveDeadCrewFromSnapshot"/> —
+        /// the three sites that need a Dead-only predicate to avoid resurrecting Dead reserved
+        /// crew. (#170 / #687)
         /// </summary>
         private static bool IsCrewStrictlyDeadInRoster(string crewName, KerbalRoster roster)
         {
