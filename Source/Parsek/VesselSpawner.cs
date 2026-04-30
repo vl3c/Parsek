@@ -3471,6 +3471,9 @@ namespace Parsek
 
             if (!TryValidateSnapshotHasParts(snapshot, out materializationRejectionReason))
             {
+                materializationRejectionReason = AddRecordingSnapshotMaterializationContext(
+                    materializationRejectionReason,
+                    rec);
                 LogMaterializationSnapshotRejected(resolvedContext, materializationRejectionReason);
                 return null;
             }
@@ -3500,6 +3503,32 @@ namespace Parsek
             ParsekLog.Warn("Spawner",
                 $"Spawn validation rejected materialization for {logContext}: {reason} - " +
                 "keeping ghost-only/abandon instead of loading corrupt ProtoVessel (#620)");
+        }
+
+        private static string AddRecordingSnapshotMaterializationContext(string reason, Recording rec)
+        {
+            if (rec == null)
+                return reason;
+
+            int vesselPartCount = CountSnapshotParts(rec.VesselSnapshot);
+            int ghostPartCount = CountSnapshotParts(rec.GhostVisualSnapshot);
+            string terminalState = rec.TerminalStateValue.HasValue
+                ? rec.TerminalStateValue.Value.ToString()
+                : "(unset)";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} (terminalState={1}, vesselSnapshotParts={2}, ghostSnapshotParts={3}, recordingId={4})",
+                reason ?? "(unknown)",
+                terminalState,
+                vesselPartCount,
+                ghostPartCount,
+                string.IsNullOrEmpty(rec.RecordingId) ? "<none>" : rec.RecordingId);
+        }
+
+        private static int CountSnapshotParts(ConfigNode snapshot)
+        {
+            return snapshot?.GetNodes("PART")?.Length ?? 0;
         }
 
         internal static void AbandonSpawnForInvalidMaterialization(

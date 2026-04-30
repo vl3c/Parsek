@@ -657,6 +657,130 @@ namespace Parsek
                 && !hasGhost;
         }
 
+        internal static bool TryBuildTrajectoryShrinkageWarningForSave(
+            Recording rec,
+            string precPath,
+            bool incrementEpoch,
+            out string warning)
+        {
+            warning = null;
+            if (rec == null || string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
+                return false;
+
+            TrajectoryPersistenceSummary incoming = SummarizeTrajectoryForWrite(rec);
+            if (!incoming.SectionAuthoritative || incoming.EffectivePointCount > 1)
+                return false;
+
+            if (!TrySummarizeExistingTrajectorySidecar(precPath, rec, out TrajectoryPersistenceSummary existing))
+                return false;
+
+            const int existingPointThreshold = 10;
+            if (existing.EffectivePointCount < existingPointThreshold)
+                return false;
+
+            int nextSidecarEpoch = rec.SidecarEpoch + (incrementEpoch ? 1 : 0);
+            warning = string.Format(
+                CultureInfo.InvariantCulture,
+                "SaveRecordingFiles: near-empty section-authoritative trajectory will overwrite richer existing sidecar " +
+                "recId={0} currentEpoch={1} nextEpoch={2} existingProbeRecordingId={3} " +
+                "existingProbeEpoch={4} existingProbeVersion={5} existingProbeEncoding={6} " +
+                "existingPoints={7} incomingPoints={8} existingSections={9} incomingSections={10} " +
+                "sectionAuthoritative={11} path='{12}' - continuing normal save (diagnostic only)",
+                string.IsNullOrEmpty(rec.RecordingId) ? "<none>" : rec.RecordingId,
+                rec.SidecarEpoch,
+                nextSidecarEpoch,
+                string.IsNullOrEmpty(existing.ProbeRecordingId) ? "<none>" : existing.ProbeRecordingId,
+                existing.ProbeSidecarEpoch,
+                existing.ProbeFormatVersion,
+                existing.ProbeEncoding,
+                existing.EffectivePointCount,
+                incoming.EffectivePointCount,
+                existing.TrackSectionCount,
+                incoming.TrackSectionCount,
+                incoming.SectionAuthoritative,
+                FormatPathForSidecarLog(precPath));
+            return true;
+        }
+
+        private struct TrajectoryPersistenceSummary
+        {
+            public int EffectivePointCount;
+            public int TrackSectionCount;
+            public bool SectionAuthoritative;
+            public string ProbeRecordingId;
+            public int ProbeSidecarEpoch;
+            public int ProbeFormatVersion;
+            public TrajectorySidecarEncoding ProbeEncoding;
+        }
+
+        private static TrajectoryPersistenceSummary SummarizeTrajectoryForWrite(Recording rec)
+        {
+            var summary = new TrajectoryPersistenceSummary
+            {
+                TrackSectionCount = rec?.TrackSections?.Count ?? 0,
+                SectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec)
+            };
+
+            if (rec == null)
+                return summary;
+
+            if (summary.SectionAuthoritative)
+            {
+                var rebuiltPoints = new List<TrajectoryPoint>();
+                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                summary.EffectivePointCount = rebuiltPoints.Count;
+            }
+            else
+            {
+                summary.EffectivePointCount = rec.Points?.Count ?? 0;
+            }
+
+            return summary;
+        }
+
+        private static bool TrySummarizeExistingTrajectorySidecar(
+            string precPath,
+            Recording rec,
+            out TrajectoryPersistenceSummary summary)
+        {
+            summary = default(TrajectoryPersistenceSummary);
+
+            try
+            {
+                TrajectorySidecarProbe probe;
+                if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
+                    return false;
+
+                var existing = new Recording
+                {
+                    RecordingId = rec?.RecordingId,
+                    RecordingFormatVersion = rec?.RecordingFormatVersion ?? RecordingStore.CurrentRecordingFormatVersion
+                };
+                RecordingStore.DeserializeTrajectorySidecar(precPath, probe, existing);
+                summary = new TrajectoryPersistenceSummary
+                {
+                    EffectivePointCount = existing.Points?.Count ?? 0,
+                    TrackSectionCount = existing.TrackSections?.Count ?? 0,
+                    SectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(existing),
+                    ProbeRecordingId = probe.RecordingId,
+                    ProbeSidecarEpoch = probe.SidecarEpoch,
+                    ProbeFormatVersion = probe.FormatVersion,
+                    ProbeEncoding = probe.Encoding
+                };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"SaveRecordingFiles: unable to evaluate trajectory shrink diagnostic for {rec?.RecordingId ?? "<null>"} " +
+                        $"path='{FormatPathForSidecarLog(precPath)}' error={FormatExceptionForSidecarLog(ex)}");
+                }
+                return false;
+            }
+        }
+
         private static void ReconcileReadableSidecarMirrorsForRecordingSet(
             IEnumerable<Recording> recordings,
             HashSet<string> seenRecordingIds,
@@ -751,6 +875,16 @@ namespace Parsek
                 // Leave FilesDirty unchanged so subsequent OnSave passes will
                 // re-evaluate and skip again until the flag is cleared.
                 return true;
+            }
+
+            if (TryBuildTrajectoryShrinkageWarningForSave(
+                    rec,
+                    precPath,
+                    incrementEpoch,
+                    out string shrinkWarning)
+                && !RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore", shrinkWarning);
             }
 
             int originalSidecarEpoch = rec.SidecarEpoch;
