@@ -1146,7 +1146,7 @@ namespace Parsek.Tests.Rendering
                     splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
                 // Mutate AlgorithmStampVersion to 6 (offset 8..11). The
-                // current build's stamp is 9; we mutate to a stale value
+                // current build's stamp is 10; we mutate to a stale value
                 // to force alg-stamp-drift on read.
                 byte[] bytes = File.ReadAllBytes(pannPathA);
                 bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;

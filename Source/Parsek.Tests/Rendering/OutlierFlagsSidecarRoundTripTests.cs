@@ -174,6 +174,16 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void AlgStampVersion_BumpedToTenOrLater_ForTimeAwareBubbleRadius()
+        {
+            // BubbleRadius classification semantics changed after Phase 8:
+            // cached v9 OutlierFlags can contain false-positive rejections
+            // for sparse high-speed ascent/coast samples and must recompute.
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 10,
+                "AlgorithmStampVersion must be >= 10 after time-aware BubbleRadius ships");
+        }
+
+        [Fact]
         public void AlgorithmStampDrift_V6_To_V7_DiscardsOldFile()
         {
             // What makes it fail: Phase 8 bumped AlgorithmStampVersion 6 → 7.

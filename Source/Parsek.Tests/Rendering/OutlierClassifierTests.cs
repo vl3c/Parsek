@@ -175,6 +175,63 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void OutlierClassifier_BubbleRadius_SparseFastAscentNotRejected()
+        {
+            // Regression for s18 upper-stage false positives: these samples
+            // move ~6 km over ~3 s at ~2.2 km/s with only ~6.5 m/s^2 delta-v.
+            // That is ordinary ExoBallistic ascent/coast spacing, not a
+            // single-tick teleport.
+            var frames = new List<TrajectoryPoint>
+            {
+                MakePoint(16922.542872685848, -0.16649755643677111, -43.778479122627921,
+                    70009.2171392627, new Vector3(-424.037048f, -4.56134272f, -2188.33057f)),
+                MakePoint(16925.582872685914, -0.1674615796382424, -43.204349460566412,
+                    70862.233326295391, new Vector3(-404.2505f, -4.49172544f, -2189.03442f)),
+                MakePoint(16926.142872685927, -0.16763672799253798, -43.098762352898973,
+                    71020.147707400378, new Vector3(-400.61087f, -4.478877f, -2189.1416f)),
+                MakePoint(16929.174057988723, -0.16857165153462, -42.528177686166181,
+                    71879.04830166616, new Vector3(-380.9396f, -4.40920544f, -2189.60181f)),
+                MakePoint(16931.168771733865, -0.16918077406755144, -42.149813421100376,
+                    72453.114339397522, new Vector3(-368.022034f, -4.36324739f, -2189.79688f)),
+            };
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
+            var rec = MakeRecording("rec-s18-sparse-ascent", sec);
+            CelestialBody capturedKerbin = fakeKerbin;
+
+            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
+                name => name == "Kerbin" ? capturedKerbin : null);
+
+            Assert.Equal(0, flags.RejectedCount);
+            Assert.Equal(0, flags.ClassifierMask);
+        }
+
+        [Fact]
+        public void OutlierClassifier_BubbleRadius_RejectsTeleportBeyondVelocityEnvelope()
+        {
+            // The velocity-aware allowance must not turn the bubble-radius
+            // classifier off for fast vessels. A 10° latitude jump is still
+            // far beyond what a 2.2 km/s vessel can cover in 3 seconds.
+            Vector3 fast = new Vector3(2200f, 0f, 0f);
+            var frames = new List<TrajectoryPoint>
+            {
+                MakePoint(100, 0.0, 0.0, 80000, fast),
+                MakePoint(103, 0.01, 0.01, 81000, fast),
+                MakePoint(106, 10.01, 0.02, 82000, fast), // teleport beyond speed envelope
+                MakePoint(109, 10.02, 0.03, 83000, fast),
+                MakePoint(112, 10.03, 0.04, 84000, fast),
+            };
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
+            var rec = MakeRecording("rec-fast-teleport", sec);
+            CelestialBody capturedKerbin = fakeKerbin;
+
+            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
+                name => name == "Kerbin" ? capturedKerbin : null);
+
+            Assert.True(flags.IsRejected(2));
+            Assert.True((flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.BubbleRadius) != 0);
+        }
+
+        [Fact]
         public void OutlierClassifier_BubbleRadius_PolarKraken_DetectsLongitudeFlip()
         {
             // Regression for P2-2: the previous flat-earth approximation
