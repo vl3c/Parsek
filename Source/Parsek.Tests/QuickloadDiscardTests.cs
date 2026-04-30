@@ -48,11 +48,17 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             GameStateStore.SuppressLogging = true;
+            ParsekScenario.ResetInstanceForTesting();
+            RewindInvokeContext.ResetForTesting();
+            TreeDiscardPurge.ResetTestOverrides();
         }
 
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
+            RewindInvokeContext.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            TreeDiscardPurge.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -201,6 +207,74 @@ namespace Parsek.Tests
                 && l.Contains("state != Limbo"));
             Assert.Contains(logLines, l =>
                 l.Contains("Quickload discard complete") && l.Contains("tree=1"));
+        }
+
+        [Fact]
+        public void DiscardStashedOnQuickload_WithActiveReFlySession_PreservesPendingTreeAndRewindPoint()
+        {
+            // Defense-in-depth for Re-Fly retry: an active session owns the
+            // pending tree and RP quicksave, so even a direct call must refuse
+            // before RecordingStore.DiscardPendingTree can invoke PurgeTree.
+            var tree = MakeTree("t_refly", "Kerbal X", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_active_refly",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = tree.RootRecordingId,
+                    OriginChildRecordingId = tree.RootRecordingId,
+                    RewindPointId = "rp_keep_refly",
+                },
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp_keep_refly",
+                        QuicksaveFilename = "rp_keep_refly.sfs",
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            TreeDiscardPurge.ResetCallCountForTesting();
+            logLines.Clear();
+
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
+
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("refusing to run with active re-fly session")
+                && l.Contains("sess_active_refly") && l.Contains("rp_keep_refly"));
+            Assert.DoesNotContain(logLines, l => l.Contains("DiscardPendingTree abandon path"));
+        }
+
+        [Fact]
+        public void DiscardStashedOnQuickload_WithPendingReFlyInvoke_PreservesPendingTreeAndRewindPoint()
+        {
+            // Captured Retry repro: before AtomicMarkerWrite recreates the
+            // marker, the session dependency lives in RewindInvokeContext.
+            var tree = MakeTree("t_refly_pending", "Kerbal X", 2);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess_pending_refly";
+            RewindInvokeContext.RewindPointId = "rp_pending_refly";
+            TreeDiscardPurge.ResetCallCountForTesting();
+            logLines.Clear();
+
+            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 16558.08, currentUT: 16466.39);
+
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(RecordingStore.PendingStashedThisTransition);
+            Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("refusing to run with active re-fly session")
+                && l.Contains("pending-invoke")
+                && l.Contains("sess_pending_refly") && l.Contains("rp_pending_refly"));
+            Assert.DoesNotContain(logLines, l => l.Contains("DiscardPendingTree abandon path"));
         }
 
         // #434: removed DiscardStashedOnQuickload_WithDeferredFlightResults_ClearsDiscardedFutureState.

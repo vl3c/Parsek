@@ -110,6 +110,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 - ~~P3-2: Cluster-Warn dedup regression test missing (plan §10.2 line item).~~ New `Outlier_ClusterWarn_DedupedAcrossRecompute` test in `SmoothingPipelineLoggingTests.cs` calls `FitAndStorePerSection` twice on the same kraken-clustered fixture and asserts exactly one Cluster Warn line emits across both calls. Pins the `s_clusterWarnLogged` HashSet behaviour. Companion `Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection` test pins the HR-9-visibility contract for clean sections.
 - ~~P3-4: `Pipeline_Outlier_Kraken` in-game test residual ratio too coarse + leaked overrides.~~ Added an absolute residual cap (10 km) alongside the existing 5x ratio so the test fails if the spline blows up to some other large offset. Removed the redundant `flags.SampleCount = sampleCount` line (Classify already sets it). The test already calls `SmoothingPipeline.ResetForTesting` before `yield break`, which clears `BodyResolverForTesting` and `UseOutlierRejectionResolverForTesting` (and `s_clusterWarnLogged`); a comment now documents that explicitly.
 
+## ~~684. Re-Fly Retry quickload-discard purges the active rewind point~~
+
+**Status:** ~~done~~ on branch `fix-refly-retry-rp-purge`.
+
+Clicking Retry in the Re-Fly dialog clears the old session marker, arms a new
+`RewindInvokeContext`, and quickloads the same RP back into FLIGHT. That load
+looks exactly like an ordinary F5/F9 quickload to `ParsekScenario.OnLoad`
+(`utWentBackwards && isFlightToFlight && !isRevert`), so the
+quickload-discard branch hard-discarded the Finalized pending tree and called
+`TreeDiscardPurge.PurgeTree`, deleting `rp_*.sfs` while the new retry session
+still depended on it. A later Discard Re-Fly then failed because the RP file
+was already gone. Canonical trace:
+`logs/2026-04-30_2118_refly-bugs/KSP.log:14793-15017`.
+
+**Fix:** `ShouldRunQuickloadDiscard` now treats both an active
+`ActiveReFlySessionMarker` and the pre-marker `RewindInvokeContext.Pending`
+retry window as active re-fly state, closing the OnLoad quickload-discard gate.
+`DiscardStashedOnQuickload` has the same defense-in-depth guard and warns
+instead of deleting if called directly while a marker or pending invoke exists.
+xUnit coverage pins the active-marker helper refusal, the pending-invoke
+Retry repro window, and the quickload-discard truth table with the active
+re-fly bit forced on across every UT/scene/revert combination.
+
 ## ~~682. FinalizerCache sticky `Destroyed` survives Re-Fly resume, vessel stays in STASH labelled "Destroyed"~~
 
 **Status:** ~~done~~ on branch `fix-uf-finalizer-sticky`.
