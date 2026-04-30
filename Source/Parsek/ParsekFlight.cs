@@ -9301,6 +9301,20 @@ namespace Parsek
             // unset produces one extra boundary point on the next chain continuation,
             // which is benign. See SaveActiveTreeIfAny for the write-side comment.
 
+            // Bug fix: clear any stale Destroyed terminal verdict on the
+            // recording we're about to resume. A transient NullSolver event
+            // earlier in the recording (e.g. stage decouple) may have made
+            // TryFinalizeRecording fall back to live-orbit and stamp Destroyed
+            // via the sub-surface path. Without this clear, FinalizerCache's
+            // already-classified-destroyed short-circuit declines every refresh
+            // for the rest of the session, and the vessel stays labelled
+            // "Destroyed" in the STASH UI even though the player is flying it
+            // again post-rewind. The stamp lives on the Recording, so resetting
+            // the in-memory FinalizationCache via StartRecording is not enough.
+            IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                activeRec,
+                "RestoreActiveTreeFromPending");
+
             // Start recording as a promotion (isPromotion: true) so the Bug A seed-event
             // skip kicks in — no duplicate DeployableExtended / LightOn / etc. events at
             // the quickload UT. The new recorder's buffers start empty and will append

@@ -110,6 +110,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 - ~~P3-2: Cluster-Warn dedup regression test missing (plan §10.2 line item).~~ New `Outlier_ClusterWarn_DedupedAcrossRecompute` test in `SmoothingPipelineLoggingTests.cs` calls `FitAndStorePerSection` twice on the same kraken-clustered fixture and asserts exactly one Cluster Warn line emits across both calls. Pins the `s_clusterWarnLogged` HashSet behaviour. Companion `Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection` test pins the HR-9-visibility contract for clean sections.
 - ~~P3-4: `Pipeline_Outlier_Kraken` in-game test residual ratio too coarse + leaked overrides.~~ Added an absolute residual cap (10 km) alongside the existing 5x ratio so the test fails if the spline blows up to some other large offset. Removed the redundant `flags.SampleCount = sampleCount` line (Classify already sets it). The test already calls `SmoothingPipeline.ResetForTesting` before `yield break`, which clears `BodyResolverForTesting` and `UseOutlierRejectionResolverForTesting` (and `s_clusterWarnLogged`); a comment now documents that explicitly.
 
+## ~~682. FinalizerCache sticky `Destroyed` survives Re-Fly resume, vessel stays in STASH labelled "Destroyed"~~
+
+**Status:** ~~done~~ on branch `fix-uf-finalizer-sticky`.
+
+A vessel mid-flight can hit a transient `PatchedConicSnapshot` `NullSolver`
+(e.g. during a stage-decouple frame where KSP has torn down the patched-conic
+solver). `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording` falls
+back to the live-orbit state, which can be degenerate (position collapsed
+near the body frame origin → altitude ≈ -bodyRadius). The
+`BallisticExtrapolator` sub-surface guard then stamps
+`recording.TerminalStateValue = TerminalState.Destroyed` and
+`recording.ExplicitEndUT = terminalUT` (this stamping is intentional — the
+fingerprint matches a real torn-down vessel and the in-game test
+`Extrapolate_SubSurfaceStart_ClassifiesAsDestroyedWithoutRunningScan` pins it).
+
+The bug: when the player rewinds and resumes flight via Re-Fly,
+`ParsekFlight.RestoreActiveTreeFromPending` reinstalls the tree and starts a
+fresh `FlightRecorder`. `StartRecording` resets the in-memory
+`FinalizationCache` to null, but the stale `TerminalStateValue = Destroyed`
+on the Recording itself survives. Every subsequent FinalizerCache refresh
+calls `IncompleteBallisticSceneExitFinalizer.IsAlreadyClassifiedDestroyed`,
+sees the verdict, and short-circuits via
+`TryBuildAlreadyClassifiedDestroyedSkip` with
+`decline=already-classified-destroyed`. The vessel stays labelled "Destroyed"
+in the STASH UI for the rest of the session even though the player flies it
+to a stable orbit.
+
+Reproduction: rewind a multi-stage flight via Rewind-to-Separation after the
+upper stage was ever momentarily flagged Destroyed mid-flight, then continue
+the upper stage to orbit. Pre-fix the recording stays Destroyed in STASH;
+post-fix it re-evaluates to `Orbiting` once the vessel reaches a stable orbit.
+See `logs/2026-04-30_2011_uf-stash-bug/KSP.log` for the canonical trace.
+
+**Fix:** new `IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(recording, logContext)`
+helper clears `TerminalStateValue` + `ExplicitEndUT` and emits an Info log
+with the previous terminalUT, only when the recording was actually
+classified Destroyed (no-op otherwise, including `null` recordings). The
+helper is called from `RestoreActiveTreeFromPending` immediately before the
+fresh `FlightRecorder.StartRecording(isPromotion: true)`, after the in-place
+continuation marker swap and PID remap so the cleared recording matches
+exactly the one that's about to be resumed. `MarkFilesDirty` is invoked so
+the cleared verdict persists across the next save. xUnit coverage in
+`SceneExitFinalizationIntegrationTests` (5 tests): clears + log assertion,
+no-op when never classified, no-op when verdict is non-Destroyed
+(Orbiting/Landed/Splashed survive), null-safe path, and an end-to-end test
+that walks `RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip`
+before and after the clear to prove the cache short-circuit is actually
+released. The narrower NullSolver-rejection option (refusing to stamp
+Destroyed when the live-orbit fallback altitude is catastrophically
+sub-surface) was deferred — the existing `BallisticExtrapolator` sub-surface
+test pins the current behaviour as intentional, and reversing it without
+deeper analysis would risk legitimate torn-down-vessel detection.
+
 ## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 
 **Status:** ~~done~~ on PR #670 (`fix-revert-button-during-refly`).

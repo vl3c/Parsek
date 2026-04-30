@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- A vessel that was incorrectly stamped `Destroyed` mid-flight by a transient finalizer fallback (e.g. during stage decouple) no longer remains stuck as Destroyed in STASH after the player rewinds and resumes flying it. Re-Fly resume now clears the stale terminal verdict so the FinalizerCache re-evaluates the vessel's live state.
 - The Esc-menu Revert to Launch button is no longer grayed out during an active Re-Fly. The loaded rewind-point quicksave is mid-flight so KSP correctly disables the button, but Parsek's interceptor (Retry / Discard Re-Fly / Cancel dialog) was unreachable as a result. While a Re-Fly session marker is active the button is force-enabled so clicking it routes into the Parsek dialog; on marker clear the engine's natural state is restored.
 - The Recordings table uses the original Actions column width again, with full-word `Rewind` and `Forward` action labels plus compact button padding so `Fly`/`Seal` and `Stash` still fit without widening the table.
 - Stock retractable ladders no longer render extended in the ghost when the recorded vessel had them stowed. Solar panels, gear, animation groups, animate-generic, and aero/control-surface deployables get the same first-spawn stow baseline.
