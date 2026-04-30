@@ -26,6 +26,7 @@ namespace Parsek
         private static readonly HashSet<string> loopIntervalClampWarned = new HashSet<string>(StringComparer.Ordinal);
         private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
         private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
+        internal static Func<GhostPlaybackState, bool> EnforceLoopedAudioPlaybackCapOverrideForTesting;
 
         internal readonly struct AutoLoopLaunchSchedule
         {
@@ -620,6 +621,7 @@ namespace Parsek
         {
             loopIntervalClampWarned.Clear();
             ResetFlagReplayOverridesForTesting();
+            EnforceLoopedAudioPlaybackCapOverrideForTesting = null;
         }
 
         /// <summary>
@@ -1867,6 +1869,7 @@ namespace Parsek
             var logicalPartIds = state.logicalPartIds;
             bool visibilityChanged = false;
             bool needsReentryMeshRebuild = false;
+            bool audioPowerTouched = false;
             HashSet<uint> placedTargetPartIds = null;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
@@ -1934,15 +1937,22 @@ namespace Parsek
                         // for backward compatibility. New recordings skip zero-throttle
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
-                        SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
+                        if (SetEngineAudio(
+                                state,
+                                evt,
+                                System.Math.Max(evt.value, 0.01f),
+                                enforcePlaybackCap: false))
+                            audioPowerTouched = true;
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
-                        SetEngineAudio(state, evt, 0f);
+                        if (SetEngineAudio(state, evt, 0f, enforcePlaybackCap: false))
+                            audioPowerTouched = true;
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
-                        SetEngineAudio(state, evt, evt.value);
+                        if (SetEngineAudio(state, evt, evt.value, enforcePlaybackCap: false))
+                            audioPowerTouched = true;
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -2034,6 +2044,8 @@ namespace Parsek
 
             int appliedCount = evtIdx - state.partEventIndex;
             state.partEventIndex = evtIdx;
+            if (audioPowerTouched)
+                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
             if (appliedCount > 0)
                 ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
                     $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
@@ -2241,14 +2253,18 @@ namespace Parsek
             if (restores == null)
                 return;
 
+            bool audioPowerTouched = false;
             for (int i = 0; i < restores.Count; i++)
             {
-                SetEngineAudio(state, new PartEvent
-                {
-                    partPersistentId = persistentId,
-                    moduleIndex = restores[i].moduleIndex
-                }, restores[i].power);
+                if (SetEngineAudio(state, new PartEvent
+                    {
+                        partPersistentId = persistentId,
+                        moduleIndex = restores[i].moduleIndex
+                    }, restores[i].power, enforcePlaybackCap: false))
+                    audioPowerTouched = true;
             }
+            if (audioPowerTouched)
+                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
         }
 
         internal static void InitializeInventoryPlacementVisibility(
@@ -2741,6 +2757,15 @@ namespace Parsek
             return result;
         }
 
+        internal static void EnforceLoopedAudioPlaybackCapWithTestingOverride(GhostPlaybackState state)
+        {
+            var overrideForTesting = EnforceLoopedAudioPlaybackCapOverrideForTesting;
+            if (overrideForTesting != null && overrideForTesting(state))
+                return;
+
+            EnforceLoopedAudioPlaybackCap(state);
+        }
+
         internal static void EnforceLoopedAudioPlaybackCap(GhostPlaybackState state)
         {
             if (state?.audioInfos == null)
@@ -2833,13 +2858,17 @@ namespace Parsek
         /// Set engine audio volume/pitch from recorded throttle power.
         /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
         /// </summary>
-        internal static void SetEngineAudio(GhostPlaybackState state, PartEvent evt, float power)
+        internal static bool SetEngineAudio(
+            GhostPlaybackState state,
+            PartEvent evt,
+            float power,
+            bool enforcePlaybackCap = true)
         {
-            if (state.audioInfos == null) return;
+            if (state.audioInfos == null) return false;
 
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             AudioGhostInfo info;
-            if (!state.audioInfos.TryGetValue(key, out info)) return;
+            if (!state.audioInfos.TryGetValue(key, out info)) return false;
 
             info.currentPower = power;
             if (state.audioMuted)
@@ -2847,11 +2876,13 @@ namespace Parsek
                 // Keep tracked power in sync during warp so unmute resumes the correct state.
                 if (!ReferenceEquals(info.audioSource, null))
                     StopLoopedGhostAudio(info, "muted");
-                return;
+                return true;
             }
-            if (ReferenceEquals(info.audioSource, null)) return;
+            if (ReferenceEquals(info.audioSource, null)) return true;
 
-            EnforceLoopedAudioPlaybackCap(state);
+            if (enforcePlaybackCap)
+                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            return true;
         }
 
         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
@@ -3595,17 +3626,20 @@ namespace Parsek
                 }, restore.power);
             }
 
-            foreach (var restore in CollectDeferredAudioPowerRestores(state))
+            var audioRestores = CollectDeferredAudioPowerRestores(state);
+            for (int i = 0; i < audioRestores.Count; i++)
             {
                 uint partPersistentId;
                 int moduleIndex;
-                FlightRecorder.DecodeEngineKey(restore.key, out partPersistentId, out moduleIndex);
+                FlightRecorder.DecodeEngineKey(audioRestores[i].key, out partPersistentId, out moduleIndex);
                 SetEngineAudio(state, new PartEvent
                 {
                     partPersistentId = partPersistentId,
                     moduleIndex = moduleIndex
-                }, restore.power);
+                }, audioRestores[i].power, enforcePlaybackCap: false);
             }
+            if (audioRestores.Count > 0)
+                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
         }
 
         #endregion

@@ -18,6 +18,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            GhostPlaybackLogic.ResetForTesting();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -202,6 +203,75 @@ namespace Parsek.Tests
                 power: 0f);
 
             Assert.Equal(0f, info.currentPower);
+        }
+
+        [Fact]
+        public void SetEngineAudio_DeferredPlaybackCapEnforcesOnceAfterBatch()
+        {
+            int enforceCount = 0;
+            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapOverrideForTesting = _ =>
+            {
+                enforceCount++;
+                return true;
+            };
+            var infos = new List<AudioGhostInfo>();
+            var state = new GhostPlaybackState
+            {
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>()
+            };
+
+            for (int i = 0; i < 8; i++)
+            {
+                uint pid = (uint)(100 + i);
+                var info = new AudioGhostInfo
+                {
+                    partPersistentId = pid,
+                    moduleIndex = 0,
+                    selectionOrder = i,
+                    priorityClass = GhostAudioPriorityClass.RocketEngine
+                };
+                infos.Add(info);
+                state.audioInfos[FlightRecorder.EncodeEngineKey(pid, 0)] = info;
+            }
+
+            for (int i = 0; i < 4; i++)
+            {
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
+                    state,
+                    new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
+                    1f,
+                    enforcePlaybackCap: false));
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
+                    state,
+                    new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
+                    0f,
+                    enforcePlaybackCap: false));
+            }
+            for (int i = 4; i < 8; i++)
+            {
+                Assert.True(GhostPlaybackLogic.SetEngineAudio(
+                    state,
+                    new PartEvent { partPersistentId = infos[i].partPersistentId, moduleIndex = 0 },
+                    1f,
+                    enforcePlaybackCap: false));
+            }
+
+            Assert.Equal(0, enforceCount);
+            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            Assert.Equal(1, enforceCount);
+
+            var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
+                new List<AudioGhostInfo>(state.audioInfos.Values),
+                GhostAudioPresets.MaxAudioSourcesPerGhost);
+
+            Assert.Equal(4, selected.Count);
+            for (int i = 0; i < 4; i++)
+                Assert.DoesNotContain(infos[i], selected);
+            for (int i = 4; i < 8; i++)
+                Assert.Contains(infos[i], selected);
         }
 
         #endregion
