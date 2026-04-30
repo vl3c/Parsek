@@ -440,6 +440,7 @@ namespace Parsek
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
+            ReFlyRevertButtonGate.Apply("TreeDiscardPurge:tree-discarded");
             ParsekLog.Info(SessionTag,
                 $"End reason=treeDiscarded sess={sessionId} tree={treeId}");
             return true;

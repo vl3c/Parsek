@@ -937,6 +937,15 @@ namespace Parsek
                 }
             }
 
+            // Re-fly Esc-menu button gate: covers the case where a save was
+            // made mid-re-fly and is being loaded fresh. If the load lands in
+            // a non-flight scene the call is a logged no-op; the next
+            // onFlightReady (handled by ReFlyRevertButtonGate.Subscribe) will
+            // re-assert when the player enters flight. If the load lands in
+            // flight (rare — KSP normally loads to KSC first), this is the
+            // immediate force.
+            ReFlyRevertButtonGate.Apply("OnLoad:after-marker-load");
+
             ConfigNode journalNode = node.GetNode(MergeJournal.NodeName);
             if (journalNode != null)
                 ActiveMergeJournal = MergeJournal.LoadFrom(journalNode);
@@ -2480,6 +2489,10 @@ namespace Parsek
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
             // #434: subscribe idempotently so revert detection is armed from first OnLoad.
             RevertDetector.Subscribe();
+            // Re-fly Esc-menu button gate: Apply() on every onFlightReady so a
+            // save loaded with an active re-fly marker re-enables the Revert
+            // button before the player can click it.
+            ReFlyRevertButtonGate.Subscribe();
         }
 
         /// <summary>
@@ -5622,6 +5635,7 @@ namespace Parsek
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.
             RevertDetector.Unsubscribe();
+            ReFlyRevertButtonGate.Unsubscribe();
             // Phase 6 of Rewind-to-Staging: clear the per-RP precondition
             // cache so the dict does not grow unbounded across long sessions
             // (Fix 8). The cache is 60s-TTL'd anyway but long-lived scene loops

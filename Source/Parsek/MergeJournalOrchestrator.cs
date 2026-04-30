@@ -241,6 +241,7 @@ namespace Parsek
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
+            ReFlyRevertButtonGate.Apply("MergeJournal:marker-cleared");
             ParsekLog.Info("ReFlySession",
                 $"End reason=merged sess={sessionId} provisional={provisionalId}");
             AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
@@ -343,6 +344,7 @@ namespace Parsek
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
+            ReFlyRevertButtonGate.Apply("MergeJournal:rollback");
 
             DurableSave("rollback", persistSynchronously: false);
 
@@ -381,6 +383,7 @@ namespace Parsek
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
+                ReFlyRevertButtonGate.Apply("MergeJournal:complete-marker-cleared");
                 AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
                 stepsDriven++;
             }

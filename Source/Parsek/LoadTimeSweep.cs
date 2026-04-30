@@ -76,6 +76,12 @@ namespace Parsek
                 LogMarkerInvalid(marker, validation.Reason, validation.Details);
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                // Sweep runs during OnLoad before flight-scene Start, so
+                // FlightDriver state is unset and Apply is a logged no-op.
+                // Defensive: keep the call symmetric with other clear sites
+                // so the gate's forcedFlag tracking stays consistent if
+                // OnLoad fires inside an already-loaded flight scene.
+                ReFlyRevertButtonGate.Apply("LoadTimeSweep:invalid-marker");
             }
             else if (markerValid)
             {
