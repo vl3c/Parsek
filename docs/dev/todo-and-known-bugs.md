@@ -279,6 +279,34 @@ in `SceneExitFinalizationIntegrationTests.cs` was relying on the (now-removed)
 implicit SubOrbital default for single high-altitude payloads; updated to use
 2 points so the inference still runs and stamps SubOrbital as before.
 
+## ~~685. Re-Fly breakup root ghost falls back to green sphere after scene-exit finalization~~
+
+**Status:** ~~done~~ on `fix-empty-chain-root-ghost`.
+
+Captured log `logs/2026-04-30_2118_refly-bugs/KSP.log` showed the root
+recording (`0eec0dd94ebf41efb3b200a97952aa4c`) initially wrote `_ghost.craft`
+as `ghostSnapshotMode=Separate`. Scene-exit finalization then replaced the
+recorded-start `GhostVisualSnapshot` with the post-breakup terminal
+`VesselSnapshot`. Because the two in-memory snapshots had become identical,
+the next sidecar save re-detected `ghostSnapshotMode=AliasVessel` and deleted
+the distinct `_ghost.craft` as stale alias cleanup (`deletedStaleGhost=True`).
+On a later load, metadata/snapshot hydration again expected a separate ghost
+sidecar, but the file was already gone; load fell back to `_vessel.craft`, and
+the ghost builder aborted because that terminal/post-breakup vessel snapshot
+had no `PART` nodes.
+
+**Fix:** `IncompleteBallisticSceneExitFinalizer.Apply` now treats finalizer
+snapshots as terminal/spawn-state updates only. It updates `VesselSnapshot` but
+preserves an existing `GhostVisualSnapshot`, only filling the ghost field when
+it was null, and recomputes `GhostSnapshotMode` immediately so tree metadata
+cannot persist a stale `AliasVessel` mode before sidecars are rewritten. That
+keeps the recorded-start ghost mesh distinct, so sidecar save keeps
+`_ghost.craft` for breakup-continuous root recordings without writing duplicate
+ghost files for true alias cases. Regression coverage:
+`ReFlyChainRootGhostSnapshotTests.ReFlyBreakupRoot_SceneExitFinalizerPreservesGhostSnapshotAcrossRoundTrip`
+and the in-game `ReFlyRootFinalization_PreservesRecordedStartGhostMesh`
+PartLoader-backed mesh-build guard.
+
 ## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
 
 **Status:** Historical, deferred — not active correctness work.

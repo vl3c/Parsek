@@ -1084,17 +1084,46 @@ namespace Parsek
             if (result.vesselSnapshot != null)
             {
                 recording.VesselSnapshot = result.vesselSnapshot.CreateCopy();
-                recording.GhostVisualSnapshot = result.ghostVisualSnapshot != null
-                    ? result.ghostVisualSnapshot.CreateCopy()
-                    : recording.VesselSnapshot.CreateCopy();
+                if (recording.GhostVisualSnapshot == null)
+                {
+                    recording.GhostVisualSnapshot = result.ghostVisualSnapshot != null
+                        ? result.ghostVisualSnapshot.CreateCopy()
+                        : recording.VesselSnapshot.CreateCopy();
+                }
+                else if (result.ghostVisualSnapshot != null
+                    && !RecordingStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
+                {
+                    ParsekLog.Verbose("Extrapolator",
+                        $"{logContext ?? "SceneExitFinalizer"}: preserved existing ghost visual snapshot for " +
+                        $"'{recording.RecordingId}' while applying terminal vessel snapshot");
+                }
             }
             else if (result.ghostVisualSnapshot != null)
             {
-                recording.GhostVisualSnapshot = result.ghostVisualSnapshot.CreateCopy();
-                ParsekLog.Verbose("Extrapolator",
-                    $"{logContext ?? "SceneExitFinalizer"}: applied ghost-only scene-exit finalization for " +
-                    $"'{recording.RecordingId}' without a vessel snapshot");
+                if (recording.GhostVisualSnapshot == null)
+                {
+                    recording.GhostVisualSnapshot = result.ghostVisualSnapshot.CreateCopy();
+                    ParsekLog.Verbose("Extrapolator",
+                        $"{logContext ?? "SceneExitFinalizer"}: applied ghost-only scene-exit finalization for " +
+                        $"'{recording.RecordingId}' without a vessel snapshot");
+                }
+                else if (!RecordingStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
+                {
+                    ParsekLog.Verbose("Extrapolator",
+                        $"{logContext ?? "SceneExitFinalizer"}: preserved existing ghost visual snapshot for " +
+                        $"'{recording.RecordingId}' while applying ghost-only terminal snapshot");
+                }
             }
+
+            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
+                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
+                    "after applying terminal snapshot");
+            }
+            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
 
             if (result.terminalState.Value == TerminalState.Landed
                 || result.terminalState.Value == TerminalState.Splashed)
