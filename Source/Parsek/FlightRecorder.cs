@@ -301,12 +301,11 @@ namespace Parsek
             // Re-Fly in-place continuation trims only the active rec because the
             // splice (SpliceMissingCommittedRecordings) just restored other-vessel
             // post-RP recordings that the tree-wide trim would prune again.
-            // Use `?.` instead of `!= null` so the read works in unit tests where
-            // ParsekScenario (a UnityEngine MonoBehaviour) is fake-destroyed by
-            // Unity's overloaded `==` operator; `?.` uses reference equality.
-            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            var trimScope = ParsekScenario.ChooseQuickloadTrimScope(
-                ActiveTree.Id, marker, out string trimScopeReason);
+            // The decision is captured when OnLoad arms the pending context so
+            // recorder resume cannot fall back to tree-wide if the scenario
+            // singleton is temporarily unavailable.
+            var trimScope = ParsekScenario.GetPendingQuickloadTrimScope(
+                ActiveTree.Id, out string trimScopeReason);
             bool treeTrimmed;
             if (trimScope == ParsekScenario.QuickloadTrimScope.ActiveRecOnly)
             {

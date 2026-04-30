@@ -1288,10 +1288,23 @@ log line — `trimScope=ActiveRecOnly (refly-active sess=… markerTree=… orig
 or `trimScope=TreeWide (no-active-refly-marker | refly-marker-tree-mismatch …)`
 — so the branch is auditable from `KSP.log` alone.
 
+**Follow-up (2026-04-30):** the first fix still chose the trim scope at
+recorder-resume time by reading `ParsekScenario.Instance`. That left a
+load-order hole: `OnLoad` can see the Re-Fly marker and arm a pending
+quickload-resume context, but the later recorder resume may run after
+the scenario singleton has been replaced or is temporarily unavailable,
+falling back to `TreeWide` and destroying the sibling continuations
+again. `ConfigurePendingQuickloadResumeContext` now captures
+`QuickloadTrimScope` + reason at arm time, `OnLoad` refreshes that
+captured scope after `DispatchRewindPostLoadIfPending` +
+`LoadTimeSweep.Run` have finalized marker state, and
+`PrepareQuickloadResumeStateIfNeeded` consumes that pending-context
+decision instead of rereading the singleton.
+
 **Unity-overload trap:** the natural `if (ParsekScenario.Instance != null)`
 check returns false in unit tests because `ParsekScenario` is a
 `UnityEngine.MonoBehaviour` whose overloaded `==` operator treats
-non-Awake'd instances as fake-destroyed. Production used `?.` which
+non-Awake'd instances as fake-destroyed. The arm-time marker read uses `?.`, which
 the C# spec defines as reference-equality; we mirrored that
 (`var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;`)
 so the integration test for the `ActiveRecOnly` branch actually
@@ -1310,9 +1323,23 @@ cutoff is preserved with all its data + track sections + part events),
 (sanity for F9 quickload), and
 `PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim`
 (stale/unrelated marker can't accidentally protect a different
-tree). All 8947 tests pass.
+tree). Follow-up coverage adds
+`PrepareQuickloadResumeStateIfNeeded_ReFlyScopeSurvivesMissingScenarioInstance`,
+which arms the pending context from a matching Re-Fly marker, clears the
+scenario singleton before recorder resume, and asserts the sibling
+recording remains untrimmed.
 
-**Status:** Open until merged.
+**Review follow-up (2026-04-30):** the first context-capture patch armed
+the scope too early. Production arms the quickload-resume context before
+the later OnLoad phases that can create or clear the Re-Fly marker, so
+the stored scope could still be stale. Fixed by adding
+`RefreshPendingQuickloadTrimScope()` after `LoadTimeSweep.Run()` in both
+load branches. Added regressions for marker-created-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling`)
+and marker-cleared-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide`).
+
+**Status:** Closed with follow-up hardening on 2026-04-30.
 
 ---
 
@@ -1397,7 +1424,17 @@ vs steady-state distinction is auditable; the rejection reason carries
 "predicate didn't fire" diagnosis can see exactly which lookup source
 came up empty.
 
-**Tests:** 9 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
+**Follow-up (2026-04-30):** the composed-tree fix still had a
+first-match trap when a stale committed tree and the pending post-load
+tree both contained the active recording id. The PID lookup and parent-chain
+walk could select the stale committed tree before reaching the pending tree,
+miss the parent BranchPoint topology, and leave the doubled-vessel suppression
+inactive. Both lookups now prefer `ReFlySessionMarker.TreeId` first, falling
+back to the older first-match behavior only when the marker tree is absent.
+The walk trace includes `treeId=<id>` so this selection is visible in the
+`create-state-vector-*` reason string.
+
+**Tests:** 11 new cases in `Bug587ThirdFacetDoubledGhostMapTests` —
 `ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs`,
 `ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly`,
 `ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending`,
@@ -1412,6 +1449,11 @@ search trees, with `VesselPersistentId` set on the tree's recording —
 and asserts the success reason carries `activePidSource=search-tree:`),
 and `NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts`
 (asserts the new rejection reason format). The existing
+`Suppresses_LoadWindowShape_StaleCommittedActive_PrefersMarkerTreePending`
+case covers the stale-committed-first duplicate-id shape and asserts the
+pending marker tree is used. `Suppresses_WhenMarkerTreeMissing_FallsBackToLegacyFirstMatch`
+asserts a stale/missing marker tree id still falls back to the legacy
+first-match tree behavior. The existing
 `NotSuppressed_WhenCommittedListIsNull` test was updated to reflect
 the unified bail behavior; the existing `Suppresses_…_VictimIsParent`
 and docking-target no-suppress tests use `Assert.StartsWith` since
@@ -4800,7 +4842,7 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 
 ---
 
-## doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel
+## ~~doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13201`.
 After the in-place-continuation Re-Fly of the booster, with the
@@ -4847,12 +4889,13 @@ and gated the create site in
 predicate suppresses when (a) a `ReFlySessionMarker` is active,
 (b) the marker is in the in-place-continuation pattern
 (`origin == active`, mirroring `#587`'s placeholder carve-out),
-(c) the resolution branch is `relative`, (d) the resolution's
-`anchorPid` matches the active Re-Fly target's
-`Recording.VesselPersistentId`, and (e) the recording being
-mapped is in the active Re-Fly recording's parent chain (per
-PR #574 review P2: scope to the parent BranchPoint topology so
-legitimate `#583` / `#584` docking/rendezvous map ghosts whose
+(c) the resolution branch is `relative` or the v7
+`absolute-shadow` branch for the same RELATIVE section,
+(d) the resolution's `anchorPid` matches the active Re-Fly
+target's `Recording.VesselPersistentId`, and (e) the recording
+being mapped is in the active Re-Fly recording's parent chain
+(per PR #574 review P2: scope to the parent BranchPoint topology
+so legitimate `#583` / `#584` docking/rendezvous map ghosts whose
 anchor happens to be the active vessel are NOT suppressed). The
 predicate also signals retry-later semantics back through the
 new `out bool retryLater` parameter on
@@ -4869,18 +4912,22 @@ gives playtest logs a unique grep target. The
 exactly the one the user wants kept. Tests:
 `Bug587ThirdFacetDoubledGhostMapTests` covers the user's exact
 case (parent capsule recording during in-place Re-Fly of
-booster) plus 17 defensive negatives — no-marker, placeholder
-pattern, absolute branch, anchor-is-different-vessel,
-zero-anchor, missing/zero pid in committed list, null
-committed list, empty marker fields, `no-section` and
-`orbital-checkpoint` branches, structured-log-line shape,
-docking-target sibling (PR #574 P2 not-parent gate),
+booster), the v7 `absolute-shadow` branch, the PendingTree
+load-window lookup, create-time lookahead suppression, and the
+defensive negatives — no-marker, placeholder pattern, absolute
+branch, anchor-is-different-vessel, zero-anchor, missing/zero
+pid in committed list, null committed list, empty marker fields,
+`no-section` and `orbital-checkpoint` branches, structured-log-line
+shape, docking-target sibling (PR #574 P2 not-parent gate),
 multi-hop grandparent walk, victim-is-active idempotency,
 null/missing tree topology, null victim id, and direct
 `IsRecordingInParentChainOfActiveReFly` coverage including
 the BP-cycle bail.
 
-**Status:** Open until merged.
+**Status:** CLOSED 2026-04-30. Fixed on main by PR #574 plus the later
+PendingTree/load-window and `absolute-shadow` follow-ups; focused regression
+suite `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter
+Bug587ThirdFacetDoubledGhostMapTests` passes 37/37.
 
 ---
 

@@ -894,17 +894,21 @@ namespace Parsek
             string activePidSource = "<not-found>";
             if (committedTrees != null)
             {
-                for (int t = 0; t < committedTrees.Count && activeReFlyPid == 0u; t++)
+                // If the marker tree contains no usable PID, keep the legacy
+                // fallback so older/partial marker state can still suppress
+                // via the first tree that has a complete active recording.
+                if (TryFindActiveReFlyRecordingInSearchTrees(
+                        committedTrees,
+                        marker.ActiveReFlyRecordingId,
+                        marker.TreeId,
+                        requireNonZeroPid: true,
+                        out RecordingTree _,
+                        out Recording activePidRecording,
+                        out string treePidSource,
+                        out int _))
                 {
-                    RecordingTree tree = committedTrees[t];
-                    if (tree == null || tree.Recordings == null) continue;
-                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
-                        && rec != null
-                        && rec.VesselPersistentId != 0u)
-                    {
-                        activeReFlyPid = rec.VesselPersistentId;
-                        activePidSource = "search-tree:" + (tree.Id ?? "<no-id>");
-                    }
+                    activeReFlyPid = activePidRecording.VesselPersistentId;
+                    activePidSource = treePidSource;
                 }
             }
             if (activeReFlyPid == 0u && committedRecordings != null)
@@ -967,6 +971,7 @@ namespace Parsek
                     victimRecordingId,
                     marker.ActiveReFlyRecordingId,
                     committedTrees,
+                    marker.TreeId,
                     out string walkTrace))
             {
                 // #611: append the BFS walk trace so the rejection log line
@@ -1187,6 +1192,97 @@ namespace Parsek
             return true;
         }
 
+        private static bool TryFindActiveReFlyRecordingInSearchTrees(
+            IReadOnlyList<RecordingTree> searchTrees,
+            string activeRecordingId,
+            string activeTreeId,
+            bool requireNonZeroPid,
+            out RecordingTree matchedTree,
+            out Recording matchedRecording,
+            out string source,
+            out int treesSearched)
+        {
+            matchedTree = null;
+            matchedRecording = null;
+            source = "<not-found>";
+            treesSearched = 0;
+
+            if (searchTrees == null || string.IsNullOrEmpty(activeRecordingId))
+                return false;
+
+            RecordingTree fallbackTree = null;
+            Recording fallbackRecording = null;
+            string fallbackSource = null;
+            bool hasActiveTreeId = !string.IsNullOrEmpty(activeTreeId);
+
+            for (int i = 0; i < searchTrees.Count; i++)
+            {
+                RecordingTree tree = searchTrees[i];
+                if (tree?.Recordings == null) continue;
+                treesSearched++;
+                bool isMarkerTree = hasActiveTreeId
+                    && string.Equals(tree.Id, activeTreeId, StringComparison.Ordinal);
+                if (TryAcceptActiveReFlyRecordingTree(
+                        tree,
+                        activeRecordingId,
+                        requireNonZeroPid,
+                        isMarkerTree ? "marker-tree" : "search-tree",
+                        out matchedRecording,
+                        out source))
+                {
+                    if (isMarkerTree)
+                    {
+                        matchedTree = tree;
+                        return true;
+                    }
+
+                    if (fallbackTree == null)
+                    {
+                        fallbackTree = tree;
+                        fallbackRecording = matchedRecording;
+                        fallbackSource = source;
+                    }
+
+                    if (!hasActiveTreeId)
+                        break;
+                }
+            }
+
+            if (fallbackTree == null)
+                return false;
+
+            matchedTree = fallbackTree;
+            matchedRecording = fallbackRecording;
+            source = fallbackSource;
+            return true;
+        }
+
+        private static bool TryAcceptActiveReFlyRecordingTree(
+            RecordingTree tree,
+            string activeRecordingId,
+            bool requireNonZeroPid,
+            string sourcePrefix,
+            out Recording matchedRecording,
+            out string source)
+        {
+            matchedRecording = null;
+            source = "<not-found>";
+
+            if (tree == null || tree.Recordings == null)
+                return false;
+            if (!tree.Recordings.TryGetValue(activeRecordingId, out Recording recording)
+                || recording == null)
+            {
+                return false;
+            }
+            if (requireNonZeroPid && recording.VesselPersistentId == 0u)
+                return false;
+
+            matchedRecording = recording;
+            source = sourcePrefix + ":" + (tree.Id ?? "<no-id>");
+            return true;
+        }
+
         /// <summary>
         /// Pure: walks the BranchPoint topology parent-ward from the active
         /// Re-Fly recording and returns true when <paramref name="victimRecordingId"/>
@@ -1239,6 +1335,21 @@ namespace Parsek
             IReadOnlyList<RecordingTree> searchTrees,
             out string walkTrace)
         {
+            return IsRecordingInParentChainOfActiveReFly(
+                victimRecordingId,
+                activeRecordingId,
+                searchTrees,
+                activeTreeId: null,
+                out walkTrace);
+        }
+
+        internal static bool IsRecordingInParentChainOfActiveReFly(
+            string victimRecordingId,
+            string activeRecordingId,
+            IReadOnlyList<RecordingTree> searchTrees,
+            string activeTreeId,
+            out string walkTrace)
+        {
             walkTrace = "no-input";
             if (string.IsNullOrEmpty(victimRecordingId)
                 || string.IsNullOrEmpty(activeRecordingId)
@@ -1250,27 +1361,19 @@ namespace Parsek
             // Locate the tree containing the active recording. Search every
             // input tree so a Pending-Limbo-stashed tree (Re-Fly load window)
             // is found alongside committed trees.
-            RecordingTree tree = null;
-            Recording active = null;
-            int treesSearched = 0;
-            for (int i = 0; i < searchTrees.Count; i++)
-            {
-                RecordingTree t = searchTrees[i];
-                if (t?.Recordings == null) continue;
-                treesSearched++;
-                if (t.Recordings.TryGetValue(activeRecordingId, out Recording rec)
-                    && rec != null)
-                {
-                    tree = t;
-                    active = rec;
-                    break;
-                }
-            }
-            if (tree == null || active == null)
+            if (!TryFindActiveReFlyRecordingInSearchTrees(
+                    searchTrees,
+                    activeRecordingId,
+                    activeTreeId,
+                    requireNonZeroPid: false,
+                    out RecordingTree tree,
+                    out Recording active,
+                    out string _,
+                    out int treesSearched))
             {
                 walkTrace = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "active-not-found activeId={0} treesSearched={1}",
-                    activeRecordingId, treesSearched);
+                    "active-not-found activeId={0} treeId={1} treesSearched={2}",
+                    activeRecordingId, activeTreeId ?? "<none>", treesSearched);
                 return false;
             }
             // #614: walk both BranchPoint-parents AND chain-predecessors. Optimizer
