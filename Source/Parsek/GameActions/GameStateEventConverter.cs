@@ -798,7 +798,7 @@ namespace Parsek
         /// <summary>
         /// StrategyDeactivated -> StrategyDeactivate (#439 Phase A). Carries only the
         /// StrategyId; the deactivate action has no resource flow and the classifier
-        /// maps it to <see cref="LedgerOrchestrator.KscReconcileClass.NoResourceImpact"/>.
+        /// maps it to <see cref="KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact"/>.
         /// Internal static for testability.
         /// </summary>
         internal static GameAction ConvertStrategyDeactivated(GameStateEvent evt, string recordingId)

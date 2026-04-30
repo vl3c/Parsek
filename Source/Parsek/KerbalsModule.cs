@@ -1081,7 +1081,7 @@ namespace Parsek
             using (SuppressionGuard.Crew())
             {
                 int standInsCreated = 0, standInsRecreated = 0;
-                int deletedUnused = 0, retiredDisplaced = 0;
+                int deletedUnused = 0, retiredDisplaced = 0, retainedLive = 0;
                 var recreatedNames = new HashSet<string>();
 
                 // Step 1: Create missing stand-ins
@@ -1324,6 +1324,18 @@ namespace Parsek
                             ParsekLog.Info(Tag,
                                 $"Stand-in '{standIn}' displaced -> retired (used in recording)");
                         }
+                        else if (roster.IsKerbalOnLiveVessel(standIn))
+                        {
+                            // #625 — the stand-in was just seated on a freshly-loaded vessel
+                            // by CrewAutoAssignPatch + ProtoVessel.Load, but no recording
+                            // committed it yet (StartRecording runs after this OnLoad sweep).
+                            // Without this branch the next step would TryRemove the stand-in
+                            // from the roster, which orphans the seat names in the live
+                            // ProtoVessel and the recording captures 0 crew.
+                            retainedLive++;
+                            ParsekLog.Info(Tag,
+                                $"Stand-in '{standIn}' displaced -> retained (on live vessel)");
+                        }
                         else
                         {
                             // Unused — remove from roster entirely
@@ -1385,7 +1397,8 @@ namespace Parsek
                     $"{retiredKerbals.Count} retired, " +
                     $"{reservations.Count} reserved, " +
                     $"{standInsCreated} created, {standInsRecreated} recreated, " +
-                    $"{deletedUnused} deleted, {retiredDisplaced} displaced");
+                    $"{deletedUnused} deleted, {retiredDisplaced} displaced, " +
+                    $"{retainedLive} retained-live");
             }
         }
 

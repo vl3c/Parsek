@@ -376,7 +376,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint, CoBubble }
 
         private struct GhostPosEntry
         {
@@ -419,6 +419,40 @@ namespace Parsek
             public string relativeBodyName;        // body name for altitude computation
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
+
+            // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
+            // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
+            // The LateUpdate FloatingOrigin re-positioning recomputes the
+            // ghost's world position from lat/lon/alt. Without re-evaluation
+            // here, two regressions return:
+            //   1. Phase 2+3 anchor ε would snap back to the un-corrected
+            //      lerp position (LateUpdate must re-add ε every late frame).
+            //      Phase 3 makes ε time-varying along a both-end lerp interval
+            //      (§6.4), so caching a single Vector3d at registration time
+            //      would freeze the lerp progression for every late-frame
+            //      within the segment.
+            //   2. Phase 1+4 spline positioning would be discarded — the raw
+            //      latBefore/After lerp would overwrite the spline-positioned
+            //      transform every LateUpdate. The same lookup key drives the
+            //      spline re-eval and the anchor re-add, so both are stored
+            //      together. An empty recordingId or negative sectionIndex
+            //      means the registration-time guards (no recording context
+            //      passed in, or both gates closed) skipped both paths.
+            public string anchorRecordingId;
+            public int anchorSectionIndex;
+
+            // Phase 5 P1-C: CoBubble mode fields. The Update path enqueues
+            // a GhostPosEntry whose mode == CoBubble whenever the blender
+            // returned a finite offset; LateUpdate re-evaluates the blender
+            // + standalone primary so the FloatingOrigin shift cannot snap
+            // the ghost back to its bare standalone position. Without this,
+            // LateUpdate's PointInterp branch overwrote the
+            // primary+offset composition every late frame, producing visible
+            // per-frame flicker between Update (correct) and LateUpdate
+            // (wrong). Only valid when mode == CoBubble.
+            public string coBubblePeerRecordingId;
+            public string coBubblePrimaryRecordingId;
+            public double coBubblePointUT;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -688,6 +722,10 @@ namespace Parsek
         // Phase F: timelineResourceReplayPausedLogged removed alongside ApplyResourceDeltas.
         private bool wasWarpActive = false; // tracks previous warp state for exit detection
         private double warpStartUT = 0.0;  // UT when warp began — used for facility visual updates
+        private bool hasLastWarpCheckpointEvent;
+        private RecordingTree lastWarpCheckpointTree;
+        private float lastWarpCheckpointRate;
+        private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
         private WatchModeController watchMode;
 
@@ -1073,11 +1111,45 @@ namespace Parsek
                     case GhostPosMode.PointInterp:
                     {
                         if (e.bodyBefore == null || e.bodyAfter == null) break;
-                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                            e.latAfter, e.lonAfter, e.altAfter);
-                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+
+                        // Phase 1 + Phase 4 spline re-evaluation (design doc
+                        // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
+                        // re-eval, the raw lat/lon/alt bracket lerp on the
+                        // fallback path would overwrite the spline-positioned
+                        // transform on every LateUpdate — Phase 1's smoothing
+                        // would only survive a single Update frame before
+                        // FloatingOrigin re-positioning snapped it back.
+                        // Frame-tag dispatch matches the Update path: tag 0 →
+                        // body-fixed surface lookup, tag 1 → inertial re-lower
+                        // at the playback UT, unknown → NaN (silent fallthrough
+                        // here; the Warn fires from the Update path's
+                        // unknownFrameTagWarned dedup so LateUpdate doesn't
+                        // double-emit).
+                        Vector3d pos;
+                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        {
+                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                                e.latBefore, e.lonBefore, e.altBefore);
+                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                                e.latAfter, e.lonAfter, e.altAfter);
+                            pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        }
+                        // Phase 2 + Phase 3 anchor correction (design doc
+                        // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
+                        // space ε so the FloatingOrigin frame-velocity shift
+                        // cannot snap the ghost back to the un-corrected
+                        // lerped position. Phase 3: the lookup is re-fetched
+                        // each LateUpdate so the lerp interval (§6.4 Both
+                        // case) progresses with the playback UT instead of
+                        // freezing to the value captured at Update time.
+                        // The ε is additive on top of either the spline-
+                        // positioned or the raw-lerp position above.
+                        if (allowAnchorCorrectionInterval(
+                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                out Vector3d lateEps))
+                        {
+                            pos += lateEps;
+                        }
                         e.ghost.transform.position = pos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
                         break;
@@ -1168,6 +1240,19 @@ namespace Parsek
                         Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                             e.latAfter, e.lonAfter, e.altAfter);
                         Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        // §7.7 (and any §7.x anchor that lands on a
+                        // Checkpoint section): re-apply the world-space ε
+                        // here so the FloatingOrigin shift between Update
+                        // and LateUpdate cannot snap the ghost back to the
+                        // bare lerp position. Phase 3 evaluates ε at the
+                        // current playback UT — the lerp interval (§6.4
+                        // Both case) progresses each frame, not freezes.
+                        if (allowAnchorCorrectionInterval(
+                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                out Vector3d cpLateEps))
+                        {
+                            pos += cpLateEps;
+                        }
                         e.ghost.transform.position = pos;
 
                         Orbit orbit;
@@ -1292,6 +1377,65 @@ namespace Parsek
                         }
                         break;
                     }
+                    case GhostPosMode.CoBubble:
+                    {
+                        // Phase 5 P1-C: re-evaluate the blender + primary
+                        // standalone in LateUpdate so the FloatingOrigin
+                        // shift cannot snap the ghost back to the standalone
+                        // bracket position. The Update path already chose
+                        // the CoBubble mode (blender hit + primary resolved);
+                        // here we recompute primaryWorld + worldOffset at
+                        // the same UT, then re-apply transform. Any failure
+                        // (primary now missing, blender mid-session miss)
+                        // falls through to the standalone bracket lerp +
+                        // anchor ε path so HR-9 holds and the player sees
+                        // a reasonable position rather than a stale one.
+                        if (e.bodyBefore == null) break;
+                        bool blendApplied = false;
+                        if (Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
+                                e.coBubblePeerRecordingId, e.coBubblePointUT,
+                                out Vector3d worldOffset,
+                                out Parsek.Rendering.CoBubbleBlendStatus _,
+                                out string lateprimary)
+                            && !string.IsNullOrEmpty(lateprimary)
+                            && TryComputeStandaloneWorldPositionForRecording(
+                                lateprimary, e.coBubblePointUT, e.bodyBefore,
+                                out Vector3d primaryWorld))
+                        {
+                            e.ghost.transform.position = primaryWorld + worldOffset;
+                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
+                            blendApplied = true;
+                        }
+                        if (!blendApplied)
+                        {
+                            ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                                "cobubble-late-update-fallback",
+                                $"cobubble-late-update-fallback peer={e.coBubblePeerRecordingId} primary={e.coBubblePrimaryRecordingId}",
+                                5.0);
+                            // Standalone fallback (mirrors PointInterp's
+                            // body of work). Re-uses the same lookup-key gate
+                            // so spline / anchor ε re-application still works.
+                            if (e.bodyAfter == null) break;
+                            Vector3d pos;
+                            if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                            {
+                                Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                                    e.latBefore, e.lonBefore, e.altBefore);
+                                Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                                    e.latAfter, e.lonAfter, e.altAfter);
+                                pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                            }
+                            if (allowAnchorCorrectionInterval(
+                                    e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                                    out Vector3d lateEps))
+                            {
+                                pos += lateEps;
+                            }
+                            e.ghost.transform.position = pos;
+                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
+                        }
+                        break;
+                    }
                 }
             }
 
@@ -1382,6 +1526,16 @@ namespace Parsek
 
         void OnGUI()
         {
+            // The Esc / pause overlay lives on KSP's Canvas and sorts above
+            // our IMGUI layer, so without this gate the custom map markers,
+            // watch-mode HUD, ghost labels, and Parsek windows render on top
+            // of the pause menu. Stock vessel labels hide automatically
+            // because they live on the same Canvas as the overlay; ours do
+            // not. Skip both Layout and Repaint passes so layout-driven sizes
+            // don't flicker between events while paused.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
@@ -1510,6 +1664,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
 
             ui?.Cleanup();
@@ -1552,6 +1707,12 @@ namespace Parsek
         {
             sceneChangeInProgress = true;
             RecordingStore.PendingDestinationScene = scene;
+
+            // Phase 7 (design doc §13.2, §18 Phase 7): clear the per-scene
+            // terrain-height bucket cache. Terrain is regenerated each session
+            // and on body switches; stale bucket values would yield wrong
+            // ground clearances at the destination scene's lat/lon.
+            Parsek.Rendering.TerrainCacheBuckets.Clear();
 
             // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
             // F5/F9 quickloads (UT regresses across the transition) and
@@ -2663,6 +2824,135 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p.FindModuleImplementing<ModuleCommand>() != null) return true;
             }
+            return false;
+        }
+
+        internal static bool ShouldIncludeVesselInDeferredBreakupScan(Vessel v, out string rejectReason)
+        {
+            rejectReason = null;
+            if (v == null)
+            {
+                rejectReason = "null-vessel";
+                return false;
+            }
+
+            if (IsSpaceObjectLikeBreakupScanReject(v.vesselType, EnumeratePartNames(v), EnumerateModuleNames(v),
+                out rejectReason))
+                return false;
+
+            return true;
+        }
+
+        internal static bool IsSpaceObjectLikeBreakupScanReject(
+            VesselType vesselType,
+            IEnumerable<string> partNames,
+            IEnumerable<string> moduleNames,
+            out string rejectReason)
+        {
+            rejectReason = null;
+
+            if (vesselType == VesselType.SpaceObject)
+            {
+                rejectReason = "space-object-type";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometPart(partNames))
+            {
+                rejectReason = "asteroid-comet-part";
+                return true;
+            }
+
+            if (ContainsAsteroidOrCometModule(moduleNames))
+            {
+                rejectReason = "asteroid-comet-module";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> EnumeratePartNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                if (p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    yield return p.partInfo.name;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.partName))
+                {
+                    yield return p.partName;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(p.name))
+                    yield return p.name;
+            }
+        }
+
+        private static IEnumerable<string> EnumerateModuleNames(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                yield break;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null)
+                    continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.IsNullOrEmpty(module.moduleName))
+                        yield return module.moduleName;
+                    Type moduleType = module.GetType();
+                    if (moduleType != null && !string.IsNullOrEmpty(moduleType.Name))
+                        yield return moduleType.Name;
+                }
+            }
+        }
+
+        private static bool ContainsAsteroidOrCometPart(IEnumerable<string> partNames)
+        {
+            if (partNames == null)
+                return false;
+
+            foreach (string partName in partNames)
+            {
+                if (string.IsNullOrEmpty(partName))
+                    continue;
+                // Part cfg/runtime names can carry expansion or variant suffixes,
+                // while module names below are stable C# class identifiers.
+                if (partName.IndexOf("PotatoRoid", StringComparison.OrdinalIgnoreCase) >= 0
+                    || partName.IndexOf("PotatoComet", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAsteroidOrCometModule(IEnumerable<string> moduleNames)
+        {
+            if (moduleNames == null)
+                return false;
+
+            foreach (string moduleName in moduleNames)
+            {
+                if (string.IsNullOrEmpty(moduleName))
+                    continue;
+                if (string.Equals(moduleName, "ModuleAsteroid", StringComparison.Ordinal)
+                    || string.Equals(moduleName, "ModuleComet", StringComparison.Ordinal))
+                    return true;
+            }
+
             return false;
         }
 
@@ -3781,6 +4071,14 @@ namespace Parsek
                         if (newVesselPids.Contains(v.persistentId))
                             continue;
 
+                        if (!ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"DeferredJointBreakCheck: ignoring unrelated new vessel pid={v.persistentId} " +
+                                $"name='{v.vesselName ?? "<unnamed>"}' type={v.vesselType} reason={rejectReason}");
+                            continue;
+                        }
+
                         newVesselPids.Add(v.persistentId);
 
                         bool hasController = IsTrackableVessel(v);
@@ -4055,6 +4353,48 @@ namespace Parsek
                 "would produce an 'Unknown' 0s row with no playback value";
         }
 
+        // Why 50m: this gate uses propagated residual, not raw seed-live travel.
+        // KSP.log:10596 showed the pathological child seed had normal ~866m
+        // along-track travel over 0.5s but a ~270m radial/perpendicular miss after
+        // propagation. Healthy split seeds should land within a few metres of the
+        // live root over the coalescer window; 50m is intentionally below that
+        // captured failure while still leaving room for frame skew.
+        internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
+        internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
+
+        internal static bool ShouldPreferLiveBreakupChildSeed(
+            bool childHasController,
+            bool liveVesselAvailable,
+            bool capturedSeedAvailable,
+            double propagatedSeedLiveRootResidualMeters,
+            double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
+        {
+            // Debris seeds remain excluded in this PR: the controlled child is the
+            // user-visible Re-Fly stage, while debris needs a separate threshold policy.
+            return childHasController
+                && liveVesselAvailable
+                && capturedSeedAvailable
+                && IsFinite(propagatedSeedLiveRootResidualMeters)
+                && propagatedSeedLiveRootResidualMeters > toleranceMeters;
+        }
+
+        internal static double ComputeBreakupSeedPropagatedResidualMeters(
+            Vector3d seedWorld,
+            Vector3 seedVelocity,
+            double seedUT,
+            Vector3d liveRootWorld,
+            double liveUT,
+            double maxPropagationDeltaSeconds = MaxBreakupSeedPropagationDeltaSeconds)
+        {
+            double dt = liveUT - seedUT;
+            if (!IsFinite(dt) || dt < 0 || dt > maxPropagationDeltaSeconds)
+                return double.NaN;
+
+            Vector3d velocity = new Vector3d(seedVelocity.x, seedVelocity.y, seedVelocity.z);
+            Vector3d propagatedSeedWorld = seedWorld + velocity * dt;
+            return (propagatedSeedWorld - liveRootWorld).magnitude;
+        }
+
         /// <summary>
         /// Creates a child recording for a breakup branch point. Handles snapshot capture,
         /// terminal state marking for destroyed vessels, and tree wiring.
@@ -4235,6 +4575,121 @@ namespace Parsek
                 $"seedLiveRootDist={seedRootDelta.magnitude.ToString("F2", ic)}m";
         }
 
+        private static TrajectoryPoint? ResolveControlledChildInitialTrajectoryPoint(
+            uint pid,
+            TrajectoryPoint? capturedPoint,
+            Vessel liveVessel,
+            double liveUT)
+        {
+            if (liveVessel == null)
+            {
+                if (capturedPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Coalescer",
+                        $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                        $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        "reason=live-vessel-missing");
+                }
+                return capturedPoint;
+            }
+
+            TrajectoryPoint livePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                liveVessel,
+                liveUT,
+                preferRootPartSurfacePose: true);
+
+            if (!capturedPoint.HasValue)
+            {
+                ParsekLog.Info("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=live-current " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    "reason=no-captured-seed");
+                return livePoint;
+            }
+
+            double seedLiveRootDistance;
+            double propagatedSeedResidual;
+            bool hasDistance = TryComputeBreakupSeedLiveRootDistance(
+                capturedPoint.Value,
+                liveVessel,
+                liveUT,
+                out seedLiveRootDistance,
+                out propagatedSeedResidual);
+            bool preferLive = ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                propagatedSeedLiveRootResidualMeters: hasDistance ? propagatedSeedResidual : double.NaN);
+
+            if (!preferLive)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Controlled child initial seed: pid={pid} source=decouple-callback " +
+                    $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"seedLiveRootDist={(hasDistance ? seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"propagatedResidual={(hasDistance ? propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}m " +
+                    $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m");
+                return capturedPoint;
+            }
+
+            ParsekLog.Info("Coalescer",
+                $"Controlled child initial seed replaced with live sample: pid={pid} " +
+                $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"liveUT={liveUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"seedLiveRootDist={seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"propagatedResidual={propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                "source=decouple-callback reason=propagated-seed-misses-live-root");
+            return livePoint;
+        }
+
+        private static bool TryComputeBreakupSeedLiveRootDistance(
+            TrajectoryPoint seedPoint,
+            Vessel liveVessel,
+            double liveUT,
+            out double distanceMeters,
+            out double propagatedResidualMeters)
+        {
+            distanceMeters = double.NaN;
+            propagatedResidualMeters = double.NaN;
+
+            Part rootPart = liveVessel?.rootPart;
+            CelestialBody body = liveVessel?.mainBody;
+            if (rootPart == null || rootPart.transform == null || body == null)
+                return false;
+
+            if (!string.Equals(body.name, seedPoint.bodyName, StringComparison.Ordinal)
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, seedPoint.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null)
+                return false;
+
+            Vector3d seedWorld = body.GetWorldSurfacePosition(
+                seedPoint.latitude,
+                seedPoint.longitude,
+                seedPoint.altitude);
+            Vector3d rootWorld = rootPart.transform.position;
+            distanceMeters = (seedWorld - rootWorld).magnitude;
+            propagatedResidualMeters = ComputeBreakupSeedPropagatedResidualMeters(
+                seedWorld,
+                seedPoint.velocity,
+                seedPoint.ut,
+                rootWorld,
+                liveUT);
+            return IsFinite(distanceMeters) && IsFinite(propagatedResidualMeters);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
         private static string FormatVector3(Vector3 value)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -4365,15 +4820,13 @@ namespace Parsek
                         ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
+                    TrajectoryPoint? initialPoint = ResolveControlledChildInitialTrajectoryPoint(
+                        pid,
+                        breakupChildPoint,
+                        childVessel,
+                        Planetarium.GetUniversalTime());
                     if (childVessel != null && backgroundRecorder != null)
                     {
-                        TrajectoryPoint? initialPoint = breakupChildPoint;
-                        if (!initialPoint.HasValue)
-                        {
-                            double sampleUT = Planetarium.GetUniversalTime();
-                            initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, sampleUT, preferRootPartSurfacePose: true);
-                        }
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
@@ -4388,7 +4841,7 @@ namespace Parsek
                         $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
                         $"name='{childRec.VesselName}', recId={childRec.RecordingId}, " +
                         $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null} " +
-                        $"{DescribeBreakupChildSeedPose(breakupChildPoint, childVessel, Planetarium.GetUniversalTime())}");
+                        $"{DescribeBreakupChildSeedPose(initialPoint, childVessel, Planetarium.GetUniversalTime())}");
                 }
             }
 
@@ -4985,6 +5438,18 @@ namespace Parsek
                     Log("EVA during recording but could not extract kerbal name — ignoring");
                     return;
                 }
+
+                // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at
+                // the exact EVA UT for the recorded vessel (the parent capsule). The
+                // EVA kerbal-as-vessel is also "involved" per §12; AppendStructuralEventSnapshot
+                // dedups by RecordingVesselId so only the parent capsule's snapshot is
+                // committed in the typical case where the parent is the recorded vessel.
+                var evaInvolved = new List<Vessel>(2);
+                if (data.from?.vessel != null) evaInvolved.Add(data.from.vessel);
+                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
+                    evaInvolved.Add(data.to.vessel);
+                recorder.AppendStructuralEventSnapshot(
+                    Planetarium.GetUniversalTime(), evaInvolved, "EVA");
 
                 // Tree mode: stop recorder synchronously, defer tree branch creation
                 recorder.StopRecordingForChainBoundary();
@@ -6501,15 +6966,35 @@ namespace Parsek
 
             double ut = Planetarium.GetUniversalTime();
             float warpRate = TimeWarp.CurrentRate;
+            string warpRateKey = warpRate.ToString("F1",
+                System.Globalization.CultureInfo.InvariantCulture);
+
+            bool sameCheckpointTree = ReferenceEquals(lastWarpCheckpointTree, activeTree);
+            if (ShouldSkipDuplicateWarpCheckpointEvent(
+                    warpRate,
+                    ut,
+                    hasLastWarpCheckpointEvent && sameCheckpointTree,
+                    lastWarpCheckpointRate,
+                    lastWarpCheckpointUT))
+            {
+                ParsekLog.VerboseRateLimited("Checkpoint",
+                    $"warp-rate-duplicate-{warpRateKey}",
+                    $"Duplicate time warp checkpoint ignored at {warpRateKey}x UT={ut:F2}");
+                return;
+            }
+
+            hasLastWarpCheckpointEvent = true;
+            lastWarpCheckpointTree = activeTree;
+            lastWarpCheckpointRate = warpRate;
+            lastWarpCheckpointUT = ut;
 
             // Bug #592: KSP fires onTimeWarpRateChanged very chattily — a single
             // playtest produced ~1090 events at 1.0x without any actual rate change
             // (scene transitions, warp-to-here, etc. retrigger the GameEvent).
             // Rate-limit by warpRate so transitions between distinct rates still log
             // immediately, but a burst of redundant 1x->1x fires collapses into one
-            // line per window.
-            string warpRateKey = warpRate.ToString("F1",
-                System.Globalization.CultureInfo.InvariantCulture);
+            // line per window. Bug #597 additionally skips exact duplicate
+            // same-tree/same-rate/same-UT checkpoint work before it reaches the recorder.
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-{warpRateKey}",
                 $"Time warp rate changed to {warpRateKey}x " +
@@ -6524,6 +7009,28 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
+        }
+
+        internal static bool ShouldSkipDuplicateWarpCheckpointEvent(
+            float currentWarpRate,
+            double currentUT,
+            bool hasLastEvent,
+            float lastWarpRate,
+            double lastUT)
+        {
+            if (!hasLastEvent)
+                return false;
+
+            if (float.IsNaN(currentWarpRate) || float.IsInfinity(currentWarpRate) ||
+                double.IsNaN(currentUT) || double.IsInfinity(currentUT) ||
+                float.IsNaN(lastWarpRate) || float.IsInfinity(lastWarpRate) ||
+                double.IsNaN(lastUT) || double.IsInfinity(lastUT))
+                return false;
+
+            const double RateEpsilon = 0.0001;
+            const double UTEpsilon = 0.000001;
+            return Math.Abs((double)currentWarpRate - lastWarpRate) <= RateEpsilon
+                && Math.Abs(currentUT - lastUT) <= UTEpsilon;
         }
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
@@ -6542,6 +7049,30 @@ namespace Parsek
             ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
+
+            // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
+            // exact dock UT for the recorded vessel. Done BEFORE
+            // StopRecordingForChainBoundary so the snapshot lands in the active section
+            // (the helper no-ops once IsRecording flips false). Both vessels in the
+            // dock pair are passed; AppendStructuralEventSnapshot dedups by
+            // RecordingVesselId so only the relevant snapshot is committed.
+            //
+            // Skip the snapshot when this couple is the abort half of a split-in-
+            // progress: the tree-mode path below early-returns at the
+            // `pendingSplitInProgress` guard without committing the merge, and a
+            // synthetic flagged point would otherwise land in a recording whose
+            // section is about to be torn down by the in-flight split. Mirror the
+            // exact same guard so the snapshot only fires on couples that the
+            // downstream merge path will actually act on.
+            if (recorder != null && recorder.IsRecording && !pendingSplitInProgress)
+            {
+                var dockInvolved = new List<Vessel>(2);
+                if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
+                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
+                    dockInvolved.Add(data.to.vessel);
+                recorder.AppendStructuralEventSnapshot(
+                    Planetarium.GetUniversalTime(), dockInvolved, "Dock");
+            }
 
             // --- TREE MODE: create merge branch instead of chain segment ---
             if (activeTree != null && recorder != null)
@@ -6659,6 +7190,33 @@ namespace Parsek
 
             uint newPid = undockedPart.vessel.persistentId;
             if (newPid == recorder.RecordingVesselId) return; // transient state, ignore
+
+            // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
+            // exact undock UT for the recorded vessel. Done BEFORE
+            // StopRecordingForChainBoundary so the snapshot lands in the active
+            // section. The split halves still share most state at the event UT —
+            // AppendStructuralEventSnapshot dedups by RecordingVesselId so only the
+            // tracked half gets a snapshot.
+            var undockInvolved = new List<Vessel>(2);
+            if (undockedPart.vessel != null) undockInvolved.Add(undockedPart.vessel);
+            // The pre-undock parent vessel is the one matching RecordingVesselId.
+            // Find it in FlightGlobals.Vessels to feed the helper symmetrically.
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    Vessel candidate = FlightGlobals.Vessels[i];
+                    if (candidate != null
+                        && candidate.persistentId == recorder.RecordingVesselId
+                        && candidate != undockedPart.vessel)
+                    {
+                        undockInvolved.Add(candidate);
+                        break;
+                    }
+                }
+            }
+            recorder.AppendStructuralEventSnapshot(
+                Planetarium.GetUniversalTime(), undockInvolved, "Undock");
 
             // Tree mode: create branch instead of chain segment.
             // Stop recorder synchronously to prevent OnPhysicsFrame interference.
@@ -9601,7 +10159,7 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
-                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache)
+                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache, tree)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(recording?.RecordingId))
                 {
@@ -9720,12 +10278,14 @@ namespace Parsek
             RecordingFinalizationCache cache,
             string consumerPath,
             bool allowStale,
-            out RecordingFinalizationCacheApplyResult result)
+            out RecordingFinalizationCacheApplyResult result,
+            bool allowAlreadyFinalizedRepair = false)
         {
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                AllowAlreadyFinalizedRepair = allowAlreadyFinalizedRepair
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
@@ -9765,6 +10325,92 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        internal static bool ShouldRepairExistingTerminalFromDestroyedCache(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (recording == null || cache == null)
+                return false;
+            if (!recording.TerminalStateValue.HasValue)
+                return false;
+            if (!cache.TerminalState.HasValue
+                || cache.TerminalState.Value != TerminalState.Destroyed)
+                return false;
+
+            TerminalState existing = recording.TerminalStateValue.Value;
+            if (existing == TerminalState.Destroyed)
+            {
+                LogDestroyedCacheRepairRejected(recording, cache, commitUT, existing, "alreadyDestroyed");
+                return false;
+            }
+
+            // The cache is allowed to correct the in-flight ballistic fallback
+            // SubOrbital is the speculative state stamped when the vessel was
+            // still on a ballistic path. Orbiting is deliberately excluded:
+            // it requires stronger periapsis/situation evidence and is treated
+            // as a stable spawn endpoint, not a prediction to repair.
+            if (existing != TerminalState.SubOrbital)
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "existingTerminalNotSubOrbital");
+                return false;
+            }
+
+            if (!IsCacheTerminalAtOrBeforeCommit(cache, commitUT))
+            {
+                LogDestroyedCacheRepairRejected(
+                    recording,
+                    cache,
+                    commitUT,
+                    existing,
+                    "futureOrInvalidTerminalUT");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsCacheTerminalAtOrBeforeCommit(
+            RecordingFinalizationCache cache,
+            double commitUT)
+        {
+            if (cache == null)
+                return false;
+            if (double.IsNaN(commitUT) || double.IsInfinity(commitUT))
+                return false;
+            if (double.IsNaN(cache.TerminalUT) || double.IsInfinity(cache.TerminalUT))
+                return false;
+
+            return cache.TerminalUT <= commitUT + 1e-6;
+        }
+
+        private static void LogDestroyedCacheRepairRejected(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double commitUT,
+            TerminalState existing,
+            string reason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Flight",
+                $"finalization-cache-repair-rejected-{recording?.RecordingId ?? "null"}-{reason}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Finalization cache repair skipped: rec={0} reason={1} " +
+                    "existingTerminal={2} cacheTerminal={3} terminalUT={4:F3} commitUT={5:F3}",
+                    recording?.DebugName ?? "(null)",
+                    reason ?? "(null)",
+                    existing,
+                    cache?.TerminalState?.ToString() ?? "(null)",
+                    cache != null ? cache.TerminalUT : double.NaN,
+                    commitUT));
         }
 
         /// <summary>
@@ -9986,7 +10632,8 @@ namespace Parsek
             Recording rec,
             double commitUT,
             bool isSceneExit,
-            RecordingFinalizationCache finalizationCache = null)
+            RecordingFinalizationCache finalizationCache = null,
+            RecordingTree treeContext = null)
         {
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
@@ -10009,7 +10656,15 @@ namespace Parsek
             // Look up the live vessel once — shared by the terminal-determination block below
             // and the #289 re-snapshot block that follows. Avoids a double FindVesselByPid
             // for recordings that enter !HasValue, get terminal set, then hit the re-snapshot path.
-            bool isLeaf = rec.ChildBranchPointId == null;
+            //
+            // A recording also counts as a leaf when it carries a ChildBranchPointId but no
+            // child of that BP shares its VesselPersistentId — i.e. the recording is the
+            // effective continuation of its own PID across a side-off split (debris-only or
+            // split-off-sibling-with-different-pid). Without this, the original LU recording
+            // that kept its PID after a stage separation never gets a terminal state and
+            // disappears from the Unfinished Flights list (#224 follow-up).
+            bool isLeaf = rec.ChildBranchPointId == null
+                || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext);
             Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
                 ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
                 : null;
@@ -10042,11 +10697,30 @@ namespace Parsek
                     && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
             }
 
+            if (isLeaf
+                && ShouldRepairExistingTerminalFromDestroyedCache(
+                    rec,
+                    finalizationCache,
+                    commitUT)
+                && TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecordingRepair",
+                    allowStale: finalizeVessel == null,
+                    out _,
+                    allowAlreadyFinalizedRepair: true))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
+            }
+
             // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
                 if (finalizeVessel != null)
                 {
+                    if (isSceneExit)
+                        rec.SceneExitSituation = (int)finalizeVessel.situation;
                     rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
                     CaptureTerminalOrbit(rec, finalizeVessel);
                     CaptureTerminalPosition(rec, finalizeVessel);
@@ -12401,6 +13075,10 @@ namespace Parsek
                 {
                     // Position from trajectory points (same interpolation as existing ghost positioning)
                     bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
+                    // Phase 1: background path bypasses splines pending section
+                    // indexing — the BackgroundRecorder does not yet emit
+                    // TrackSections, so there is no body-fixed section index
+                    // to feed the spline gate. Tracked in the Phase 1 plan.
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip);
@@ -12508,7 +13186,7 @@ namespace Parsek
             watchMode.FindNextWatchTarget(currentIndex, currentRec);
 
         /// <summary>Called by policy to transfer watch to the next chain segment.</summary>
-        internal void TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
+        internal bool TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
             watchMode.TransferWatchToNextSegment(nextIndex);
 
         /// <summary>Called by policy to exit watch mode.</summary>
@@ -12618,12 +13296,15 @@ namespace Parsek
         internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
             if (!playbackEnabled)
                 return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (supersededByRelation)
+                return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
                 return GhostPlaybackSkipReason.ExternalVesselSuppressed;
             return GhostPlaybackSkipReason.None;
@@ -12643,11 +13324,12 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
-                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7}",
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} supersededByRelation={8}",
                 index,
                 string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
                 vesselName ?? "?",
@@ -12655,7 +13337,8 @@ namespace Parsek
                 reason.ToLogToken(),
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private static void LogGhostSkipReasonChangeCore(
@@ -12665,7 +13348,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
             ParsekLog.VerboseOnChange(
@@ -12679,7 +13363,8 @@ namespace Parsek
                     reason,
                     hasRenderableData,
                     playbackEnabled,
-                    externalVesselSuppressed));
+                    externalVesselSuppressed,
+                    supersededByRelation));
         }
 
         private void ClearGhostSkipReasonLogState()
@@ -12700,7 +13385,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool playbackEnabled,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             LogGhostSkipReasonChangeCore(
                 index,
@@ -12709,7 +13395,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 playbackEnabled,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
         }
 
         private void LogGhostSkipReasonChangeIfNeeded(
@@ -12717,7 +13404,8 @@ namespace Parsek
             Recording rec,
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
-            bool externalVesselSuppressed)
+            bool externalVesselSuppressed,
+            bool supersededByRelation = false)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -12731,7 +13419,8 @@ namespace Parsek
                 reason,
                 hasRenderableData,
                 rec?.PlaybackEnabled ?? false,
-                externalVesselSuppressed);
+                externalVesselSuppressed,
+                supersededByRelation);
 
             if (reason == GhostPlaybackSkipReason.None)
                 activeGhostSkipReasonLogIdentities.Remove(identity);
@@ -12852,6 +13541,10 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
+            var scenario = ParsekScenario.Instance;
+            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -12863,16 +13556,20 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
+                    && relationSupersededIds.Contains(rec.RecordingId);
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
                     skipReason,
                     hasData,
-                    externalVesselSuppressed);
+                    externalVesselSuppressed,
+                    supersededByRelation);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -12881,7 +13578,9 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
-                bool finalNeedsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed;
+                bool finalNeedsSpawn = spawnResult.needsSpawn
+                    && !chainSuppressed.suppressed
+                    && !supersededByRelation;
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -12921,7 +13620,8 @@ namespace Parsek
                             skipReason,
                             hasData,
                             rec.PlaybackEnabled,
-                            externalVesselSuppressed),
+                            externalVesselSuppressed,
+                            supersededByRelation),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -13228,6 +13928,7 @@ namespace Parsek
             loggedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
+            unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
         }
 
@@ -13742,24 +14443,83 @@ namespace Parsek
 
             // Ghost camera cutoff: exit watch mode when the watched ghost reaches or exceeds
             // the fixed watch cutoff distance. The cutoff applies uniformly to all ghosts.
+            //
+            // Debounce: requires WatchExitCutoffDebounceFrames consecutive
+            // frames over the cutoff before exiting. Suppresses single-frame
+            // false positives where state.lastDistance was computed across a
+            // FloatingOrigin / Krakensbane frame seam during time warp (the
+            // freshly-resolved ghost world position and the active vessel's
+            // stale pre-shift transform.position end up in different
+            // floating-origin frames and Vector3d.Distance picks up a phantom
+            // hundreds-of-km gap). The counter is driven on every watched-
+            // ghost frame regardless of zone hide/positioning order, so it
+            // also can't get stuck rejecting in a "renderDistance is Beyond"
+            // hidden-without-positioning loop. Real cutoff crossings exit
+            // after the debounce window (~50 ms at 60 fps).
             bool forceWatchedFullFidelity = false;
+            // Drive the cutoff debounce counter only when we're processing
+            // the watched ghost. Every other ghost would register a
+            // within-range sample and reset the counter, so a real cutoff
+            // crossing on the watched ghost could never accumulate enough
+            // consecutive samples to fire whenever any non-watched ghost
+            // ran later in the same frame.
+            bool cutoffTriggered;
+            if (isWatchedGhost && watchMode != null)
+            {
+                bool cachedCutoffTripped =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+                cutoffTriggered = watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped);
+                if (cachedCutoffTripped && !cutoffTriggered)
+                {
+                    ParsekLog.VerboseRateLimited("Zone", $"watch-cutoff-debounce-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" cached cutoff tripped " +
+                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m), " +
+                        $"debounce={watchMode.WatchCutoffConsecutiveFramesForDiagnostics}/" +
+                        $"{WatchModeController.WatchExitCutoffDebounceFrames} — staying in watch mode");
+                }
+            }
+            else if (isWatchedGhost)
+            {
+                // No watch controller available (e.g. test stubs): fall
+                // back to immediate exit on cached cutoff trip so we do
+                // not silently drop real exits.
+                cutoffTriggered =
+                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+            }
+            else
+            {
+                cutoffTriggered = false;
+            }
             if (isWatchedGhost || isWatchProtectedRecording)
             {
-                float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-                if (isWatchedGhost && GhostPlaybackLogic.ShouldExitWatchForCutoff(activeVesselDistance, cutoffKm))
+                if (cutoffTriggered)
                 {
+                    // Append ghost-world + active-section + anchor context so a
+                    // "ghost flew off into space" cutoff is diagnosable from
+                    // KSP.log alone. Common root cause is a Relative-anchor
+                    // section whose live anchor is in a totally different
+                    // physical location than at recording time (e.g.
+                    // previously re-flown booster now in stable orbit).
+                    // Without this context the user has to cross-reference
+                    // prec.txt + flight state to figure out why the distance
+                    // went absurd.
+                    string cutoffContext = DescribeWatchCutoffContext(rec, state);
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
                         $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
-                        $"{(cutoffKm * 1000.0).ToString("F0", CultureInfo.InvariantCulture)}m; " +
-                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) — exiting watch mode");
+                        $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
+                        $"after {WatchModeController.WatchExitCutoffDebounceFrames}-frame debounce — exiting watch mode" +
+                        (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }
                 else
                 {
-                    forceWatchedFullFidelity = isWatchProtectedRecording || GhostPlaybackLogic.ShouldForceWatchedFullFidelity(
-                        isWatchedGhost, activeVesselDistance, cutoffKm);
+                    forceWatchedFullFidelity = isWatchProtectedRecording
+                        || WatchModeController.ShouldForceWatchedFullFidelityAtDistance(
+                            isWatchedGhost, activeVesselDistance);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                         GhostPlaybackLogic.ApplyWatchedFullFidelityOverride(
                             shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
@@ -13866,6 +14626,90 @@ namespace Parsek
             return state == null || !state.deferVisibilityUntilPlaybackSync;
         }
 
+        /// <summary>
+        /// Diagnostic context appended to the watch-cutoff log line: ghost
+        /// world position + (when known from the active section under the
+        /// current game UT) the section's reference frame and live anchor
+        /// data. The 818 km cutoff trip in
+        /// `logs/2026-04-27_0123_watch-jump-and-ghost-misalign` was
+        /// indecipherable from KSP.log alone; this turns "the cutoff
+        /// fired" into "the cutoff fired because the section's anchor is
+        /// in stable orbit while the recording wanted the ghost in
+        /// atmosphere." Returns empty when there's no useful context to
+        /// append (state/ghost null) so the call site stays clean.
+        /// </summary>
+        internal static string DescribeWatchCutoffContext(
+            IPlaybackTrajectory rec, GhostPlaybackState state)
+        {
+            if (state == null || state.ghost == null)
+                return string.Empty;
+
+            var ic = CultureInfo.InvariantCulture;
+            Vector3d ghostWorld = state.ghost.transform.position;
+            string ghostWorldStr = $"ghostWorld={FormatVector3d(ghostWorld)}";
+
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return ghostWorldStr;
+
+            // Probe the section under the current game UT for relative-anchor
+            // context. If the trajectory is using a different playback UT
+            // (loops, overlap shift), this lookup may pick a neighbouring
+            // section, which is fine — the goal is "give the user a
+            // starting point for diagnosing", not perfect attribution.
+            double currentUT;
+            try
+            {
+                currentUT = Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                // Defensive — Planetarium is alive in flight scenes but the
+                // catch keeps the cutoff log path noise-free if we ever get
+                // called from an off-nominal scene. Surface the skip so the
+                // next surprise is debuggable.
+                ParsekLog.VerboseRateLimited("Zone", "watch-cutoff-context-skip",
+                    $"DescribeWatchCutoffContext: Planetarium.GetUniversalTime threw {ex.GetType().Name} — skipping section/anchor context");
+                return ghostWorldStr;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, currentUT);
+            if (sectionIdx < 0 || sectionIdx >= rec.TrackSections.Count)
+                return ghostWorldStr + " section=none";
+
+            TrackSection section = rec.TrackSections[sectionIdx];
+            string sectionStr =
+                $"section={section.referenceFrame} " +
+                $"sectionUT=[{section.startUT.ToString("F1", ic)}," +
+                $"{section.endUT.ToString("F1", ic)}]";
+
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.anchorVesselId == 0u)
+            {
+                return $"{ghostWorldStr} {sectionStr}";
+            }
+
+            string anchorStr;
+            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
+            if (anchor == null)
+            {
+                anchorStr = $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
+            }
+            else
+            {
+                Vector3d anchorWorld = anchor.GetWorldPos3D();
+                // Match DescribeAppearanceLiveAnchorContext's |anchor-root|
+                // label so KSP.log greps that look at one site work for the
+                // other (state.ghost.transform.position IS the ghost root).
+                Vector3d delta = ghostWorld - anchorWorld;
+                anchorStr =
+                    $"anchorPid={section.anchorVesselId} " +
+                    $"anchorWorld={FormatVector3d(anchorWorld)} " +
+                    $"|anchor-root|={delta.magnitude.ToString("F0", ic)}m";
+            }
+
+            return $"{ghostWorldStr} {sectionStr} {anchorStr}";
+        }
+
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
             ResolveZoneWatchState(int recIdx, GhostPlaybackState state, int protectedIndex)
         {
@@ -13905,10 +14749,40 @@ namespace Parsek
                 return;
             }
 
+            int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
+                ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
+                : -1;
+            if (splineSectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    traj.TrackSections[splineSectionIdx],
+                    out List<TrajectoryPoint> absoluteFrames))
+            {
+                int absolutePlaybackIdx = playbackIdx;
+                InterpolateAndPosition(
+                    state.ghost,
+                    absoluteFrames,
+                    null,
+                    ref absolutePlaybackIdx,
+                    ut,
+                    index * 10000,
+                    out interpResult,
+                    allowActivation: ShouldAutoActivateGhost(state),
+                    skipOrbitSegments: true,
+                    recordingId: traj.RecordingId,
+                    sectionIndex: splineSectionIdx);
+                state.SetInterpolated(interpResult);
+                state.playbackIndex = absolutePlaybackIdx;
+                return;
+            }
+
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, ut);
+            // Phase 1: pass section index so the body-fixed spline lookup can
+            // gate per-section. Falls through to legacy lerp when sections
+            // are absent (-1) - older flat-point recordings remain bit-exact.
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
-                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip);
+                allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
+                recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -13929,7 +14803,7 @@ namespace Parsek
 
             if (sectionIdx >= 0
                 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                    index, traj, section, sectionAnchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+                    index, traj, section, sectionAnchorVesselId, ut, out List<TrajectoryPoint> absoluteFrames))
             {
                 int absolutePlaybackIdx = state.playbackIndex;
                 InterpolationResult absoluteInterpResult;
@@ -14263,6 +15137,9 @@ namespace Parsek
                     altitude = positioned.altitude,
                     rotation = positioned.rotation,
                     bodyName = positioned.body,
+                    // Phase 7: synthetic terminal point for landed ghost clamp;
+                    // playback path uses recorded altitude directly, no clearance.
+                    recordedGroundClearance = double.NaN,
                 };
                 syntheticPoint = ApplyLandedGhostClearance(
                     syntheticPoint, index, traj.VesselName, traj.TerrainHeightAtEnd,
@@ -14334,6 +15211,18 @@ namespace Parsek
             orbitCache.Clear();
         }
 
+        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (anchorVesselId == 0u) return false;
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null) return false;
+            Vector3d candidate = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(candidate)) return false;
+            worldPosition = candidate;
+            return true;
+        }
+
         #endregion
 
         #region Ghost Positioning (shared by manual + timeline playback)
@@ -14341,7 +15230,8 @@ namespace Parsek
         // CreateGhostSphere moved to GhostVisualBuilder.CreateGhostSphere (T25 Phase 4 prep)
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
-            double targetUT, bool allowActivation, out InterpolationResult interpResult)
+            double targetUT, bool allowActivation, out InterpolationResult interpResult,
+            string recordingId = null, int sectionIndex = -1)
         {
             TrajectoryPoint before, after;
             float t;
@@ -14381,10 +15271,32 @@ namespace Parsek
             }
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
+            // Phase 7 (design doc §13.1, §18 Phase 7): when both endpoints
+            // carry a recorded ground clearance (SurfaceMobile section in a
+            // v9+ recording), substitute the interpolated altitude with
+            // current_terrain + clearance so the rendered ghost stays at
+            // constant clearance even when KSP regenerates terrain mesh
+            // between sessions. NaN sentinel on either endpoint ⇒ silent
+            // fall-through to the legacy altitude path (HR-9).
+            //
+            // referenceFrame=Absolute: this method's callers route RELATIVE
+            // sections through IGhostPositioner.InterpolateAndPositionRelative,
+            // and OrbitalCheckpoint sections through
+            // TryInterpolateAndPositionCheckpointSection (orbit propagation),
+            // so the points reaching here are always Absolute-frame body-
+            // fixed lat/lon/alt. The explicit argument is the P2-1 safety
+            // gate at the helper.
+            double effectiveAltBefore = ResolvePhase7EffectiveAltitude(
+                bodyBefore, before.latitude, before.longitude, before.altitude,
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
+            double effectiveAltAfter = ResolvePhase7EffectiveAltitude(
+                bodyAfter, after.latitude, after.longitude, after.altitude,
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
+
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, before.altitude);
+                before.latitude, before.longitude, effectiveAltBefore);
             Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, after.altitude);
+                after.latitude, after.longitude, effectiveAltAfter);
 
             Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
@@ -14397,27 +15309,933 @@ namespace Parsek
                 interpolatedPos = posBefore;
             }
 
+            // Phase 1 smoothing splines (design doc §6.1, §17.3.1, §18 Phase 1).
+            // Replace the lerped lat/lon/alt-derived world position with a
+            // Catmull-Rom spline evaluation when the section has a valid spline
+            // and the rollout flag is on. Rotation continues to come from the
+            // existing slerp — Phase 1 is position-only. Any precondition miss
+            // (no recordingId, no sectionIndex, flag off, store miss, or
+            // !IsValid) silently falls through to the legacy lerp result —
+            // that is acceptable per HR-9 because "no spline yet" is a normal
+            // state, not a failure.
+            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            {
+                RecordSplineEvalForLogging();
+                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
+                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
+                {
+                    // Phase 4 frame-aware dispatch (design doc §6.2 Stage 2,
+                    // §18 Phase 4, §26.1 HR-9). FrameTag pins the coordinate
+                    // contract of the spline's controls — body-fixed (0) hands
+                    // straight to GetWorldSurfacePosition; inertial-longitude
+                    // (1) re-lowers via FrameTransform.LowerFromInertialToWorld
+                    // at the playback UT so the body's rotation between
+                    // recording and playback is correctly cancelled out. An
+                    // unrecognised tag emits Warn (per HR-9) gated by
+                    // unknownFrameTagWarned so a degenerate recording can't
+                    // flood the log — see DispatchSplineWorldByFrameTag.
+                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                        spline.FrameTag,
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                        bodyBefore, targetUT,
+                        recordingId, sectionIndex,
+                        unknownFrameTagWarned);
+                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                        interpolatedPos = splineWorld;
+                }
+            }
+
+            // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
+            // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
+            // Additive world-space ε translation pinned once at session entry;
+            // the lookup reads the cached AnchorCorrection.Epsilon values and
+            // never touches live vessel state. Phase 3 evaluates ε at the
+            // current playback UT — a both-end interval lerps linearly per
+            // §6.4, single-side intervals return constant ε. Any miss (no
+            // recordingId, no section, flag off, no anchor in the store) is
+            // a silent fall-through — re-fly sessions with no marker yet are
+            // normal state, not failure.
+            bool hasAnchorEps = allowAnchorCorrectionInterval(
+                recordingId, sectionIndex, targetUT, out Vector3d anchorEps);
+            if (hasAnchorEps)
+                interpolatedPos += anchorEps;
+
+            // Phase 5 co-bubble overlap blend (design doc §6.5, §10, §18 Phase 5).
+            // When the recording is a peer of a designated primary AND a
+            // populated co-bubble offset trace covers the current playback UT,
+            // override the standalone position with primary's standalone
+            // P_render(t) + recorded offset. HR-15: the primary's P_render
+            // reads from the primary RECORDING, not live KSP state — so a
+            // live re-fly's player input does not move the peer ghost.
+            // Any miss (status != Hit/HitCrossfade) is a silent fall-through —
+            // standalone Stages 1+2+3+4 already produced a valid position.
+            bool coBubbleHit = false;
+            string coBubblePrimaryId = null;
+            if (allowCoBubbleBlend(recordingId, targetUT,
+                    out Vector3d coBubbleOffset, out string primaryRecordingId,
+                    out Parsek.Rendering.CoBubbleBlendStatus blendStatus))
+            {
+                if (TryComputeStandaloneWorldPositionForRecording(
+                        primaryRecordingId, targetUT, bodyBefore, out Vector3d primaryWorld))
+                {
+                    interpolatedPos = primaryWorld + coBubbleOffset;
+                    coBubbleHit = true;
+                    coBubblePrimaryId = primaryRecordingId;
+                    RecordCoBubbleEvalForLogging();
+                }
+                else
+                {
+                    Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss(
+                        recordingId, "primary-standalone-failed");
+                }
+            }
+
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
-            // Register for LateUpdate re-positioning after FloatingOrigin shift
-            ghostPosEntries.Add(new GhostPosEntry
+            // Register for LateUpdate re-positioning after FloatingOrigin shift.
+            // Phase 3 / Phase 4: store the lookup key (recordingId + sectionIndex)
+            // so LateUpdate can re-evaluate BOTH the spline (Phase 1+4) and the
+            // anchor interval (Phase 2+3) at the same playback UT. Storing the
+            // key only when an anchor exists (the prior contract) discarded the
+            // spline result on every LateUpdate — the raw lerp on lines below
+            // would overwrite the spline-positioned transform. The key is
+            // always-stored when (recordingId, sectionIndex) is valid; the gates
+            // (settings flag, store presence) are re-checked at LateUpdate.
+            bool hasLookupKey = !string.IsNullOrEmpty(recordingId) && sectionIndex >= 0;
+            // Phase 5 P1-C: when the co-bubble blender produced a finite
+            // offset, register a CoBubble-mode entry so LateUpdate re-runs
+            // the blender + primary-standalone instead of the bare
+            // PointInterp re-evaluation. PointInterp's LateUpdate branch
+            // would otherwise overwrite the primary+offset composition with
+            // the standalone bracket lerp, producing visible per-frame
+            // flicker. On any failure inside the LateUpdate CoBubble case
+            // the switch falls through to the standalone path so HR-9 holds.
+            if (coBubbleHit)
             {
-                ghost = ghost,
-                mode = GhostPosMode.PointInterp,
-                bodyBefore = bodyBefore,
-                bodyAfter = bodyAfter,
-                latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
-                t = t,
-                pointUT = targetUT,
-                interpolatedRot = interpolatedRot,
-            });
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.CoBubble,
+                    bodyBefore = bodyBefore,
+                    bodyAfter = bodyAfter,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
+                    t = t,
+                    pointUT = targetUT,
+                    interpolatedRot = interpolatedRot,
+                    anchorRecordingId = hasLookupKey ? recordingId : null,
+                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
+                    coBubblePeerRecordingId = recordingId,
+                    coBubblePrimaryRecordingId = coBubblePrimaryId,
+                    coBubblePointUT = targetUT,
+                });
+            }
+            else
+            {
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.PointInterp,
+                    bodyBefore = bodyBefore,
+                    bodyAfter = bodyAfter,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
+                    t = t,
+                    pointUT = targetUT,
+                    interpolatedRot = interpolatedRot,
+                    anchorRecordingId = hasLookupKey ? recordingId : null,
+                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
+                });
+            }
 
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+        }
+
+        /// <summary>
+        /// Phase 1 spline-positioning gate (design doc §6.1, §17.3.1).
+        /// Returns <c>true</c> with a populated <paramref name="spline"/>
+        /// when (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useSmoothingSplines</c> rollout flag is
+        /// on, and (c) <see cref="SectionAnnotationStore"/> holds a valid
+        /// spline for the (recordingId, sectionIndex) pair. Any miss is a
+        /// silent fall-through to legacy lerp positioning (HR-9 — "no spline
+        /// yet" is a normal state, not a failure).
+        /// </summary>
+        private static bool allowSplinePositioning(string recordingId, int sectionIndex,
+            out Parsek.Rendering.SmoothingSpline spline)
+        {
+            spline = default(Parsek.Rendering.SmoothingSpline);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out spline))
+                return false;
+
+            return spline.IsValid;
+        }
+
+        /// <summary>
+        /// Phase 2 start-side anchor-correction gate (design doc §6.3 /
+        /// §6.4 single-anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15).
+        /// Returns <c>true</c> with a populated <paramref name="ac"/> when
+        /// (a) the caller supplied both a recording id and a non-negative
+        /// section index, (b) the <c>useAnchorCorrection</c> rollout flag is
+        /// on, and (c) <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// holds a start-side anchor for the (recordingId, sectionIndex)
+        /// pair.
+        ///
+        /// <para>
+        /// HR-15 — the lookup reads the cached <see cref="Parsek.Rendering.AnchorCorrection.Epsilon"/>
+        /// frozen at session entry; no live vessel state is read. Any miss is
+        /// a silent fall-through (HR-9: a missing anchor is a normal state for
+        /// non-re-fly sessions and for siblings that have not yet had their
+        /// ε computed, not a failure).
+        /// </para>
+        ///
+        /// <para>
+        /// Phase 3 superseded the in-renderer call site with
+        /// <see cref="allowAnchorCorrectionInterval"/> (which returns the
+        /// time-varying lerp result per §6.4). This start-side helper is
+        /// retained for the unit-test surface
+        /// (<c>AnchorCorrectionConsumerHookTests</c>) — production rendering
+        /// no longer calls it directly.
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrection(string recordingId, int sectionIndex,
+            out Parsek.Rendering.AnchorCorrection ac)
+        {
+            ac = default(Parsek.Rendering.AnchorCorrection);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            return Parsek.Rendering.RenderSessionState.TryLookup(
+                recordingId, sectionIndex, Parsek.Rendering.AnchorSide.Start, out ac);
+        }
+
+        /// <summary>
+        /// Phase 3 multi-anchor-lerp gate (design doc §6.4 / §8 / §18 Phase 3
+        /// / §19.2 Stage 4 log table). Returns <c>true</c> with a populated
+        /// <paramref name="epsilon"/> when (a) the caller supplied both a
+        /// recording id and a non-negative section index, (b) the
+        /// <c>useAnchorCorrection</c> rollout flag is on, and (c)
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> holds at least
+        /// one anchor (start or end side) for the (recordingId, sectionIndex)
+        /// pair. The returned ε is evaluated at <paramref name="targetUT"/>
+        /// per §6.4 — constant for one-sided intervals, linear lerp for
+        /// both-end intervals.
+        ///
+        /// <para>
+        /// Side effects on hit: emits one of two <c>[Pipeline-Lerp]</c> log
+        /// lines (single-anchor Verbose, both-end divergence Warn) ONCE per
+        /// session per (recordingId, sectionIndex) — the dedup is owned by
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> so per-frame
+        /// queries here cost only a HashSet lookup. The
+        /// <c>degenerate-span</c> Warn fires from the math evaluator
+        /// (<see cref="Parsek.Rendering.AnchorCorrectionInterval.EvaluateAt"/>)
+        /// when the interval is malformed — keeping per-key dedup in one
+        /// place. HR-7 is naturally enforced because the consumer always
+        /// queries with the section that owns <paramref name="targetUT"/>; a
+        /// lerp cannot cross a hard discontinuity by construction.
+        /// </para>
+        /// </summary>
+        internal static bool allowAnchorCorrectionInterval(string recordingId, int sectionIndex,
+            double targetUT, out Vector3d epsilon)
+        {
+            epsilon = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useAnchorCorrection)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval? maybeInterval =
+                Parsek.Rendering.RenderSessionState.LookupForSegmentInterval(
+                    recordingId, sectionIndex);
+            if (!maybeInterval.HasValue)
+                return false;
+
+            Parsek.Rendering.AnchorCorrectionInterval interval = maybeInterval.Value;
+            epsilon = interval.EvaluateAt(targetUT);
+
+            // Per-session-per-key dedup'd diagnostics (§19.2 Stage 4):
+            //   Both-end + divergence > threshold  → Warn  "epsilon-divergence"
+            //   StartOnly / EndOnly                 → Verb  "Single-anchor case"
+            // The Warn for degenerate spans (End.UT <= Start.UT) is emitted
+            // from the evaluator itself so any caller of EvaluateAt picks it
+            // up uniformly.
+            if (interval.Kind == Parsek.Rendering.AnchorIntervalKind.Both)
+            {
+                Parsek.Rendering.RenderSessionState.NotifyLerpDivergenceCheck(in interval);
+            }
+            else
+            {
+                Parsek.Rendering.RenderSessionState.NotifySingleAnchorLerpCase(in interval);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 5 co-bubble blend gate (design doc §6.5 / §10 / §18 Phase 5
+        /// / HR-9 / HR-15). Returns <c>true</c> with a populated
+        /// <paramref name="worldOffset"/> and resolved
+        /// <paramref name="primaryRecordingId"/> when the recording has a
+        /// designated primary AND a populated co-bubble offset trace covers
+        /// the supplied <paramref name="targetUT"/>. Any miss is a silent
+        /// fall-through: the consumer keeps the standalone Stages 1+2+3+4
+        /// position. <paramref name="status"/> exposes the precise miss
+        /// reason for diagnostics; per-status dedup happens inside the
+        /// blender via <see cref="Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss"/>.
+        /// </summary>
+        internal static bool allowCoBubbleBlend(string recordingId, double targetUT,
+            out Vector3d worldOffset, out string primaryRecordingId,
+            out Parsek.Rendering.CoBubbleBlendStatus status)
+        {
+            return Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
+                recordingId, targetUT, out worldOffset, out status, out primaryRecordingId);
+        }
+
+        /// <summary>
+        /// Phase 5 helper: computes the standalone Stages 1+2+3+4 world
+        /// position for an arbitrary recording id at <paramref name="ut"/>.
+        /// Uses the recording's <see cref="Recording.Points"/> +
+        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline +
+        /// <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
+        /// same composition the Update path uses for its own recording.
+        /// HR-15: never reads live <see cref="Vessel"/> state. Returns false
+        /// when the recording is missing, has no sample bracketing
+        /// <paramref name="ut"/>, or the body cannot be resolved.
+        /// </summary>
+        internal static bool TryComputeStandaloneWorldPositionForRecording(
+            string recordingId, double ut, CelestialBody fallbackBody, out Vector3d worldPos)
+        {
+            worldPos = default;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+
+            Recording rec = ResolveRecordingById(recordingId);
+            if (rec == null) return false;
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+
+            // P1-D: resolve the section's referenceFrame BEFORE reading
+            // before.latitude / longitude / altitude. v6+ RELATIVE-frame
+            // sections store metre offsets (dx/dy/dz) in those fields, NOT
+            // body-fixed lat/lon/alt; calling
+            // body.GetWorldSurfacePosition(metre, metre, metre) silently
+            // produces a position deep inside the planet. The fallback path
+            // below handles ABSOLUTE sections; for RELATIVE we route through
+            // the existing instance helpers (TryUseAbsoluteShadowFor… for
+            // active-re-fly cases, TryResolveRelativeWorldPosition for the
+            // anchor-bound common case). Checkpoint sections aren't relevant
+            // for primary's P_render(t) — return false with a Verbose so
+            // tuning is visible.
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, ut);
+            TrackSection? maybeSection = null;
+            if (rec.TrackSections != null && sectionIndex >= 0 && sectionIndex < rec.TrackSections.Count)
+                maybeSection = rec.TrackSections[sectionIndex];
+
+            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-checkpoint-skip",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneWorldPositionForRecording: OrbitalCheckpoint section unsupported recording={0} ut={1}",
+                        recordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+
+            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.Relative)
+            {
+                return TryComputeStandaloneRelativeWorldPosition(rec, maybeSection.Value, ut, out worldPos);
+            }
+
+            // ABSOLUTE-frame section (or no track-section context — pre-v3
+            // recordings without explicit TrackSections fall through here
+            // via maybeSection.HasValue == false).
+            // Linear-interpolate the bracketing points and lift to body
+            // surface position (mirrors the Update path's lerp + spline
+            // composition). HR-15: this reads from rec.Points only, never
+            // from live KSP state.
+            int idx = -1;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                if (rec.Points[i].ut >= ut) { idx = i; break; }
+            }
+            TrajectoryPoint before, after;
+            float t;
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). The pre-fix idx <= 0
+            // collapse clamped both cases to rec.Points[0] — past end
+            // produced an early-recording position, jumping the primary
+            // backwards in time when ut > rec.Points last UT.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-absolute-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
+                        recordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0)
+            {
+                before = rec.Points[0];
+                after = before;
+                t = 0f;
+            }
+            else
+            {
+                before = rec.Points[idx - 1];
+                after = rec.Points[idx];
+                double span = after.ut - before.ut;
+                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
+            }
+
+            CelestialBody body = !object.ReferenceEquals(fallbackBody, null)
+                && string.Equals(fallbackBody.bodyName, before.bodyName, StringComparison.Ordinal)
+                ? fallbackBody
+                : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
+            if (object.ReferenceEquals(body, null)) return false;
+
+            double altBefore = ResolvePhase7EffectiveAltitude(
+                body, before.latitude, before.longitude, before.altitude,
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
+            double altAfter = ResolvePhase7EffectiveAltitude(
+                body, after.latitude, after.longitude, after.altitude,
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
+            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
+
+            // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
+            // through the Phase 5 blender — primaries always render
+            // standalone, design doc §6.5).
+            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            {
+                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
+                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
+                {
+                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                        spline.FrameTag,
+                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                        body, ut, recordingId, sectionIndex);
+                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                        pos = splineWorld;
+                }
+            }
+            if (allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
+                pos += eps;
+            worldPos = pos;
+            return true;
+        }
+
+        /// <summary>
+        /// P1-D: RELATIVE-frame standalone resolver for
+        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. v6+
+        /// RELATIVE sections store metre offsets in <c>latitude</c>/
+        /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
+        /// would land deep inside the planet. Routes through the existing
+        /// instance method
+        /// <see cref="TryResolveRelativeOffsetWorldPosition"/> (or the
+        /// active-re-fly absolute-shadow path
+        /// <see cref="TryUseAbsoluteShadowForActiveReFlyRelativeSection"/>)
+        /// when an instance is available; falls back to legacy lat/lon/alt
+        /// playback for v5-and-older RELATIVE sections (which carried the
+        /// older contract — no anchor-local offsets, no absolute shadow).
+        /// </summary>
+        private static bool TryComputeStandaloneRelativeWorldPosition(
+            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
+        {
+            worldPos = default;
+            // Legacy (v5-and-older) RELATIVE sections kept the older
+            // contract: lat/lon/alt fields actually held lat/lon/alt and
+            // the dispatcher could safely call GetWorldSurfacePosition on
+            // them. Detect via RecordingFormatVersion and route through the
+            // ABSOLUTE-style fallback.
+            if (rec.RecordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
+            {
+                return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
+            }
+
+            uint anchorPid = section.anchorVesselId;
+            if (anchorPid == 0)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-relative-no-anchor-pid",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneRelativeWorldPosition: anchorVesselId=0 recording={0} ut={1}",
+                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+
+            // P1-C: HR-15 contract — co-bubble primary positions are
+            // recording-only and must NOT read live runtime KSP state.
+            // When the section's anchor matches the active re-fly target's
+            // vessel PID, the live anchor IS the player's controls; the
+            // anchor-driven resolver below would drag the primary ghost
+            // with the player input ("Naive Relative Trap" §3.4). Route
+            // through the absolute-shadow path so the primary plays back
+            // at recorded world coordinates instead. This branch runs
+            // BEFORE the Instance null-check below because the absolute-
+            // shadow lookup is pure (TrackSection.absoluteFrames + body
+            // GetWorldSurfacePosition) and does NOT require ParsekFlight
+            // to be alive.
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid)
+                && activeReFlyPid != 0
+                && anchorPid == activeReFlyPid)
+            {
+                // Active-re-fly path: prefer the recorded absolute-shadow
+                // for HR-15 freezing. If no shadow is available (legacy
+                // pre-v7 RELATIVE recording), fail closed and emit a
+                // visible Verbose so HR-9 surfaces the degradation —
+                // silently falling through to the live-anchor resolver
+                // would re-introduce the bug this fix exists to prevent.
+                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                    return true;
+
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "primary-active-refly-no-shadow",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneRelativeWorldPosition: active-re-fly anchor matched but no absolute shadow available recording={0} ut={1} anchorPid={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        anchorPid),
+                    5.0);
+                return false;
+            }
+
+            // For v6+ non-re-fly we MUST have an instance to dispatch the
+            // relative resolver. The only legitimate xUnit path that hits
+            // this code is the synthetic test which injects an instance
+            // via the RecordingStore + ParsekScenario fixtures; otherwise
+            // return false and emit a rate-limited Verbose (HR-9 visible
+            // failure).
+            ParsekFlight inst = Instance;
+            if (object.ReferenceEquals(inst, null))
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-relative-no-instance",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryComputeStandaloneRelativeWorldPosition: ParsekFlight.Instance null recording={0} ut={1}",
+                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+
+            // Common (non-re-fly) case: route through the anchor-driven
+            // Relative resolver. If the anchor cannot be resolved, the
+            // call returns false and the caller falls back to standalone
+            // (HR-9).
+            List<TrajectoryPoint> frames = section.frames ?? rec.Points;
+            return inst.TryResolveRelativeWorldPosition(
+                frames, ut, anchorPid, rec.RecordingId, rec.RecordingFormatVersion, out worldPos);
+        }
+
+        /// <summary>
+        /// P1-C static helper: resolves the active re-fly target's vessel
+        /// persistent ID by walking <see cref="RecordingStore.CommittedTrees"/>
+        /// and <see cref="RecordingStore.PendingTree"/>, then
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Mirrors the
+        /// instance method <see cref="TryResolveActiveReFlyPid"/> but is
+        /// callable from the static standalone-helper path used by
+        /// <see cref="TryComputeStandaloneRelativeWorldPosition"/>.
+        /// </summary>
+        internal static bool TryResolveActiveReFlyPidStatic(
+            ReFlySessionMarker marker, out uint activeReFlyPid)
+        {
+            activeReFlyPid = 0u;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+
+            IReadOnlyList<RecordingTree> searchTrees =
+                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (searchTrees != null)
+            {
+                for (int t = 0; t < searchTrees.Count; t++)
+                {
+                    RecordingTree tree = searchTrees[t];
+                    if (tree?.Recordings == null) continue;
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                        return true;
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec == null
+                        || !string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
+                        || rec.VesselPersistentId == 0u)
+                    {
+                        continue;
+                    }
+                    activeReFlyPid = rec.VesselPersistentId;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
+        /// that bypasses the live anchor by linear-interpolating
+        /// <see cref="TrackSection.absoluteFrames"/> (the v7+ absolute
+        /// shadow). Returns false when the section has no shadow or the
+        /// body cannot be resolved — the caller surfaces the failure as
+        /// HR-9 visible-failure.
+        /// </summary>
+        private static bool TryComputeStandaloneAbsoluteShadowWorldPosition(
+            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
+        {
+            worldPos = default;
+            List<TrajectoryPoint> shadow = section.absoluteFrames;
+            if (shadow == null || shadow.Count == 0) return false;
+
+            int idx = -1;
+            for (int i = 0; i < shadow.Count; i++)
+            {
+                if (shadow[i].ut >= ut) { idx = i; break; }
+            }
+            TrajectoryPoint before, after;
+            float t;
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). The pre-fix idx <= 0 lumped
+            // both cases into "clamp to shadow[0]" — when ut > last shadow
+            // sample, that produced a position from the FIRST sample
+            // instead of the last, jumping the primary backwards in time.
+            // Past end is HR-9 visible failure: fail closed and emit a
+            // rate-limited Verbose so tuning is observable.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "primary-active-refly-shadow-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Absolute shadow exhausted: recording={0} ut={1} lastShadowUT={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0)
+            {
+                before = shadow[0];
+                after = before;
+                t = 0f;
+            }
+            else
+            {
+                before = shadow[idx - 1];
+                after = shadow[idx];
+                double span = after.ut - before.ut;
+                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
+            }
+            CelestialBody body;
+            try
+            {
+                body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
+            }
+            catch (TypeInitializationException) { return false; }
+            catch (System.Security.SecurityException) { return false; }
+            if (object.ReferenceEquals(body, null)) return false;
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
+            return true;
+        }
+
+        /// <summary>
+        /// P1-D legacy fallback for v5-and-older RELATIVE-frame primaries:
+        /// lat/lon/alt-as-lat/lon/alt path matching the original (broken-
+        /// for-v6) implementation. Kept so a recording with a mixed-history
+        /// chain that happens to span legacy-v5 and v6+ doesn't suddenly
+        /// drop primary positions for its older sections.
+        /// </summary>
+        private static bool TryComputeStandaloneAbsoluteFallbackWorldPosition(
+            Recording rec, double ut, out Vector3d worldPos)
+        {
+            worldPos = default;
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+            int idx = -1;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                if (rec.Points[i].ut >= ut) { idx = i; break; }
+            }
+            TrajectoryPoint before, after;
+            float t;
+            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
+            // from at/before-start (idx == 0). See sibling comment in
+            // TryComputeStandaloneAbsoluteShadowWorldPosition.
+            if (idx == -1)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "standalone-fallback-past-end",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Legacy fallback past last point: recording={0} ut={1} lastPointUT={2}",
+                        rec.RecordingId,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                    5.0);
+                return false;
+            }
+            if (idx == 0) { before = rec.Points[0]; after = before; t = 0f; }
+            else
+            {
+                before = rec.Points[idx - 1];
+                after = rec.Points[idx];
+                double span = after.ut - before.ut;
+                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
+            }
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
+            if (object.ReferenceEquals(body, null)) return false;
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves a recording by id without driving the active scene's
+        /// playback context. Walks <see cref="RecordingStore.CommittedRecordings"/>
+        /// directly — the standalone-for-primary helper needs the peer's
+        /// data even when ERS would filter it out. Phase 5 ERS-exempt path
+        /// (mirrors RenderSessionState's exemption rationale).
+        /// </summary>
+        private static Recording ResolveRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording r = committed[i];
+                        if (r == null) continue;
+                        if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
+                            return r;
+                    }
+                }
+            }
+            catch
+            {
+                // Mid-load mutation; treat as missing.
+            }
+            return null;
+        }
+
+        // -------------------------------------------------------------------
+        //  Phase 5 per-frame summary (design doc §19.2 Stage 5).
+        //  Counts every successful co-bubble offset evaluation across the
+        //  Update path and emits a single Verbose Pipeline-CoBubble line per
+        //  second with the accumulated count. Mirrors the Phase 1
+        //  RecordSplineEvalForLogging contract.
+        // -------------------------------------------------------------------
+        private static int s_coBubbleEvalCount;
+        private static long s_coBubbleEvalLogLastTicks;
+        private const long CoBubbleEvalLogIntervalTicks = TimeSpan.TicksPerSecond;
+
+        internal static void RecordCoBubbleEvalForLogging()
+        {
+            int n = ++s_coBubbleEvalCount;
+            long now = NowProviderForTesting != null
+                ? NowProviderForTesting().Ticks
+                : DateTime.UtcNow.Ticks;
+            if (s_coBubbleEvalLogLastTicks == 0)
+            {
+                s_coBubbleEvalLogLastTicks = now;
+                return;
+            }
+            if (now - s_coBubbleEvalLogLastTicks >= CoBubbleEvalLogIntervalTicks)
+            {
+                double intervalSec = (now - s_coBubbleEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
+                ParsekLog.Verbose("Pipeline-CoBubble",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "frame summary: coBubbleEvals={0} intervalSec={1:F2}", n, intervalSec));
+                s_coBubbleEvalCount = 0;
+                s_coBubbleEvalLogLastTicks = now;
+            }
+        }
+
+        /// <summary>Test-only reset of the Phase 5 per-frame summary.</summary>
+        internal static void ResetCoBubbleEvalLoggingForTesting()
+        {
+            s_coBubbleEvalCount = 0;
+            s_coBubbleEvalLogLastTicks = 0;
+        }
+
+        /// <summary>
+        /// Phase 1 + Phase 4 LateUpdate spline re-evaluation helper (design
+        /// doc §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Instance shim that
+        /// supplies the per-session <see cref="unknownFrameTagWarned"/> dedup
+        /// set; the gate-then-dispatch logic itself lives in
+        /// <see cref="TryComputeLateUpdateSplineWorldPositionPure"/> so xUnit
+        /// can exercise every branch without driving Unity's LateUpdate.
+        ///
+        /// <para>
+        /// Without re-evaluating the spline here, the LateUpdate PointInterp
+        /// branch would overwrite the spline-positioned <c>transform.position</c>
+        /// with the raw <c>(latBefore..latAfter)</c> bracket lerp on every
+        /// late frame, discarding Phase 1's smoothing and Phase 4's frame
+        /// transformation in the steady state.
+        /// </para>
+        /// </summary>
+        private bool TryComputeLateUpdateSplineWorldPosition(in GhostPosEntry e, out Vector3d worldPos)
+        {
+            return TryComputeLateUpdateSplineWorldPositionPure(
+                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT, e.bodyBefore,
+                unknownFrameTagWarned, out worldPos);
+        }
+
+        /// <summary>
+        /// Pure-static core of <see cref="TryComputeLateUpdateSplineWorldPosition"/>.
+        /// Returns <c>true</c> with a populated <paramref name="worldPos"/>
+        /// when (a) the lookup key is valid (non-empty recordingId + non-
+        /// negative sectionIndex), (b) the <c>useSmoothingSplines</c> rollout
+        /// flag is on, (c) <see cref="Parsek.Rendering.SectionAnnotationStore"/>
+        /// holds a valid spline for the pair, (d) the body reference is non-
+        /// null, and (e) the spline's FrameTag dispatches to a finite world
+        /// position. Any miss falls through silently — the caller uses the
+        /// legacy raw-lerp bracket. Unknown FrameTag values also return false;
+        /// the Warn fires through <paramref name="unknownFrameTagWarnedKeys"/>
+        /// so the Update path's prior Add suppresses a LateUpdate double-emit.
+        ///
+        /// <para>
+        /// Tested via <c>LateUpdateSplineDispatchTests</c> — every gate's
+        /// failure branch and both successful FrameTag paths are exercised
+        /// without standing up a real <see cref="GhostPosEntry"/> or Unity's
+        /// LateUpdate (which xUnit cannot drive).
+        /// </para>
+        /// </summary>
+        internal static bool TryComputeLateUpdateSplineWorldPositionPure(
+            string recordingId, int sectionIndex, double pointUT, CelestialBody body,
+            HashSet<string> unknownFrameTagWarnedKeys, out Vector3d worldPos)
+        {
+            worldPos = default(Vector3d);
+            if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
+                return false;
+
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null || !settings.useSmoothingSplines)
+                return false;
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
+                    recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline)
+                || !spline.IsValid)
+                return false;
+
+            // ReferenceEquals to bypass Unity's overloaded `==`, which would
+            // treat a TestBodyRegistry-built uninitialised CelestialBody as
+            // null. Production callers route through FlightGlobals.Bodies; the
+            // test suite delivers genuine CLR objects whose Unity-cached pointer
+            // is zero. Same pattern as SmoothingPipeline.FitAndStorePerSection.
+            if (object.ReferenceEquals(body, null))
+                return false;
+
+            Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, pointUT);
+            if (double.IsNaN(splineLatLonAlt.x) || double.IsNaN(splineLatLonAlt.y) || double.IsNaN(splineLatLonAlt.z))
+                return false;
+
+            Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                spline.FrameTag,
+                splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
+                body, pointUT,
+                recordingId, sectionIndex,
+                unknownFrameTagWarnedKeys);
+            if (double.IsNaN(splineWorld.x) || double.IsNaN(splineWorld.y) || double.IsNaN(splineWorld.z))
+                return false;
+
+            worldPos = splineWorld;
+            RecordSplineEvalForLogging();
+            return true;
+        }
+
+        // -------------------------------------------------------------------
+        //  L4 — per-frame spline-eval summary (design doc §19.2 Stage 1).
+        //
+        //  Counts every successful spline evaluation across Update + LateUpdate
+        //  paths and emits a single Verbose Pipeline-Smoothing line per second
+        //  with the accumulated count, then resets. Distinct from
+        //  ParsekLog.VerboseRateLimited (which suppresses repeated lines and
+        //  loses the count); here the count is the payload, so we own the gate.
+        //  Wall-clock based (DateTime.UtcNow) so it works in tests without
+        //  Unity's Time API and across scene loads where Planetarium UT can
+        //  reset to zero.
+        // -------------------------------------------------------------------
+        private static int s_splineEvalCount;
+        private static long s_splineEvalLogLastTicks;
+        private const long SplineEvalLogIntervalTicks = TimeSpan.TicksPerSecond; // 1 s
+
+        /// <summary>
+        /// Increment the per-second spline-eval counter; flush a Verbose
+        /// summary line once per second when the counter is non-zero.
+        /// Test seam <see cref="NowProviderForTesting"/> overrides the
+        /// wall-clock for deterministic xUnit assertions.
+        /// </summary>
+        internal static void RecordSplineEvalForLogging()
+        {
+            int n = ++s_splineEvalCount;
+            long now = NowProviderForTesting != null
+                ? NowProviderForTesting().Ticks
+                : DateTime.UtcNow.Ticks;
+            if (s_splineEvalLogLastTicks == 0)
+            {
+                s_splineEvalLogLastTicks = now;
+                return;
+            }
+            if (now - s_splineEvalLogLastTicks >= SplineEvalLogIntervalTicks)
+            {
+                double intervalSec = (now - s_splineEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "frame summary: splineEvals={0} intervalSec={1:F2}", n, intervalSec));
+                s_splineEvalCount = 0;
+                s_splineEvalLogLastTicks = now;
+            }
+        }
+
+        /// <summary>Test-only wall-clock override for the L4 summary gate.</summary>
+        internal static Func<DateTime> NowProviderForTesting;
+
+        /// <summary>Test-only reset of the L4 summary state (counter + last-emit timestamp).</summary>
+        internal static void ResetSplineEvalLoggingForTesting()
+        {
+            s_splineEvalCount = 0;
+            s_splineEvalLogLastTicks = 0;
+            NowProviderForTesting = null;
         }
 
         // Keep the old signature for backward compat with tests
@@ -14437,8 +16255,27 @@ namespace Parsek
                 return;
             }
 
+            // Phase 7 (design doc §13.1, §18 Phase 7): apply continuous terrain
+            // correction when the recorded SurfaceMobile section captured a
+            // ground clearance. Effective altitude = current_terrain + clearance.
+            // NaN sentinel ⇒ legacy / non-SurfaceMobile point ⇒ fall through to
+            // the recorded altitude (HR-9 silent fall-through). See
+            // ResolvePhase7EffectiveAltitude for the per-frame cache lookup
+            // and Pipeline-Terrain logging.
+            //
+            // PositionGhostAt only services Absolute-frame TrajectoryPoints
+            // (RELATIVE-frame playback uses InterpolateAndPositionRelative,
+            // OrbitalCheckpoint uses orbit-driven positioning) — so the
+            // helper's referenceFrame argument is hard-coded Absolute. The
+            // helper still NaN-fall-throughs on legacy/non-SurfaceMobile
+            // points; the explicit Absolute argument is the P2-1 safety
+            // gate against any future caller routing a Relative point here.
+            double effectiveAltitude = ResolvePhase7EffectiveAltitude(
+                body, point.latitude, point.longitude, point.altitude,
+                point.recordedGroundClearance, ReferenceFrame.Absolute);
+
             Vector3d worldPos = body.GetWorldSurfacePosition(
-                point.latitude, point.longitude, point.altitude);
+                point.latitude, point.longitude, effectiveAltitude);
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
             ghost.transform.position = worldPos;
@@ -14450,10 +16287,85 @@ namespace Parsek
                 ghost = ghost,
                 mode = GhostPosMode.SinglePoint,
                 bodyBefore = body,
-                latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
+                latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
             });
+        }
+
+        /// <summary>
+        /// Phase 7 (design doc §13.1, §18 Phase 7) — pure helper: given a
+        /// recorded altitude and a recordedGroundClearance, returns the
+        /// altitude to render at. When clearance is NaN (legacy point or
+        /// non-SurfaceMobile environment), returns the recorded altitude
+        /// unchanged (HR-9 silent fall-through). When clearance is finite,
+        /// looks up the current terrain height at lat/lon via
+        /// <see cref="Parsek.Rendering.TerrainCacheBuckets"/> and returns
+        /// <c>terrain + clearance</c>. If the cache returns NaN (PQS
+        /// unspun, body missing) we fall back to the recorded altitude rather
+        /// than producing an invalid world position.
+        ///
+        /// <para>The <paramref name="referenceFrame"/> parameter is a
+        /// **safety gate** (review pass P2-1): when the section is
+        /// <see cref="ReferenceFrame.Relative"/> (anchor-local metres in
+        /// lat/lon/alt — see CLAUDE.md "Rotation / world frame") or
+        /// <see cref="ReferenceFrame.OrbitalCheckpoint"/>, the helper
+        /// short-circuits to <paramref name="recordedAltitude"/> regardless
+        /// of clearance. Today's recorder never writes a finite clearance on
+        /// a non-Absolute point, so this path is unreachable in practice —
+        /// but a future codec / optimizer / merge that surfaced a finite
+        /// clearance on a RELATIVE point would otherwise interpret metre-
+        /// scale lat/lon as degrees and produce a position deep inside the
+        /// planet. Pin the contract at the renderer.</para>
+        /// </summary>
+        internal static double ResolvePhase7EffectiveAltitude(
+            CelestialBody body, double latitude, double longitude,
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame)
+        {
+            if (double.IsNaN(recordedGroundClearance))
+                return recordedAltitude;
+            if (referenceFrame != ReferenceFrame.Absolute)
+            {
+                // P2-1: defensive short-circuit. A RELATIVE-frame point
+                // stores anchor-local metres in latitude/longitude/altitude;
+                // applying terrain correction would mix metres with degrees
+                // catastrophically. OrbitalCheckpoint sections have no
+                // per-point latitude/longitude/altitude payload either.
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "non-absolute-frame-skip",
+                    $"ResolvePhase7EffectiveAltitude: skipping terrain correction " +
+                    $"for non-Absolute frame={referenceFrame} " +
+                    $"clearance={recordedGroundClearance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"— returning recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                    $"(future-codec safety gate; today's recorder never writes " +
+                    $"finite clearance on non-Absolute points)",
+                    5.0);
+                return recordedAltitude;
+            }
+            if (object.ReferenceEquals(body, null))
+                return recordedAltitude;
+
+            double currentTerrain = Parsek.Rendering.TerrainCacheBuckets.GetCachedSurfaceHeight(
+                body, latitude, longitude);
+            if (double.IsNaN(currentTerrain))
+            {
+                // Cache returned NaN (PQS not spun, body has no controller).
+                // HR-9 fall-through to recorded altitude — better one frame
+                // of altitude pop than clipping into terrain (design §13.3).
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "effective-altitude-pqs-miss",
+                    $"ResolvePhase7EffectiveAltitude: terrain NaN at " +
+                    $"body={body.bodyName} lat={latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"lon={longitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"— falling back to recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m",
+                    5.0);
+                return recordedAltitude;
+            }
+
+            return currentTerrain + recordedGroundClearance;
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
@@ -14675,6 +16587,11 @@ namespace Parsek
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         private readonly HashSet<string> recordedAnchorSeenRecordingIds =
             new HashSet<string>(StringComparer.Ordinal);
+        // Phase 4 HR-9: per-(recordingId, sectionIndex) dedup so an unrecognised
+        // FrameTag warns once per session instead of every per-frame dispatch.
+        // Cleared in the same Cleanup hooks as the other per-session log state.
+        private readonly HashSet<string> unknownFrameTagWarned =
+            new HashSet<string>(StringComparer.Ordinal);
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
@@ -14830,15 +16747,23 @@ namespace Parsek
                     ref playbackIdx,
                     playbackUT,
                     allowActivation,
+                    recordingId: traj?.RecordingId,
                     out interpResult))
             {
+                // Phase 1: pass section context. Checkpoint sections are
+                // OrbitalCheckpoint reference frame, which ShouldFitSection
+                // filters out — the spline gate will naturally fall through
+                // to legacy lerp here. Threaded so a future spline-on-
+                // checkpoint extension wouldn't need to revisit the call site.
                 InterpolateAndPosition(
                     ghost,
                     section.frames,
                     ref playbackIdx,
                     playbackUT,
                     allowActivation,
-                    out interpResult);
+                    out interpResult,
+                    recordingId: traj?.RecordingId,
+                    sectionIndex: sectionIdx);
             }
 
             int logIndex = playbackIdx;
@@ -14856,6 +16781,7 @@ namespace Parsek
             ref int playbackIdx,
             double playbackUT,
             bool allowActivation,
+            string recordingId,
             out InterpolationResult interpResult)
         {
             interpResult = InterpolationResult.Zero;
@@ -14902,6 +16828,23 @@ namespace Parsek
             if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
                 interpolatedPos = posBefore;
 
+            // §7.7 BubbleEntry/Exit (and any other §7.x candidate landing on
+            // a Checkpoint section): apply the rigid-translation ε on top of
+            // the Kepler-bracketed lerp before assigning the transform.
+            // Without this, the ε computed by AnchorPropagator and stored in
+            // RenderSessionState would be invisible — the spline / lerp paths
+            // already query allowAnchorCorrectionInterval, but the checkpoint
+            // path used to skip it because the original §7.5 OrbitalCheckpoint
+            // anchor lands on the ABSOLUTE neighbour rather than the
+            // Checkpoint section itself; §7.7 changed that, and so did the
+            // Phase 6 anchor-bound resolver work that produces ε at the
+            // Checkpoint side. Same lookup as the PointInterp path uses
+            // (Phase 2/3 ε, additive in world-space, HR-15 frozen-once).
+            bool hasAnchorEps = allowAnchorCorrectionInterval(
+                recordingId, sectionIdx, playbackUT, out Vector3d anchorEps);
+            if (hasAnchorEps)
+                interpolatedPos += anchorEps;
+
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
@@ -14944,7 +16887,13 @@ namespace Parsek
                 orbitBody = orbitBody,
                 orbitAngularVelocity = segment.angularVelocity,
                 isSpinning = spinning,
-                orbitSegmentStartUT = segment.startUT
+                orbitSegmentStartUT = segment.startUT,
+                // §7.7 anchor lookup keys for LateUpdate re-application.
+                // Without these, the LateUpdate FloatingOrigin shift
+                // would replay the bare lerp position and the rendered
+                // ghost would drop the anchor correction every late frame.
+                anchorRecordingId = recordingId,
+                anchorSectionIndex = sectionIdx,
             });
 
             interpResult = new InterpolationResult(
@@ -15142,6 +17091,15 @@ namespace Parsek
                         uint anchorPid = section.anchorVesselId != 0
                             ? section.anchorVesselId
                             : traj.LoopAnchorVesselId;
+                        if (anchorPid != 0 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                                index, traj, section, anchorPid, playbackUT, out List<TrajectoryPoint> absoluteFrames))
+                        {
+                            return TryResolvePointWorldPosition(
+                                absoluteFrames,
+                                ref cachedIndex,
+                                playbackUT,
+                                out worldPos);
+                        }
                         if (anchorPid != 0 && TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
@@ -15169,6 +17127,19 @@ namespace Parsek
                     {
                         LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
                         return true;
+                    }
+                    else if (TryGetAbsoluteSectionPlaybackFrames(section, out List<TrajectoryPoint> absoluteFrames))
+                    {
+                        // Section-local absolute frames are authoritative at
+                        // frame boundaries. The flat Points list can contain
+                        // adjacent Relative metre-offset samples; interpreting
+                        // those as lat/lon/alt causes planet-scale spikes.
+                        int sectionCachedIndex = 0;
+                        return TryResolvePointWorldPosition(
+                            absoluteFrames,
+                            ref sectionCachedIndex,
+                            playbackUT,
+                            out worldPos);
                     }
                 }
             }
@@ -15203,6 +17174,22 @@ namespace Parsek
             }
 
             return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+        }
+
+        internal static bool TryGetAbsoluteSectionPlaybackFrames(
+            TrackSection section,
+            out List<TrajectoryPoint> frames)
+        {
+            frames = null;
+            if (section.referenceFrame != ReferenceFrame.Absolute
+                || section.frames == null
+                || section.frames.Count == 0)
+            {
+                return false;
+            }
+
+            frames = section.frames;
+            return true;
         }
 
         bool TryResolvePointWorldPosition(
@@ -15447,21 +17434,77 @@ namespace Parsek
                 }
             }
 
+            // Proximity fast-path: when the live anchor is loaded AND within
+            // physics range of the active vessel, trust the live pose and
+            // skip the (more expensive) recorded-anchor probe. This restores
+            // the pre-PR fast path for the common docking/rendezvous case —
+            // anchor is the station the player is approaching, live pose is
+            // by definition the right answer because the recording was made
+            // in the same world frame the player is currently in.
+            //
+            // The bug class this PR fixes (post-merge watch of a recording
+            // whose Relative anchor is now in stable orbit hundreds of km
+            // from the player) is, by construction, far from the active
+            // vessel — the orbital booster sits at ~818 km from the pad in
+            // the captured repro. So this fast-path keeps the docking case
+            // perf-equivalent to pre-PR while still letting the staleness
+            // check fire for the failure mode.
+            //
+            // Threshold (5 km) sits comfortably above KSP's ~2.5 km physics
+            // bubble (anchors loaded for physics are within that range) and
+            // well below the km-scale separations the bug exhibits. NaN /
+            // Infinity distances fall through to the slow path rather than
+            // tripping the fast-path; better to spend one extra probe than
+            // misclassify.
+            //
+            // Perf coverage analysis (review P2 from the Opus pass):
+            //  - Anchor loaded AND in physics range (≤5 km from active):
+            //    fast-path returns. O(1). This is the docking/rendezvous
+            //    common case.
+            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
+            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
+            //    of the active vessel, so this band is narrow and rare —
+            //    typically only happens for a few frames around physics-
+            //    range crossings, or with mods extending the load distance.
+            //  - Anchor unloaded (vessel exists but physics-asleep): live
+            //    pose unavailable, fast-path can't apply, we fall through
+            //    to recorded probe. THIS is the bug-class path and the
+            //    probe is exactly what's needed.
+            // Net: under default KSP load behaviour, the residual probe-
+            // every-frame cost only applies to the bug-class scenario the
+            // PR is closing. If a future playtest with extended-physics
+            // mods shows perf regression for the loaded-but-far-from-active
+            // band, a per-FixedUpdate cache keyed on (anchorPid,
+            // sectionStartUT) is the natural follow-up — left out here to
+            // keep the surface area small until measured to matter.
             if (liveAnchorAvailable && !bypassLiveAnchor)
             {
-                RelativeAnchorResolution.AnchorFrameSource liveSource =
-                    RelativeAnchorResolution.SelectAnchorFrameSource(
-                        liveAnchorAvailable,
-                        bypassLiveAnchor,
-                        recordedAnchorAvailable: false,
-                        recordedFallbackAvailable: false);
-                if (liveSource == RelativeAnchorResolution.AnchorFrameSource.Live)
+                Vessel activeForFastPath = FlightGlobals.ActiveVessel;
+                if (activeForFastPath != null)
                 {
-                    pose = livePose;
-                    return true;
+                    Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
+                    double distFromActive = (livePose.worldPos - activeWorld).magnitude;
+                    if (!double.IsNaN(distFromActive)
+                        && !double.IsInfinity(distFromActive)
+                        && distFromActive < LiveAnchorProximityFastPathMeters)
+                    {
+                        pose = livePose;
+                        return true;
+                    }
                 }
             }
 
+            // Slow path: probe the recorded anchor pose so we can detect
+            // pose drift (live anchor far from active vessel — likely a
+            // post-merge / time-warp / cross-mission case). Pre-PR the
+            // early-exit at this point returned Live whenever
+            // liveAnchorAvailable && !bypass, skipping the recorded probe
+            // entirely; that made the post-merge watch-jump bug invisible
+            // because the Relative section's offset got decoded against the
+            // live anchor's CURRENT pose (hundreds of km from recording),
+            // tripping the watch zone cutoff. Keeping the recorded probe
+            // means we have the data to detect that drift and downgrade to
+            // the recorded path via IsStaleLiveAnchor below.
             if (searchTrees == null)
             {
                 searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -15478,6 +17521,62 @@ namespace Parsek
                 bypassLiveAnchor,
                 requireCoverage: true,
                 out RelativeAnchorPose recordedPose);
+
+            // Stale-anchor staleness gate: when we have BOTH a live and a
+            // recorded pose for the anchor at the playback UT, and they
+            // disagree by more than StaleRelativeAnchorRejectMeters, the
+            // live anchor's pose isn't what the recording captured (anchor
+            // has progressed past the recording's UT range, anchor was
+            // rewound, etc.). Prefer the recorded pose so the ghost renders
+            // at its recorded geometry instead of being decoded against an
+            // anchor that is now in a totally different physical location.
+            // This upgrades the active-Re-Fly bypass into a general "live
+            // anchor is unreliable" signal — same downstream path, broader
+            // applicability.
+            //
+            // Threshold rationale lives next to the constant; in short,
+            // 250 m is well above docking-approach noise (200 m
+            // DockingApproachMeters) and well below the km-scale drift the
+            // bug exhibits.
+            //
+            // Why this clause naturally no-ops during active Re-Fly:
+            // ShouldBypassLiveRelativeAnchorForActiveReFly already set
+            // bypassLiveAnchor=true above, which short-circuited the live
+            // probe (so liveAnchorAvailable=false). Both conditions
+            // conspire to skip this `if`. Don't add an explicit
+            // `bypassLiveAnchor` early-out here — leaving the predicate
+            // self-documenting via `liveAnchorAvailable` keeps the gate's
+            // semantics ("we have two poses to compare") readable.
+            if (liveAnchorAvailable
+                && recordedAnchorAvailable
+                && !bypassLiveAnchor
+                && RelativeAnchorResolution.IsStaleLiveAnchor(
+                    livePose.worldPos,
+                    recordedPose.worldPos,
+                    StaleRelativeAnchorRejectMeters,
+                    out double posDelta))
+            {
+                var ic = CultureInfo.InvariantCulture;
+                string staleKey = string.Concat(
+                    "stale-anchor|",
+                    anchorVesselId.ToString(ic),
+                    "|",
+                    victimRecordingId ?? "<no-victim>");
+                ParsekLog.VerboseRateLimited("Playback", staleKey,
+                    $"Stale relative anchor detected: anchorPid={anchorVesselId} " +
+                    $"victim={ShortRecordingId(victimRecordingId)} " +
+                    $"targetUT={targetUT.ToString("F2", ic)} " +
+                    $"liveWorld=({livePose.worldPos.x.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.y.ToString("F1", ic)}," +
+                    $"{livePose.worldPos.z.ToString("F1", ic)}) " +
+                    $"recordedWorld=({recordedPose.worldPos.x.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.y.ToString("F1", ic)}," +
+                    $"{recordedPose.worldPos.z.ToString("F1", ic)}) " +
+                    $"delta={posDelta.ToString("F0", ic)}m " +
+                    $"threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m " +
+                    "— preferring recorded anchor pose");
+                bypassLiveAnchor = true;
+            }
 
             bool recordedFallbackAvailable = false;
             RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
@@ -15516,6 +17615,45 @@ namespace Parsek
             }
         }
 
+        // Stale-anchor staleness threshold (metres). Live anchor world position
+        // at the playback UT differs from recorded anchor world position at
+        // the same UT by more than this → the resolver downgrades to the
+        // recorded pose.
+        //
+        // Why 250 m:
+        // - During *normal* in-physics-range playback the live anchor is
+        //   either the active vessel or a vessel within ~2.5 km being
+        //   physics-simulated alongside; sample-interp drift across the
+        //   recording's ~0.1-0.5 s sample interval is at most a few tens of
+        //   metres for atmospheric flight and centimetres for a Kepler-on-
+        //   rails anchor (deterministic). 250 m gives ~5x safety margin
+        //   above that noise floor.
+        // - The *bug class* (post-merge watch session, plain rewind, time-
+        //   warp etc.) puts the live anchor hundreds of metres to hundreds
+        //   of km from where the recording captured it — orders of magnitude
+        //   above 250 m. The captured repro at
+        //   logs/2026-04-27_0123_watch-jump-and-ghost-misalign sat at
+        //   818 km, comfortably across the threshold.
+        // - Sits above DockingApproachMeters (200 m) so legitimate close-
+        //   rendezvous ghosts whose anchor is a docking target the player
+        //   is actively flying near don't false-positive on
+        //   sample-interp noise.
+        // - The companion proximity fast-path at LiveAnchorProximityFastPathMeters
+        //   already short-circuits the staleness check entirely for anchors
+        //   in physics range of the active vessel, so this threshold only
+        //   gates the cases where probing recorded was already going to
+        //   happen.
+        internal const double StaleRelativeAnchorRejectMeters = 250.0;
+
+        // Proximity fast-path threshold (metres). When the live anchor is
+        // closer than this to the active vessel, the relative-anchor
+        // resolver trusts the live pose and skips the recorded probe (and
+        // the staleness check that follows). Picked at 5 km: above KSP's
+        // ~2.5 km physics bubble so any legitimately-loaded anchor falls
+        // inside the fast-path, well below the bug-class km-scale
+        // separations.
+        internal const double LiveAnchorProximityFastPathMeters = 5_000.0;
+
         bool ShouldBypassLiveRelativeAnchorForActiveReFly(
             uint anchorVesselId,
             string victimRecordingId,
@@ -15539,14 +17677,17 @@ namespace Parsek
             if (anchorVesselId != activeReFlyPid)
                 return false;
 
+            // Compute the parent-chain hint for telemetry only — the bypass
+            // applies to any victim recording whose section anchor is the
+            // active Re-Fly PID, regardless of topological relationship. See
+            // RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly's
+            // docstring (PR after the 2026-04-26 sibling-chain repro).
             bool victimIsParentOfActiveReFly =
                 GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                     victimRecordingId,
                     marker.ActiveReFlyRecordingId,
                     searchTrees,
                     out _);
-            if (!victimIsParentOfActiveReFly)
-                return false;
 
             return RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
                 anchorVesselId,
@@ -15561,6 +17702,7 @@ namespace Parsek
             IPlaybackTrajectory trajectory,
             TrackSection section,
             uint anchorVesselId,
+            double targetUT,
             out List<TrajectoryPoint> absoluteFrames)
         {
             absoluteFrames = null;
@@ -15568,7 +17710,7 @@ namespace Parsek
                 || section.referenceFrame != ReferenceFrame.Relative
                 || anchorVesselId == 0
                 || section.absoluteFrames == null
-                || section.absoluteFrames.Count < 2
+                || section.absoluteFrames.Count < 1
                 || string.IsNullOrEmpty(trajectory.RecordingId))
             {
                 return false;
@@ -15599,7 +17741,10 @@ namespace Parsek
                 return false;
             }
 
-            absoluteFrames = section.absoluteFrames;
+            absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
+                trajectory,
+                section,
+                targetUT);
             string logKey = string.Concat(
                 trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
                 "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
@@ -15613,6 +17758,182 @@ namespace Parsek
                     $"reason=active-refly-parent-chain");
             }
             return true;
+        }
+
+        // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
+        // bounds. The 0.5s bridge window covers frame/float skew without spanning a
+        // real gap to an unrelated future section.
+        internal const double AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds = 0.5;
+
+        internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+            IPlaybackTrajectory trajectory,
+            TrackSection section,
+            double targetUT)
+        {
+            List<TrajectoryPoint> absoluteFrames = section.absoluteFrames;
+            if (absoluteFrames == null || absoluteFrames.Count == 0)
+                return absoluteFrames;
+            if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
+                return absoluteFrames;
+            if (targetUT >= absoluteFrames[0].ut)
+            {
+                TrajectoryPoint forwardBridge;
+                if (!TryFindAbsoluteShadowForwardBridgeFrame(
+                        trajectory, section, targetUT, out forwardBridge))
+                {
+                    return absoluteFrames;
+                }
+
+                TrajectoryPoint last = absoluteFrames[absoluteFrames.Count - 1];
+                if (forwardBridge.ut <= last.ut + 0.0001)
+                    return absoluteFrames;
+
+                var forwardBridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+                forwardBridged.AddRange(absoluteFrames);
+                forwardBridged.Add(forwardBridge);
+                ParsekLog.WarnRateLimited(
+                    "Playback",
+                    string.Concat(
+                        "absolute-shadow-forward-bridge|",
+                        trajectory?.RecordingId ?? "(none)",
+                        "|",
+                        section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "RELATIVE absolute shadow forward bridge inserted: recording={0} targetUT={1:F2} " +
+                        "lastShadowUT={2:F2} bridgeUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                        ShortRecordingId(trajectory?.RecordingId),
+                        targetUT,
+                        last.ut,
+                        forwardBridge.ut,
+                        section.startUT,
+                        section.endUT),
+                    30.0);
+                return forwardBridged;
+            }
+
+            TrajectoryPoint bridge;
+            if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
+                return absoluteFrames;
+            if (bridge.ut >= absoluteFrames[0].ut - 0.0001)
+                return absoluteFrames;
+
+            var bridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+            bridged.Add(bridge);
+            bridged.AddRange(absoluteFrames);
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                string.Concat(
+                    "absolute-shadow-bridge|",
+                    trajectory?.RecordingId ?? "(none)",
+                    "|",
+                    section.startUT.ToString("R", CultureInfo.InvariantCulture)),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RELATIVE absolute shadow bridge inserted: recording={0} targetUT={1:F2} " +
+                    "bridgeUT={2:F2} firstShadowUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
+                    ShortRecordingId(trajectory?.RecordingId),
+                    targetUT,
+                    bridge.ut,
+                    absoluteFrames[0].ut,
+                    section.startUT,
+                    section.endUT),
+                30.0);
+            return bridged;
+        }
+
+        internal static bool TryFindAbsoluteShadowForwardBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            if (relativeSection.referenceFrame != ReferenceFrame.Relative
+                || relativeSection.absoluteFrames == null
+                || relativeSection.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            double lastShadowUT =
+                relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
+            double adjacentStartLimit = relativeSection.endUT + AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds;
+            bool found = false;
+            double bestUT = double.PositiveInfinity;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    // Do not bridge through an intervening non-RELATIVE section:
+                    // that means the frame changed, so returning the original
+                    // under-sampled shadow list is safer than mixing anchors.
+                    if (section.referenceFrame != ReferenceFrame.Relative
+                        || section.absoluteFrames == null
+                        || section.absoluteFrames.Count == 0)
+                    {
+                        continue;
+                    }
+                    if (section.anchorVesselId != relativeSection.anchorVesselId)
+                        continue;
+                    if (section.startUT > adjacentStartLimit)
+                        continue;
+                    if (section.endUT < relativeSection.endUT - 0.0001)
+                        continue;
+
+                    for (int j = 0; j < section.absoluteFrames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.absoluteFrames[j];
+                        if (candidate.ut <= lastShadowUT + 0.0001)
+                            continue;
+                        if (candidate.ut <= targetUT + 0.0001)
+                            continue;
+                        if (candidate.ut >= bestUT)
+                            continue;
+
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
+        }
+
+        internal static bool TryFindAbsoluteShadowBridgeFrame(
+            IPlaybackTrajectory trajectory,
+            TrackSection relativeSection,
+            double targetUT,
+            out TrajectoryPoint bridge)
+        {
+            bridge = default(TrajectoryPoint);
+            bool found = false;
+            double bestUT = double.NegativeInfinity;
+            double cutoffUT = Math.Max(targetUT, relativeSection.startUT) + 0.0001;
+
+            if (trajectory?.TrackSections != null)
+            {
+                for (int i = 0; i < trajectory.TrackSections.Count; i++)
+                {
+                    TrackSection section = trajectory.TrackSections[i];
+                    if (section.referenceFrame != ReferenceFrame.Absolute || section.frames == null)
+                        continue;
+                    for (int j = 0; j < section.frames.Count; j++)
+                    {
+                        TrajectoryPoint candidate = section.frames[j];
+                        if (candidate.ut > cutoffUT || candidate.ut <= bestUT)
+                            continue;
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
         }
 
         private static string ShortRecordingId(string recordingId)
@@ -16247,7 +18568,7 @@ namespace Parsek
                     : rec.LoopAnchorVesselId;
 
                 if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                        recIdx, rec, section, anchorVesselId, out List<TrajectoryPoint> absoluteFrames))
+                        recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
                 {
                     InterpolateAndPosition(ghost, absoluteFrames, null,
                         ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
@@ -16276,10 +18597,35 @@ namespace Parsek
                 }
             }
 
+            if (sectionIdx >= 0
+                && TryGetAbsoluteSectionPlaybackFrames(
+                    rec.TrackSections[sectionIdx],
+                    out List<TrajectoryPoint> absoluteSectionFrames))
+            {
+                InterpolateAndPosition(
+                    ghost,
+                    absoluteSectionFrames,
+                    null,
+                    ref playbackIdx,
+                    loopUT,
+                    ghostIdSalt,
+                    out interpResult,
+                    allowActivation: allowActivation,
+                    skipOrbitSegments: true,
+                    recordingId: rec.RecordingId,
+                    sectionIndex: sectionIdx);
+                return;
+            }
+
             // Absolute positioning fallback
+            // Phase 1: pass section context for spline lookup. The fallback is
+            // the body-fixed loop path, which is exactly where ABSOLUTE
+            // ExoPropulsive / ExoBallistic splines are meant to apply.
+            int splineSectionIdx = sectionIdx;
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
-                allowActivation: allowActivation);
+                allowActivation: allowActivation,
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
         }
 
         /// <summary>
@@ -16514,7 +18860,8 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false)
+            out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
+            string recordingId = null, int sectionIndex = -1)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -16558,7 +18905,8 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
+                recordingId, sectionIndex);
         }
 
         #endregion

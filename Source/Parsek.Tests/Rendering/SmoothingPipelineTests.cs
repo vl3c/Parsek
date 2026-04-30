@@ -1,0 +1,1485 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Parsek;
+using Parsek.Rendering;
+using UnityEngine;
+using Xunit;
+
+namespace Parsek.Tests.Rendering
+{
+    /// <summary>
+    /// Behavioural tests for the Phase 1 <see cref="SmoothingPipeline"/>
+    /// orchestrator (design doc §17.3.1, §18 Phase 1, §19.2 Stage 1 +
+    /// Sidecar tables, HR-1 / HR-7 / HR-9 / HR-10 / HR-12). Touches disk
+    /// (writes / reads .pann via SmoothingPipeline + PannotationsSidecarBinary)
+    /// and shared static state (SectionAnnotationStore, ParsekLog), so runs
+    /// in the Sequential collection.
+    /// </summary>
+    [Collection("Sequential")]
+    public class SmoothingPipelineTests : IDisposable
+    {
+        private readonly string tempDir;
+        private readonly List<string> logLines = new List<string>();
+        private readonly CelestialBody fakeKerbin;
+        private const double KerbinRotationPeriod = 21549.425;
+
+        public SmoothingPipelineTests()
+        {
+            tempDir = Path.Combine(Path.GetTempPath(),
+                "parsek_pipeline_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+            SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            // Phase 4: ExoPropulsive / ExoBallistic sections lift to inertial
+            // before fitting (design doc §6.2). The lift needs a CelestialBody
+            // and its rotationPeriod — both injected via test seams since
+            // xUnit cannot stand up FlightGlobals.Bodies.
+            fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            CelestialBody capturedKerbin = fakeKerbin;
+            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? capturedKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, capturedKerbin) ? KerbinRotationPeriod : double.NaN;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+
+        // --- fixtures ---
+
+        private static List<TrajectoryPoint> MakeFrames(int count, double startUT, double dutPerSample)
+        {
+            var frames = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.1 + i * 0.01,
+                    longitude = 1.0 + i * 0.05,
+                    altitude = 80000 + i * 100,
+                    rotation = Quaternion.identity,
+                    bodyName = "Kerbin",
+                });
+            }
+            return frames;
+        }
+
+        private static TrackSection MakeSection(SegmentEnvironment env, ReferenceFrame refFrame,
+            int frameCount, double startUT = 100.0, double dutPerSample = 1.0)
+        {
+            return new TrackSection
+            {
+                environment = env,
+                referenceFrame = refFrame,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + (frameCount - 1) * dutPerSample,
+                anchorVesselId = 0,
+                frames = MakeFrames(frameCount, startUT, dutPerSample),
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f / (float)dutPerSample,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+            };
+        }
+
+        private static Recording MakeRecording(string id, params TrackSection[] sections)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                RecordingFormatVersion = 7,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.AddRange(sections);
+            return rec;
+        }
+
+        // --- T5c.1: per-section fit ---
+
+        [Fact]
+        public void FitAndStorePerSection_AbsoluteExoPropulsive_FitsSpline()
+        {
+            // What makes it fail: ExoPropulsive isn't recognised as eligible →
+            // stores no spline → smoothing never runs and HR-9 silent-failure
+            // mode kicks in. Phase 4 regression: FrameTag must now be 1
+            // (inertial-longitude) — a 0 here means the lift is missing and
+            // along-track drift returns.
+            var rec = MakeRecording("rec-prop",
+                MakeSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-prop", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.True(spline.KnotsUT.Length >= 4);
+            Assert.Equal((byte)1, spline.FrameTag);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_AbsoluteExoBallistic_FitsSpline()
+        {
+            // What makes it fail: ExoBallistic dropped from the eligible set
+            // → coast / drifting trajectories never get smoothed (the most
+            // visually noticeable Phase 1 case). Phase 4 regression: FrameTag
+            // must now be 1 (inertial-longitude); a 0 means the inertial fit
+            // path didn't run.
+            var rec = MakeRecording("rec-ball",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-ball", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.Equal((byte)1, spline.FrameTag);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_Atmospheric_NotFitted()
+        {
+            // What makes it fail: Phase 1 scoping creep — Atmospheric belongs
+            // to Phase 7. Fitting it here would silently change atmospheric
+            // ghost rendering behaviour.
+            var rec = MakeRecording("rec-atmo",
+                MakeSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-atmo", 0, out _));
+            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("rec-atmo"));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_RelativeFrame_NotFitted()
+        {
+            // What makes it fail: HR-7 violation — smoothing across the
+            // anchor-local v6/v7 frame would mix metres-along-anchor-axes
+            // values with body-fixed degrees and produce gibberish positions.
+            var rec = MakeRecording("rec-rel",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Relative, frameCount: 10));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-rel", 0, out _));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_OrbitalCheckpoint_NotFitted()
+        {
+            // What makes it fail: HR-7 — checkpoints are analytical orbit
+            // data (Keplerian elements at discrete UTs), not body-fixed
+            // sample frames. Fitting them would produce splines that don't
+            // correspond to any real trajectory.
+            var rec = MakeRecording("rec-ckpt",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, frameCount: 10));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-ckpt", 0, out _));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_FewerThanMinSamples_LogsWarn()
+        {
+            // What makes it fail: 3-sample sections must NOT crash the fitter
+            // and must surface the rejection in KSP.log so anyone diagnosing
+            // a not-smoothed-as-expected section can grep for the reason.
+            // Build a section with a frames count that triggers the gating
+            // but is high enough to pass the orchestrator's MinSamples check
+            // (which mirrors CatmullRomFit's internal 4-sample requirement).
+            // The orchestrator's MinSamples = 4 means a 3-sample section is
+            // skipped entirely (no Warn) — for the Warn path we need to push
+            // a section with >= MinSamples but with a NaN that fails the fit.
+            var nanSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 105.0,
+                anchorVesselId = 0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 0, longitude = 0, altitude = 80000, rotation = Quaternion.identity, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 101.0, latitude = double.NaN, longitude = 0, altitude = 80000, rotation = Quaternion.identity, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 102.0, latitude = 0, longitude = 0, altitude = 80000, rotation = Quaternion.identity, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 103.0, latitude = 0, longitude = 0, altitude = 80000, rotation = Quaternion.identity, bodyName = "Kerbin" },
+                },
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            };
+            var rec = MakeRecording("rec-nan", nanSection);
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("Catmull-Rom fit failed")
+                && l.Contains("recordingId=rec-nan"));
+        }
+
+        // --- T5c.7-12: LoadOrCompute drift / cache key behaviour ---
+
+        [Fact]
+        public void LoadOrCompute_PannMissing_FitsAndWrites()
+        {
+            // What makes it fail: missing .pann should trigger lazy compute
+            // and write — without this, every load would re-fit (perf hit)
+            // and the write step would never validate (HR-12 atomic write).
+            var rec = MakeRecording("rec-miss",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            string pannPath = Path.Combine(tempDir, "rec-miss.pann");
+
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.True(File.Exists(pannPath));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-miss", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-Smoothing]")
+                && l.Contains("Lazy compute") && l.Contains("reason=file-missing"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_PannPresent_NoRefit()
+        {
+            // What makes it fail: a fresh .pann should be read, not refit —
+            // re-fitting on every load defeats the cache and is HR-9 noise
+            // ("the smoothing pipeline ran" without a fit-failure shouldn't
+            // emit a Pipeline-Smoothing Info "Spline fit" line).
+            var rec = MakeRecording("rec-warm",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            string pannPath = Path.Combine(tempDir, "rec-warm.pann");
+
+            // First call: lazy compute + write.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            // Reset store + log so the second call's behaviour is observable.
+            SectionAnnotationStore.ResetForTesting();
+            logLines.Clear();
+
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-warm", 0, out _));
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO][Pipeline-Smoothing]")
+                && l.Contains("Spline fit:") && l.Contains("recordingId=rec-warm"));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Pipeline-Sidecar]")
+                && l.Contains("Pannotations read OK") && l.Contains("recordingId=rec-warm"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_StalePann_AlgStampMismatch_Recomputes()
+        {
+            // What makes it fail: HR-10 — silently accepting a .pann written
+            // by a different algorithm version would feed stale annotations
+            // to the renderer.
+            string pannPath = Path.Combine(tempDir, "rec-alg.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-alg",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Mutate AlgorithmStampVersion (offset 8..11 = magic[0..3] + binVer[4..7] + algStamp[8..11])
+            byte[] bytes = File.ReadAllBytes(pannPath);
+            bytes[8] = 99; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+            File.WriteAllBytes(pannPath, bytes);
+
+            var rec = MakeRecording("rec-alg",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=alg-stamp-drift"));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-alg", 0, out var spline));
+            Assert.True(spline.IsValid);
+        }
+
+        [Fact]
+        public void LoadOrCompute_StalePann_RecordingIdMismatch_Recomputes()
+        {
+            // What makes it fail: a .pann from a different recording was
+            // copied or left in place under our filename. Every other field
+            // can match by chance (same epoch, format, alg stamp, config
+            // hash); without an id check, the foreign spline sections would
+            // be installed under the current recording's id and produce
+            // wrong-coordinate ghost positions. .prec already rejects id
+            // mismatches at TrajectorySidecarBinary load — .pann mirrors
+            // that defense.
+            string pannPath = Path.Combine(tempDir, "rec-mismatch.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            // Write the .pann under a different recording id ("foreign-rec")
+            // to a file the loader will look up under "rec-mismatch".
+            PannotationsSidecarBinary.Write(pannPath, "foreign-rec",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            var rec = MakeRecording("rec-mismatch",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=recording-id-mismatch"));
+            // Recompute path should have populated annotations under the
+            // *correct* recording id.
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-mismatch", 0, out var spline));
+            Assert.True(spline.IsValid);
+        }
+
+        [Fact]
+        public void LoadOrCompute_StalePann_EpochDrift_Recomputes()
+        {
+            // What makes it fail: HR-10 — a .prec rewrite (supersede commit,
+            // healing pass) bumps SidecarEpoch but if the orchestrator didn't
+            // verify, stale splines from the previous epoch would be reused.
+            string pannPath = Path.Combine(tempDir, "rec-ep.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-ep",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // The recording has SidecarEpoch=2 — file holds epoch=1.
+            var rec = MakeRecording("rec-ep",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            rec.SidecarEpoch = 2;
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=epoch-drift"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_StalePann_FormatDrift_Recomputes()
+        {
+            // What makes it fail: HR-10 — recording-format version bumps
+            // (e.g. v7 → v8) reshape what the splines represent. Reusing
+            // splines fitted at v7 against a v8 recording would silently
+            // smooth the wrong coordinate space.
+            string pannPath = Path.Combine(tempDir, "rec-fmt.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-fmt",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 6,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            var rec = MakeRecording("rec-fmt",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            // Recording is v7 — file holds v6.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=format-drift"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_StalePann_ConfigHashDrift_Recomputes()
+        {
+            // What makes it fail: HR-10 — perturbing a tunable (tension, etc.)
+            // changes the canonical hash. If the orchestrator skipped this
+            // check, future tunable changes would silently reuse the old
+            // splines.
+            string pannPath = Path.Combine(tempDir, "rec-cfg.pann");
+            byte[] realHash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-cfg",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: realHash,
+                splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Mutate a single byte of the configuration hash (offset 20..51 in header:
+            // magic(4) + binVer(4) + algStamp(4) + epoch(4) + fmtVer(4) = 20, so hash starts at 20).
+            byte[] bytes = File.ReadAllBytes(pannPath);
+            bytes[20] = (byte)(bytes[20] ^ 0xFF);
+            File.WriteAllBytes(pannPath, bytes);
+
+            var rec = MakeRecording("rec-cfg",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=config-hash-drift"));
+        }
+
+        // --- T5c.13-15: PersistAfterCommit ---
+
+        [Fact]
+        public void PersistAfterCommit_WritesPannSibling()
+        {
+            // What makes it fail: commit-time path that doesn't write .pann
+            // means every subsequent load would re-fit (defeating the cache).
+            var rec = MakeRecording("rec-commit",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-commit.pann");
+
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+
+            Assert.True(File.Exists(pannPath));
+            Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probe));
+            Assert.True(probe.Success);
+            Assert.True(probe.Supported);
+            Assert.Equal("rec-commit", probe.RecordingId);
+            Assert.Equal(rec.SidecarEpoch, probe.SourceSidecarEpoch);
+            Assert.True(PannotationsSidecarBinary.TryRead(pannPath, probe, out var splines, out _, out _));
+            Assert.Single(splines);
+            Assert.Equal(0, splines[0].Key);
+            Assert.True(splines[0].Value.IsValid);
+        }
+
+        [Fact]
+        public void PersistAfterCommit_PeerPannFiles_AlsoUpdated()
+        {
+            // P2-A regression: DetectAndStore writes traces into BOTH sides
+            // of every overlap pair, but PersistAfterCommit only wrote
+            // rec.pann. Peer .pann files stayed stale; on next session
+            // load, if the selector designated the peer as primary, the
+            // blender would find no trace and the window would silently
+            // degrade to standalone playback.
+            //
+            // Fix: PersistAfterCommit eagerly writes peer .pann files for
+            // every recording whose in-memory store gained a trace
+            // pointing at the recording being committed.
+            //
+            // Phase 5 review-pass-3 P3-2: prior incarnation of this test
+            // could not verify the actual file write because
+            // RecordingPaths.ResolveSaveScopedPath returns null in xUnit
+            // (no save context) and PersistPeerPannFiles fell into its
+            // skipped-path branch. The new PeerPannPathResolverForTesting
+            // seam routes peer writes to a temp directory so the file is
+            // actually produced on disk and can be verified.
+            var recA = MakeRecording("rec-A-peer-persist",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-peer-persist",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+
+            // P3-2: route peer .pann writes to the test's temp directory.
+            string peerPannDir = Path.Combine(tempDir, "peer-pann");
+            Directory.CreateDirectory(peerPannDir);
+            SmoothingPipeline.PeerPannPathResolverForTesting = recordingId =>
+                Path.Combine(peerPannDir, recordingId + ".pann");
+
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                // Both must be in CommittedRecordings so PersistAfterCommit
+                // sees recB in its snapshot iteration.
+                RecordingStore.AddCommittedInternal(recA);
+                RecordingStore.AddCommittedInternal(recB);
+
+                string pannPathA = Path.Combine(tempDir, "rec-A-peer-persist.pann");
+                SmoothingPipeline.PersistAfterCommit(recA, pannPathA);
+
+                // Both sides have the in-memory trace.
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(
+                    recA.RecordingId, out var tracesA));
+                Assert.NotNull(tracesA);
+                Assert.NotEmpty(tracesA);
+                Assert.Contains(tracesA, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+
+                Assert.True(SectionAnnotationStore.TryGetCoBubbleTraces(
+                    recB.RecordingId, out var tracesB));
+                Assert.NotNull(tracesB);
+                Assert.NotEmpty(tracesB);
+                Assert.Contains(tracesB, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // P3-2: the peer .pann file must exist on disk under the
+                // seam-directed path.
+                string expectedPeerPannPath = Path.Combine(peerPannDir, recB.RecordingId + ".pann");
+                Assert.True(File.Exists(expectedPeerPannPath),
+                    $"Peer .pann file should exist at {expectedPeerPannPath}");
+
+                // And the on-disk file must contain the trace pointing
+                // at recA. Probe + read to validate.
+                Assert.True(PannotationsSidecarBinary.TryProbe(expectedPeerPannPath, out var probe));
+                Assert.True(probe.Success);
+                Assert.True(probe.Supported);
+                Assert.True(PannotationsSidecarBinary.TryRead(expectedPeerPannPath, probe,
+                    out _, out _, out List<CoBubbleOffsetTrace> peerDiskTraces, out _));
+                Assert.NotNull(peerDiskTraces);
+                Assert.Contains(peerDiskTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // The peer-persist summary log must fire with peerCount=1
+                // (recB is the one peer touched by recA's commit) AND
+                // persisted=1 (P3-2: pre-fix this would be skipped=1 in
+                // xUnit because the production resolver returned null).
+                Assert.Contains(logLines, l =>
+                    l.Contains("[VERBOSE][Pipeline-CoBubble]")
+                    && l.Contains("PersistPeerPannFiles summary")
+                    && l.Contains("committed=" + recA.RecordingId)
+                    && l.Contains("peerCount=1")
+                    && l.Contains("persisted=1"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void LoadOrCompute_LazyRecompute_PeerPannSymmetricallyUpdated()
+        {
+            // Phase 5 review-pass-3 P3-1 regression: when LoadOrCompute
+            // recomputed for recA after alg-stamp drift, it called
+            // DetectAndStore (which populates BOTH sides' in-memory
+            // traces) and TryWritePann(recA), but did NOT mirror P2-A's
+            // peer-side .pann write. Until both sides had iterated, the
+            // .pann state was asymmetric: recA.pann had the trace,
+            // recB.pann was still stale (or empty if newly recomputed
+            // first). If a session designated recB as primary in that
+            // window, the blender would find no recorded trace and fall
+            // back to standalone.
+            //
+            // Phase 8 review-pass-2 P2 follow-up: when treeLocalLoadSet
+            // is supplied (mid-tree-load), peer persistence is now
+            // deferred to the OnLoad post-hydration sweep
+            // (RecomputeDeferredCoBubbleTraces) — the inline
+            // PersistPeerPannFiles call moved to the non-tree-load lazy-
+            // compute branch. This test covers BOTH halves: the inline
+            // path (treeLocalLoadSet=null) writes both .pann files
+            // immediately; the deferred path (treeLocalLoadSet=
+            // {recA, recB}) writes nothing inline but the sweep produces
+            // both files.
+            string pannPathA = Path.Combine(tempDir, "rec-A-lazy-peer.pann");
+
+            var recA = MakeRecording("rec-A-lazy-peer",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-lazy-peer",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+
+            string peerPannDir = Path.Combine(tempDir, "lazy-peer-pann");
+            Directory.CreateDirectory(peerPannDir);
+            SmoothingPipeline.PeerPannPathResolverForTesting = recordingId =>
+                Path.Combine(peerPannDir, recordingId + ".pann");
+
+            // Phase 8 review-pass-2 P2: also stand up CommittedRecordings
+            // so the inline (non-tree-load) recompute path's
+            // DetectAndStoreCoBubbleTracesForRecording can see both peers
+            // — the inline path passes treeLocalLoadSet=null, so the
+            // detector's snapshot composition reads from CommittedRecordings.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.AddCommittedInternal(recA);
+                RecordingStore.AddCommittedInternal(recB);
+
+                // Step 1: write a stale-alg-stamp .pann for recA.
+                byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
+                    SmoothingConfiguration.Default,
+                    AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
+                    SmoothingPipeline.ResolveUseCoBubbleBlend(),
+                    SmoothingPipeline.ResolveUseOutlierRejection());
+                PannotationsSidecarBinary.Write(pannPathA,
+                    "rec-A-lazy-peer",
+                    sourceSidecarEpoch: recA.SidecarEpoch,
+                    sourceRecordingFormatVersion: recA.RecordingFormatVersion,
+                    configurationHash: hash,
+                    splines: new List<KeyValuePair<int, SmoothingSpline>>());
+                byte[] bytes = File.ReadAllBytes(pannPathA);
+                bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+                File.WriteAllBytes(pannPathA, bytes);
+
+                // Step 2: trigger NON-TREE-LOAD lazy recompute (no load
+                // set). Production hits this path for manual cache-bust
+                // outside OnLoad; it persists peer .pann inline because
+                // there are no later peers waiting to hydrate. recB is
+                // visible via CommittedRecordings.
+                SmoothingPipeline.LoadOrCompute(recA, pannPathA, treeLocalLoadSet: null);
+
+                // recB.pann must exist on disk under the seam path,
+                // proving the inline lazy recompute mirrored the peer
+                // write (review-pass-3 P3-1 contract).
+                string expectedPeerPath = Path.Combine(peerPannDir, recB.RecordingId + ".pann");
+                Assert.True(File.Exists(expectedPeerPath),
+                    $"Peer .pann file should exist at {expectedPeerPath}");
+
+                // And contain a trace pointing at recA.
+                Assert.True(PannotationsSidecarBinary.TryProbe(expectedPeerPath, out var probe));
+                Assert.True(PannotationsSidecarBinary.TryRead(expectedPeerPath, probe,
+                    out _, out _, out List<CoBubbleOffsetTrace> peerTraces, out _));
+                Assert.NotNull(peerTraces);
+                Assert.Contains(peerTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+
+                // Phase 8 review-pass-2 P2: inline path must NOT have
+                // enqueued the recording for deferred recompute (the
+                // deferred path is gated on treeLocalLoadSet != null).
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void PersistAfterCommit_PrecUntouched()
+        {
+            // What makes it fail: HR-1 violation — SmoothingPipeline must
+            // never touch .prec. Even an mtime change here would mean the
+            // pipeline secretly mutated raw recording data.
+            string precPath = Path.Combine(tempDir, "rec-untouch.prec");
+            File.WriteAllBytes(precPath, new byte[] { 1, 2, 3, 4, 5 });
+            DateTime originalMtime = File.GetLastWriteTimeUtc(precPath);
+
+            // Sleep a moment so any spurious mtime bump would be visible.
+            System.Threading.Thread.Sleep(20);
+
+            var rec = MakeRecording("rec-untouch",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-untouch.pann");
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+
+            Assert.Equal(originalMtime, File.GetLastWriteTimeUtc(precPath));
+            Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, File.ReadAllBytes(precPath));
+        }
+
+        [Fact]
+        public void PersistAfterCommit_WriteFailure_LogsWarn_DoesNotThrow()
+        {
+            // What makes it fail: HR-9 — a .pann write failure must NEVER
+            // propagate up to abort the user-facing commit. The cache is
+            // regenerable; visibility comes from a Warn line.
+            var rec = MakeRecording("rec-fail",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+
+            // Non-existent drive letter forces File.WriteAllBytes to throw
+            // DirectoryNotFoundException — exactly the disk-full / disk-
+            // unavailable IO failure HR-9 has to absorb.
+            string pannPath = @"Z:\parsek-nonexistent-drive\rec-fail.pann";
+
+            Exception caught = Record.Exception(() =>
+                SmoothingPipeline.PersistAfterCommit(rec, pannPath));
+
+            Assert.Null(caught);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Sidecar]")
+                && l.Contains("Pannotations write failure")
+                && l.Contains("recordingId=rec-fail"));
+        }
+
+        // --- T5c.16: Pipeline-Format line ---
+
+        [Fact]
+        public void LoadOrCompute_DegradedFormatVersion_LogsPipelineFormat()
+        {
+            // What makes it fail: skipping the Pipeline-Format Info line on
+            // load means future phases that DO have format-version-gated
+            // features (Phase 7 / 9) wouldn't be able to surface "this older
+            // recording loaded with a degraded feature set" without adding
+            // their own log site. Log it once now so the location is stable.
+            var rec = MakeRecording("rec-v5",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            rec.RecordingFormatVersion = 5;
+            string pannPath = Path.Combine(tempDir, "rec-v5.pann");
+
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Format]")
+                && l.Contains("recordingId=rec-v5")
+                && l.Contains("formatVersion=5")
+                && l.Contains("degradedFeatures=[]"));
+        }
+
+        // --- Phase 4: inertial frame transformation ---
+
+        [Fact]
+        public void FitAndStorePerSection_ExoBallistic_FitsInInertial()
+        {
+            // What makes it fail: missing the lift in FitAndStorePerSection
+            // means the spline ControlsY[0] equals the raw body-fixed
+            // longitude. Phase 4 requires it to equal lifted longitude
+            // (raw + recordingUT*360/period, wrapped). This is THE check that
+            // proves the lift ran.
+            const double startUT = 100.0;
+            var rec = MakeRecording("rec-ball-inertial",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: startUT));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-ball-inertial", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.Equal((byte)1, spline.FrameTag);
+
+            // Raw frame[0]: longitude = 1.0 at UT=100 (per MakeFrames default).
+            // Inertial longitude = 1.0 + 100*360/period, wrapped to (-180,180].
+            double phase = (startUT * 360.0) / KerbinRotationPeriod;
+            double expectedInertial = 1.0 + phase;
+            // Wrap.
+            double wrapped = expectedInertial % 360.0;
+            if (wrapped > 180.0) wrapped -= 360.0;
+            else if (wrapped <= -180.0) wrapped += 360.0;
+            Assert.Equal((float)wrapped, spline.ControlsY[0], precision: 4);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ExoPropulsive_FitsInInertial()
+        {
+            // What makes it fail: same as the ExoBallistic case but for the
+            // propulsive environment. Both EXO_* environments must lift; if
+            // ExoPropulsive is dropped from the inertial branch, long-burn
+            // playback drifts.
+            const double startUT = 200.0;
+            var rec = MakeRecording("rec-prop-inertial",
+                MakeSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: startUT));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-prop-inertial", 0, out var spline));
+            Assert.Equal((byte)1, spline.FrameTag);
+
+            double phase = (startUT * 360.0) / KerbinRotationPeriod;
+            double expectedInertial = 1.0 + phase;
+            double wrapped = expectedInertial % 360.0;
+            if (wrapped > 180.0) wrapped -= 360.0;
+            else if (wrapped <= -180.0) wrapped += 360.0;
+            Assert.Equal((float)wrapped, spline.ControlsY[0], precision: 4);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_NullBody_LogsWarnAndSkips()
+        {
+            // What makes it fail: HR-9 — a section whose bodyName cannot be
+            // resolved in FlightGlobals.Bodies (planet pack uninstalled, body
+            // renamed) must NOT crash, must NOT silently fall back to a body-
+            // fixed fit (which would silently corrupt rendering), and MUST
+            // surface a Pipeline-Frame Warn so the failure is greppable.
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10);
+            // Override every frame's bodyName to one the resolver doesn't know.
+            for (int i = 0; i < sec.frames.Count; i++)
+            {
+                var p = sec.frames[i];
+                p.bodyName = "Bogus";
+                sec.frames[i] = p;
+            }
+            var rec = MakeRecording("rec-bogus", sec);
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-bogus", 0, out _));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Frame]")
+                && l.Contains("body not found")
+                && l.Contains("recordingId=rec-bogus")
+                && l.Contains("bodyName=Bogus"));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_LogIncludesFrameTag()
+        {
+            // What makes it fail: the L1 Spline-fit Info line is the primary
+            // observation point for Phase 4 — without `frameTag=1` in the
+            // line, no one debugging KSP.log can confirm the inertial path
+            // ran. (Atmospheric / Surface* will print frameTag=0 once the
+            // gate enables them; preserving the field keeps that future-proof.)
+            var rec = MakeRecording("rec-tag",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Smoothing]")
+                && l.Contains("Spline fit:")
+                && l.Contains("recordingId=rec-tag")
+                && l.Contains("frameTag=1")
+                && l.Contains("body=Kerbin"));
+
+            // Pipeline-Frame Verbose lift-decision line.
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Pipeline-Frame]")
+                && l.Contains("Section lift to inertial decision")
+                && l.Contains("recordingId=rec-tag")
+                && l.Contains("frameTag=1"));
+        }
+
+        // --- Phase 4 Task 4: AlgorithmStampVersion bump ---
+
+        [Fact]
+        public void AlgorithmStampBump_V1FilesInvalidatedAsAlgStampDrift()
+        {
+            // What makes it fail: HR-10 — a Phase-3-shipped .pann (alg stamp
+            // v1, body-fixed splines) must NOT be silently reused under the
+            // Phase 4 binary (alg stamp v2, inertial splines). The reason
+            // token "alg-stamp-drift" is the canonical signal that this
+            // happened; tests pin to it so a future bump that forgets to
+            // change AlgorithmStampVersion shows up as a green test that
+            // shouldn't be green.
+            string pannPath = Path.Combine(tempDir, "rec-v1stamp.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(pannPath, "rec-v1stamp",
+                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Mutate AlgorithmStampVersion (offset 8..11) to 1 — represents
+            // a .pann written by the Phase 3 build before the Phase 4 bump.
+            byte[] bytes = File.ReadAllBytes(pannPath);
+            bytes[8] = 1; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+            File.WriteAllBytes(pannPath, bytes);
+
+            var rec = MakeRecording("rec-v1stamp",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
+                && l.Contains("whole-file invalidation")
+                && l.Contains("reason=alg-stamp-drift"));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-v1stamp", 0, out var spline));
+            // Recompute under Phase 4 produces FrameTag = 1.
+            Assert.Equal((byte)1, spline.FrameTag);
+        }
+
+        // --- P1#3: stale-spline clearing on recompute ---
+
+        private static SmoothingSpline MakeSentinelSpline(int knotCount = 4, byte frameTag = 0)
+        {
+            double[] knots = new double[knotCount];
+            float[] cx = new float[knotCount];
+            float[] cy = new float[knotCount];
+            float[] cz = new float[knotCount];
+            for (int i = 0; i < knotCount; i++)
+            {
+                knots[i] = 9000.0 + i;
+                cx[i] = 999f + i;
+                cy[i] = 999f + i;
+                cz[i] = 999f + i;
+            }
+            return new SmoothingSpline
+            {
+                SplineType = 0,
+                Tension = 0.5f,
+                KnotsUT = knots,
+                ControlsX = cx,
+                ControlsY = cy,
+                ControlsZ = cz,
+                FrameTag = frameTag,
+                IsValid = true,
+            };
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ClearsPriorEntries_OnRecompute()
+        {
+            // What makes it fail: P1#3 — without the recording-bucket clear at
+            // the top of FitAndStorePerSection, a section that was fit
+            // previously but is no longer eligible (or fails the fit this
+            // round) keeps its stale spline forever. The Add-only
+            // PutSmoothingSpline path means the new fit can never erase a
+            // prior section's entry.
+            var rec = MakeRecording("rec-stale-fit",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+
+            // Plant a sentinel spline at a section index the fresh fit will
+            // NOT emit (fresh fit emits only sectionIndex=0 here).
+            SectionAnnotationStore.PutSmoothingSpline("rec-stale-fit", 99, MakeSentinelSpline());
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 99, out _));
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            // Sentinel must be gone after recompute.
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 99, out _));
+            // Real fit result must still be present.
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-fit", 0, out var fresh));
+            Assert.True(fresh.IsValid);
+        }
+
+        [Fact]
+        public void LoadOrCompute_ReadPath_ClearsPriorEntries()
+        {
+            // What makes it fail: P1#3 read path — without the clear before
+            // populating from the freshly-read .pann, a sentinel left in the
+            // in-memory store from a prior session (or from a healed
+            // recording's earlier sidecar shape) escapes the cache-key
+            // freshness check and is silently consumed by the renderer.
+            var rec = MakeRecording("rec-stale-read",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
+            string pannPath = Path.Combine(tempDir, "rec-stale-read.pann");
+
+            // Prime the .pann via a successful compute+write.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            Assert.True(File.Exists(pannPath));
+
+            // Reset in-memory store + plant a sentinel at a section index the
+            // .pann's read will NOT emit.
+            SectionAnnotationStore.ResetForTesting();
+            SectionAnnotationStore.PutSmoothingSpline("rec-stale-read", 99, MakeSentinelSpline());
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 99, out _));
+            logLines.Clear();
+
+            // Re-load: read path should fire (no drift), populate from disk,
+            // and discard the sentinel.
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Pipeline-Sidecar]")
+                && l.Contains("Pannotations read OK") && l.Contains("recordingId=rec-stale-read"));
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 99, out _));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-stale-read", 0, out _));
+        }
+
+        [Fact]
+        public void PannotationsHeader_WritesCurrentAlgorithmStamp()
+        {
+            // What makes it fail: a forgotten bump of AlgorithmStampVersion
+            // would leave new .pann files with a stale stamp, so a future
+            // phase that bumps further would not be able to invalidate
+            // them via alg-stamp-drift. Phase 6 bumped 2 -> 3 to invalidate
+            // existing files that lack the AnchorCandidatesList payload.
+            // Pin to the constant so a future bump updates the value here
+            // and the test still passes.
+            var rec = MakeRecording("rec-v2write",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-v2write.pann");
+
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(pannPath, out var probe));
+            Assert.True(probe.Success);
+            Assert.Equal(PannotationsSidecarBinary.AlgorithmStampVersion, probe.AlgorithmStampVersion);
+        }
+
+        // ---- ultrareview P1-A: useAnchorTaxonomy flag in ConfigurationHash ----
+
+        [Fact]
+        public void ConfigurationHash_DiffersByUseAnchorTaxonomy()
+        {
+            // What makes it fail: a hash that ignores the flag would let a
+            // .pann written when the flag was off cache-hit when the flag
+            // is on (and vice-versa). Phase 6's writer emits an empty
+            // AnchorCandidatesList when off and a populated one when on,
+            // so the two are NOT equivalent — the cache key must reflect
+            // that.
+            byte[] hashOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
+            byte[] hashOff = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: false);
+            Assert.NotEqual(hashOn, hashOff);
+        }
+
+        [Fact]
+        public void ConfigurationHash_SingleArgOverload_DefaultsToFlagOn()
+        {
+            // What makes it fail: existing call sites (test fixtures pinned
+            // before P1-A landed) pass the single-arg overload. They must
+            // continue to compute the same hash they always did, which
+            // means defaulting to the shipped Phase 6 default (true).
+            byte[] singleArg = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default);
+            byte[] explicitOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
+            Assert.Equal(singleArg, explicitOn);
+        }
+
+        [Fact]
+        public void LoadOrCompute_DriftedAlgStamp_RecomputesCoBubbleTraces()
+        {
+            // P1-B regression: lazy recompute (file-missing / drift) used to
+            // call FitAndStorePerSection only and rewrite a fresh .pann with
+            // an EMPTY CoBubbleOffsetTraces block. Saves with bumped
+            // AlgorithmStampVersion or config-hash drift fell back to
+            // standalone playback until recordings were recommitted.
+            //
+            // Phase 8 review-pass-2 P2 follow-up: when LoadOrCompute is
+            // running mid-tree-load (treeLocalLoadSet != null), peers
+            // hydrated AFTER the current recording have empty Points at
+            // recompute time, so an inline DetectAndStore would emit no
+            // traces. The recompute path now defers that work: it
+            // enqueues recA into s_deferredCoBubbleRecomputes, writes
+            // recA.pann WITHOUT co-bubble traces, and returns. The
+            // OnLoad-driven sweep RecomputeDeferredCoBubbleTraces then
+            // runs against the now-fully-hydrated tree, populates the
+            // in-memory traces for both sides, and rewrites BOTH .pann
+            // files.
+            //
+            // This test exercises both halves end-to-end:
+            //   1. LoadOrCompute mid-tree-load → recA.pann rewritten
+            //      with NO co-bubble traces; recA enqueued for deferred
+            //      recompute.
+            //   2. RecomputeDeferredCoBubbleTraces → recA.pann + recB.pann
+            //      both contain a trace for the (recA, recB) pair.
+            string pannDir = Path.Combine(tempDir, "drift-cobubble-pann");
+            Directory.CreateDirectory(pannDir);
+            string pannPathA = Path.Combine(pannDir, "rec-A-cobubble.pann");
+            string pannPathB = Path.Combine(pannDir, "rec-B-cobubble.pann");
+
+            // Two recordings whose ExoBallistic + Absolute sections overlap
+            // — the canonical co-bubble pair.
+            var recA = MakeRecording("rec-A-cobubble",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            // Mark Background source so P2-A's Active+Active rejection
+            // doesn't skip the pair.
+            var sectionA = recA.TrackSections[0];
+            sectionA.source = TrackSectionSource.Active;
+            recA.TrackSections[0] = sectionA;
+            var recB = MakeRecording("rec-B-cobubble",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute,
+                    frameCount: 10, startUT: 100.0, dutPerSample: 1.0));
+            var sectionB = recB.TrackSections[0];
+            sectionB.source = TrackSectionSource.Background;
+            recB.TrackSections[0] = sectionB;
+
+            // Pre-populate Recording.Points so the detector's sample-walk
+            // sees a sane separation. Two points each, same world position
+            // = zero separation.
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 109.0, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity,
+            });
+
+            // Wire test seams so the detector / pipeline run without
+            // FlightGlobals.
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting =
+                (rec, ut) => new Vector3d(0, 0, 0);
+            CoBubbleOverlapDetector.BodyResolverForTesting = name =>
+                name == "Kerbin" ? fakeKerbin : null;
+            // P2: route owner + peer .pann writes through the test seam
+            // so the deferred-recompute sweep's PersistPeerPannFiles +
+            // ResolveOwnerPannPathForDeferredRecompute land on disk in
+            // pannDir (the production save-context resolver returns null
+            // in xUnit).
+            SmoothingPipeline.PeerPannPathResolverForTesting = id =>
+                Path.Combine(pannDir, id + ".pann");
+
+            try
+            {
+                // Step 1: write a stale-alg-stamp recA.pann to force the
+                // recompute path on read.
+                byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(
+                    SmoothingConfiguration.Default,
+                    AnchorCandidateBuilder.ResolveUseAnchorTaxonomy(),
+                    SmoothingPipeline.ResolveUseCoBubbleBlend(),
+                    SmoothingPipeline.ResolveUseOutlierRejection());
+                PannotationsSidecarBinary.Write(pannPathA,
+                    "rec-A-cobubble",
+                    sourceSidecarEpoch: recA.SidecarEpoch,
+                    sourceRecordingFormatVersion: recA.RecordingFormatVersion,
+                    configurationHash: hash,
+                    splines: new List<KeyValuePair<int, SmoothingSpline>>());
+
+                // Mutate AlgorithmStampVersion to 6 (offset 8..11). The
+                // current build's stamp is 9; we mutate to a stale value
+                // to force alg-stamp-drift on read.
+                byte[] bytes = File.ReadAllBytes(pannPathA);
+                bytes[8] = 6; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+                File.WriteAllBytes(pannPathA, bytes);
+
+                // Step 2: simulate sequential mid-tree-load — LoadOrCompute
+                // for recA fires while recB is still in the load set but
+                // has empty Points at this exact moment. Build a separate
+                // recB-empty stub with the same id so the deferred path's
+                // skip behaviour is observable on the production code
+                // (the production sequential loop hands LoadOrCompute a
+                // dictionary whose entries are all Recording references
+                // from the tree, but the .prec hydration runs per-call so
+                // peers iterated later still have empty Points). Here we
+                // give recB a temporarily-empty Points list to mirror
+                // that ordering, then restore it before the sweep.
+                var recBEmpty = new Recording
+                {
+                    RecordingId = recB.RecordingId,
+                    RecordingFormatVersion = recB.RecordingFormatVersion,
+                    SidecarEpoch = recB.SidecarEpoch,
+                    // Points intentionally null/empty.
+                };
+                var loadSet = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { recA.RecordingId, recA },
+                    { recB.RecordingId, recBEmpty },
+                };
+
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+                SmoothingPipeline.LoadOrCompute(recA, pannPathA, loadSet);
+                Assert.Equal(1, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // The first .pann rewrite reflects the deferred path:
+                // recompute ran, but no co-bubble traces were detected
+                // (recBEmpty's Points was empty), so the file has an
+                // empty CoBubbleOffsetTraces block.
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathA, out var probeAfter));
+                Assert.True(probeAfter.Supported);
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathA, probeAfter,
+                    out _, out _, out List<CoBubbleOffsetTrace> tracesAfter, out _));
+                Assert.NotNull(tracesAfter);
+                Assert.Empty(tracesAfter);
+
+                // The alg-stamp-drift invalidation log fired on read.
+                Assert.Contains(logLines,
+                    l => l.Contains("[INFO][Pipeline-Sidecar]")
+                        && l.Contains("whole-file invalidation")
+                        && l.Contains("reason=alg-stamp-drift"));
+                // The deferred-recompute Verbose log fired.
+                Assert.Contains(logLines,
+                    l => l.Contains("[Pipeline-CoBubble]")
+                        && l.Contains("LoadOrCompute deferred co-bubble detection")
+                        && l.Contains("recordingId=" + recA.RecordingId));
+
+                // Step 3: simulate the OnLoad post-hydration sweep with
+                // BOTH recordings now fully hydrated. The sweep picks up
+                // recA from the deferred set, runs DetectAndStore against
+                // {recA: full, recB: full}, and rewrites BOTH .pann files
+                // via PersistPeerPannFiles.
+                var hydrated = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    { recA.RecordingId, recA },
+                    { recB.RecordingId, recB },
+                };
+                int processed = SmoothingPipeline.RecomputeDeferredCoBubbleTraces(hydrated);
+                Assert.Equal(1, processed);
+                Assert.Equal(0, SmoothingPipeline.DeferredCoBubbleRecomputesCountForTesting);
+
+                // recA.pann now contains a trace pointing at recB.
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathA, out var probeA2));
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathA, probeA2,
+                    out _, out _, out List<CoBubbleOffsetTrace> aTraces, out _));
+                Assert.NotNull(aTraces);
+                Assert.NotEmpty(aTraces);
+                Assert.Contains(aTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recB.RecordingId, StringComparison.Ordinal));
+
+                // recB.pann was written by PersistPeerPannFiles and
+                // contains a trace pointing at recA.
+                Assert.True(File.Exists(pannPathB),
+                    $"peer recB.pann should have been written at {pannPathB}");
+                Assert.True(PannotationsSidecarBinary.TryProbe(pannPathB, out var probeB));
+                Assert.True(PannotationsSidecarBinary.TryRead(pannPathB, probeB,
+                    out _, out _, out List<CoBubbleOffsetTrace> bTraces, out _));
+                Assert.NotNull(bTraces);
+                Assert.NotEmpty(bTraces);
+                Assert.Contains(bTraces, t =>
+                    t != null && string.Equals(t.PeerRecordingId, recA.RecordingId, StringComparison.Ordinal));
+            }
+            finally
+            {
+                CoBubbleOverlapDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void LoadOrCompute_DiscardsAndRecomputesOn_UseAnchorTaxonomy_FlagFlip()
+        {
+            // What makes it fail: the canonical regression for ultrareview
+            // P1-A. Write a .pann while the flag is off, then load it
+            // while the flag is on. Without the flag in the
+            // ConfigurationHash the load path treats the file as fresh
+            // and skips the lazy-recompute → §7.4-§7.10 anchors never
+            // re-emit. With the flag in the hash, the load surfaces
+            // config-hash-drift and the recompute fires.
+            var rec = MakeRecording("rec-flag-flip",
+                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
+            string pannPath = Path.Combine(tempDir, "rec-flag-flip.pann");
+
+            // Write .pann with flag off.
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = false;
+            try { SmoothingPipeline.PersistAfterCommit(rec, pannPath); }
+            finally { AnchorCandidateBuilder.ResetForTesting(); }
+            Assert.True(File.Exists(pannPath));
+
+            // Re-read with flag on. The cached hash should differ from
+            // the hash baked into the file → ClassifyDrift returns
+            // config-hash-drift → orchestrator logs invalidation, runs
+            // FitAndStorePerSection, rewrites .pann.
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+            // Reset the cached hash so CurrentConfigurationHash recomputes
+            // for the new flag value. ResetForTesting also reseats the
+            // body resolver / surface lookup seams the test ctor injected,
+            // so we re-install them after the reset.
+            SmoothingPipeline.ResetForTesting();
+            CelestialBody capturedKerbin = fakeKerbin;
+            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? capturedKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, capturedKerbin) ? KerbinRotationPeriod : double.NaN;
+            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+            try { SmoothingPipeline.LoadOrCompute(rec, pannPath); }
+            finally { AnchorCandidateBuilder.ResetForTesting(); }
+
+            // The Pipeline-Sidecar invalidation Info line should fire with
+            // reason=config-hash-drift (the canonical token for hash
+            // mismatch).
+            Assert.Contains(logLines,
+                l => l.Contains("[INFO][Pipeline-Sidecar]")
+                    && l.Contains("Pannotations whole-file invalidation")
+                    && l.Contains("recordingId=rec-flag-flip")
+                    && l.Contains("reason=config-hash-drift"));
+            Assert.Contains(logLines,
+                l => l.Contains("[INFO][Pipeline-Smoothing]")
+                    && l.Contains("Lazy compute")
+                    && l.Contains("recordingId=rec-flag-flip")
+                    && l.Contains("reason=config-hash-drift"));
+        }
+
+        // --- Phase 8 outlier-rejection wiring ---
+
+        private static List<TrajectoryPoint> MakeFramesWithVelocity(
+            int count, double startUT, double dutPerSample,
+            int krakenIndex = -1, float krakenVelMag = 50000f)
+        {
+            var frames = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 vel = new Vector3(10 + i, 0, 0);
+                if (i == krakenIndex)
+                {
+                    vel = new Vector3(krakenVelMag, 0, 0); // huge accel from prev
+                }
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * dutPerSample,
+                    latitude = 0.1 + i * 0.01,
+                    longitude = 1.0 + i * 0.05,
+                    altitude = 80000 + i * 100,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+            return frames;
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_KrakenSampleRejected_FlagsStored()
+        {
+            // What makes it fail: classifier doesn't run, OR runs but
+            // doesn't store flags. Either way the spline silently smooths
+            // through a kraken spike — the visible regression Phase 8 is
+            // designed to prevent.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = new Recording { RecordingId = "rec-k", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            // 12 frames with a velocity spike at index 5.
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("rec-k", 0, out OutlierFlags flags));
+            Assert.NotNull(flags);
+            Assert.True(flags.RejectedCount >= 1);
+            // The spline must still fit (we have 11 kept ≥ 4).
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-k", 0, out var spline));
+            Assert.True(spline.IsValid);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ClassifierOff_NoFlagsStored()
+        {
+            // What makes it fail: rollout-gate broken. With the gate off the
+            // classifier must NOT run.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => false;
+            var rec = new Recording { RecordingId = "rec-koff", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetOutlierFlags("rec-koff", 0, out _));
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-koff"));
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_TooManyOutliers_FitFailsAndWarns()
+        {
+            // 6-sample section with alternating kraken accels so every
+            // interior transition fires the Acceleration classifier. After
+            // rejection the kept count drops below 4 → fit invalid →
+            // Pipeline-Smoothing Warn surfaces.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var frames = new List<TrajectoryPoint>();
+            // velocities: 10, 50000, 10, 50001, 10, 50002 — every adjacent
+            // pair has a 50000 m/s delta over 1 sec ≫ 50 m/s² ExoBallistic
+            // ceiling. Endpoints (i=0, i=5) skip; the remaining 4 interior
+            // samples (i=1..4) all reject. 6 samples - 4 rejected = 2 < 4.
+            for (int i = 0; i < 6; i++)
+            {
+                Vector3 vel = (i % 2 == 0)
+                    ? new Vector3(10, 0, 0)
+                    : new Vector3(50000 + i, 0, 0);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = 100.0 + i,
+                    latitude = 0.001 * i,
+                    longitude = 0.001 * i,
+                    altitude = 80000,
+                    rotation = Quaternion.identity,
+                    velocity = vel,
+                    bodyName = "Kerbin",
+                });
+            }
+            var rec = new Recording { RecordingId = "rec-many", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 105.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            SmoothingPipeline.FitAndStorePerSection(rec);
+
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-many", 0, out _));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Smoothing]")
+                && l.Contains("Catmull-Rom fit failed")
+                && l.Contains("recordingId=rec-many")
+                && l.Contains("after-rejection"));
+        }
+
+        [Fact]
+        public void LoadOrCompute_OutlierFlags_RoundTrip()
+        {
+            // Write a .pann with outlier flags, clear store, load → flags
+            // re-installed under the recording id.
+            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
+            var rec = new Recording { RecordingId = "rec-rt", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 111.0,
+                anchorVesselId = 0,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            });
+            string pannPath = Path.Combine(tempDir, "rec-rt.pann");
+            SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+            int storedCount = SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-rt");
+            Assert.True(storedCount >= 1);
+
+            // Reset store and re-load.
+            SectionAnnotationStore.ResetForTesting();
+            SmoothingPipeline.LoadOrCompute(rec, pannPath);
+            Assert.Equal(storedCount, SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-rt"));
+            Assert.True(SectionAnnotationStore.TryGetOutlierFlags("rec-rt", 0, out var roundTripped));
+            // SampleCount backfilled from the live section's frames count.
+            Assert.Equal(frames.Count, roundTripped.SampleCount);
+        }
+
+        [Fact]
+        public void FitAndStorePerSection_ConfigHash_OutlierFlagFlip_ChangesHash()
+        {
+            // Phase 8 freshness: useOutlierRejection participates in the
+            // ConfigurationHash so a flip invalidates cached .pann files.
+            byte[] flagOn = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default,
+                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: true);
+            byte[] flagOff = PannotationsSidecarBinary.ComputeConfigurationHash(
+                SmoothingConfiguration.Default,
+                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: false);
+            Assert.NotEqual(flagOn, flagOff);
+        }
+    }
+}

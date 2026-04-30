@@ -107,6 +107,32 @@ namespace Parsek.Tests
             return scenario;
         }
 
+        private static RewindPoint Rp(string rpId, string bpId, params string[] slotRecordingIds)
+        {
+            var slots = new List<ChildSlot>();
+            if (slotRecordingIds != null)
+            {
+                for (int i = 0; i < slotRecordingIds.Length; i++)
+                {
+                    slots.Add(new ChildSlot
+                    {
+                        SlotIndex = i,
+                        OriginChildRecordingId = slotRecordingIds[i],
+                        Controllable = true
+                    });
+                }
+            }
+
+            return new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = bpId,
+                UT = 0.0,
+                SessionProvisional = false,
+                ChildSlots = slots
+            };
+        }
+
         // =====================================================================
         // EffectiveRecordingId: forward walk
         // =====================================================================
@@ -216,6 +242,28 @@ namespace Parsek.Tests
             Assert.False(EffectiveState.IsVisible(rec, list));
         }
 
+        [Fact]
+        public void IsSupersededByRelation_NotCommittedSuperseded_True()
+        {
+            var rec = Rec("rec_A", MergeState.NotCommitted);
+            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") };
+            Assert.True(EffectiveState.IsSupersededByRelation(rec, list));
+        }
+
+        [Fact]
+        public void ComputeSupersededRecordingIdsByRelation_EmptyNewId_DoesNotSuppress()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable);
+            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", null) };
+
+            var result = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                new List<Recording> { rec },
+                list);
+
+            Assert.Empty(result);
+            Assert.False(EffectiveState.IsSupersededByRelation(rec, list));
+        }
+
         // =====================================================================
         // IsUnfinishedFlight
         // =====================================================================
@@ -235,13 +283,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_1",
-                BranchPointId = "bp_1",
-                UT = 0.0,
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_1", "bp_1", "rec_A");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec));
@@ -256,14 +298,14 @@ namespace Parsek.Tests
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1");
-            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            var rp = Rp("rp_1", "bp_1", "rec_A");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
-            // Log-assertion: the not-crashed reject path must emit a distinguishing
+            // Log-assertion: stable terminal rejects must emit a distinguishing
             // Verbose line so the rejection is visible post-hoc (design §10.5).
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("stableTerminal"));
         }
 
         [Fact]
@@ -275,6 +317,26 @@ namespace Parsek.Tests
             MakeScenario();
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+        }
+
+        [Fact]
+        public void IsUnfinishedFlight_MultipleMatchingRpsWithoutSlot_LogsAllMisses()
+        {
+            var rec = Rec("rec_debris", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1");
+            MakeScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_parent"),
+                Rp("rp_2", "bp_1", "rec_controlled_child")
+            });
+
+            Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=noMatchingRpSlot")
+                && l.Contains("matches=2")
+                && l.Contains("rp_1@bp_1")
+                && l.Contains("rp_2@bp_1"));
         }
 
         [Fact]
@@ -330,12 +392,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(tip);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_stage",
-                BranchPointId = "bp_stage",
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(head));
@@ -382,12 +439,12 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(tip);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(head));
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("notCrashed:Orbiting"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("noFocusSignalOrbiting"));
         }
 
         [Fact]
@@ -404,15 +461,15 @@ namespace Parsek.Tests
             // once per rate-limit window.
             var rec = Rec("rec_spam", MergeState.Immutable, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1");
-            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            var rp = Rp("rp_1", "bp_1", "rec_spam");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             for (int i = 0; i < 100; i++)
                 Assert.False(EffectiveState.IsUnfinishedFlight(rec));
 
-            int notCrashedLines = logLines.Count(l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("rec_spam") && l.Contains("notCrashed"));
-            Assert.Equal(1, notCrashedLines);
+            int noFocusSignalLines = logLines.Count(l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("rec_spam") && l.Contains("noFocusSignalOrbiting"));
+            Assert.Equal(1, noFocusSignalLines);
         }
 
         [Fact]
@@ -485,7 +542,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(head);
             RecordingStore.AddRecordingWithTreeForTesting(tip);
 
-            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
@@ -521,12 +578,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(activeParent);
             RecordingStore.CommittedTrees.Add(tree);
 
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_breakup",
-                BranchPointId = "bp_breakup",
-                SessionProvisional = false
-            };
+            var rp = Rp("rp_breakup", "bp_breakup", "rec_active_parent");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.True(EffectiveState.IsUnfinishedFlight(activeParent));
@@ -770,6 +822,90 @@ namespace Parsek.Tests
 
             // Design §10 ELS rebuild log.
             Assert.Contains(logLines, l => l.Contains("[ELS]") && l.Contains("Rebuilt"));
+        }
+
+        [Fact]
+        public void ComputeSessionSuppressedSubtree_CrossChainSamePidPostRewindPeer_Included()
+        {
+            // Repro for KSP.log 2026-04-26 23:53:33 a0d14b08/29f1d9a8: an
+            // in-place Re-Fly that crossed staging produced two NEW recordings
+            // sharing the same VesselPersistentId as the origin (the live
+            // probe being re-flown), in DIFFERENT ChainIds. Without the
+            // cross-chain same-PID walk, EnqueueChainSiblings only picks up
+            // members of the origin's own chain, the destroyed sibling stays
+            // out of the closure, AppendRelations writes 0 supersede rows,
+            // and the destroyed run remains visible in the mission list +
+            // ghost playback.
+            const uint sharedPid = 2450432355u;
+            var tree = new RecordingTree { Id = "tree_kx", TreeName = "Kerbal X" };
+
+            var origin = new Recording
+            {
+                RecordingId = "f3f1f2e6", VesselName = "Kerbal X Probe (atmo)",
+                MergeState = MergeState.Immutable, TerminalStateValue = null,
+                TreeId = "tree_kx", ChainId = "chain_new", ChainIndex = 0,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 140.79,
+            };
+            var newChainTip = new Recording
+            {
+                RecordingId = "0a83aee0", VesselName = "Kerbal X Probe (exo)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Orbiting,
+                TreeId = "tree_kx", ChainId = "chain_new", ChainIndex = 1,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 163.27,
+            };
+            // Cross-chain destroyed sibling — same PID, started AFTER rewind UT
+            // (140.79 -> InvokedUT 141.36 -> sibling start 162.10).
+            var crossChainDestroyed = new Recording
+            {
+                RecordingId = "29f1d9a8", VesselName = "Kerbal X Probe (destroyed)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed,
+                TreeId = "tree_kx", ChainId = "chain_old", ChainIndex = 1,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 162.10,
+            };
+            // Pre-rewind history for the same PID — must NOT enter the closure.
+            var preRewindOrigin = new Recording
+            {
+                RecordingId = "rec_pre_rewind", VesselName = "Kerbal X Probe (pre-rewind)",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed,
+                TreeId = "tree_kx", ChainId = "chain_pre", ChainIndex = 0,
+                VesselPersistentId = sharedPid, ExplicitStartUT = 100.0,
+            };
+
+            tree.AddOrReplaceRecording(origin);
+            tree.AddOrReplaceRecording(newChainTip);
+            tree.AddOrReplaceRecording(crossChainDestroyed);
+            tree.AddOrReplaceRecording(preRewindOrigin);
+            RecordingStore.CommittedTrees.Add(tree);
+            // Closure walk reads RecordingStore.CommittedRecordings (the flat
+            // list) to build its recId->Recording map; tree-only registration
+            // would bypass it.
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddCommittedInternal(newChainTip);
+            RecordingStore.AddCommittedInternal(crossChainDestroyed);
+            RecordingStore.AddCommittedInternal(preRewindOrigin);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_test",
+                TreeId = "tree_kx",
+                ActiveReFlyRecordingId = "f3f1f2e6",
+                OriginChildRecordingId = "f3f1f2e6",
+                RewindPointId = "rp_test",
+                InvokedUT = 141.36,
+            };
+            MakeScenario(marker: marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("f3f1f2e6", closure);              // origin always
+            Assert.Contains("0a83aee0", closure);              // same-chain sibling
+            Assert.Contains("29f1d9a8", closure);              // <-- the regression: cross-chain same-PID post-rewind sibling
+            Assert.DoesNotContain("rec_pre_rewind", closure);  // pre-rewind history must stay out
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("pidPeersAdded="));
         }
 
         [Fact]

@@ -58,6 +58,21 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
+        // Manual watch entry keeps the legacy 300km affordance. Exit adds a
+        // 5km hysteresis band so a target that transfers/rebuilds near the cutoff
+        // does not enter and leave watch on the same frame.
+        internal const float WatchEnterCutoffMeters = 300_000f;
+        internal const float WatchExitCutoffMeters = 305_000f;
+        // Debounce: require this many consecutive frames over the exit cutoff
+        // before actually exiting watch mode. Suppresses single-frame
+        // false-positive trips caused by a stale cached distance computed
+        // across a FloatingOrigin / Krakensbane frame seam during time warp.
+        // Repro: logs/2026-04-27_1902/KSP.log line 208360 — cached 786169m
+        // tripped the cutoff while the rendered ghost transform was ~81km
+        // from the active vessel and a 90 ms-earlier sibling correctly
+        // logged dist=80568m. Mirrors the existing `watchNoTargetFrames`
+        // safety-net pattern for the no-camera-target path.
+        internal const int WatchExitCutoffDebounceFrames = 3;
         // Watch-mode tunables (entry camera defaults, pending-bridge budget) live
         // in ParsekConfig.cs under WatchMode.*. WatchModeLockId / WatchModeLockMask
         // are KSP ControlLocks identifiers and stay local.
@@ -85,6 +100,7 @@ namespace Parsek
         private double lineageProtectionUntilUT = double.NaN;
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
+        private int watchCutoffConsecutiveFrames;      // consecutive frames the cached cutoff has tripped (debounce)
 
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
@@ -378,6 +394,72 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        internal static bool IsWithinWatchEntryRange(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters < WatchEnterCutoffMeters;
+        }
+
+        internal static bool IsWithinWatchExitRange(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters < WatchExitCutoffMeters;
+        }
+
+        internal static bool ShouldExitWatchForDistance(double distanceMeters)
+        {
+            return IsFiniteWatchDistance(distanceMeters)
+                && distanceMeters >= WatchExitCutoffMeters;
+        }
+
+        internal static bool ShouldForceWatchedFullFidelityAtDistance(
+            bool isWatchedGhost,
+            double distanceMeters)
+        {
+            return isWatchedGhost
+                && IsFiniteWatchDistance(distanceMeters)
+                && !ShouldExitWatchForDistance(distanceMeters);
+        }
+
+        // Pure predicate for the cutoff debounce: returns true when the
+        // watched ghost has been over the exit cutoff for enough consecutive
+        // frames that we should actually exit watch mode. Counter
+        // increments per cutoff-tripped frame and resets to 0 on any
+        // within-range frame, so a single-frame false positive (e.g.
+        // FloatingOrigin / Krakensbane frame-seam staleness during warp)
+        // never reaches threshold. Real cutoff crossings exit after
+        // WatchExitCutoffDebounceFrames frames (~50 ms at 60 fps).
+        internal static bool ShouldExitWatchAfterCutoffDebounce(int consecutiveFrames)
+        {
+            return consecutiveFrames >= WatchExitCutoffDebounceFrames;
+        }
+
+        // Drives the cutoff debounce counter from inside the per-frame
+        // ApplyZoneRenderingImpl path. Caller passes the cached cutoff
+        // signal (true when state.lastDistance >= WatchExitCutoffMeters);
+        // returns true when the counter has reached the debounce threshold
+        // and the actual exit should fire this frame.
+        internal bool RegisterWatchCutoffSampleAndShouldExit(bool cachedCutoffTripped)
+        {
+            if (!cachedCutoffTripped)
+            {
+                watchCutoffConsecutiveFrames = 0;
+                return false;
+            }
+            watchCutoffConsecutiveFrames++;
+            return ShouldExitWatchAfterCutoffDebounce(watchCutoffConsecutiveFrames);
+        }
+
+        internal int WatchCutoffConsecutiveFramesForDiagnostics =>
+            watchCutoffConsecutiveFrames;
+
+        private static bool IsFiniteWatchDistance(double distanceMeters)
+        {
+            return !double.IsNaN(distanceMeters)
+                && !double.IsInfinity(distanceMeters)
+                && distanceMeters >= 0.0;
+        }
+
         internal static bool IsFiniteVector3(Vector3 value)
         {
             return !float.IsNaN(value.x)
@@ -656,19 +738,20 @@ namespace Parsek
             string activeBodyName = FlightGlobals.ActiveVessel?.mainBody?.name;
             string activeBody = activeBodyName ?? "null";
             double distMeters = hasGhost ? ResolveWatchDistanceMeters(state) : double.NaN;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
             bool sameBody = hasGhost
                 && !string.IsNullOrEmpty(ghostBody)
                 && !string.IsNullOrEmpty(activeBodyName)
                 && ghostBody == activeBodyName;
-            bool inRange = hasGhost && GhostPlaybackLogic.IsWithinWatchRange(distMeters, cutoffKm);
+            bool inRange = hasGhost && IsWithinWatchEntryRange(distMeters);
             string zone = hasGhost ? state.currentZone.ToString() : "None";
             bool isWatched = index == watchedRecordingIndex;
 
             return
                 $"watchEval(rec=#{index} watched={isWatched} watchedIndex={watchedRecordingIndex} " +
                 $"hasGhost={hasGhost} ghostActive={(hasGhost && state.ghost.activeSelf)} zone={zone} " +
-                $"dist={FormatWatchDistanceForLogs(distMeters)} cutoff={cutoffKm.ToString("F0", CultureInfo.InvariantCulture)}km " +
+                $"dist={FormatWatchDistanceForLogs(distMeters)} " +
+                $"enterCutoff={(WatchEnterCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +
+                $"exitCutoff={(WatchExitCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +
                 $"ghostBody={ghostBody} activeBody={activeBody} sameBody={sameBody} inRange={inRange})";
         }
 
@@ -818,8 +901,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if the ghost at index is within the camera cutoff distance.
-        /// The cutoff applies uniformly to all ghosts.
+        /// Returns true if the ghost at index is within the watch camera range.
+        /// Active watches use the wider exit cutoff; idle watch affordances use
+        /// the entry cutoff.
         /// </summary>
         internal bool IsGhostWithinVisualRange(int index)
         {
@@ -829,8 +913,9 @@ namespace Parsek
                 : null;
             if (s == null && (!ghostStates.TryGetValue(index, out s) || s == null))
                 return false;
-            float cutoffKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
-            return GhostPlaybackLogic.IsWithinWatchRange(s.lastDistance, cutoffKm);
+            return index == watchedRecordingIndex
+                ? IsWithinWatchExitRange(s.lastDistance)
+                : IsWithinWatchEntryRange(s.lastDistance);
         }
 
         internal bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state)
@@ -1068,24 +1153,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stores a captured camera state into the remembered-per-mode slot as a
-        /// target-relative snapshot. The ghost and its horizon proxy rotate
-        /// continuously, so a world-orbit-direction snapshot becomes stale within
-        /// a frame and restoring it on the next mode swap would snap the camera
-        /// to wherever that world vector now lies in the rotated basis. Raw
-        /// (pitch, hdg) relative to the current target stay meaningful because
-        /// the target transform tracks the ghost. Used for mode-swap bookmarks
-        /// (V-toggle + auto-mode atmosphere crossings); W->W switches and chain
-        /// transfers still use the world-direction path because those apply
-        /// immediately on the same frame with no drift window.
+        /// Returns a copy of <paramref name="cameraState"/> with the world-direction
+        /// and source-target-rotation basis fields cleared so restoring the state
+        /// on a different ghost re-applies the captured (pitch, hdg) directly
+        /// relative to the new target's transform. Used for mode-swap bookmarks
+        /// (V-toggle, auto-mode atmosphere crossings) and for explicit user W->W
+        /// switches, where the captured world-direction would otherwise decompose
+        /// into a visually surprising local angle on the destination ghost's
+        /// rotated basis (its horizon proxy / camera pivot has rotated continuously
+        /// during the seconds the user spent on another ghost). Chain transfers
+        /// (TransferWatchToNextSegment) keep the world-direction path because the
+        /// auto-handoff applies on the same frame with no drift window.
         /// </summary>
-        private void RememberWatchCameraStateAsTargetRelative(WatchCameraTransitionState cameraState)
+        internal static WatchCameraTransitionState MakeWatchCameraStateTargetRelative(
+            WatchCameraTransitionState cameraState)
         {
             cameraState.HasTargetRotation = false;
             cameraState.TargetRotation = Quaternion.identity;
             cameraState.HasWorldOrbitDirection = false;
             cameraState.WorldOrbitDirection = Vector3.zero;
-            RememberWatchCameraState(cameraState);
+            return cameraState;
+        }
+
+        private void RememberWatchCameraStateAsTargetRelative(WatchCameraTransitionState cameraState)
+        {
+            RememberWatchCameraState(MakeWatchCameraStateTargetRelative(cameraState));
         }
 
         private void RememberCurrentWatchCameraState()
@@ -1400,7 +1492,20 @@ namespace Parsek
                     $"distance={WatchMode.EntryDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
             if (switching && hasSwitchCameraState)
+            {
+                // Explicit user W->W switches let many frames pass between
+                // capture (on the source ghost) and apply (on the destination
+                // ghost) — the source ghost's basis has rotated continuously
+                // during the gap, so the captured world-orbit-direction would
+                // decompose into a visually surprising local angle on the
+                // destination ghost's rotated basis. Drop the world-direction
+                // and apply the captured (pitch, hdg) directly relative to the
+                // new target. Chain transfers (TransferWatchToNextSegment) keep
+                // the world-direction path because they auto-handoff in a
+                // single frame with no drift window.
+                switchCameraState = MakeWatchCameraStateTargetRelative(switchCameraState);
                 RememberWatchCameraState(switchCameraState);
+            }
             bool preservedHasRememberedFreeCameraState = hasRememberedFreeCameraState;
             WatchCameraTransitionState preservedFreeCameraState = rememberedFreeCameraState;
             bool preservedHasRememberedHorizonLockedCameraState = hasRememberedHorizonLockedCameraState;
@@ -1546,8 +1651,7 @@ namespace Parsek
 
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
-            // Refuse watch if ghost is at or beyond the fixed watch camera cutoff distance.
-            float maxWatchKm = DistanceThresholds.GhostFlight.GetWatchCameraCutoffKm();
+            // Refuse new watch entry if the ghost is at or beyond the entry cutoff.
             if (FlightGlobals.ActiveVessel != null)
             {
                 double distMeters = gs.lastDistance;
@@ -1556,9 +1660,10 @@ namespace Parsek
                     distMeters = Vector3d.Distance(
                         gs.ghost.transform.position, FlightGlobals.ActiveVessel.transform.position);
                 }
-                if (!GhostPlaybackLogic.IsWithinWatchRange(distMeters, maxWatchKm))
+                if (!IsWithinWatchEntryRange(distMeters))
                 {
                     float distKm = (float)(distMeters / 1000.0);
+                    float maxWatchKm = WatchEnterCutoffMeters / 1000f;
                     ParsekLog.Info("CameraFollow",
                         $"EnterWatchMode refused: ghost #{index} \"{committed[index].VesselName}\" " +
                         $"is {distKm.ToString("F0", CultureInfo.InvariantCulture)}km from active vessel (max {maxWatchKm.ToString("F0", CultureInfo.InvariantCulture)}km)");
@@ -1593,6 +1698,7 @@ namespace Parsek
             watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
+            watchCutoffConsecutiveFrames = 0;
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
         }
@@ -1694,6 +1800,7 @@ namespace Parsek
             watchEndHoldMaxRealTime = -1;
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
+            watchCutoffConsecutiveFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
             ClearRememberedWatchCameraStates();
@@ -2293,10 +2400,10 @@ namespace Parsek
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
         /// </summary>
-        internal void TransferWatchToNextSegment(int nextIndex)
+        internal bool TransferWatchToNextSegment(int nextIndex)
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (nextIndex < 0 || nextIndex >= committed.Count) return;
+            if (nextIndex < 0 || nextIndex >= committed.Count) return false;
 
             string oldName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
                 ? committed[watchedRecordingIndex].VesselName : "?";
@@ -2311,8 +2418,8 @@ namespace Parsek
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
                 ParsekLog.Warn("CameraFollow",
-                    $"Auto-follow target #{nextIndex} has no active ghost — staying on current");
-                return;
+                    $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+                return false;
             }
 
             // Preserve original camera state across the transition
@@ -2387,6 +2494,7 @@ namespace Parsek
                 $" camDist={FlightCamera.fetch.Distance:F1}" +
                 $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
             LogWatchFocusStateChanged(gs, force: true, context: "transfer");
+            return true;
         }
 
         /// <summary>
@@ -2769,17 +2877,26 @@ namespace Parsek
                 int nextTarget = FindNextWatchTarget(idx, committed[idx]);
                 if (nextTarget >= 0)
                 {
-                    ParsekLog.Info("CameraFollow",
-                        $"Watch hold auto-follow: #{idx} \u2192 #{nextTarget} (during hold period)");
-                    watchEndHoldUntilRealTime = -1;
-                    GhostPlaybackState held;
-                    if (ghostStates.TryGetValue(idx, out held) && held != null)
+                    if (TransferWatchToNextSegment(nextTarget))
                     {
-                        var traj = committed[idx] as IPlaybackTrajectory;
-                        host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
-                            reason: "auto-followed during hold");
+                        ParsekLog.Info("CameraFollow",
+                            $"Watch hold auto-follow: #{idx} \u2192 #{nextTarget} (during hold period)");
+                        watchEndHoldUntilRealTime = -1;
+                        GhostPlaybackState held;
+                        if (ghostStates.TryGetValue(idx, out held) && held != null)
+                        {
+                            var traj = committed[idx] as IPlaybackTrajectory;
+                            host.Engine.DestroyGhost(idx, traj, default(TrajectoryPlaybackFlags),
+                                reason: "auto-followed during hold");
+                        }
                     }
-                    TransferWatchToNextSegment(nextTarget);
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited("CameraFollow",
+                            $"watch-hold-transfer-deferred-{idx}-{nextTarget}",
+                            $"Watch hold transfer deferred: #{idx} \u2192 #{nextTarget} " +
+                            "target ghost not active yet");
+                    }
                     return true;
                 }
             }

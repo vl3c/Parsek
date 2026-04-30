@@ -437,7 +437,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
-                            "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
+                            "vessel '{0}' is in atmosphere — epoch shift is approximate",
                             Recording.ResolveLocalizedName(v.vesselName)));
                 }
 
@@ -565,7 +565,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn(Tag,
                         string.Format(ic,
-                            "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
+                            "vessel '{0}' is in atmosphere — orbit propagation is approximate",
                             Recording.ResolveLocalizedName(v.vesselName)));
                 }
 

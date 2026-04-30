@@ -16,6 +16,20 @@ namespace Parsek
             return Path.Combine("Parsek", "Recordings", $"{recordingId}.prec");
         }
 
+        /// <summary>
+        /// Relative path to the optional pipeline-annotation sidecar
+        /// <c>Parsek/Recordings/&lt;id&gt;.pann</c> (design doc §17.3.1).
+        /// Reuses <see cref="ValidateRecordingId"/> so a malformed id (path
+        /// traversal, invalid filename chars) cannot escape the recordings
+        /// subdir; returns <c>null</c> on validation failure.
+        /// </summary>
+        internal static string BuildAnnotationsRelativePath(string recordingId)
+        {
+            if (!ValidateRecordingId(recordingId))
+                return null;
+            return Path.Combine("Parsek", "Recordings", $"{recordingId}.pann");
+        }
+
         internal static string BuildVesselSnapshotRelativePath(string recordingId)
         {
             return Path.Combine("Parsek", "Recordings", $"{recordingId}_vessel.craft");

@@ -18,6 +18,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostTrackingStationSelection.ClearSelectedGhostForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -31,6 +32,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostTrackingStationSelection.ClearSelectedGhostForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
         }
 
@@ -316,7 +318,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndBlocksStockActions()
+        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndOmitsBlockedStockActions()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -335,9 +337,6 @@ namespace Parsek.Tests
             TrackingStationGhostActionState target = FindState(states, TrackingStationGhostActionKind.SetTarget);
             TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
-            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
-            TrackingStationGhostActionState delete = FindState(states, TrackingStationGhostActionKind.Delete);
-            TrackingStationGhostActionState recover = FindState(states, TrackingStationGhostActionKind.Recover);
 
             Assert.True(focus.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
@@ -348,16 +347,18 @@ namespace Parsek.Tests
             Assert.True(materialize.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
 
-            Assert.False(fly.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnlyAfterMaterialization, fly.Safety);
-            Assert.False(delete.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, delete.Safety);
-            Assert.False(recover.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.BlockedOnGhost, recover.Safety);
+            // Permanently-disabled stock actions are no longer rendered, so
+            // BuildActionStates must not return them at all — callers iterate
+            // the array, so leftover entries would re-introduce the dead
+            // button row.
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Fly);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Delete);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Recover);
+            Assert.Equal(4, states.Length);
         }
 
         [Fact]
-        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsFlyBlock()
+        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsReason()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -373,12 +374,9 @@ namespace Parsek.Tests
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
-            TrackingStationGhostActionState fly = FindState(states, TrackingStationGhostActionKind.Fly);
 
             Assert.False(materialize.Enabled);
             Assert.Contains("endpoint", materialize.Reason);
-            Assert.False(fly.Enabled);
-            Assert.Contains("materialize", fly.Reason);
         }
 
         [Fact]
@@ -446,6 +444,54 @@ namespace Parsek.Tests
             Assert.False(context.MaterializeEligible);
             Assert.Equal(
                 GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
+                context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_SupersededRelation_DisablesMaterialize()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-action-old", pid: 606);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-action-new", pid: 707);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_action_context",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+            var selection = new TrackingStationGhostSelectionInfo(
+                9002u,
+                "Ghost: Superseded",
+                0,
+                oldRec.RecordingId,
+                oldRec.StartUT,
+                oldRec.EndUT,
+                oldRec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: oldRec.EndUT + 1,
+                    chains: new Dictionary<uint, GhostChain>());
+
+            Assert.Equal(0, context.RecordingIndex);
+            Assert.True(context.HasRecording);
+            Assert.False(context.MaterializeEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
                 context.MaterializeReason);
         }
 

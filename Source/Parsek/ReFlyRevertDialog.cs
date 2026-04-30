@@ -116,7 +116,7 @@ namespace Parsek
             string sessionId = marker.SessionId ?? "<no-id>";
             ParsekLog.Info(SessionTag, $"Revert dialog shown sess={sessionId} target={target}");
 
-            string title = "Revert during re-fly";
+            string title = "Revert during Re-Fly";
             bool journalActive = IsMergeJournalActive();
             string body = BuildBody(target, journalActive);
 
@@ -180,7 +180,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton discardButton = new DialogGUIButton("Discard Re-fly", () =>
+            DialogGUIButton discardButton = new DialogGUIButton("Discard Re-Fly", () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -266,26 +266,24 @@ namespace Parsek
             if (journalActive)
             {
                 discardLine =
-                    "- Discard Re-fly is unavailable while a merge is in progress. " +
+                    "- Discard Re-Fly is unavailable while a merge is in progress. " +
                     "Finish or roll back the merge (load the save) and try again.\n";
             }
             else if (target == RevertTarget.Prelaunch)
             {
                 discardLine =
-                    "- Discard Re-fly: throw away the current re-fly attempt and reload " +
+                    "- Discard Re-Fly: throw away the current Re-Fly attempt and reload " +
                     "the rewind point; returns you to the VAB or SPH at the moment you " +
-                    "opened the Rewind Point. The tree's other Rewind Points, supersede " +
-                    "relations, and tombstones stay intact. Unfinished Flights still " +
-                    "shows this split so you can try again.\n";
+                    "opened the Rewind Point. The tree's other Rewind Points stay intact. " +
+                    "STASH still shows this entry so you can try again.\n";
             }
             else
             {
                 discardLine =
-                    "- Discard Re-fly: throw away the current re-fly attempt and reload " +
+                    "- Discard Re-Fly: throw away the current Re-Fly attempt and reload " +
                     "the rewind point; returns you to the Space Center at the moment you " +
-                    "opened the Rewind Point. The tree's other Rewind Points, supersede " +
-                    "relations, and tombstones stay intact. Unfinished Flights still " +
-                    "shows this split so you can try again.\n";
+                    "opened the Rewind Point. The tree's other Rewind Points stay intact. " +
+                    "STASH still shows this entry so you can try again.\n";
             }
 
             return

@@ -267,6 +267,14 @@ namespace Parsek
 
         void OnGUI()
         {
+            // The Esc / pause overlay lives on KSP's Canvas and sorts above
+            // our IMGUI layer, so without this gate the ghost icons, ghost
+            // action panel, and control surface visually punch through the
+            // pause menu. Both the Layout pass AND the Repaint draw are
+            // skipped so width-clamped layouts can't flicker between events.
+            if (PauseMenuGate.IsPauseMenuOpen())
+                return;
+
             DrawSelectedGhostActionSurface();
             DrawAtmosphericMarkers();
             DrawControlSurface();
@@ -667,7 +675,15 @@ namespace Parsek
                 ghostActionsWindowRect.y = 140f;
 
             ghostActionsWindowRect.height = 0f;
-            GUIStyle windowStyle = GUI.skin != null ? GUI.skin.window : null;
+            // Match every other Parsek window — opaque dark background, larger
+            // title font, consistent padding. The previous fall-through to
+            // GUI.skin.window rendered semi-transparent and visibly clashed
+            // with the rest of the mod, and skin.window's font/padding shifts
+            // between Layout and Repaint events caused the ghost-detail panel
+            // to flicker frame-to-frame.
+            GUIStyle windowStyle = ui != null ? ui.GetOpaqueWindowStyle() : null;
+            if (windowStyle == null)
+                return;
             ParsekUI.ResetWindowGuiColors(
                 out Color prevColor,
                 out Color prevBackgroundColor,
@@ -678,7 +694,7 @@ namespace Parsek
                     GetInstanceID() + 553,
                     ghostActionsWindowRect,
                     id => DrawSelectedGhostActionsWindow(id, vessel, selection),
-                    "Parsek Ghost",
+                    "Parsek - Ghost Actions",
                     windowStyle,
                     GUILayout.Width(GhostActionsWindowWidth));
             }
@@ -724,31 +740,21 @@ namespace Parsek
                 92f);
             GUILayout.EndHorizontal();
 
-            GUILayout.BeginHorizontal();
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.Materialize),
-                () => MaterializeSelectedGhost(selection, currentUT),
-                106f);
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.Fly),
-                null,
-                58f);
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.Delete),
-                null,
-                68f);
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.Recover),
-                null,
-                76f);
-            GUILayout.EndHorizontal();
-
+            // Materialize gets its own row at full width: it spawns the
+            // recorded vessel as a real ProtoVessel at the recorded endpoint
+            // (the ghost's terminal state). Stock Fly/Delete/Recover are
+            // intentionally absent — they are permanently blocked on ghost
+            // objects (see GhostTracking{Fly,Delete,Recover}Patch) and were
+            // only here as disabled placeholders that wrapped past the window
+            // edge and contributed to the flicker / overflow.
             TrackingStationGhostActionState materialize =
                 FindAction(actions, TrackingStationGhostActionKind.Materialize);
+            DrawActionButton(
+                materialize,
+                () => MaterializeSelectedGhost(selection, currentUT),
+                GhostActionsWindowWidth - 24f);
             if (!materialize.Enabled)
                 GUILayout.Label(materialize.Reason);
-
-            GUILayout.Label("Fly/Delete/Recover are blocked on ghost objects.");
 
             if (showSelectedRecordingDetails)
                 DrawSelectedRecordingDetails(selection);

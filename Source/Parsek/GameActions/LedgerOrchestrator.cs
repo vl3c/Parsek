@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using KscActionExpectation = Parsek.KscActionExpectationClassifier.KscActionExpectation;
 
 namespace Parsek
 {
@@ -16,7 +17,7 @@ namespace Parsek
     /// </summary>
     internal static class LedgerOrchestrator
     {
-        private const string Tag = "LedgerOrchestrator";
+        internal const string Tag = "LedgerOrchestrator";
 
         // Module instances (created once, reused)
         private static ScienceModule scienceModule;
@@ -45,45 +46,25 @@ namespace Parsek
         private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
             new HashSet<string>(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Set to <c>true</c> by <see cref="MigrateOldSaveEvents"/> when — and only when —
-        /// it actually synthesized at least one action from <see cref="GameStateStore.Events"/>.
-        /// Reset to <c>false</c> at the top of every <see cref="OnKspLoad"/>.
-        ///
-        /// <para>Used by <see cref="HasAnyLedgerCoverage"/> to gate the null-RecordingId-in-window
-        /// coverage rule. Round-2 external review (PR #347) found that
-        /// <see cref="TryRecoverBrokenLedgerOnLoad"/> synthesizes null-tagged
-        /// <see cref="GameActionType.ContractAccept"/>/<see cref="GameActionType.ContractComplete"/>/<see cref="GameActionType.ContractFail"/>/<see cref="GameActionType.ContractCancel"/>/<see cref="GameActionType.FundsSpending"/>
-        /// actions from the global <see cref="GameStateStore"/> — and on subsequent loads,
-        /// those previously-persisted null-tagged actions sit in the ledger at UTs that may
-        /// fall inside a legacy tree's window. A multi-day mission can easily overlap with
-        /// unrelated KSC activity (player accepts a contract, buys a part, cancels a
-        /// contract). The coverage probe saw those actions and incorrectly concluded
-        /// "covered" → skipped migration → legacy residual silently dropped.</para>
-        ///
-        /// <para>The flag distinguishes "null-tagged because the first-load
-        /// MigrateOldSaveEvents just synthesized these" from "null-tagged because normal
-        /// KSC activity". Only the first case should register as coverage (to prevent
-        /// the first-load double-credit that round-3 of Phase A was designed to avoid).</para>
-        /// </summary>
-        private static bool migrateOldSaveEventsRanThisLoad;
+        internal static void ResetMigrateOldSaveEventsForLoad()
+        {
+            LedgerLoadMigration.ResetMigrateOldSaveEventsForLoad();
+        }
 
-        /// <summary>
-        /// Test-only setter for <see cref="migrateOldSaveEventsRanThisLoad"/>. Production
-        /// code sets this flag via <see cref="MigrateOldSaveEvents"/> and resets it at the
-        /// top of <see cref="OnKspLoad"/>; tests bypass that flow by calling this helper.
-        /// </summary>
+        internal static void ResetMigrateOldSaveEventsForTesting()
+        {
+            LedgerLoadMigration.ResetMigrateOldSaveEventsForTesting();
+        }
+
         internal static void SetMigrateOldSaveEventsRanThisLoadForTesting(bool value)
         {
-            migrateOldSaveEventsRanThisLoad = value;
+            LedgerLoadMigration.SetMigrateOldSaveEventsRanThisLoadForTesting(value);
         }
 
-        /// <summary>Test-only getter paired with the setter above.</summary>
         internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
         {
-            return migrateOldSaveEventsRanThisLoad;
+            return LedgerLoadMigration.GetMigrateOldSaveEventsRanThisLoadForTesting();
         }
-
         /// <summary>
         /// Test-only override for resource tracker availability checks used by the
         /// earnings reconciliation diagnostics. Null falls back to the live KSP
@@ -107,17 +88,15 @@ namespace Parsek
         /// </summary>
         private static int kscSequenceCounter;
 
+        private static int AllocateKscSequence()
+        {
+            kscSequenceCounter++;
+            return kscSequenceCounter;
+        }
+
         // Shared with GameActionDisplay.IsUnclaimedRolloutAction (#452) so the
         // label-side predicate and the adoption-side producer/scan cannot drift.
         internal const string RolloutDedupPrefix = "rollout:";
-
-        private struct RolloutAdoptionContext
-        {
-            public uint VesselPersistentId;
-            public string VesselName;
-            public string LaunchSiteName;
-            public bool IsLegacyBareKey;
-        }
 
         /// <summary>
         /// Fired after RecalculateAndPatch completes — signals that timeline data
@@ -737,7 +716,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool LogReconcileWarnOnce(string warnKey, string message)
+        internal static bool LogReconcileWarnOnce(string warnKey, string message)
         {
             if (string.IsNullOrEmpty(warnKey) || emittedReconcileWarnKeys.Add(warnKey))
             {
@@ -1784,8 +1763,8 @@ namespace Parsek
             // MigrateOldSaveEvents synthetics should gate the null-tag coverage rule.
             // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
-            migrateOldSaveEventsRanThisLoad = false;
-            consumedRecoveryEventKeys.Clear();
+            ResetMigrateOldSaveEventsForLoad();
+            LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
             // Log-before-clear so any stale entries from the previous session show up
             // in KSP.log before we drop them. Matches the FlushStalePendingRecoveryFunds
             // contract used at scene-switch / rewind-end boundaries.
@@ -1844,43 +1823,11 @@ namespace Parsek
 
         /// <summary>
         /// Migration for old saves: converts existing GameStateStore events from committed
-        /// recordings into GameActions and adds them to the ledger. Called once when an old
-        /// save loads with committed recordings but no ledger file.
+        /// recordings into GameActions and adds them to the ledger.
         /// </summary>
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
-            var events = GameStateStore.Events;
-            if (events == null || events.Count == 0)
-            {
-                ParsekLog.Info(Tag, "MigrateOldSaveEvents: no events to migrate");
-                return;
-            }
-
-            // Convert events using the same converter path as normal commits.
-            // Use null recordingId since we can't reliably map old events to specific recordings.
-            double minUT = 0;
-            double maxUT = double.MaxValue;
-            var actions = GameStateEventConverter.ConvertEvents(events, null, minUT, maxUT);
-
-            if (actions.Count > 0)
-            {
-                Ledger.AddActions(actions);
-                // Signal to HasAnyLedgerCoverage that null-tagged in-window actions
-                // synthesized on this load should count as coverage (to prevent the
-                // first-load double-credit that Phase A round 3 was designed to avoid).
-                // Only set on actual synthesis — an empty MigrateOldSaveEvents must NOT
-                // make pre-existing null-tagged actions (from prior loads' recovery)
-                // falsely count as coverage.
-                migrateOldSaveEventsRanThisLoad = true;
-                ParsekLog.Info(Tag,
-                    $"MigrateOldSaveEvents: migrated {actions.Count} actions from {events.Count} events " +
-                    $"(committed recordings: {validRecordingIds.Count})");
-            }
-            else
-            {
-                ParsekLog.Info(Tag,
-                    $"MigrateOldSaveEvents: {events.Count} events produced 0 convertible actions");
-            }
+            LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
         }
 
         /// <summary>
@@ -1965,713 +1912,15 @@ namespace Parsek
         // Phase A: legacy tree-resource residual migration (zero-coverage scope)
         // ================================================================
 
-        /// <summary>
-        /// Tolerance (absolute value) below which a persisted legacy-tree delta is
-        /// treated as zero and NOT synthesized. Matches field precision of the
-        /// persisted `deltaFunds` / `deltaScience` / `deltaReputation` values with
-        /// some slack for floating-point drift across save/load.
-        /// </summary>
-        private const double LegacyMigrationFundsTolerance = 1.0;
-        private const double LegacyMigrationScienceTolerance = 0.1;
-        private const double LegacyMigrationReputationTolerance = 0.1;
-        private const string LegacyFormatGateTag = "LegacyFormatGate";
-
-        /// <summary>
-        /// Phase A of the ledger / lump-sum resource reconciliation fix
-        /// (<c>docs/dev/done/plans/fix-ledger-lump-sum-reconciliation.md</c>). Walks the
-        /// committed trees and, for each tree whose <see cref="RecordingTree.Load"/>
-        /// hydrated a transient legacy residual with any persisted
-        /// <c>deltaFunds</c>/<c>deltaScience</c>/<c>deltaReputation</c> outside
-        /// tolerance, decides — per the reviewer's zero-coverage scope — either:
-        /// <list type="bullet">
-        ///   <item><description>
-        ///   <b>Zero ledger coverage</b> (no ledger action tagged to any of the tree's
-        ///   recordings falls inside the tree's UT window): inject the FULL persisted
-        ///   delta as <see cref="FundsEarningSource.LegacyMigration"/> earnings tagged
-        ///   with the tree's <see cref="RecordingTree.RootRecordingId"/>. This is the
-        ///   stress-test repro path (prior-epoch events were skipped by
-        ///   <see cref="TryRecoverBrokenLedgerOnLoad"/>'s epoch gate, so the ledger
-        ///   has nothing for those trees).
-        ///   </description></item>
-        ///   <item><description>
-        ///   <b>Any ledger coverage</b> (partial — at least one tagged action in window):
-        ///   do NOT inject. Comparing the pre-walk raw field sums to post-walk,
-        ///   post-transform, post-curve-and-cap persisted tree deltas is structurally
-        ///   wrong (ScienceModule's subject cap, ReputationModule's non-linear curve,
-        ///   StrategiesModule's reward transform, and Effective=false duplicate
-        ///   suppression all run between the two sides). Log WARN and rely on
-        ///   the existing ledger coverage as best-effort; Phase F's format-version
-        ///   gate catches anything that slips through to deletion.
-        ///   </description></item>
-        /// </list>
-        ///
-        /// <para>Degraded tree (<see cref="RecordingTree.ComputeEndUT"/> returns 0 —
-        /// trajectory data missing): mark recordings fully applied, log INFO, no
-        /// injection.</para>
-        ///
-        /// <para>Empty <c>RootRecordingId</c>: mark recordings fully applied, log
-        /// WARN. No synthetic — no correct recording id to tag with. Data loss for
-        /// the rare empty-root case is preferable to silent residual loss without a
-        /// warning.</para>
-        ///
-        /// <para>Regardless of branch, the tree's recordings are marked fully applied
-        /// via <see cref="RecordingStore.MarkTreeAsApplied"/> so budget reservation does
-        /// not re-hold already-live resources. Idempotent: after the transient residual
-        /// is consumed, repeat runs on the same in-memory tree are no-ops. Reloading the
-        /// same legacy save is guarded by existing LegacyMigration synthetic detection.</para>
-        /// </summary>
         internal static void MigrateLegacyTreeResources()
         {
-            var trees = RecordingStore.CommittedTrees;
-            if (trees == null || trees.Count == 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    "MigrateLegacyTreeResources: no committed trees, nothing to migrate");
-                return;
-            }
-
-            int treesConsidered = 0;
-            int treesWithoutLegacyResidual = 0;
-            int treesAlreadyApplied = 0;
-            int treesAlreadyMigrated = 0;
-            int treesSkippedNoDelta = 0;
-            int treesSkippedEmptyRoot = 0;
-            int treesSkippedDegraded = 0;
-            int treesSkippedPartialCoverage = 0;
-            int treesMigrated = 0;
-            int treesWarnedByGate = 0;
-            int fundsInjected = 0;
-            int scienceInjected = 0;
-            int repInjected = 0;
-
-            for (int i = 0; i < trees.Count; i++)
-            {
-                var tree = trees[i];
-                if (tree == null) continue;
-
-                var residual = tree.ConsumeLegacyResidual();
-                if (residual == null)
-                {
-                    treesWithoutLegacyResidual++;
-                    continue;
-                }
-
-                treesConsidered++;
-
-                bool fundsNonZero = Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance;
-                bool scienceNonZero = Math.Abs(residual.DeltaScience) > LegacyMigrationScienceTolerance;
-                bool repNonZero = Math.Abs((double)residual.DeltaReputation) > LegacyMigrationReputationTolerance;
-                bool anyNonZeroResidual = fundsNonZero || scienceNonZero || repNonZero;
-
-                if (residual.ResourcesApplied)
-                {
-                    treesAlreadyApplied++;
-                    RecordingStore.MarkTreeAsApplied(tree);
-                    continue;
-                }
-
-                if (!anyNonZeroResidual)
-                {
-                    treesSkippedNoDelta++;
-                    ParsekLog.Verbose(Tag,
-                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                        $"all deltas within tolerance (funds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"science={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"rep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}), " +
-                        "marking recordings fully applied without synthetic injection");
-                    RecordingStore.MarkTreeAsApplied(tree);
-                    continue;
-                }
-
-                double endUT = tree.ComputeEndUT();
-                bool hasFundsSynthetic;
-                bool hasScienceSynthetic;
-                bool hasRepSynthetic;
-                FindLegacyMigrationSyntheticMatches(
-                    tree,
-                    residual,
-                    endUT,
-                    out hasFundsSynthetic,
-                    out hasScienceSynthetic,
-                    out hasRepSynthetic);
-
-                if ((!fundsNonZero || hasFundsSynthetic)
-                    && (!scienceNonZero || hasScienceSynthetic)
-                    && (!repNonZero || hasRepSynthetic))
-                {
-                    treesAlreadyMigrated++;
-                    ParsekLog.Verbose(Tag,
-                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                        "already has a LegacyMigration synthetic in the ledger; skipping duplicate injection");
-                    RecordingStore.MarkTreeAsApplied(tree);
-                    continue;
-                }
-
-                bool warnByFormatGate = false;
-                if (endUT == 0)
-                {
-                    treesSkippedDegraded++;
-                    warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
-                    ParsekLog.Info(Tag,
-                        $"MigrateLegacyTreeResources: skipping degraded tree id='{tree.Id}' " +
-                        $"name='{tree.TreeName}' — ComputeEndUT()==0 (no trajectory data), " +
-                        "marking recordings fully applied without synthetic injection " +
-                        $"(stale deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
-                    RecordingStore.MarkTreeAsApplied(tree);
-                }
-                else if (string.IsNullOrEmpty(tree.RootRecordingId))
-                {
-                    treesSkippedEmptyRoot++;
-                    warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
-                    ParsekLog.Warn(Tag,
-                        $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                        $"has empty RootRecordingId — cannot tag synthetic ledger actions; " +
-                        "marking recordings fully applied without synthetic injection " +
-                        $"(persisted residuals LOST: deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
-                    RecordingStore.MarkTreeAsApplied(tree);
-                }
-                else
-                {
-                    double startUT = ComputeTreeStartUT(tree);
-                    if (HasAnyLedgerCoverage(tree, residual, startUT, endUT))
-                    {
-                        treesSkippedPartialCoverage++;
-                        warnByFormatGate = tree.TreeFormatVersion < RecordingTree.CurrentTreeFormatVersion;
-                        ParsekLog.Warn(Tag,
-                            $"MigrateLegacyTreeResources: tree id='{tree.Id}' name='{tree.TreeName}' " +
-                            $"has partial ledger coverage in UT window [{startUT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                            $"{endUT.ToString("R", CultureInfo.InvariantCulture)}]; skipping synthetic injection " +
-                            $"(persisted deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                            $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                            $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)})");
-                        RecordingStore.MarkTreeAsApplied(tree);
-                    }
-                    else
-                    {
-                        bool injectedFunds = false;
-                        bool injectedScience = false;
-                        bool injectedRep = false;
-
-                        if (fundsNonZero
-                            && !hasFundsSynthetic
-                            && TryInjectLegacyFundsEarning(tree, residual, endUT))
-                        {
-                            fundsInjected++;
-                            injectedFunds = true;
-                        }
-
-                        if (scienceNonZero && !hasScienceSynthetic)
-                        {
-                            if (residual.DeltaScience > 0)
-                                InjectLegacyScienceEarning(tree, residual.DeltaScience, endUT);
-                            else
-                                InjectLegacyScienceSpending(tree, residual.DeltaScience, endUT);
-                            scienceInjected++;
-                            injectedScience = true;
-                        }
-
-                        if (repNonZero && !hasRepSynthetic)
-                        {
-                            if (residual.DeltaReputation > 0)
-                                InjectLegacyReputationEarning(tree, (double)residual.DeltaReputation, endUT);
-                            else
-                                InjectLegacyReputationPenalty(tree, (double)residual.DeltaReputation, endUT);
-                            repInjected++;
-                            injectedRep = true;
-                        }
-
-                        ParsekLog.Info(Tag,
-                            $"MigrateLegacyTreeResources: migrated tree id='{tree.Id}' name='{tree.TreeName}' " +
-                            $"rootRec='{tree.RootRecordingId}' " +
-                            $"startUT={startUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            "coverage=zero " +
-                            $"deltaFunds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={injectedFunds}), " +
-                            $"deltaScience={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={injectedScience}), " +
-                            $"deltaRep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"(injected={injectedRep})");
-
-                        RecordingStore.MarkTreeAsApplied(tree);
-                        treesMigrated++;
-                    }
-                }
-
-                if (warnByFormatGate)
-                {
-                    WarnLegacyFormatGate(tree, residual);
-                    treesWarnedByGate++;
-                }
-            }
-
-            ParsekLog.Info(Tag,
-                $"MigrateLegacyTreeResources complete: considered={treesConsidered}, " +
-                $"withoutResidual={treesWithoutLegacyResidual}, alreadyApplied={treesAlreadyApplied}, " +
-                $"alreadyMigrated={treesAlreadyMigrated}, degraded={treesSkippedDegraded}, " +
-                $"noDelta={treesSkippedNoDelta}, emptyRoot={treesSkippedEmptyRoot}, " +
-                $"partialCoverage={treesSkippedPartialCoverage}, " +
-                $"migrated={treesMigrated}, gateWarned={treesWarnedByGate}, " +
-                $"fundsInjected={fundsInjected}, scienceInjected={scienceInjected}, " +
-                $"repInjected={repInjected}");
+            LedgerLoadMigration.MigrateLegacyTreeResources();
         }
 
-        /// <summary>
-        /// Funds-emission helper: injects a <see cref="FundsEarningSource.LegacyMigration"/>
-        /// FundsEarning with the raw (signed) persisted legacy residual.
-        /// Returns true if a non-zero funds synthetic was emitted.
-        ///
-        /// <para>Sign note: <see cref="FundsModule.ProcessFundsEarning"/> adds the raw
-        /// FundsAwarded to both <c>runningBalance</c> and <c>totalEarnings</c> with no clamp,
-        /// so a negative FundsEarning correctly reduces both. The reviewer flagged an earlier
-        /// concern about "poisoning totalEarnings" as wrong — a tree that net-lost funds
-        /// really did reduce the player's income capacity, so a negative totalEarnings
-        /// contribution is the right shape. Earning-type actions are pruned by RecordingId
-        /// in <see cref="Ledger.Reconcile"/>, so the synthetic is cleaned up with the tree.</para>
-        /// </summary>
-        private static bool TryInjectLegacyFundsEarning(
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double endUT)
-        {
-            if (Math.Abs(residual.DeltaFunds) <= LegacyMigrationFundsTolerance)
-                return false;
-
-            var action = new GameAction
-            {
-                UT = endUT,
-                Type = GameActionType.FundsEarning,
-                RecordingId = tree.RootRecordingId,
-                FundsAwarded = (float)residual.DeltaFunds,
-                FundsSource = FundsEarningSource.LegacyMigration
-            };
-            Ledger.AddAction(action);
-            return true;
-        }
-
-        /// <summary>
-        /// Science-emission helper: injects a <see cref="GameActionType.ScienceEarning"/>
-        /// with <c>SubjectId="LegacyMigration:{treeId}"</c> (no source enum exists).
-        /// Only called for positive residuals — negative science goes through
-        /// <see cref="InjectLegacyScienceSpending"/> which emits a ScienceSpending instead.
-        /// A generous <see cref="GameAction.SubjectMaxValue"/> is set so the per-subject
-        /// hard cap never clips the migrated science on the walk.
-        ///
-        /// <para>Note on ContractComplete / strategy transforms (per reviewer NIT):
-        /// the ContractComplete reward field used by partial-coverage residual math would
-        /// need to be <c>TransformedScienceReward</c> once Phase E1.5 lands strategy
-        /// capture — <c>ScienceReward</c> and <c>TransformedScienceReward</c> will diverge
-        /// then. The zero-coverage scope sidesteps that problem entirely: we do not read
-        /// ContractComplete fields at all, we only probe for presence.</para>
-        /// </summary>
-        private static void InjectLegacyScienceEarning(RecordingTree tree, double scienceDelta, double endUT)
-        {
-            float residualF = (float)scienceDelta;
-            var action = new GameAction
-            {
-                UT = endUT,
-                Type = GameActionType.ScienceEarning,
-                RecordingId = tree.RootRecordingId,
-                SubjectId = "LegacyMigration:" + tree.Id,
-                ScienceAwarded = residualF,
-                SubjectMaxValue = residualF + 10f
-            };
-            Ledger.AddAction(action);
-        }
-
-        /// <summary>
-        /// Science-spending helper for negative residuals: injects a
-        /// <see cref="GameActionType.ScienceSpending"/> with <c>Cost=-scienceDelta</c>
-        /// (magnitude, since <see cref="ScienceModule.ProcessSpending"/> subtracts
-        /// <c>Cost</c> from the running balance). <see cref="Ledger.Reconcile"/> prunes
-        /// spendings by RecordingId since #441, so this synthetic is purged with the tree
-        /// on deletion — same contract as the positive-residual earning.
-        /// </summary>
-        private static void InjectLegacyScienceSpending(RecordingTree tree, double scienceDelta, double endUT)
-        {
-            float costF = (float)(-scienceDelta);
-            var action = new GameAction
-            {
-                UT = endUT,
-                Type = GameActionType.ScienceSpending,
-                RecordingId = tree.RootRecordingId,
-                NodeId = "LegacyMigration:" + tree.Id,
-                Cost = costF
-            };
-            Ledger.AddAction(action);
-        }
-
-        /// <summary>
-        /// Reputation-emission helper: injects a <see cref="GameActionType.ReputationEarning"/>
-        /// with <see cref="ReputationSource.Other"/>. Only called for positive residuals —
-        /// negative rep goes through <see cref="InjectLegacyReputationPenalty"/> which emits
-        /// a ReputationPenalty instead.
-        /// </summary>
-        private static void InjectLegacyReputationEarning(RecordingTree tree, double repDelta, double endUT)
-        {
-            var action = new GameAction
-            {
-                UT = endUT,
-                Type = GameActionType.ReputationEarning,
-                RecordingId = tree.RootRecordingId,
-                NominalRep = (float)repDelta,
-                RepSource = ReputationSource.Other
-            };
-            Ledger.AddAction(action);
-        }
-
-        /// <summary>
-        /// Reputation-penalty helper for negative residuals: injects a
-        /// <see cref="GameActionType.ReputationPenalty"/> with <c>NominalPenalty=-repDelta</c>
-        /// (magnitude; <see cref="ReputationModule"/> stores penalty as a positive magnitude
-        /// and negates it internally before applying the curve).
-        /// <see cref="ReputationPenaltySource.Other"/> matches the earning helper's
-        /// <see cref="ReputationSource.Other"/>. <see cref="Ledger.Reconcile"/> prunes
-        /// spendings by RecordingId since #441.
-        /// </summary>
-        private static void InjectLegacyReputationPenalty(RecordingTree tree, double repDelta, double endUT)
-        {
-            var action = new GameAction
-            {
-                UT = endUT,
-                Type = GameActionType.ReputationPenalty,
-                RecordingId = tree.RootRecordingId,
-                NominalPenalty = (float)(-repDelta),
-                RepPenaltySource = ReputationPenaltySource.Other
-            };
-            Ledger.AddAction(action);
-        }
-
-        private static void FindLegacyMigrationSyntheticMatches(
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double endUT,
-            out bool hasFundsSynthetic,
-            out bool hasScienceSynthetic,
-            out bool hasRepSynthetic)
-        {
-            bool fundsNonZero = Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance;
-            bool scienceNonZero = Math.Abs(residual.DeltaScience) > LegacyMigrationScienceTolerance;
-            bool repNonZero = Math.Abs((double)residual.DeltaReputation) > LegacyMigrationReputationTolerance;
-            hasFundsSynthetic = !fundsNonZero;
-            hasScienceSynthetic = !scienceNonZero;
-            hasRepSynthetic = !repNonZero;
-            if (hasFundsSynthetic && hasScienceSynthetic && hasRepSynthetic)
-                return;
-
-            string scienceKey = "LegacyMigration:" + tree.Id;
-            var actions = Ledger.Actions;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action == null)
-                    continue;
-
-                if (!hasFundsSynthetic
-                    && IsMatchingLegacyFundsMigration(action, tree, residual, endUT))
-                {
-                    hasFundsSynthetic = true;
-                }
-
-                if (!hasScienceSynthetic)
-                {
-                    if (IsMatchingLegacyScienceMigration(action, tree, residual, endUT))
-                    {
-                        hasScienceSynthetic = true;
-                    }
-                }
-
-                if (!hasRepSynthetic
-                    && IsMatchingLegacyReputationMigration(action, tree, residual, endUT))
-                {
-                    hasRepSynthetic = true;
-                }
-
-                if (hasFundsSynthetic && hasScienceSynthetic && hasRepSynthetic)
-                    return;
-            }
-        }
-
-        private static void WarnLegacyFormatGate(
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual)
-        {
-            string treeId = !string.IsNullOrEmpty(tree.Id)
-                ? tree.Id
-                : (tree.TreeName ?? "(unknown)");
-
-            ParsekLog.Warn(LegacyFormatGateTag,
-                $"Tree '{treeId}' has pre-Phase-F legacy resource fields " +
-                $"(funds={residual.DeltaFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
-                $"sci={residual.DeltaScience.ToString("R", CultureInfo.InvariantCulture)}, " +
-                $"rep={residual.DeltaReputation.ToString("R", CultureInfo.InvariantCulture)}) " +
-                "that Phase A migration could not recover. Legacy resource values will " +
-                "not be applied; ledger state may differ by this residual. Open the save " +
-                "in a 0.8.1 build first if accurate migration matters.");
-        }
-
-        /// <summary>
-        /// Returns the earliest non-zero StartUT across the tree's recordings, or 0 if
-        /// no recording has points. Needed as a conservative lower bound when matching
-        /// ledger actions back to a tree's UT window; <see cref="RecordingTree"/> does
-        /// not carry a stored StartUT field.
-        /// </summary>
-        private static double ComputeTreeStartUT(RecordingTree tree)
-        {
-            double startUT = double.MaxValue;
-            bool any = false;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (rec == null) continue;
-                double recStart = rec.StartUT;
-                if (recStart <= 0) continue;
-                if (recStart < startUT)
-                {
-                    startUT = recStart;
-                    any = true;
-                }
-            }
-            return any ? startUT : 0.0;
-        }
-
-        /// <summary>
-        /// Pure classifier: returns true when the given action type actually moves the
-        /// funds/science/reputation pools (so its presence inside a tree's UT window counts
-        /// as ledger coverage for that tree). Non-resource action types — roster changes
-        /// (<see cref="GameActionType.KerbalAssignment"/>, <see cref="GameActionType.KerbalRescue"/>,
-        /// <see cref="GameActionType.KerbalStandIn"/>), <see cref="GameActionType.FacilityDestruction"/>
-        /// (stateful only, no cost), <see cref="GameActionType.StrategyDeactivate"/> (stateful only,
-        /// no cost), and the three <c>*Initial</c> seed types — return false.
-        ///
-        /// <para>This classification exists specifically so the
-        /// <see cref="HasAnyLedgerCoverage"/> probe is not tripped by
-        /// <see cref="MigrateKerbalAssignments"/>'s backfilled <c>KerbalAssignment</c> rows,
-        /// which run earlier in <see cref="OnKspLoad"/> and would otherwise flag every
-        /// crewed legacy tree as partially covered, permanently dropping the residual.</para>
-        ///
-        /// <para>When adding a new <see cref="GameActionType"/>, this switch must be updated
-        /// and the <c>IsResourceImpactingAction_Theory</c> test in
-        /// <c>LegacyTreeMigrationTests.cs</c> will fail until an entry is added — which is
-        /// the intended forcing function for a code review.</para>
-        /// </summary>
         internal static bool IsResourceImpactingAction(GameActionType t)
         {
-            switch (t)
-            {
-                // Earnings/spendings that directly move a pool.
-                case GameActionType.FundsEarning:
-                case GameActionType.FundsSpending:
-                case GameActionType.ScienceEarning:
-                case GameActionType.ScienceSpending:
-                case GameActionType.ReputationEarning:
-                case GameActionType.ReputationPenalty:
-                    return true;
-
-                // Composite rewards/penalties consumed by first-tier + second-tier modules.
-                case GameActionType.MilestoneAchievement:  // MilestoneFunds/Sci/RepAwarded
-                case GameActionType.ContractAccept:        // AdvanceFunds
-                case GameActionType.ContractComplete:      // FundsReward/ScienceReward/RepReward
-                case GameActionType.ContractFail:          // FundsPenalty/RepPenalty
-                case GameActionType.ContractCancel:        // FundsPenalty/RepPenalty
-                    return true;
-
-                // Infrastructure/strategy costs consumed by FundsModule / StrategiesModule.
-                case GameActionType.FacilityUpgrade:       // FacilityCost
-                case GameActionType.FacilityRepair:        // FacilityCost
-                case GameActionType.KerbalHire:            // HireCost
-                case GameActionType.StrategyActivate:      // SetupCost
-                    return true;
-
-                // Non-resource action types: roster changes, stateful facility/strategy flips,
-                // and the immutable seed rows. These are intentionally ignored by the
-                // coverage probe — see class summary for the false-positive this guards.
-                case GameActionType.KerbalAssignment:
-                case GameActionType.KerbalRescue:
-                case GameActionType.KerbalStandIn:
-                case GameActionType.FacilityDestruction:
-                case GameActionType.StrategyDeactivate:
-                case GameActionType.FundsInitial:
-                case GameActionType.ScienceInitial:
-                case GameActionType.ReputationInitial:
-                    return false;
-
-                default:
-                    // Conservative: an unrecognized new action type is treated as non-
-                    // resource so it cannot poison the zero-coverage probe. The
-                    // IsResourceImpactingAction_Theory test will flag any new enum value
-                    // that reaches this branch.
-                    return false;
-            }
+            return LedgerLoadMigration.IsResourceImpactingAction(t);
         }
-
-        /// <summary>
-        /// Zero-coverage probe: returns true if <see cref="Ledger.Actions"/> contains at
-        /// least one <see cref="IsResourceImpactingAction"/>-passing action whose UT falls
-        /// inside <paramref name="startUT"/>..<paramref name="endUT"/> AND whose
-        /// <see cref="GameAction.RecordingId"/> is either a key in
-        /// <see cref="RecordingTree.Recordings"/> OR null (null-tagged actions may be
-        /// <see cref="MigrateOldSaveEvents"/> output — see the flag gate below).
-        ///
-        /// <para>Two round-2 P1s this shape fixes:</para>
-        /// <list type="number">
-        ///   <item><description><see cref="MigrateKerbalAssignments"/>'s
-        ///   <see cref="GameActionType.KerbalAssignment"/> rows (tagged with recording id,
-        ///   added before this migration runs) are excluded by the type filter — without
-        ///   this, every crewed legacy tree would be falsely flagged as partially covered
-        ///   and its residual silently dropped.</description></item>
-        ///   <item><description><see cref="MigrateOldSaveEvents"/>'s null-tagged reward
-        ///   synthetics (ContractComplete / MilestoneAchievement / ContractAccept from
-        ///   GameStateStore on first load of a pre-ledger save) register as coverage ONLY
-        ///   when <see cref="migrateOldSaveEventsRanThisLoad"/> is true — otherwise an
-        ///   uncrewed legacy tree on first load would get its full residual injected on
-        ///   top of the already-migrated rewards, double-crediting.</description></item>
-        /// </list>
-        ///
-        /// <para>Round-2 P1 (PR #347 external review) — null-tag gate:
-        /// <see cref="TryRecoverBrokenLedgerOnLoad"/> runs on every load and persists
-        /// null-tagged <see cref="GameActionType.ContractAccept"/>/<see cref="GameActionType.ContractComplete"/>/<see cref="GameActionType.ContractFail"/>/<see cref="GameActionType.ContractCancel"/>/<see cref="GameActionType.FundsSpending"/>
-        /// actions into the ledger file. On a subsequent load of a long-running mission
-        /// save, those previously-persisted null-tagged KSC actions can land at UTs
-        /// inside the legacy tree's window (multi-day flight spanning normal KSC
-        /// activity: contract accept, part purchase, contract cancel). Without the
-        /// flag gate, the probe sees them and falsely concludes the tree is covered —
-        /// residual silently lost. With the gate, null-tagged in-window actions only
-        /// count when <see cref="MigrateOldSaveEvents"/> actually synthesized actions
-        /// on THIS load (the case where the first-load double-credit protection is
-        /// needed); in every other case they are ignored, and the tree gets its
-        /// residual injected as intended.</para>
-        ///
-        /// <para>Replaces the v1 residual-math approach: persisted tree deltas were captured
-        /// from LIVE KSP state post-commit (post-cap, post-curve, post-strategy-transform,
-        /// post-Effective-suppression), so subtracting pre-walk raw field sums was
-        /// structurally wrong for any tree with partial coverage.</para>
-        ///
-        /// <para>Pure; does not mutate state. Early-returns on first match.</para>
-        /// </summary>
-        private static bool HasAnyLedgerCoverage(
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double startUT,
-            double endUT)
-        {
-            var recordings = tree.Recordings;
-            if (recordings == null || recordings.Count == 0)
-                return false;
-
-            var ledgerActions = Ledger.Actions;
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var action = ledgerActions[i];
-                if (action == null) continue;
-                if (!IsResourceImpactingAction(action.Type)) continue;
-                if (action.UT < startUT || action.UT > endUT) continue;
-
-                string recId = action.RecordingId;
-                bool nullTagged = string.IsNullOrEmpty(recId);
-                bool treeTagged = !nullTagged && recordings.ContainsKey(recId);
-
-                if (treeTagged)
-                {
-                    if (IsMatchingLegacyFundsMigration(action, tree, residual, endUT)
-                        || IsMatchingLegacyScienceMigration(action, tree, residual, endUT)
-                        || IsMatchingLegacyReputationMigration(action, tree, residual, endUT))
-                    {
-                        continue;
-                    }
-
-                    // Tree-tagged in-window action always counts.
-                    return true;
-                }
-                if (nullTagged && migrateOldSaveEventsRanThisLoad)
-                {
-                    // Null-tagged action counts ONLY when MigrateOldSaveEvents just ran
-                    // this load — see the flag's XML doc for why TryRecoverBrokenLedgerOnLoad
-                    // output (persisted from prior loads) must NOT trigger this branch.
-                    return true;
-                }
-                // Otherwise skip — non-tree-tagged (orphaned) actions and null-tagged
-                // KSC activity during normal operation do not count as tree coverage.
-            }
-            return false;
-        }
-
-        private static bool IsMatchingLegacyFundsMigration(
-            GameAction action,
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double endUT)
-        {
-            return action != null
-                && Math.Abs(residual.DeltaFunds) > LegacyMigrationFundsTolerance
-                && action.Type == GameActionType.FundsEarning
-                && action.FundsSource == FundsEarningSource.LegacyMigration
-                && action.RecordingId == tree.RootRecordingId
-                && Math.Abs(action.UT - endUT) <= 0.001
-                && Math.Abs(action.FundsAwarded - (float)residual.DeltaFunds)
-                    <= LegacyMigrationFundsTolerance;
-        }
-
-        private static bool IsMatchingLegacyScienceMigration(
-            GameAction action,
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double endUT)
-        {
-            if (action == null
-                || Math.Abs(residual.DeltaScience) <= LegacyMigrationScienceTolerance
-                || action.RecordingId != tree.RootRecordingId
-                || Math.Abs(action.UT - endUT) > 0.001)
-            {
-                return false;
-            }
-
-            string scienceKey = "LegacyMigration:" + tree.Id;
-            if (residual.DeltaScience > 0)
-            {
-                return action.Type == GameActionType.ScienceEarning
-                    && action.SubjectId == scienceKey
-                    && Math.Abs(action.ScienceAwarded - (float)residual.DeltaScience)
-                        <= LegacyMigrationScienceTolerance;
-            }
-
-            return action.Type == GameActionType.ScienceSpending
-                && action.NodeId == scienceKey
-                && Math.Abs(action.Cost - (float)(-residual.DeltaScience))
-                    <= LegacyMigrationScienceTolerance;
-        }
-
-        private static bool IsMatchingLegacyReputationMigration(
-            GameAction action,
-            RecordingTree tree,
-            RecordingTree.LegacyResourceResidual residual,
-            double endUT)
-        {
-            if (action == null
-                || Math.Abs((double)residual.DeltaReputation) <= LegacyMigrationReputationTolerance
-                || action.RecordingId != tree.RootRecordingId
-                || Math.Abs(action.UT - endUT) > 0.001)
-            {
-                return false;
-            }
-
-            if (residual.DeltaReputation > 0)
-            {
-                return action.Type == GameActionType.ReputationEarning
-                    && action.RepSource == ReputationSource.Other
-                    && Math.Abs(action.NominalRep - (float)residual.DeltaReputation)
-                        <= LegacyMigrationReputationTolerance;
-            }
-
-            return action.Type == GameActionType.ReputationPenalty
-                && action.RepPenaltySource == ReputationPenaltySource.Other
-                && Math.Abs(action.NominalPenalty - (float)(-residual.DeltaReputation))
-                    <= LegacyMigrationReputationTolerance;
-        }
-
         private struct KerbalAssignmentRepairRename
         {
             public string FromName;
@@ -2943,339 +2192,59 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Rewrites persisted legacy part-purchase ledger rows whose stored funds debit
-        /// still reflects rollout <c>part.cost</c> instead of the historical R&amp;D
-        /// charge proved by saved game-state events. Existing version-1 ledger files
-        /// keep the same shape; the compatibility path mutates the in-memory actions
-        /// after load and before the first recalculation walk. Ambiguous rows are
-        /// preserved as-is rather than guessed from current runtime semantics; the
-        /// only no-funds fallback is the known stock-bypass save shape that rewrites
-        /// the matched <c>PartPurchased</c> event to zero-cost first.
-        /// </summary>
         internal static int RepairLegacyPartPurchaseActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions)
         {
-            if (ledgerActions == null || ledgerActions.Count == 0)
-                return 0;
-
-            int repaired = 0;
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var action = ledgerActions[i];
-                if (!IsPartPurchaseFundsSpendingAction(action))
-                    continue;
-
-                float canonicalCost;
-                if (!TryResolveCanonicalPartPurchaseChargeForAction(action, events, out canonicalCost))
-                    continue;
-
-                if (Math.Abs(action.FundsSpent - canonicalCost) <= 0.01f)
-                    continue;
-
-                action.FundsSpent = canonicalCost;
-                repaired++;
-            }
-
-            return repaired;
-        }
-
-        private static bool IsPartPurchaseFundsSpendingAction(GameAction action)
-        {
-            return action != null &&
-                   action.Type == GameActionType.FundsSpending &&
-                   action.FundsSpendingSource == FundsSpendingSource.Other;
-        }
-
-        private static bool TryResolveCanonicalPartPurchaseChargeForAction(
-            GameAction action,
-            IReadOnlyList<GameStateEvent> events,
-            out float canonicalCost)
-        {
-            canonicalCost = 0f;
-            if (action == null)
-                return false;
-
-            GameStateEvent matchedEvent;
-            if (TryFindMatchingPartPurchasedEvent(events, action, out matchedEvent))
-            {
-                GameStateEvent rewrittenEvent;
-                if (GameStateStore.TryRewriteLegacyPartPurchaseEvent(
-                    matchedEvent, events, out rewrittenEvent))
-                {
-                    matchedEvent = rewrittenEvent;
-                }
-
-                if (GameStateStore.TryGetStoredPartPurchaseCost(
-                    matchedEvent.detail, out canonicalCost))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool TryFindMatchingPartPurchasedEvent(
-            IReadOnlyList<GameStateEvent> events,
-            GameAction action,
-            out GameStateEvent matchedEvent)
-        {
-            matchedEvent = default(GameStateEvent);
-            if (events == null || action == null)
-                return false;
-
-            string partName = action.DedupKey;
-            int fallbackCount = 0;
-            for (int i = 0; i < events.Count; i++)
-            {
-                var evt = events[i];
-                if (evt.eventType != GameStateEventType.PartPurchased)
-                    continue;
-                if (Math.Abs(evt.ut - action.UT) > KscReconcileEpsilonSeconds)
-                    continue;
-
-                if (!string.IsNullOrEmpty(partName))
-                {
-                    if (string.Equals(evt.key, partName, StringComparison.Ordinal))
-                    {
-                        matchedEvent = evt;
-                        return true;
-                    }
-
-                    continue;
-                }
-
-                matchedEvent = evt;
-                fallbackCount++;
-                if (fallbackCount > 1)
-                    return false;
-            }
-
-            return fallbackCount == 1;
+            return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
         }
 
         /// <summary>
-        /// One-shot save recovery migration for #401 (c1 bricked funds) and #396
-        /// (sci1 bricked science). Walks the GameStateStore events and committed
-        /// science subjects, synthesizes a matching GameAction for any entry that
-        /// does NOT already have one in the ledger, and adds them.
-        ///
-        /// Must be called AFTER committed recordings (and any cold-start pending
-        /// tree) have been restored, because the migration only acts on events
-        /// whose recording tags are still visible in the current timeline.
-        ///
-        /// Idempotent: the LedgerHasMatchingAction guard makes repeat loads a no-op.
+        /// One-shot save recovery migration for legacy saves with missing funds,
+        /// contract, or science ledger rows.
         /// </summary>
         internal static int TryRecoverBrokenLedgerOnLoad()
         {
-            Initialize();
-            GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
-
-            int recoveredFundsParts = 0;
-            int recoveredContracts = 0;
-            int recoveredScience = 0;
-            int skippedHidden = 0;
-
-            // 1) Funds + contract events
-            var events = GameStateStore.Events;
-            for (int i = 0; i < events.Count; i++)
-            {
-                var evt = events[i];
-                if (!GameStateStore.IsEventVisibleToCurrentTimeline(evt))
-                {
-                    skippedHidden++;
-                    continue;
-                }
-                if (!IsRecoverableEventType(evt.eventType)) continue;
-                if (LedgerHasMatchingAction(evt)) continue;
-
-                var action = GameStateEventConverter.ConvertEvent(evt, null);
-                if (action == null) continue;
-
-                Ledger.AddAction(action);
-                if (evt.eventType == GameStateEventType.PartPurchased)
-                    recoveredFundsParts++;
-                else
-                    recoveredContracts++;
-
-                ParsekLog.Verbose(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad: synthesized {action.Type} action for " +
-                    $"event {evt.eventType} key='{evt.key}' ut={evt.ut:F1}");
-            }
-
-            // 2) Committed science subjects
-            // Use the persisted store as the recovery source of truth. Broken pre-#397
-            // saves are missing ScienceEarning rows in the ledger; rebuilding the store
-            // from the broken ledger here would erase the very totals we need to heal.
-            // When some earnings already survive, synthesize only the missing delta so
-            // cumulative subject totals do not double-count.
-            var subjectIds = GameStateStore.GetCommittedScienceSubjectIds();
-            if (subjectIds != null)
-            {
-                foreach (var subjectId in subjectIds)
-                {
-                    if (string.IsNullOrEmpty(subjectId)) continue;
-                    if (!GameStateStore.TryGetCommittedSubjectScience(subjectId, out float sci)) continue;
-                    if (sci <= 0f) continue;
-
-                    float existingScience = GetLedgerScienceEarningTotal(subjectId);
-                    float missingScience = sci - existingScience;
-                    if (missingScience <= 0.01f) continue;
-
-                    var action = new GameAction
-                    {
-                        // Science earnings need a UT for ordering; use the earliest
-                        // pseudo-UT so the synthesized action slots in at the beginning
-                        // of the currently-visible timeline.
-                        UT = 0.0,
-                        Type = GameActionType.ScienceEarning,
-                        RecordingId = null,
-                        SubjectId = subjectId,
-                        ScienceAwarded = missingScience,
-                        SubjectMaxValue = sci + 10f  // generous cap so walk doesn't clip
-                    };
-                    Ledger.AddAction(action);
-                    recoveredScience++;
-
-                    ParsekLog.Verbose(Tag,
-                        $"TryRecoverBrokenLedgerOnLoad: synthesized ScienceEarning for " +
-                        $"subject='{subjectId}' missingSci={missingScience:F1} " +
-                        $"(stored={sci:F1}, existing={existingScience:F1})");
-                }
-            }
-
-            int totalRecovered = recoveredFundsParts + recoveredContracts + recoveredScience;
-            if (totalRecovered > 0)
-            {
-                ParsekLog.Warn(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
-                    $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
-                    $"(skippedHidden={skippedHidden}).");
-            }
-            else
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad: no recovery needed " +
-                    $"(skippedHidden={skippedHidden})");
-            }
-
-            return totalRecovered;
+            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad();
         }
 
-        // Scope limit (deliberate): only contract state changes and part purchases
-        // are migrated because those are the event types that #405/#404 actually
-        // stripped from the ledger on c1/sci1 saves, so those are the ones a broken
-        // save will be missing. MilestoneAchieved is excluded because historical
-        // milestones were emitted with funds=0/rep=0 hardcoded — synthesizing them
-        // would only add zero-reward actions. CrewHired, TechResearched, and
-        // FacilityUpgraded are excluded because their real-time OnKscSpending writes
-        // were never broken; c1/sci1 already have those actions. A future broken
-        // save that surfaces missing hires/tech/facility actions would need this
-        // list extended (see todo-and-known-bugs.md).
         /// <summary>Pure: event types the migration can synthesize actions for.</summary>
         internal static bool IsRecoverableEventType(GameStateEventType t)
         {
-            switch (t)
-            {
-                case GameStateEventType.ContractAccepted:
-                case GameStateEventType.ContractCompleted:
-                case GameStateEventType.ContractFailed:
-                case GameStateEventType.ContractCancelled:
-                case GameStateEventType.PartPurchased:
-                    return true;
-                default:
-                    return false;
-            }
+            return LedgerLoadMigration.IsRecoverableEventType(t);
         }
 
         /// <summary>
         /// Pure: checks whether the ledger already has an action matching the given
-        /// event (same type + UT within epsilon + key). Used by the save recovery
-        /// migration to avoid duplicating an action that already exists.
+        /// event. Used by the save recovery migration to avoid duplicates.
         /// </summary>
         internal static bool LedgerHasMatchingAction(GameStateEvent evt)
         {
-            GameActionType? expectedType = MapEventTypeToActionType(evt.eventType);
-            if (expectedType == null) return true;   // unmappable => don't recover
-
-            var actions = Ledger.Actions;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var a = actions[i];
-                if (a.Type != expectedType.Value) continue;
-                if (Math.Abs(a.UT - evt.ut) > 0.1) continue;
-
-                // Match on the type-specific key field.
-                switch (a.Type)
-                {
-                    case GameActionType.ContractAccept:
-                    case GameActionType.ContractComplete:
-                    case GameActionType.ContractFail:
-                    case GameActionType.ContractCancel:
-                        if (a.ContractId == evt.key) return true;
-                        break;
-                    case GameActionType.FundsSpending:
-                        // Part purchase: evt.key is the part name, stored on DedupKey.
-                        if (a.DedupKey == evt.key) return true;
-                        break;
-                    default:
-                        return true;
-                }
-            }
-            return false;
+            return LedgerLoadMigration.LedgerHasMatchingAction(evt);
         }
 
         /// <summary>
-        /// Pure: checks whether the ledger already has a ScienceEarning action for
-        /// the given subject with at least the given science value credited. Uses
-        /// &gt;= comparison so multi-experiment top-ups don't synthesize duplicates.
+        /// Pure: checks whether the ledger already has enough ScienceEarning credit
+        /// for the given subject.
         /// </summary>
         internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
         {
-            if (string.IsNullOrEmpty(subjectId)) return true;
-            return GetLedgerScienceEarningTotal(subjectId) >= minScience - 0.01f;
+            return LedgerLoadMigration.LedgerHasMatchingScienceEarning(subjectId, minScience);
         }
 
         /// <summary>
         /// Pure: returns the total ScienceAwarded already present in the ledger for a
-        /// given subject. Used by save recovery to synthesize only the missing delta
-        /// when a broken save kept some ScienceEarning rows but lost later top-ups.
+        /// given subject.
         /// </summary>
         internal static float GetLedgerScienceEarningTotal(string subjectId)
         {
-            if (string.IsNullOrEmpty(subjectId)) return 0f;
-
-            float totalForSubject = 0f;
-            var actions = Ledger.Actions;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var a = actions[i];
-                if (a.Type != GameActionType.ScienceEarning) continue;
-                if (a.SubjectId != subjectId) continue;
-                totalForSubject += a.ScienceAwarded;
-            }
-
-            return totalForSubject;
+            return LedgerLoadMigration.GetLedgerScienceEarningTotal(subjectId);
         }
 
         /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
         internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
         {
-            switch (t)
-            {
-                case GameStateEventType.ContractAccepted: return GameActionType.ContractAccept;
-                case GameStateEventType.ContractCompleted: return GameActionType.ContractComplete;
-                case GameStateEventType.ContractFailed: return GameActionType.ContractFail;
-                case GameStateEventType.ContractCancelled: return GameActionType.ContractCancel;
-                case GameStateEventType.PartPurchased: return GameActionType.FundsSpending;
-                case GameStateEventType.TechResearched: return GameActionType.ScienceSpending;
-                case GameStateEventType.CrewHired: return GameActionType.KerbalHire;
-                case GameStateEventType.MilestoneAchieved: return GameActionType.MilestoneAchievement;
-                case GameStateEventType.FacilityUpgraded: return GameActionType.FacilityUpgrade;
-                default: return null;
-            }
+            return LedgerLoadMigration.MapEventTypeToActionType(t);
         }
 
         /// <summary>
@@ -3337,7 +2306,17 @@ namespace Parsek
         /// <param name="cost">Positive funds amount KSP deducted (rollout cost).</param>
         internal static void OnVesselRolloutSpending(double ut, double cost)
         {
-            OnVesselRolloutSpending(ut, cost, ResolveCurrentRolloutAdoptionContext());
+            var context = LedgerRolloutAdoption.ResolveCurrentRolloutAdoptionContext();
+
+            Initialize();
+
+            LedgerRolloutAdoption.RecordVesselRolloutSpending(
+                ut,
+                cost,
+                context,
+                AllocateKscSequence,
+                (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -3351,50 +2330,20 @@ namespace Parsek
             string vesselName,
             string launchSiteName)
         {
-            OnVesselRolloutSpending(
-                ut,
-                cost,
-                CreateRolloutAdoptionContext(vesselPersistentId, vesselName, launchSiteName));
-        }
+            var context = LedgerRolloutAdoption.CreateRolloutAdoptionContext(
+                vesselPersistentId,
+                vesselName,
+                launchSiteName);
 
-        private static void OnVesselRolloutSpending(double ut, double cost, RolloutAdoptionContext context)
-        {
             Initialize();
 
-            if (cost <= 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"OnVesselRolloutSpending: non-positive cost={cost:F1} at UT={ut:F1}, skipping");
-                return;
-            }
-
-            // Sequence assignment mirrors OnKscSpending — see that method for the
-            // canonical pattern. Same-UT KSC writes need a deterministic order in the
-            // recalculation sort; the shared kscSequenceCounter provides it.
-            kscSequenceCounter++;
-            var action = new GameAction
-            {
-                UT = ut,
-                Type = GameActionType.FundsSpending,
-                RecordingId = null,
-                FundsSpent = (float)cost,
-                FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = BuildRolloutDedupKey(ut, context),
-                Sequence = kscSequenceCounter
-            };
-
-            Ledger.AddAction(action);
-
-            ParsekLog.Info(Tag,
-                $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}, " +
-                $"context={FormatRolloutAdoptionContext(context)}");
-
-            // Reuse the KSC reconciliation path. Classifier returns ExpectedReasonKey=
-            // "VesselRollout" for FundsSpending(VesselBuild), so the matching FundsChanged
-            // event emitted by OnFundsChanged is paired and any drift logs WARN.
-            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, ut);
-
-            RecalculateAndPatch();
+            LedgerRolloutAdoption.RecordVesselRolloutSpending(
+                ut,
+                cost,
+                context,
+                AllocateKscSequence,
+                (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -3404,10 +2353,9 @@ namespace Parsek
         /// before <c>onVesselRecovered</c>, so the two share the same UT to within a frame.
         /// Tightened to 0.1 s (matching the dedup epsilon at line ~375 in
         /// <see cref="DeduplicateAgainstLedger"/>) to avoid latching unrelated back-to-back
-        /// recoveries — see consumed-index guard below for the second layer of protection.
+        /// recoveries — see consumed-fingerprint guard below for the second layer of protection.
         /// </summary>
         internal const double VesselRecoveryEventEpsilonSeconds = 0.1;
-        private const double LegacyRecoveryActionAmountTolerance = 0.01;
 
         /// <summary>
         /// Reason-key string written by <see cref="GameStateRecorder"/>'s OnFundsChanged
@@ -3418,26 +2366,6 @@ namespace Parsek
         /// </summary>
         internal const string VesselRecoveryReasonKey = "VesselRecovery";
         internal const string TechResearchScienceReasonKey = "RnDTechResearch";
-
-        /// <summary>
-        /// Dedup fingerprints of FundsChanged(VesselRecovery) events already consumed by
-        /// an <see cref="OnVesselRecoveryFunds"/> call. Uses immutable event payload
-        /// instead of mutable store indices so later list pruning/reindexing cannot
-        /// retarget a consumed marker onto a different event.
-        /// Cleared by <see cref="OnKspLoad"/> and <see cref="ResetForTesting"/>.
-        /// Written exclusively from <see cref="TryAddVesselRecoveryFundsAction"/>.
-        /// </summary>
-        private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
-
-        private struct PendingRecoveryFundsRequest
-        {
-            public double Ut;
-            public string VesselName;
-            public bool FromTrackingStation;
-        }
-
-        private static readonly List<PendingRecoveryFundsRequest> pendingRecoveryFunds =
-            new List<PendingRecoveryFundsRequest>();
 
         /// <summary>
         /// Hard cap on how many unmatched recovery requests can accumulate before the
@@ -3455,22 +2383,14 @@ namespace Parsek
         /// </summary>
         internal static string BuildRecoveryEventDedupKey(GameStateEvent e)
         {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}|{1}|{2:R}|{3:R}|{4:R}|{5}",
-                e.eventType,
-                e.key ?? "",
-                e.ut,
-                e.valueBefore,
-                e.valueAfter,
-                e.recordingId ?? "");
+            return LedgerRecoveryFundsPairing.BuildRecoveryEventDedupKey(e);
         }
 
         /// <summary>
         /// Locates the latest FundsChanged(VesselRecovery) event within the recovery
         /// epsilon window. When <paramref name="skipConsumed"/> is true, events whose
-        /// dedup fingerprint is already in <see cref="consumedRecoveryEventKeys"/> are
-        /// ignored.
+        /// dedup fingerprint is already consumed are ignored by
+        /// <see cref="LedgerRecoveryFundsPairing"/>.
         /// </summary>
         private static bool TryFindRecoveryFundsEvent(
             IReadOnlyList<GameStateEvent> events,
@@ -3479,81 +2399,16 @@ namespace Parsek
             out GameStateEvent matched,
             out string dedupKey)
         {
-            matched = default;
-            dedupKey = null;
-            if (events == null)
-                return false;
-
-            for (int i = events.Count - 1; i >= 0; i--)
-            {
-                var e = events[i];
-                if (e.eventType != GameStateEventType.FundsChanged) continue;
-                if (e.key != VesselRecoveryReasonKey) continue;
-                if (Math.Abs(e.ut - ut) > VesselRecoveryEventEpsilonSeconds) continue;
-
-                string candidateKey = BuildRecoveryEventDedupKey(e);
-                if (skipConsumed && consumedRecoveryEventKeys.Contains(candidateKey)) continue;
-
-                matched = e;
-                dedupKey = candidateKey;
-                return true;
-            }
-
-            return false;
+            return LedgerRecoveryFundsPairing.TryFindRecoveryFundsEvent(
+                events,
+                ut,
+                skipConsumed,
+                out matched,
+                out dedupKey);
         }
 
-        /// <summary>
-        /// Returns true when the ledger already contains a recovery earning sourced from
-        /// the same FundsChanged(VesselRecovery) event.
-        /// </summary>
-        private static bool HasRecoveryActionForDedupKey(string dedupKey)
-        {
-            if (string.IsNullOrEmpty(dedupKey))
-                return false;
-
-            var actions = Ledger.Actions;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action.Type != GameActionType.FundsEarning) continue;
-                if (action.FundsSource != FundsEarningSource.Recovery) continue;
-                if (!string.Equals(action.DedupKey, dedupKey, StringComparison.Ordinal)) continue;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static void AddPendingRecoveryFundsRequest(
-            double ut, string vesselName, bool fromTrackingStation)
-        {
-            // Do not fuzzy-dedup pending callbacks. Bulk recovery can deliver
-            // multiple same-named callbacks in the same UT epsilon before any paired
-            // FundsChanged(VesselRecovery) event has reached the recorder; the event
-            // dedup fingerprint is applied when each request is actually paired.
-            pendingRecoveryFunds.Add(new PendingRecoveryFundsRequest
-            {
-                Ut = ut,
-                VesselName = vesselName,
-                FromTrackingStation = fromTrackingStation
-            });
-
-            // Safety net: if the list grows past the staleness threshold without a
-            // matching FundsChanged(VesselRecovery) event draining it, something
-            // upstream stopped firing paired events. Lifecycle flushes
-            // (OnKspLoad / rewind end / scene switch) normally catch this, but this
-            // log keeps a footprint in KSP.log when a leak happens mid-session.
-            if (pendingRecoveryFunds.Count > PendingRecoveryFundsStaleThreshold)
-            {
-                ParsekLog.Warn(Tag,
-                    $"OnVesselRecoveryFunds: pending queue exceeded threshold " +
-                    $"(count={pendingRecoveryFunds.Count} > {PendingRecoveryFundsStaleThreshold}) " +
-                    $"— paired FundsChanged(VesselRecovery) events may be missing. " +
-                    $"Latest deferred request vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)}");
-            }
-        }
-
-        internal static int PendingRecoveryFundsCountForTesting => pendingRecoveryFunds.Count;
+        internal static int PendingRecoveryFundsCountForTesting =>
+            LedgerRecoveryFundsPairing.PendingRecoveryFundsCountForTesting;
 
         internal static void OnRecoveryFundsEventRecorded(GameStateEvent evt)
         {
@@ -3565,40 +2420,10 @@ namespace Parsek
             // Initialize() is idempotent: it short-circuits on the `initialized` flag so
             // repeated calls cost one branch. See LedgerOrchestrator.Initialize().
             Initialize();
-            if (pendingRecoveryFunds.Count == 0)
-                return;
 
-            // Two-tier pairing:
-            //
-            //   Tier 1 — Vessel-name preferred. If the event carries a vessel name
-            //            (propagated through GameStateEvent.detail on future recovery
-            //            paths; currently set only by synthetic test events), prefer
-            //            pending requests whose VesselName matches. This protects
-            //            against mis-pairing when two same-UT recoveries of different
-            //            vessels arrive and the funds events interleave out of order.
-            //
-            //   Tier 2 — Nearest UT. Legacy behavior: pick the pending request whose
-            //            UT is closest to the event UT inside the epsilon window.
-            //
-            // When multiple candidates tie after the name-match filter and share the
-            // same UT distance within the epsilon, we still pick the first match but
-            // log a WARN listing every tied candidate so the ambiguity is visible in
-            // KSP.log. This preserves the #444 callback-before-event contract without
-            // introducing silent mis-pairing.
-            string eventVesselName = evt.detail ?? "";
-
-            int bestIndex = FindBestPairingIndex(evt.ut, eventVesselName);
-            if (bestIndex < 0)
-                return;
-
-            var request = pendingRecoveryFunds[bestIndex];
-            if (TryAddVesselRecoveryFundsAction(
-                    request.Ut,
-                    request.VesselName,
-                    request.FromTrackingStation))
-            {
-                pendingRecoveryFunds.RemoveAt(bestIndex);
-            }
+            LedgerRecoveryFundsPairing.OnRecoveryFundsEventRecorded(
+                evt,
+                TryAddVesselRecoveryFundsAction);
         }
 
         /// <summary>
@@ -3612,109 +2437,11 @@ namespace Parsek
         /// </remarks>
         internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
         {
-            if (pendingRecoveryFunds.Count == 0)
-                return -1;
-
-            bool haveName = !string.IsNullOrEmpty(eventVesselName);
-
-            // Tier 1: vessel-name preferred pass.
-            int nameMatchBestIndex = -1;
-            double nameMatchBestDistance = double.MaxValue;
-            int nameMatchTies = 0;
-            if (haveName)
-            {
-                for (int i = 0; i < pendingRecoveryFunds.Count; i++)
-                {
-                    if (!string.Equals(pendingRecoveryFunds[i].VesselName,
-                            eventVesselName, StringComparison.Ordinal))
-                        continue;
-
-                    double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
-                    if (distance > VesselRecoveryEventEpsilonSeconds) continue;
-
-                    if (distance < nameMatchBestDistance)
-                    {
-                        nameMatchBestIndex = i;
-                        nameMatchBestDistance = distance;
-                        nameMatchTies = 1;
-                    }
-                    else if (distance == nameMatchBestDistance)
-                    {
-                        nameMatchTies++;
-                    }
-                }
-            }
-
-            if (nameMatchBestIndex >= 0)
-            {
-                if (nameMatchTies > 1)
-                {
-                    WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: true,
-                        bestDistance: nameMatchBestDistance);
-                }
-                return nameMatchBestIndex;
-            }
-
-            // Tier 2: nearest UT fallback.
-            int fallbackBestIndex = -1;
-            double fallbackBestDistance = double.MaxValue;
-            int fallbackTies = 0;
-            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
-            {
-                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
-                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
-
-                if (distance < fallbackBestDistance)
-                {
-                    fallbackBestIndex = i;
-                    fallbackBestDistance = distance;
-                    fallbackTies = 1;
-                }
-                else if (distance == fallbackBestDistance)
-                {
-                    fallbackTies++;
-                }
-            }
-
-            if (fallbackBestIndex >= 0 && fallbackTies > 1)
-            {
-                WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: false,
-                    bestDistance: fallbackBestDistance);
-            }
-
-            return fallbackBestIndex;
-        }
-
-        private static void WarnPairingCandidateTie(
-            double eventUt, string eventVesselName, bool byNameMatch, double bestDistance)
-        {
-            var sb = new System.Text.StringBuilder();
-            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
-            {
-                double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
-                if (distance > VesselRecoveryEventEpsilonSeconds) continue;
-                if (byNameMatch &&
-                    !string.Equals(pendingRecoveryFunds[i].VesselName,
-                        eventVesselName, StringComparison.Ordinal))
-                    continue;
-                if (distance != bestDistance) continue;
-
-                if (sb.Length > 0) sb.Append(", ");
-                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
-                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
-            }
-
-            string tier = byNameMatch ? "name-match" : "nearest-UT";
-            ParsekLog.Warn(Tag,
-                $"OnRecoveryFundsEventRecorded: multiple pending requests tied at " +
-                $"{tier} distance={bestDistance.ToString("F3", CultureInfo.InvariantCulture)} " +
-                $"for event ut={eventUt.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"vesselName='{eventVesselName ?? ""}'. Candidates: [{sb}]. " +
-                $"Picking first match in list order.");
+            return LedgerRecoveryFundsPairing.FindBestPairingIndex(eventUt, eventVesselName);
         }
 
         /// <summary>
-        /// Drains unclaimed <see cref="pendingRecoveryFunds"/> entries at a lifecycle
+        /// Drains unclaimed pending recovery-funds entries at a lifecycle
         /// boundary (scene switch, rewind end, load). Any entry still waiting for a
         /// paired FundsChanged(VesselRecovery) event past the boundary cannot pair
         /// afterward — the funds event would have arrived by now if stock was going to
@@ -3725,24 +2452,7 @@ namespace Parsek
         /// "rewind end", "KSP load"). Appears in the WARN log line for diagnostics.</param>
         internal static void FlushStalePendingRecoveryFunds(string reason)
         {
-            if (pendingRecoveryFunds.Count == 0)
-                return;
-
-            var sb = new System.Text.StringBuilder();
-            for (int i = 0; i < pendingRecoveryFunds.Count; i++)
-            {
-                if (sb.Length > 0) sb.Append(", ");
-                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
-                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
-            }
-
-            ParsekLog.Warn(Tag,
-                $"FlushStalePendingRecoveryFunds ({reason ?? ""}): " +
-                $"evicting {pendingRecoveryFunds.Count} unclaimed recovery request(s) " +
-                $"that never received a paired FundsChanged(VesselRecovery) event. " +
-                $"Entries: [{sb}]");
-
-            pendingRecoveryFunds.Clear();
+            LedgerRecoveryFundsPairing.FlushStalePendingRecoveryFunds(reason);
         }
 
         /// <summary>
@@ -3752,96 +2462,9 @@ namespace Parsek
         /// </summary>
         private static void RepairMissingRecoveryDedupKeys()
         {
-            var actions = Ledger.Actions;
-            var events = GameStateStore.Events;
-            if (actions == null || actions.Count == 0 || events == null || events.Count == 0)
-                return;
-
-            var reservedKeys = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action.Type != GameActionType.FundsEarning) continue;
-                if (action.FundsSource != FundsEarningSource.Recovery) continue;
-                if (string.IsNullOrEmpty(action.DedupKey)) continue;
-                reservedKeys.Add(action.DedupKey);
-            }
-
-            int scanned = 0;
-            int repaired = 0;
-            int unmatched = 0;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action.Type != GameActionType.FundsEarning) continue;
-                if (action.FundsSource != FundsEarningSource.Recovery) continue;
-                if (!string.IsNullOrEmpty(action.DedupKey)) continue;
-
-                scanned++;
-                if (TryFindLegacyRecoveryDedupKey(action, events, reservedKeys, out string repairedKey))
-                {
-                    action.DedupKey = repairedKey;
-                    reservedKeys.Add(repairedKey);
-                    repaired++;
-                }
-                else
-                {
-                    unmatched++;
-                }
-            }
-
-            if (scanned > 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RepairMissingRecoveryDedupKeys: scanned={scanned}, repaired={repaired}, unmatched={unmatched}");
-            }
-        }
-
-        /// <summary>
-        /// Matches a legacy recovery action lacking DedupKey back to its saved
-        /// FundsChanged(VesselRecovery) event using the action UT and credited amount.
-        /// </summary>
-        private static bool TryFindLegacyRecoveryDedupKey(
-            GameAction action,
-            IReadOnlyList<GameStateEvent> events,
-            HashSet<string> reservedKeys,
-            out string dedupKey)
-        {
-            dedupKey = null;
-            if (action == null || events == null)
-                return false;
-
-            double bestUtDistance = double.MaxValue;
-            for (int i = events.Count - 1; i >= 0; i--)
-            {
-                var e = events[i];
-                if (e.eventType != GameStateEventType.FundsChanged) continue;
-                if (e.key != VesselRecoveryReasonKey) continue;
-
-                double utDistance = Math.Abs(e.ut - action.UT);
-                if (utDistance > VesselRecoveryEventEpsilonSeconds) continue;
-
-                double delta = e.valueAfter - e.valueBefore;
-                // Recovery payouts are stored on GameAction as float and serialized with
-                // "R", so large amounts can round-trip back to double with more than a
-                // cent of widening error. Keep the existing cent floor (matching funds
-                // patch/no-op behavior) but widen it by the delta's own float-storage loss.
-                double amountTolerance = Math.Max(
-                    LegacyRecoveryActionAmountTolerance,
-                    Math.Abs(delta - (double)(float)delta));
-                if (Math.Abs(delta - action.FundsAwarded) > amountTolerance) continue;
-
-                string candidateKey = BuildRecoveryEventDedupKey(e);
-                if (reservedKeys.Contains(candidateKey)) continue;
-                if (utDistance >= bestUtDistance) continue;
-
-                dedupKey = candidateKey;
-                bestUtDistance = utDistance;
-                if (utDistance == 0)
-                    break;
-            }
-
-            return dedupKey != null;
+            LedgerRecoveryFundsPairing.RepairMissingRecoveryDedupKeys(
+                Ledger.Actions,
+                GameStateStore.Events);
         }
 
         /// <summary>
@@ -3867,13 +2490,13 @@ namespace Parsek
         ///
         /// <para>Each <see cref="GameStateStore.Events"/> entry can pair to at most one
         /// recovery call: consumed recovery-event fingerprints are tracked in
-        /// <see cref="consumedRecoveryEventKeys"/> so a bulk-recovery burst (two
+        /// the recovery pairing helper so a bulk-recovery burst (two
         /// <c>onVesselRecovered</c> callbacks within the epsilon window) routes each call
         /// to its own funds delta instead of double-latching the most recent event.</para>
         ///
         /// <para>The missing-pair <see cref="VesselType.Debris"/> case is handled before
         /// the deferred queue: once immediate pairing fails, debris callbacks return
-        /// without entering <see cref="pendingRecoveryFunds"/>. Other vessel types,
+        /// without entering the pending recovery-funds queue. Other vessel types,
         /// including <see cref="VesselType.SpaceObject"/>, keep the deferred-pair path.</para>
         ///
         /// <para>In-flight recovery is handled by the existing terminal-state path:
@@ -3907,104 +2530,24 @@ namespace Parsek
         {
             Initialize();
 
-            if (string.IsNullOrEmpty(vesselName))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: empty vesselName at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
-                return;
-            }
-
-            if (TryAddVesselRecoveryFundsAction(ut, vesselName, fromTrackingStation))
-                return;
-
-            if (vesselType == VesselType.Debris)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: vessel '{vesselName}' (VesselType.Debris) at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping deferred recovery-funds pairing");
-                return;
-            }
-
-            AddPendingRecoveryFundsRequest(ut, vesselName, fromTrackingStation);
-            ParsekLog.Verbose(Tag,
-                $"OnVesselRecoveryFunds: deferred pairing for vessel '{vesselName}' " +
-                $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} until FundsChanged(VesselRecovery) is recorded");
+            LedgerRecoveryFundsPairing.OnVesselRecoveryFunds(
+                ut,
+                vesselName,
+                fromTrackingStation,
+                vesselType,
+                TryAddVesselRecoveryFundsAction);
         }
 
         private static bool TryAddVesselRecoveryFundsAction(double ut, string vesselName, bool fromTrackingStation)
         {
-            // Locate the paired FundsChanged(VesselRecovery) event. KSP fires the funds change
-            // before or shortly after onVesselRecovered depending on the stock recovery path.
-            // Search by reason key (TransactionReasons.VesselRecovery.ToString() == "VesselRecovery"
-            // — see GameStateRecorder.OnFundsChanged where the key is written) within a small
-            // UT window, and skip dedup fingerprints already consumed by an earlier recovery
-            // call to protect against bulk-recovery double-latching.
-            if (!TryFindRecoveryFundsEvent(
-                    GameStateStore.Events,
-                    ut,
-                    skipConsumed: true,
-                    out GameStateEvent matched,
-                    out string dedupKey))
-            {
-                return false;
-            }
-
-            double delta = matched.valueAfter - matched.valueBefore;
-            if (delta <= 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"has delta={delta.ToString("F1", CultureInfo.InvariantCulture)} — skipping (zero or negative recovery value)");
-                consumedRecoveryEventKeys.Add(dedupKey);
-                return true;
-            }
-
-            if (HasRecoveryActionForDedupKey(dedupKey))
-            {
-                consumedRecoveryEventKeys.Add(dedupKey);
-                ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"already exists in ledger (dedupKey='{dedupKey}') — skipping duplicate add");
-                return true;
-            }
-
-            // Pick the recording whose [StartUT, EndUT] brackets the recovery UT (the best
-            // semantic match for "the flight this recovery belongs to"); fall back to the
-            // most recent same-named flight that already ended at or before `ut`; final
-            // fallback is the global latest by EndUT, which preserves the original behavior
-            // for recoveries whose recording metadata has drifted (e.g., manual EndUT edit).
-            string recordingId = PickRecoveryRecordingId(vesselName, matched.ut);
-
-            // Mark consumed BEFORE adding the action so a re-entrant RecalculateAndPatch
-            // (or any future test that calls back into this method) cannot reuse the same
-            // paired funds event.
-            consumedRecoveryEventKeys.Add(dedupKey);
-
-            // Allocate a sequence number from the same counter used by OnKscSpending so
-            // that recovery actions interleave deterministically with other KSC events
-            // captured at the same UT.
-            kscSequenceCounter++;
-
-            var action = new GameAction
-            {
-                UT = matched.ut,
-                Type = GameActionType.FundsEarning,
-                RecordingId = recordingId,
-                FundsAwarded = (float)delta,
-                FundsSource = FundsEarningSource.Recovery,
-                DedupKey = dedupKey,
-                Sequence = kscSequenceCounter
-            };
-
-            Ledger.AddAction(action);
-
-            ParsekLog.Info(Tag,
-                $"VesselRecovery funds patched: vessel='{vesselName}' " +
-                $"amount={delta.ToString("F0", CultureInfo.InvariantCulture)} " +
-                $"ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
-
-            RecalculateAndPatch();
-            return true;
+            return LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction(
+                ut,
+                vesselName,
+                fromTrackingStation,
+                PickRecoveryRecordingId,
+                AllocateKscSequence,
+                Ledger.Actions,
+                () => RecalculateAndPatch());
         }
 
         /// <summary>
@@ -4032,58 +2575,7 @@ namespace Parsek
 
         internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
         {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            if (rec == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TryAdoptRolloutAction: recording '{recordingId}' not found, cannot match rollout context");
-                return null;
-            }
-
-            RolloutAdoptionContext recordingContext = CreateRolloutAdoptionContext(rec);
-            if (!CanMatchRolloutAdoptionContext(recordingContext))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TryAdoptRolloutAction: recording '{recordingId}' missing rollout context " +
-                    $"({FormatRolloutAdoptionContext(recordingContext)}), skipping adoption");
-                return null;
-            }
-
-            var actions = Ledger.Actions;
-            // LIFO scan: walk newest-first so the rollout immediately preceding this
-            // launch wins over any older unclaimed entries (cancelled rollouts) sitting
-            // in the same adoption window.
-            for (int i = actions.Count - 1; i >= 0; i--)
-            {
-                var a = actions[i];
-                if (a == null) continue;
-                if (a.Type != GameActionType.FundsSpending) continue;
-                if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
-                if (!string.IsNullOrEmpty(a.RecordingId)) continue; // already adopted
-                if (string.IsNullOrEmpty(a.DedupKey)) continue;
-                if (!a.DedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal)) continue;
-                // 0.5 s slack absorbs UT epsilon between OnFundsChanged ut and FlightRecorder startUT.
-                if (a.UT > startUT + 0.5) continue;
-                if (startUT - a.UT > RolloutAdoptionWindowSeconds) continue;
-                if (!RolloutAdoptionContextsMatch(ParseRolloutAdoptionContext(a.DedupKey), recordingContext))
-                    continue;
-
-                string oldDedup = a.DedupKey;
-                a.RecordingId = recordingId;
-                a.DedupKey = null;
-                ParsekLog.Info(Tag,
-                    $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
-                    $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
-                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
-                    $"context={FormatRolloutAdoptionContext(recordingContext)})");
-                return a;
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"TryAdoptRolloutAction: no unclaimed rollout action within {RolloutAdoptionWindowSeconds:F0}s " +
-                $"before startUT={startUT:F1} for recording '{recordingId}' " +
-                $"with context {FormatRolloutAdoptionContext(recordingContext)}");
-            return null;
+            return LedgerRolloutAdoption.TryAdoptRolloutAction(recordingId, startUT, rec, Ledger.Actions);
         }
 
         /// <summary>
@@ -4095,172 +2587,7 @@ namespace Parsek
         /// </summary>
         internal static bool CanRecordingAdoptRolloutAction(Recording rec)
         {
-            if (rec == null || string.IsNullOrEmpty(rec.StartSituation))
-                return false;
-
-            return rec.StartSituation.Equals("Prelaunch", StringComparison.OrdinalIgnoreCase)
-                || rec.StartSituation.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static RolloutAdoptionContext ResolveCurrentRolloutAdoptionContext()
-        {
-            try
-            {
-                Vessel activeVessel = FlightGlobals.ActiveVessel;
-                if (activeVessel != null)
-                {
-                    string launchSiteName = FlightRecorder.ResolveLaunchSiteName(activeVessel, false);
-                    if (string.IsNullOrEmpty(launchSiteName))
-                        launchSiteName = TryResolveLaunchSiteNameFromFlightDriver();
-
-                    return CreateRolloutAdoptionContext(
-                        activeVessel.persistentId,
-                        Recording.ResolveLocalizedName(activeVessel.vesselName),
-                        launchSiteName);
-                }
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"ResolveCurrentRolloutAdoptionContext: ActiveVessel lookup failed: {ex.Message}");
-            }
-
-            return CreateRolloutAdoptionContext(
-                0u,
-                null,
-                TryResolveLaunchSiteNameFromFlightDriver());
-        }
-
-        private static string TryResolveLaunchSiteNameFromFlightDriver()
-        {
-            try
-            {
-                return FlightRecorder.HumanizeLaunchSiteName(FlightDriver.LaunchSiteName);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag, $"TryResolveLaunchSiteNameFromFlightDriver failed: {ex.Message}");
-                return null;
-            }
-        }
-
-        private static RolloutAdoptionContext CreateRolloutAdoptionContext(Recording rec)
-        {
-            if (rec == null)
-                return default(RolloutAdoptionContext);
-
-            return CreateRolloutAdoptionContext(
-                rec.VesselPersistentId,
-                rec.VesselName,
-                rec.LaunchSiteName);
-        }
-
-        private static RolloutAdoptionContext CreateRolloutAdoptionContext(
-            uint vesselPersistentId,
-            string vesselName,
-            string launchSiteName)
-        {
-            return new RolloutAdoptionContext
-            {
-                VesselPersistentId = vesselPersistentId,
-                VesselName = NormalizeRolloutContextText(vesselName),
-                LaunchSiteName = NormalizeRolloutContextText(launchSiteName)
-            };
-        }
-
-        private static string NormalizeRolloutContextText(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return null;
-
-            return value.Trim();
-        }
-
-        private static bool CanMatchRolloutAdoptionContext(RolloutAdoptionContext context)
-        {
-            if (context.VesselPersistentId != 0)
-                return true;
-
-            return !string.IsNullOrEmpty(context.VesselName)
-                && !string.IsNullOrEmpty(context.LaunchSiteName);
-        }
-
-        private static bool RolloutAdoptionContextsMatch(
-            RolloutAdoptionContext actionContext,
-            RolloutAdoptionContext recordingContext)
-        {
-            // Compatibility: the immediately previous #445 follow-up persisted
-            // rollout adoption markers as bare "rollout:<UT>" keys with no
-            // vessel/site fields. Those saves still need to reattach the saved
-            // charge after upgrade/load, so preserve the legacy window-only
-            // adoption behavior for that exact key shape.
-            if (actionContext.IsLegacyBareKey)
-                return true;
-
-            if (actionContext.VesselPersistentId != 0 && recordingContext.VesselPersistentId != 0)
-                return actionContext.VesselPersistentId == recordingContext.VesselPersistentId;
-
-            return !string.IsNullOrEmpty(actionContext.VesselName)
-                && !string.IsNullOrEmpty(recordingContext.VesselName)
-                && !string.IsNullOrEmpty(actionContext.LaunchSiteName)
-                && !string.IsNullOrEmpty(recordingContext.LaunchSiteName)
-                && actionContext.VesselName.Equals(recordingContext.VesselName, StringComparison.OrdinalIgnoreCase)
-                && actionContext.LaunchSiteName.Equals(recordingContext.LaunchSiteName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string BuildRolloutDedupKey(double ut, RolloutAdoptionContext context)
-        {
-            return RolloutDedupPrefix
-                + ut.ToString("R", CultureInfo.InvariantCulture)
-                + "|pid=" + context.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
-                + "|site=" + Uri.EscapeDataString(context.LaunchSiteName ?? string.Empty)
-                + "|vessel=" + Uri.EscapeDataString(context.VesselName ?? string.Empty);
-        }
-
-        private static RolloutAdoptionContext ParseRolloutAdoptionContext(string dedupKey)
-        {
-            if (string.IsNullOrEmpty(dedupKey)
-                || !dedupKey.StartsWith(RolloutDedupPrefix, StringComparison.Ordinal))
-                return default(RolloutAdoptionContext);
-
-            var context = default(RolloutAdoptionContext);
-            string[] parts = dedupKey.Split('|');
-            if (parts.Length == 1)
-            {
-                context.IsLegacyBareKey = true;
-                return context;
-            }
-
-            for (int i = 1; i < parts.Length; i++)
-            {
-                string part = parts[i];
-                if (part.StartsWith("pid=", StringComparison.Ordinal))
-                {
-                    uint.TryParse(
-                        part.Substring(4),
-                        NumberStyles.Integer,
-                        CultureInfo.InvariantCulture,
-                        out context.VesselPersistentId);
-                }
-                else if (part.StartsWith("site=", StringComparison.Ordinal))
-                {
-                    context.LaunchSiteName = NormalizeRolloutContextText(
-                        Uri.UnescapeDataString(part.Substring(5)));
-                }
-                else if (part.StartsWith("vessel=", StringComparison.Ordinal))
-                {
-                    context.VesselName = NormalizeRolloutContextText(
-                        Uri.UnescapeDataString(part.Substring(7)));
-                }
-            }
-
-            return context;
-        }
-
-        private static string FormatRolloutAdoptionContext(RolloutAdoptionContext context)
-        {
-            return $"pid={context.VesselPersistentId}, vessel='{context.VesselName ?? "(null)"}', " +
-                $"site='{context.LaunchSiteName ?? "(null)"}'";
+            return LedgerRolloutAdoption.CanRecordingAdoptRolloutAction(rec);
         }
 
         /// <summary>
@@ -4345,86 +2672,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Classifies a <see cref="GameAction"/> type's reconciliation behavior on the
-        /// KSC-write path: <see cref="Untransformed"/> types have raw action fields that
-        /// equal the post-walk contribution (WARN on missing/mismatched event);
-        /// <see cref="Transformed"/> types are subject to strategy diversion or reputation
-        /// curve (skip with VERBOSE until a post-walk reconciliation phase lands);
-        /// <see cref="NoResourceImpact"/> types short-circuit silently.
-        /// </summary>
-        internal enum KscReconcileClass
-        {
-            NoResourceImpact,
-            Untransformed,
-            Transformed
-        }
-
-        /// <summary>
-        /// Compact description of what an untransformed action expects to see in
-        /// GameStateStore: up to three resource legs, each with its event type, the
-        /// KSP <c>TransactionReasons</c> key the emitter writes on it, and the signed
-        /// delta the action's raw field should represent. Returned by
-        /// <see cref="ClassifyAction"/>.
-        /// </summary>
-        internal enum KscExpectationLegMode
-        {
-            Direct = 0,
-            ReputationCurve = 1
-        }
-
-        internal struct KscExpectationLeg
-        {
-            public bool IsPresent;
-            public GameStateEventType EventType;
-            public string ExpectedReasonKey;
-            public double ExpectedDelta;
-            public KscExpectationLegMode Mode;
-        }
-
-        internal struct KscActionExpectation
-        {
-            public KscReconcileClass Class;
-            public KscExpectationLeg FundsLeg;
-            public KscExpectationLeg ScienceLeg;
-            public KscExpectationLeg ReputationLeg;
-            public string SkipReason;            // meaningful only when Class == Transformed
-
-            public int LegCount
-            {
-                get
-                {
-                    int count = 0;
-                    if (FundsLeg.IsPresent) count++;
-                    if (ScienceLeg.IsPresent) count++;
-                    if (ReputationLeg.IsPresent) count++;
-                    return count;
-                }
-            }
-        }
-
-        private struct KscExpectedLegMatch
-        {
-            public GameAction Action;
-            public KscExpectationLeg Leg;
-        }
-
-        private static KscExpectationLeg CreateExpectationLeg(
-            GameStateEventType eventType,
-            string expectedReasonKey,
-            double expectedDelta,
-            KscExpectationLegMode mode = KscExpectationLegMode.Direct)
-        {
-            return new KscExpectationLeg
-            {
-                IsPresent = true,
-                EventType = eventType,
-                ExpectedReasonKey = expectedReasonKey,
-                ExpectedDelta = expectedDelta,
-                Mode = mode
-            };
-        }
-
-        /// <summary>
         /// Pure classifier: maps a KSC-path <see cref="GameAction"/> to its reconciliation
         /// class + expected paired resource event. Used by <see cref="ReconcileKscAction"/>.
         /// <para>
@@ -4436,1435 +2683,61 @@ namespace Parsek
         /// </summary>
         internal static KscActionExpectation ClassifyAction(GameAction action)
         {
-            if (action == null)
-                return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
-
-            switch (action.Type)
-            {
-                // ---- Untransformed: raw field equals post-walk contribution. ----
-
-                case GameActionType.FundsSpending:
-                    // The KSC path uses FundsSpending for part purchases (via
-                    // ConvertPartPurchased → source=Other) and for rollout deductions
-                    // (#445, OnVesselRolloutSpending → source=VesselBuild). Each pairs
-                    // with a different KSP TransactionReasons key on FundsChanged.
-                    // Strategy input (source=Strategy) is not yet captured on KSC (Phase
-                    // E1.5) — skip if we ever see it. Stock bypass=true part unlocks
-                    // now record a zero charged cost in GameStateRecorder, so they stay
-                    // on the untransformed path here and short-circuit later via the
-                    // zero-expected-delta early return in ReconcileKscAction.
-                    if (action.FundsSpendingSource == FundsSpendingSource.Strategy)
-                    {
-                        return new KscActionExpectation
-                        {
-                            Class = KscReconcileClass.Transformed,
-                            SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
-                        };
-                    }
-                    if (action.FundsSpendingSource == FundsSpendingSource.VesselBuild)
-                    {
-                        return new KscActionExpectation
-                        {
-                            Class = KscReconcileClass.Untransformed,
-                            FundsLeg = CreateExpectationLeg(
-                                GameStateEventType.FundsChanged,
-                                "VesselRollout",
-                                -action.FundsSpent)
-                        };
-                    }
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "RnDPartPurchase",
-                            -action.FundsSpent)
-                    };
-
-                case GameActionType.ScienceSpending:
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        ScienceLeg = CreateExpectationLeg(
-                            GameStateEventType.ScienceChanged,
-                            TechResearchScienceReasonKey,
-                            -action.Cost)
-                    };
-
-                case GameActionType.FacilityUpgrade:
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "StructureConstruction",
-                            -action.FacilityCost)
-                    };
-
-                case GameActionType.FacilityRepair:
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "StructureRepair",
-                            -action.FacilityCost)
-                    };
-
-                case GameActionType.KerbalHire:
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "CrewRecruited",
-                            -action.HireCost)
-                    };
-
-                case GameActionType.ContractAccept:
-                    // Advance funds are unconditional (FundsModule.ProcessContractAccept
-                    // does not strategy-transform the advance). Zero-advance contracts
-                    // produce no FundsChanged event and are silent.
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed,
-                        FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "ContractAdvance",
-                            action.AdvanceFunds)
-                    };
-
-                case GameActionType.StrategyActivate:
-                    // Strategy.Activate() charges all three setup-cost resources with the
-                    // same TransactionReasons.StrategySetup key. Funds and science are
-                    // direct deltas. Reputation goes through KSP's granular curve, so the
-                    // reconciliation leg marks that and ReconcileKscAction derives the
-                    // expected actual delta from the observed starting rep.
-                    var strategyExpectation = new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Untransformed
-                    };
-                    if (action.SetupCost != 0f)
-                    {
-                        strategyExpectation.FundsLeg = CreateExpectationLeg(
-                            GameStateEventType.FundsChanged,
-                            "StrategySetup",
-                            -action.SetupCost);
-                    }
-                    if (action.SetupScienceCost != 0f)
-                    {
-                        strategyExpectation.ScienceLeg = CreateExpectationLeg(
-                            GameStateEventType.ScienceChanged,
-                            "StrategySetup",
-                            -action.SetupScienceCost);
-                    }
-                    if (action.SetupReputationCost != 0f)
-                    {
-                        strategyExpectation.ReputationLeg = CreateExpectationLeg(
-                            GameStateEventType.ReputationChanged,
-                            "StrategySetup",
-                            -action.SetupReputationCost,
-                            KscExpectationLegMode.ReputationCurve);
-                    }
-                    return strategyExpectation;
-
-                // ---- Transformed: raw fields do not equal post-walk contribution. ----
-
-                case GameActionType.ContractComplete:
-                    // FundsReward/RepReward/ScienceReward subject to StrategiesModule's
-                    // TransformedFundsReward/Rep/Science during the walk; RepReward also
-                    // passes through ApplyReputationCurve. Per-action KSC path stays
-                    // silent; post-walk hook reconciles (#440).
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "contract rewards -- post-walk hook reconciles (#440)"
-                    };
-
-                case GameActionType.ContractFail:
-                case GameActionType.ContractCancel:
-                    // FundsPenalty is raw, but RepPenalty passes through the reputation
-                    // curve. Post-walk hook reconciles both legs (#440).
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "contract penalty -- post-walk hook reconciles (#440)"
-                    };
-
-                case GameActionType.MilestoneAchievement:
-                    // Rep leg goes through the curve; funds/sci are identity today but
-                    // post-walk hook reconciles all three legs (#440) for regression
-                    // safety if a mod introduces a transform.
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "milestone rewards -- post-walk hook reconciles (#440)"
-                    };
-
-                case GameActionType.ReputationEarning:
-                case GameActionType.ReputationPenalty:
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "reputation curve -- post-walk hook reconciles (#440)"
-                    };
-
-                case GameActionType.FundsEarning:
-                case GameActionType.ScienceEarning:
-                    // Earning actions on the KSC path would be direct deposits (not seen
-                    // today -- recovery/contract/milestone flow through their own action
-                    // types). Post-walk hook reconciles the safety path (#440); strategy
-                    // payout income will land here once #439 Phase C captures it.
-                    return new KscActionExpectation
-                    {
-                        Class = KscReconcileClass.Transformed,
-                        SkipReason = "direct earning -- post-walk hook reconciles (#440)"
-                    };
-
-                // ---- No resource impact: short-circuit silently. ----
-
-                case GameActionType.KerbalAssignment:
-                case GameActionType.KerbalRescue:
-                case GameActionType.KerbalStandIn:
-                case GameActionType.FacilityDestruction:
-                case GameActionType.StrategyDeactivate:
-                case GameActionType.FundsInitial:
-                case GameActionType.ScienceInitial:
-                case GameActionType.ReputationInitial:
-                default:
-                    return new KscActionExpectation { Class = KscReconcileClass.NoResourceImpact };
-            }
+            return KscActionExpectationClassifier.ClassifyAction(action);
         }
 
-        /// <summary>
-        /// Per-action reconciliation for KSC-side ledger writes. Called from
-        /// <see cref="OnKscSpending"/>. Compares the action's expected paired resource
-        /// event — matched by <see cref="GameStateEventType"/> + KSP <c>TransactionReasons</c>
-        /// key within <see cref="KscReconcileEpsilonSeconds"/> — against the delta the
-        /// action's raw field represents, and logs WARN on missing or mismatched event.
-        /// Log-only: the action has already been written to the ledger by the caller.
-        /// <para>
-        /// Scope: <b>untransformed action types only</b> (part purchase, tech unlock,
-        /// facility upgrade/repair, kerbal hire, contract advance). Transformed types
-        /// (contract rewards, milestones, reputation earnings) skip with a rate-limited
-        /// VERBOSE line — their raw fields are subject to strategy diversion and the
-        /// reputation curve, so a post-walk hook (Phase D territory) is required for
-        /// those. See <see cref="ClassifyAction"/> for the full type map.
-        /// </para>
-        /// <para>
-        /// Coalescing safety: <see cref="GameStateStore.AddEvent"/> merges
-        /// same-type/same-tag resource events within a 0.1 s window into a single slot.
-        /// Two back-to-back KSC actions of the same kind (e.g. two part purchases) share
-        /// one coalesced event with the summed delta. This reconciler handles that by
-        /// summing both sides across a UT window: expected from ledger actions with the
-        /// same expectation classification within <see cref="KscReconcileEpsilonSeconds"/>
-        /// of <paramref name="ut"/>, observed from events with the matching key in the
-        /// same window. The current action is already in <paramref name="ledgerActions"/>
-        /// (the caller adds it before calling).
-        /// </para>
-        /// <para>
-        /// Internal static + parameterized on <paramref name="events"/> and
-        /// <paramref name="ledgerActions"/> for testability — production calls pass
-        /// <see cref="GameStateStore.Events"/> and <see cref="Ledger.Actions"/>.
-        /// </para>
-        /// </summary>
+        /// <summary>Compatibility facade for <see cref="KscActionReconciler.ReconcileKscAction"/>.</summary>
         internal static void ReconcileKscAction(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
             GameAction action,
             double ut)
         {
-            if (action == null) return;
-
-            var expectation = ClassifyAction(action);
-
-            switch (expectation.Class)
-            {
-                case KscReconcileClass.NoResourceImpact:
-                    return;
-
-                case KscReconcileClass.Transformed:
-                    // Rate-limited VERBOSE so a long session with many contract completions
-                    // doesn't drown the log, but one line always lands on the first call
-                    // per (action type, skip reason) pair so the skip is observable during
-                    // debugging. Multiple skip causes share this branch — Phase E1.5
-                    // strategy spending, and #448's RnDPartPurchase suppression under
-                    // BypassEntryPurchaseAfterResearch=true. Both can fire for the SAME
-                    // action.Type (FundsSpending), so a key keyed only on action.Type
-                    // would let whichever cause hits first suppress the other for the
-                    // entire rate-limit window. Include a hash of the SkipReason so each
-                    // distinct cause gets its own slot.
-                    int skipKeyHash = expectation.SkipReason != null
-                        ? expectation.SkipReason.GetHashCode()
-                        : 0;
-                    ParsekLog.VerboseRateLimited(Tag,
-                        $"ksc-reconcile-skip:{action.Type}:{skipKeyHash}",
-                        $"KSC reconciliation: {action.Type} skipped " +
-                        $"({expectation.SkipReason}) ut={ut:F1}");
-                    return;
-
-                case KscReconcileClass.Untransformed:
-                    break;
-            }
-
-            if (expectation.LegCount == 0)
-                return;
-
-            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.FundsLeg);
-            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.ScienceLeg);
-            ReconcileKscExpectationLeg(events, ledgerActions, action, ut, expectation.ReputationLeg);
+            KscActionReconciler.ReconcileKscAction(events, ledgerActions, action, ut);
         }
 
-        private static void ReconcileKscExpectationLeg(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions,
-            GameAction action,
-            double ut,
-            KscExpectationLeg leg)
-        {
-            if (!leg.IsPresent)
-                return;
-
-            double tol;
-            switch (leg.EventType)
-            {
-                case GameStateEventType.FundsChanged: tol = 1.0; break;
-                case GameStateEventType.ReputationChanged: tol = 0.1; break;
-                case GameStateEventType.ScienceChanged: tol = 0.1; break;
-                default:
-                    ParsekLog.Warn(Tag,
-                        $"KSC reconciliation: unexpected EventType {leg.EventType} " +
-                        $"for action {action.Type} — classifier bug");
-                    return;
-            }
-
-            if (Math.Abs(leg.ExpectedDelta) <= tol)
-                return;
-
-            double summedObserved = 0;
-            int observedCount = 0;
-            double earliestObservedUt = double.PositiveInfinity;
-            double earliestObservedBefore = 0;
-            if (events != null)
-            {
-                for (int i = 0; i < events.Count; i++)
-                {
-                    var e = events[i];
-                    if (e.eventType != leg.EventType) continue;
-                    if (Math.Abs(e.ut - ut) > KscReconcileEpsilonSeconds) continue;
-                    string eventKey = e.key ?? "";
-                    if (!string.Equals(eventKey, leg.ExpectedReasonKey, StringComparison.Ordinal))
-                        continue;
-
-                    if (observedCount == 0 || e.ut < earliestObservedUt)
-                    {
-                        earliestObservedUt = e.ut;
-                        earliestObservedBefore = e.valueBefore;
-                    }
-
-                    summedObserved += (e.valueAfter - e.valueBefore);
-                    observedCount++;
-                }
-            }
-
-            string channelTag = ResourceChannelTag(leg.EventType);
-            if (observedCount == 0)
-            {
-                ParsekLog.Warn(Tag,
-                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={leg.ExpectedDelta:F1} " +
-                    $"(reason='{leg.ExpectedReasonKey}') but no matching {leg.EventType} event within " +
-                    $"{KscReconcileEpsilonSeconds:F1}s of ut={ut:F1} — missing earning channel or stale event?");
-                return;
-            }
-
-            var matchingLegs = CollectMatchingLegs(ledgerActions, action, ut, leg);
-            int expectedCount = matchingLegs.Count;
-            double summedExpected = ComputeExpectedDeltaForLeg(
-                leg,
-                matchingLegs,
-                earliestObservedBefore,
-                tol);
-
-            if (Math.Abs(summedExpected - summedObserved) > tol)
-            {
-                ParsekLog.Warn(Tag,
-                    $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={leg.ExpectedDelta:F1}, " +
-                    $"aggregate expected={summedExpected:F1} across {expectedCount} ledger action(s) vs " +
-                    $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{leg.ExpectedReasonKey}' " +
-                    $"— delta mismatch at ut={ut:F1}");
-            }
-        }
-
-        private static List<KscExpectedLegMatch> CollectMatchingLegs(
-            IReadOnlyList<GameAction> ledgerActions,
-            GameAction action,
-            double ut,
-            KscExpectationLeg targetLeg)
-        {
-            var matches = new List<KscExpectedLegMatch>();
-            if (ledgerActions != null)
-            {
-                for (int i = 0; i < ledgerActions.Count; i++)
-                {
-                    var other = ledgerActions[i];
-                    if (other == null) continue;
-                    if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
-                    var otherExpectation = ClassifyAction(other);
-                    if (otherExpectation.Class != KscReconcileClass.Untransformed) continue;
-                    AddMatchingLeg(matches, other, otherExpectation.FundsLeg, targetLeg);
-                    AddMatchingLeg(matches, other, otherExpectation.ScienceLeg, targetLeg);
-                    AddMatchingLeg(matches, other, otherExpectation.ReputationLeg, targetLeg);
-                }
-            }
-
-            if (matches.Count == 0)
-            {
-                AddMatchingLeg(matches, action, targetLeg, targetLeg);
-            }
-
-            return matches;
-        }
-
-        private static void AddMatchingLeg(
-            List<KscExpectedLegMatch> matches,
-            GameAction action,
-            KscExpectationLeg candidate,
-            KscExpectationLeg target)
-        {
-            if (!candidate.IsPresent)
-                return;
-            if (candidate.EventType != target.EventType)
-                return;
-            if (candidate.Mode != target.Mode)
-                return;
-            if (!string.Equals(candidate.ExpectedReasonKey ?? "", target.ExpectedReasonKey ?? "", StringComparison.Ordinal))
-                return;
-
-            matches.Add(new KscExpectedLegMatch
-            {
-                Action = action,
-                Leg = candidate
-            });
-        }
-
-        private static double ComputeExpectedDeltaForLeg(
-            KscExpectationLeg leg,
-            List<KscExpectedLegMatch> matches,
-            double startingObservedValue,
-            double tol)
-        {
-            if (matches == null || matches.Count == 0)
-                return leg.ExpectedDelta;
-
-            if (leg.Mode != KscExpectationLegMode.ReputationCurve)
-            {
-                double sum = 0;
-                for (int i = 0; i < matches.Count; i++)
-                {
-                    if (Math.Abs(matches[i].Leg.ExpectedDelta) <= tol)
-                        continue;
-                    sum += matches[i].Leg.ExpectedDelta;
-                }
-                return sum;
-            }
-
-            matches.Sort((a, b) =>
-            {
-                int utCompare = a.Action.UT.CompareTo(b.Action.UT);
-                if (utCompare != 0)
-                    return utCompare;
-                return a.Action.Sequence.CompareTo(b.Action.Sequence);
-            });
-
-            float currentRep = (float)startingObservedValue;
-            double curvedSum = 0;
-            for (int i = 0; i < matches.Count; i++)
-            {
-                float nominal = (float)matches[i].Leg.ExpectedDelta;
-                if (Math.Abs(nominal) <= tol)
-                    continue;
-                var result = ReputationModule.ApplyReputationCurve(nominal, currentRep);
-                curvedSum += result.actualDelta;
-                currentRep = result.newRep;
-            }
-            return curvedSum;
-        }
-
-        /// <summary>Pure: short channel tag used in the reconciliation log lines.</summary>
+        /// <summary>Compatibility facade for <see cref="KscActionReconciler.ResourceChannelTag"/>.</summary>
         internal static string ResourceChannelTag(GameStateEventType t)
         {
-            switch (t)
-            {
-                case GameStateEventType.FundsChanged: return "funds";
-                case GameStateEventType.ReputationChanged: return "rep";
-                case GameStateEventType.ScienceChanged: return "sci";
-                default: return t.ToString();
-            }
+            return KscActionReconciler.ResourceChannelTag(t);
         }
 
         /// <summary>
-        /// UT window (seconds) used by <see cref="ReconcileKscAction"/> to pair a KSC
-        /// action with its resource-changed event and to aggregate both sides across
-        /// coalesced same-key entries. Must match <c>GameStateStore.ResourceCoalesceEpsilon</c>
-        /// (private, 0.1 s — see <c>GameStateStore.cs:21</c> and <c>AddEvent</c> at line 42).
-        /// <para>
-        /// Rationale: within this window, <see cref="GameStateStore.AddEvent"/> has
-        /// already merged same-type/same-tag resource deltas into a single slot, so
-        /// summing ledger actions and events across the window is safe by construction
-        /// — the summed observed delta is one coalesced entry that equals the sum of
-        /// the individual raw deltas. Beyond this window same-key events stay separate
-        /// in the store, so aggregating them would cross-attribute deltas and opposing
-        /// per-action errors could cancel out (review round 3, PR #340).
-        /// </para>
-        /// <para>
-        /// If <c>GameStateStore.ResourceCoalesceEpsilon</c> ever changes, update this
-        /// value in lockstep. The two constants encode the same physical invariant.
-        /// </para>
+        /// Compatibility facade for <see cref="KscActionReconciler.KscReconcileEpsilonSeconds"/>;
+        /// see the extracted reconciler constant for the coalescing rationale.
         /// </summary>
-        internal const double KscReconcileEpsilonSeconds = 0.1;
+        internal const double KscReconcileEpsilonSeconds = KscActionReconciler.KscReconcileEpsilonSeconds;
 
         // ================================================================
         // #440 Phase E2 -- Post-walk reconciliation (transformed reward types)
         //
-        // After RecalculationEngine.Recalculate populates TransformedFundsReward,
-        // TransformedScienceReward, EffectiveRep, and EffectiveScience on each
-        // action, ReconcilePostWalk iterates the same (cutoff-filtered) action
-        // list and compares those derived values against live KSP deltas in
-        // GameStateStore. WARN on divergence, VERBOSE on match. Log-only: does
-        // not mutate the ledger, the KSP state, or any module.
-        //
-        // Scope: the eight action types ClassifyAction routes to the Transformed
-        // bucket (ContractComplete, ContractFail, ContractCancel,
-        // MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path
-        // FundsEarning and ScienceEarning). Other action types are reconciled
-        // per-action by ReconcileKscAction and return Reconcile=false here.
-        //
-        // See docs/dev/done/plans/fix-440-post-walk-reconciliation.md.
+        // Implementation lives in PostWalkActionReconciler. Keep these facades so
+        // existing tests/call sites continue to use the LedgerOrchestrator surface.
         // ================================================================
 
         /// <summary>
         /// UT window (seconds) used by <see cref="ReconcilePostWalk"/> to pair a
-        /// transformed-type action with its resource-changed event. Matches the
-        /// <see cref="KscReconcileEpsilonSeconds"/> rationale: same coalesce
-        /// invariant, kept independent so a future tune cannot inadvertently
-        /// couple the two paths.
+        /// transformed-type action with its resource-changed event. Const facade:
+        /// downstream assemblies must be rebuilt if this value changes because C#
+        /// const references are inlined.
         /// </summary>
-        internal const double PostWalkReconcileEpsilonSeconds = 0.1;
+        internal const double PostWalkReconcileEpsilonSeconds =
+            PostWalkActionReconciler.PostWalkReconcileEpsilonSeconds;
 
-        // Membership in a coalesced post-walk window is stricter than "exactly zero",
-        // but intentionally independent from the compare tolerance so multiple tiny
-        // contributors can still aggregate into a visible mismatch.
-        private const double PostWalkAggregateContributionEpsilon = 1e-6;
-
-        /// <summary>
-        /// One resource leg of a <see cref="PostWalkExpectation"/>. Populated
-        /// only when the leg applies for the action type; otherwise the leg is
-        /// default-zeroed (Applies=false).
-        /// </summary>
-        internal struct PostWalkLeg
+        internal static PostWalkActionReconciler.PostWalkExpectation ClassifyPostWalk(GameAction action)
         {
-            public bool Applies;
-            public double Expected;
-            public string ReasonKey;
-            public GameStateEventType EventType;
+            return PostWalkActionReconciler.ClassifyPostWalk(action);
         }
 
-        /// <summary>
-        /// Classification output for one action in the post-walk reconcile pass.
-        /// Up to three legs (funds/rep/sci) may apply independently. Returns
-        /// Reconcile=false for action types outside #440 scope.
-        /// </summary>
-        internal struct PostWalkExpectation
-        {
-            public bool Reconcile;
-            public PostWalkLeg Funds;
-            public PostWalkLeg Rep;
-            public PostWalkLeg Sci;
-        }
-
-        /// <summary>
-        /// Pure classifier: maps a Transformed-bucket <see cref="GameAction"/>
-        /// to its post-walk expected delta(s) and the TransactionReasons key
-        /// the emitter stamps on the paired GameStateEvent. Action types
-        /// outside #440 scope (everything ClassifyAction returns as
-        /// Untransformed or NoResourceImpact) return Reconcile=false.
-        /// <para>
-        /// Reviewer-corrected event keys (see plan sections 3.1-3.6):
-        /// <list type="bullet">
-        /// <item><c>ContractComplete</c> -> <c>ContractReward</c> (all three legs)</item>
-        /// <item><c>ContractFail</c> / <c>ContractCancel</c> -> <c>ContractPenalty</c></item>
-        /// <item><c>MilestoneAchievement</c> -> <c>Progression</c> (all three legs, via
-        /// the generic resource-event path; <c>MilestoneAchieved.detail</c> is NOT parsed)</item>
-        /// <item><c>ReputationEarning</c> maps by <see cref="ReputationSource"/>;
-        /// <c>Other</c> returns Reconcile=false (synthetic, no paired event).</item>
-        /// <item><c>ReputationPenalty</c> maps by <see cref="ReputationPenaltySource"/>;
-        /// <c>Other</c> returns Reconcile=false.</item>
-        /// </list>
-        /// </para>
-        /// </summary>
-        internal static PostWalkExpectation ClassifyPostWalk(GameAction action)
-        {
-            var exp = new PostWalkExpectation();
-            if (action == null) return exp;
-
-            switch (action.Type)
-            {
-                case GameActionType.ContractComplete:
-                    // All three legs when Effective; duplicate completions (Effective=false)
-                    // are filtered by MilestonesModule/ContractsModule and the modules
-                    // skip crediting, so the observed delta is 0 for those. Post-walk
-                    // mirrors the module gate by skipping entirely.
-                    if (!action.Effective) return exp;
-                    exp.Reconcile = true;
-                    exp.Funds = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.TransformedFundsReward,
-                        ReasonKey = "ContractReward",
-                        EventType = GameStateEventType.FundsChanged
-                    };
-                    exp.Rep = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveRep,
-                        ReasonKey = "ContractReward",
-                        EventType = GameStateEventType.ReputationChanged
-                    };
-                    exp.Sci = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.TransformedScienceReward,
-                        ReasonKey = "ContractReward",
-                        EventType = GameStateEventType.ScienceChanged
-                    };
-                    return exp;
-
-                case GameActionType.ContractFail:
-                case GameActionType.ContractCancel:
-                    // Penalties fire unconditionally (no Effective gate in the modules).
-                    // Funds leg: FundsModule deducts FundsPenalty directly (no transform
-                    // today). Rep leg: EffectiveRep from the curve (negative).
-                    exp.Reconcile = true;
-                    exp.Funds = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = -(double)action.FundsPenalty,
-                        ReasonKey = "ContractPenalty",
-                        EventType = GameStateEventType.FundsChanged
-                    };
-                    exp.Rep = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveRep,
-                        ReasonKey = "ContractPenalty",
-                        EventType = GameStateEventType.ReputationChanged
-                    };
-                    return exp;
-
-                case GameActionType.MilestoneAchievement:
-                    // All three legs gated on Effective (duplicates skip).
-                    if (!action.Effective) return exp;
-                    exp.Reconcile = true;
-                    exp.Funds = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.MilestoneFundsAwarded,
-                        ReasonKey = "Progression",
-                        EventType = GameStateEventType.FundsChanged
-                    };
-                    exp.Rep = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveRep,
-                        ReasonKey = "Progression",
-                        EventType = GameStateEventType.ReputationChanged
-                    };
-                    exp.Sci = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.MilestoneScienceAwarded,
-                        ReasonKey = "Progression",
-                        EventType = GameStateEventType.ScienceChanged
-                    };
-                    return exp;
-
-                case GameActionType.ReputationEarning:
-                {
-                    // Map source -> key. Synthetic sources (Other, and LegacyMigration if
-                    // re-introduced on the rep enum later) return Reconcile=false.
-                    string key;
-                    switch (action.RepSource)
-                    {
-                        case ReputationSource.ContractComplete:
-                            key = "ContractReward"; break;
-                        case ReputationSource.Milestone:
-                            key = "Progression"; break;
-                        case ReputationSource.Other:
-                        default:
-                            return exp; // synthetic, no paired event
-                    }
-                    exp.Reconcile = true;
-                    exp.Rep = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveRep,
-                        ReasonKey = key,
-                        EventType = GameStateEventType.ReputationChanged
-                    };
-                    return exp;
-                }
-
-                case GameActionType.ReputationPenalty:
-                {
-                    string key;
-                    switch (action.RepPenaltySource)
-                    {
-                        case ReputationPenaltySource.ContractFail:
-                            key = "ContractPenalty"; break;
-                        case ReputationPenaltySource.ContractDecline:
-                            key = "ContractDecline"; break;
-                        case ReputationPenaltySource.KerbalDeath:
-                            key = "CrewKilled"; break;
-                        case ReputationPenaltySource.Strategy:
-                        case ReputationPenaltySource.Other:
-                        default:
-                            return exp; // synthetic / no stock emitter today
-                    }
-                    exp.Reconcile = true;
-                    exp.Rep = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveRep,
-                        ReasonKey = key,
-                        EventType = GameStateEventType.ReputationChanged
-                    };
-                    return exp;
-                }
-
-                case GameActionType.FundsEarning:
-                {
-                    // KSC-path direct earnings (source != Recovery / ContractComplete /
-                    // Milestone). Recovery/ContractComplete/Milestone arrive as their own
-                    // action types and are handled above. This branch is a safety net
-                    // for direct "Other"-source KSC payouts (today: none from stock; mod
-                    // strategy payouts could land here once #439 Phase C captures them).
-                    if (!action.Effective) return exp;
-                    if (action.FundsSource == FundsEarningSource.LegacyMigration) return exp;
-                    if (action.FundsSource == FundsEarningSource.Recovery) return exp;
-                    if (action.FundsSource == FundsEarningSource.ContractComplete) return exp;
-                    if (action.FundsSource == FundsEarningSource.ContractAdvance) return exp;
-                    if (action.FundsSource == FundsEarningSource.Milestone) return exp;
-                    exp.Reconcile = true;
-                    exp.Funds = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.FundsAwarded,
-                        ReasonKey = "Other",
-                        EventType = GameStateEventType.FundsChanged
-                    };
-                    return exp;
-                }
-
-                case GameActionType.ScienceEarning:
-                {
-                    // Post-cap EffectiveScience (ScienceModule sets this on walk).
-                    if (!action.Effective) return exp;
-                    exp.Reconcile = true;
-                    exp.Sci = new PostWalkLeg
-                    {
-                        Applies = true,
-                        Expected = action.EffectiveScience,
-                        ReasonKey = GetScienceChangedReasonKey(action),
-                        EventType = GameStateEventType.ScienceChanged
-                    };
-                    return exp;
-                }
-
-                default:
-                    return exp; // Reconcile stays false
-            }
-        }
-
-        /// <summary>
-        /// Post-walk reconciliation. Runs once per <see cref="RecalculateAndPatch"/>
-        /// after <see cref="RecalculationEngine.Recalculate"/> returns and before
-        /// <see cref="KspStatePatcher.PatchAll"/>. Iterates actions in stored
-        /// order; for each Transformed-bucket action whose UT survives the
-        /// cutoff, compares the post-walk derived delta against the live KSP
-        /// delta (<c>valueAfter - valueBefore</c>) summed across matching
-        /// <see cref="GameStateStore"/> events inside the observed-side match window:
-        /// normally <see cref="PostWalkReconcileEpsilonSeconds"/> around <c>action.UT</c>,
-        /// but for end-anchored <see cref="GameActionType.ScienceEarning"/> actions the
-        /// owning recording span is used so earlier in-flight science transmissions still pair.
-        /// WARN on divergence per leg; VERBOSE rate-limited on match. Emits a
-        /// single INFO summary after the iteration. Log-only.
-        /// <para>
-        /// Parameterized for testability — production calls pass
-        /// <see cref="GameStateStore.Events"/> and <see cref="Ledger.Actions"/>.
-        /// </para>
-        /// </summary>
         internal static void ReconcilePostWalk(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> actions,
             double? utCutoff)
         {
-            if (actions == null || actions.Count == 0) return;
-
-            GetResourceTrackingAvailability(
-                out bool fundsTracked,
-                out bool scienceTracked,
-                out bool repTracked);
-            if (!fundsTracked && !scienceTracked && !repTracked)
-            {
-                LogReconcileSkippedOnce("post-walk", "Post-walk reconcile",
-                    fundsTracked, scienceTracked, repTracked);
-                return;
-            }
-
-            const double fundsTol = 1.0;
-            const double repTol = 0.1;
-            const double sciTol = 0.1;
-            double livePruneThreshold = MilestoneStore.GetLatestCommittedEndUT();
-
-            int walked = 0;
-            int compared = 0;
-            int matched = 0;
-            int mismatchFunds = 0;
-            int mismatchRep = 0;
-            int mismatchSci = 0;
-
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action == null) continue;
-
-                // Respect the same filter as RecalculationEngine.Recalculate: seed
-                // types always pass; non-seed actions pass when UT <= cutoff.
-                if (utCutoff.HasValue &&
-                    !RecalculationEngine.IsSeedType(action.Type) &&
-                    action.UT > utCutoff.Value)
-                {
-                    continue;
-                }
-
-                var exp = ClassifyPostWalk(action);
-                if (!exp.Reconcile) continue;
-                if (!HasTrackedPostWalkLeg(exp, fundsTracked, scienceTracked, repTracked))
-                    continue;
-                if (IsOutsidePostWalkLiveCoverage(
-                        action,
-                        exp,
-                        livePruneThreshold,
-                        events,
-                        actions,
-                        utCutoff))
-                {
-                    continue;
-                }
-                walked++;
-
-                bool anyCompared = false;
-                bool anyMismatch = false;
-                if (fundsTracked && exp.Funds.Applies)
-                {
-                    var result = CompareLeg(
-                        action, "funds", exp.Funds, fundsTol, events, actions, utCutoff, livePruneThreshold);
-                    if (result != PostWalkCompareResult.Skipped)
-                    {
-                        anyCompared = true;
-                        if (result == PostWalkCompareResult.Mismatch)
-                        {
-                            mismatchFunds++;
-                            anyMismatch = true;
-                        }
-                    }
-                }
-                if (repTracked && exp.Rep.Applies)
-                {
-                    var result = CompareLeg(
-                        action, "rep", exp.Rep, repTol, events, actions, utCutoff, livePruneThreshold);
-                    if (result != PostWalkCompareResult.Skipped)
-                    {
-                        anyCompared = true;
-                        if (result == PostWalkCompareResult.Mismatch)
-                        {
-                            mismatchRep++;
-                            anyMismatch = true;
-                        }
-                    }
-                }
-                if (scienceTracked && exp.Sci.Applies)
-                {
-                    var result = CompareLeg(
-                        action, "sci", exp.Sci, sciTol, events, actions, utCutoff, livePruneThreshold);
-                    if (result != PostWalkCompareResult.Skipped)
-                    {
-                        anyCompared = true;
-                        if (result == PostWalkCompareResult.Mismatch)
-                        {
-                            mismatchSci++;
-                            anyMismatch = true;
-                        }
-                    }
-                }
-
-                if (anyCompared)
-                {
-                    compared++;
-                    if (!anyMismatch) matched++;
-                }
-            }
-
-            string cutoffLabel = utCutoff.HasValue
-                ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)
-                : "null";
-            ParsekLog.Info(Tag,
-                $"Post-walk reconcile: actions={walked}, compared={compared}, matches={matched}, " +
-                $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
-                $"cutoffUT={cutoffLabel}");
+            PostWalkActionReconciler.ReconcilePostWalk(events, actions, utCutoff);
         }
 
-        /// <summary>
-        /// Returns true when the action's UT falls outside the live <see cref="GameStateStore"/>
-        /// coverage available to post-walk reconciliation. The live store prunes resource
-        /// events at or below the latest committed milestone EndUT, and after a rewind/load the
-        /// current epoch may have no coverage for older-epoch action history even though the
-        /// ledger still retains those actions.
-        /// </summary>
-        private static bool IsOutsidePostWalkLiveCoverage(
-            GameAction action,
-            PostWalkExpectation expectation,
-            double livePruneThreshold,
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> actions,
-            double? utCutoff)
-        {
-            if (action == null)
-                return false;
-
-            if (action.UT <= livePruneThreshold)
-            {
-                LogPostWalkLiveCoverageSkip(
-                    action,
-                    "ut is at/below live prune threshold=" +
-                    livePruneThreshold.ToString("F1", CultureInfo.InvariantCulture));
-                return true;
-            }
-
-            GameStateEventType anchorType;
-            string anchorKey;
-            if (!TryGetPostWalkSourceAnchor(action, out anchorType, out anchorKey))
-                return false;
-
-            if (HasLivePostWalkSourceAnchor(action, anchorType, anchorKey, events))
-                return false;
-
-            if (!HasLivePostWalkObservedEvent(action, expectation, events, livePruneThreshold))
-            {
-                LogPostWalkLiveCoverageSkip(
-                    action,
-                    "no live source anchor or observed reward leg remains in the current timeline");
-                return true;
-            }
-
-            if (HasAmbiguousLiveCoverageOverlap(
-                    action,
-                    expectation,
-                    actions,
-                    utCutoff,
-                    events,
-                    livePruneThreshold))
-            {
-                LogPostWalkLiveCoverageSkip(
-                    action,
-                    "same-UT live overlap is ambiguous without a live source anchor");
-                return true;
-            }
-
-            return false;
-        }
-
-        private static void LogPostWalkLiveCoverageSkip(
-            GameAction action,
-            string reason)
-        {
-            string actionType = action != null ? action.Type.ToString() : "(null)";
-            string actionId = action != null ? ActionIdForPostWalk(action) : "(null)";
-            string utLabel = action != null
-                ? action.UT.ToString("F1", CultureInfo.InvariantCulture)
-                : "null";
-            string rateKey = string.Format(
-                CultureInfo.InvariantCulture,
-                "post-walk-live-coverage-skip:{0}:{1}:{2}",
-                actionType,
-                actionId,
-                action != null ? action.UT.ToString("R", CultureInfo.InvariantCulture) : "null");
-
-            ParsekLog.VerboseRateLimited(
-                Tag,
-                rateKey,
-                $"Post-walk live-coverage skip: {actionType} id={actionId} ut={utLabel} -- {reason}");
-        }
-
-        private static bool TryGetPostWalkSourceAnchor(
-            GameAction action,
-            out GameStateEventType anchorType,
-            out string anchorKey)
-        {
-            anchorType = default(GameStateEventType);
-            anchorKey = null;
-
-            if (action == null)
-                return false;
-
-            switch (action.Type)
-            {
-                case GameActionType.ContractComplete:
-                    anchorType = GameStateEventType.ContractCompleted;
-                    anchorKey = action.ContractId;
-                    return !string.IsNullOrEmpty(anchorKey);
-
-                case GameActionType.ContractFail:
-                    anchorType = GameStateEventType.ContractFailed;
-                    anchorKey = action.ContractId;
-                    return !string.IsNullOrEmpty(anchorKey);
-
-                case GameActionType.ContractCancel:
-                    anchorType = GameStateEventType.ContractCancelled;
-                    anchorKey = action.ContractId;
-                    return !string.IsNullOrEmpty(anchorKey);
-
-                case GameActionType.MilestoneAchievement:
-                    anchorType = GameStateEventType.MilestoneAchieved;
-                    anchorKey = action.MilestoneId;
-                    return !string.IsNullOrEmpty(anchorKey);
-
-                default:
-                    return false;
-            }
-        }
-
-        private static bool HasLivePostWalkSourceAnchor(
-            GameAction action,
-            GameStateEventType anchorType,
-            string anchorKey,
-            IReadOnlyList<GameStateEvent> events)
-        {
-            if (action == null || events == null || events.Count == 0)
-                return false;
-
-            string expectedKey = anchorKey ?? "";
-
-            for (int i = 0; i < events.Count; i++)
-            {
-                var e = events[i];
-                if (!GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
-                if (e.eventType != anchorType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
-                if (!PostWalkEventMatchesAction(e, action)) continue;
-                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
-                    continue;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool HasLivePostWalkObservedEvent(
-            GameAction action,
-            PostWalkExpectation expectation,
-            IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
-        {
-            if (action == null || events == null || events.Count == 0)
-                return false;
-
-            return HasLivePostWalkObservedEventForLeg(
-                       action, expectation.Funds, events, livePruneThreshold) ||
-                   HasLivePostWalkObservedEventForLeg(
-                       action, expectation.Rep, events, livePruneThreshold) ||
-                   HasLivePostWalkObservedEventForLeg(
-                       action, expectation.Sci, events, livePruneThreshold);
-        }
-
-        private static bool HasLivePostWalkObservedEventForLeg(
-            GameAction action,
-            PostWalkLeg leg,
-            IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
-        {
-            if (action == null || !leg.Applies || events == null || events.Count == 0)
-                return false;
-
-            string expectedKey = leg.ReasonKey ?? "";
-            for (int i = 0; i < events.Count; i++)
-            {
-                var e = events[i];
-                if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
-                if (e.eventType != leg.EventType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
-                if (!PostWalkEventMatchesAction(e, action)) continue;
-                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
-                    continue;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsLivePostWalkObservedEvent(
-            GameStateEvent e,
-            double livePruneThreshold)
-        {
-            if (e.ut <= livePruneThreshold)
-                return false;
-
-            return GameStateStore.IsEventVisibleToCurrentTimeline(e);
-        }
-
-        private static bool HasAmbiguousLiveCoverageOverlap(
-            GameAction anchorAction,
-            PostWalkExpectation anchorExpectation,
-            IReadOnlyList<GameAction> actions,
-            double? utCutoff,
-            IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
-        {
-            if (anchorAction == null || actions == null || actions.Count == 0)
-                return false;
-
-            var anchorLegs = new[] { anchorExpectation.Funds, anchorExpectation.Rep, anchorExpectation.Sci };
-
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var other = actions[i];
-                if (other == null || object.ReferenceEquals(other, anchorAction))
-                    continue;
-                if (!PostWalkActionsShareScope(anchorAction, other))
-                    continue;
-                if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
-                    continue;
-                if (utCutoff.HasValue &&
-                    !RecalculationEngine.IsSeedType(other.Type) &&
-                    other.UT > utCutoff.Value)
-                {
-                    continue;
-                }
-
-                var otherExp = ClassifyPostWalk(other);
-                if (!otherExp.Reconcile)
-                    continue;
-                if (other.UT <= livePruneThreshold)
-                    continue;
-
-                GameStateEventType otherAnchorType;
-                string otherAnchorKey;
-                bool hasLiveSourceAnchor =
-                    TryGetPostWalkSourceAnchor(other, out otherAnchorType, out otherAnchorKey) &&
-                    HasLivePostWalkSourceAnchor(other, otherAnchorType, otherAnchorKey, events);
-
-                var otherLegs = new[] { otherExp.Funds, otherExp.Rep, otherExp.Sci };
-                for (int anchorIndex = 0; anchorIndex < anchorLegs.Length; anchorIndex++)
-                {
-                    var anchorLeg = anchorLegs[anchorIndex];
-                    if (!anchorLeg.Applies)
-                        continue;
-
-                    for (int otherIndex = 0; otherIndex < otherLegs.Length; otherIndex++)
-                    {
-                        var otherLeg = otherLegs[otherIndex];
-                        if (!otherLeg.Applies)
-                            continue;
-                        if (anchorLeg.EventType != otherLeg.EventType)
-                            continue;
-                        if (!string.Equals(
-                                anchorLeg.ReasonKey ?? "",
-                                otherLeg.ReasonKey ?? "",
-                                StringComparison.Ordinal))
-                        {
-                            continue;
-                        }
-
-                        if (hasLiveSourceAnchor ||
-                            HasLivePostWalkObservedEventForLeg(
-                                other, otherLeg, events, livePruneThreshold))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Compares one resource leg for a transformed action. Returns
-        /// <see cref="PostWalkCompareResult.Match"/> on match,
-        /// <see cref="PostWalkCompareResult.Mismatch"/> on mismatch or missing event,
-        /// and <see cref="PostWalkCompareResult.Skipped"/> when another action in the
-        /// same coalesced window already owns the comparison/logging for this leg.
-        /// Observed delta =
-        /// <c>sum(valueAfter - valueBefore)</c> across events with matching
-        /// type + key within <see cref="PostWalkReconcileEpsilonSeconds"/> of
-        /// <c>action.UT</c>.
-        /// </summary>
-        private enum PostWalkCompareResult
-        {
-            Match,
-            Mismatch,
-            Skipped
-        }
-
-        private struct PostWalkWindowAggregate
-        {
-            public double Expected;
-            public int ContributorCount;
-            public bool IsPrimary;
-            public string ContributorLabel;
-            public double ObservedWindowStartUt;
-            public double ObservedWindowEndUt;
-            public double DisplayWindowStartUt;
-            public double DisplayWindowEndUt;
-        }
-
-        private static PostWalkCompareResult CompareLeg(
-            GameAction action,
-            string legTag,
-            PostWalkLeg leg,
-            double tolerance,
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> actions,
-            double? utCutoff,
-            double livePruneThreshold)
-        {
-            var aggregate = AggregatePostWalkWindow(
-                action, leg, tolerance, actions, utCutoff, events, livePruneThreshold);
-            if (!aggregate.IsPrimary)
-                return PostWalkCompareResult.Skipped;
-
-            double observedWindowStartUt = aggregate.ObservedWindowStartUt;
-            double observedWindowEndUt = aggregate.ObservedWindowEndUt;
-            string observedWindowLabel = FormatPostWalkObservedWindowLabel(
-                action,
-                leg,
-                aggregate.DisplayWindowStartUt,
-                aggregate.DisplayWindowEndUt);
-
-            double observed = 0.0;
-            int observedCount = 0;
-            if (events != null)
-            {
-                for (int i = 0; i < events.Count; i++)
-                {
-                    var e = events[i];
-                    if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
-                    if (e.eventType != leg.EventType) continue;
-                    if (e.ut < observedWindowStartUt || e.ut > observedWindowEndUt) continue;
-                    if (!PostWalkEventMatchesAction(e, action)) continue;
-                    string eventKey = e.key ?? "";
-                    if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
-                        continue;
-                    observed += (e.valueAfter - e.valueBefore);
-                    observedCount++;
-                }
-            }
-
-            // Zero-expected + zero-observed is silent match (no event fired, none
-            // expected). Zero-expected + non-zero observed is a mismatch: the walk
-            // produced nothing but KSP credited a delta.
-            if (Math.Abs(aggregate.Expected) <= tolerance && observedCount == 0)
-                return PostWalkCompareResult.Match;
-
-            string expectedLabel = aggregate.Expected.ToString("F1", CultureInfo.InvariantCulture);
-            string observedLabel = observed.ToString("F1", CultureInfo.InvariantCulture);
-            string warnKeyPrefix = string.Format(
-                CultureInfo.InvariantCulture,
-                "postwalk:{0}:{1}:{2}:{3:F3}:{4:F3}:{5}",
-                legTag,
-                action.Type,
-                action.RecordingId ?? "",
-                observedWindowStartUt,
-                observedWindowEndUt,
-                leg.ReasonKey ?? "");
-
-            if (observedCount == 0)
-            {
-                string message =
-                    $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"{aggregate.ContributorLabel} expected={expectedLabel} but no matching {leg.EventType} event " +
-                    $"keyed '{leg.ReasonKey}' {observedWindowLabel} -- missing earning channel or stale event?";
-                string warnKey = warnKeyPrefix + ":missing:" + expectedLabel;
-                if (LogReconcileWarnOnce(warnKey, message))
-                {
-                    LogSciencePostWalkReconcileDumpOnce(
-                        warnKey,
-                        action,
-                        leg,
-                        events,
-                        observedWindowStartUt,
-                        observedWindowEndUt,
-                        livePruneThreshold);
-                }
-                return PostWalkCompareResult.Mismatch;
-            }
-
-            if (Math.Abs(aggregate.Expected - observed) > tolerance)
-            {
-                string message =
-                    $"Earnings reconciliation (post-walk, {legTag}): {action.Type} " +
-                    $"{aggregate.ContributorLabel} expected={expectedLabel}, observed={observedLabel} across " +
-                    $"{observedCount} event(s) keyed '{leg.ReasonKey}' {observedWindowLabel} " +
-                    $"-- post-walk delta mismatch";
-                string warnKey = warnKeyPrefix + ":mismatch:" + expectedLabel + ":" + observedLabel;
-                if (LogReconcileWarnOnce(warnKey, message))
-                {
-                    LogSciencePostWalkReconcileDumpOnce(
-                        warnKey,
-                        action,
-                        leg,
-                        events,
-                        observedWindowStartUt,
-                        observedWindowEndUt,
-                        livePruneThreshold);
-                }
-                return PostWalkCompareResult.Mismatch;
-            }
-
-            ParsekLog.VerboseRateLimited(Tag,
-                $"post-walk-match:{action.Type}:{legTag}:{action.RecordingId ?? ""}:{leg.ReasonKey ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
-                $"Post-walk match: {action.Type} {legTag} {aggregate.ContributorLabel} " +
-                $"expected={expectedLabel}, observed={observedLabel}, keyed '{leg.ReasonKey}' " +
-                $"{observedWindowLabel}");
-            return PostWalkCompareResult.Match;
-        }
-
-        private static void GetPostWalkObservedWindow(
-            GameAction action,
-            PostWalkLeg leg,
-            out double startUt,
-            out double endUt,
-            out string label)
-        {
-            double epsilon = PostWalkReconcileEpsilonSeconds;
-            startUt = action.UT - epsilon;
-            endUt = action.UT + epsilon;
-            GetPostWalkObservedDisplayWindow(action, leg, out double displayStartUt, out double displayEndUt, out label);
-
-            if (action.Type != GameActionType.ScienceEarning ||
-                leg.EventType != GameStateEventType.ScienceChanged ||
-                string.IsNullOrEmpty(action.SubjectId) ||
-                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            if (!TryGetScienceReconcileWindow(
-                    action,
-                    out double scienceStartUt,
-                    out double scienceEndUt,
-                    out bool collapsedPersistedSpan))
-                return;
-
-            double startPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceStartUt);
-            double endPad = collapsedPersistedSpan ? 0.0 : GetScienceReconcileBoundaryPadding(scienceEndUt);
-            startUt = scienceStartUt - epsilon - startPad;
-            endUt = scienceEndUt + epsilon + endPad;
-            label = FormatPostWalkObservedWindowLabel(action, leg, displayStartUt, displayEndUt);
-        }
-
-        private static void GetPostWalkObservedDisplayWindow(
-            GameAction action,
-            PostWalkLeg leg,
-            out double startUt,
-            out double endUt,
-            out string label)
-        {
-            double epsilon = PostWalkReconcileEpsilonSeconds;
-            startUt = action.UT - epsilon;
-            endUt = action.UT + epsilon;
-            label = FormatPostWalkObservedWindowLabel(action, leg, startUt, endUt);
-
-            if (action.Type != GameActionType.ScienceEarning ||
-                leg.EventType != GameStateEventType.ScienceChanged ||
-                string.IsNullOrEmpty(action.SubjectId) ||
-                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            if (!TryGetScienceReconcileWindow(
-                    action,
-                    out double scienceStartUt,
-                    out double scienceEndUt,
-                    out bool ignoredCollapsedPersistedSpan))
-                return;
-
-            startUt = scienceStartUt;
-            endUt = scienceEndUt;
-            label = FormatPostWalkObservedWindowLabel(action, leg, startUt, endUt);
-        }
-
-        private static bool TryGetScienceReconcileWindow(
-            GameAction action,
-            out double startUt,
-            out double endUt,
-            out bool collapsedPersistedSpan)
-        {
-            startUt = 0.0;
-            endUt = 0.0;
-            collapsedPersistedSpan = false;
-
-            if (action == null)
-                return false;
-
-            if (!TryGetPersistedScienceActionWindow(
-                    action,
-                    out startUt,
-                    out endUt,
-                    out collapsedPersistedSpan))
-            {
-                var rec = FindRecordingById(action.RecordingId);
-                if (rec == null)
-                    return false;
-
-                startUt = rec.StartUT;
-                endUt = rec.EndUT;
-                if (endUt <= startUt)
-                    return false;
-
-                ParsekLog.VerboseRateLimited(Tag,
-                    $"post-walk-science-window-fallback:{action.RecordingId}:{ActionIdForPostWalk(action)}",
-                    $"Post-walk science window: {ActionIdForPostWalk(action)} missing persisted span; " +
-                    $"falling back to recording {action.RecordingId ?? "(null)"} " +
-                    $"[{FormatFixed1(startUt)},{FormatFixed1(endUt)}]");
-            }
-            else if (collapsedPersistedSpan)
-            {
-                ParsekLog.VerboseRateLimited(Tag,
-                    $"post-walk-science-window-collapsed:{action.RecordingId}:{ActionIdForPostWalk(action)}",
-                    $"Post-walk science window: {ActionIdForPostWalk(action)} collapsed persisted span " +
-                    $"recording={action.RecordingId ?? "(null)"} " +
-                    $"start={action.StartUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"end={action.EndUT.ToString("R", CultureInfo.InvariantCulture)} -> " +
-                    $"reconstructed [{FormatFixed3(startUt)},{FormatFixed3(endUt)}]");
-            }
-
-            // Only widen the observed-side window for the current end-anchored shape.
-            // ScienceEarning spans are persisted through float fields, so at large UTs
-            // the stored EndUT may drift from the double-backed action.UT by more than
-            // the nominal 0.1 s epsilon. Allow the float quantization loss here while
-            // still keeping the gate tight enough to reject truly non-end-anchored rows.
-            return Math.Abs(action.UT - endUt) <= GetScienceReconcileAnchorTolerance(action.UT);
-        }
-
-        private static double GetScienceReconcileAnchorTolerance(double actionUt)
-        {
-            double floatRoundTripLoss = Math.Abs((double)(float)actionUt - actionUt);
-            return PostWalkReconcileEpsilonSeconds + floatRoundTripLoss;
-        }
-
-        private static bool TryGetPersistedScienceActionWindow(
+        internal static bool TryGetPersistedScienceActionWindow(
             GameAction action,
             out double startUt,
             out double endUt,
@@ -5934,160 +2807,6 @@ namespace Parsek
             return width * 0.5;
         }
 
-        private static double GetScienceReconcileBoundaryPadding(double value)
-        {
-            if (double.IsNaN(value) || double.IsInfinity(value))
-                return 0.0;
-
-            float single = (float)value;
-            int bits = BitConverter.ToInt32(BitConverter.GetBytes(single), 0);
-            float nextUp = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
-            if (float.IsNaN(nextUp) || float.IsInfinity(nextUp))
-                return 0.0;
-
-            // One full ULP safely covers any double->float rounding loss at this magnitude.
-            return Math.Abs((double)nextUp - single);
-        }
-
-        /// <summary>
-        /// Aggregates the expected post-walk delta across all actions that classify to
-        /// the same (EventType, ReasonKey) pair within the coalesce window. Mirrors the
-        /// observed-side event coalescing so same-UT reward bursts do not falsely warn,
-        /// and designates one "primary" action to own the comparison/logging for that
-        /// coalesced window.
-        /// </summary>
-        private static PostWalkWindowAggregate AggregatePostWalkWindow(
-            GameAction anchorAction,
-            PostWalkLeg anchorLeg,
-            double tolerance,
-            IReadOnlyList<GameAction> actions,
-            double? utCutoff,
-            IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
-        {
-            double summedExpected = 0.0;
-            int expectedCount = 0;
-            GameAction primaryAction = null;
-            var contributorIds = new List<string>();
-            double observedWindowStartUt = double.PositiveInfinity;
-            double observedWindowEndUt = double.NegativeInfinity;
-            bool hasObservedWindow = false;
-            double displayWindowStartUt = double.PositiveInfinity;
-            double displayWindowEndUt = double.NegativeInfinity;
-            bool hasDisplayWindow = false;
-
-            if (actions != null)
-            {
-                for (int i = 0; i < actions.Count; i++)
-                {
-                    var other = actions[i];
-                    if (other == null) continue;
-                    if (!PostWalkActionsShareScope(anchorAction, other)) continue;
-                    if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
-                        continue;
-                    if (utCutoff.HasValue &&
-                        !RecalculationEngine.IsSeedType(other.Type) &&
-                        other.UT > utCutoff.Value)
-                    {
-                        continue;
-                    }
-
-                    var otherExp = ClassifyPostWalk(other);
-                    if (!otherExp.Reconcile) continue;
-                    if (IsOutsidePostWalkLiveCoverage(
-                            other,
-                            otherExp,
-                            livePruneThreshold,
-                            events,
-                            actions,
-                            utCutoff))
-                    {
-                        continue;
-                    }
-
-                    bool matched = false;
-                    matched |= AccumulateMatchingPostWalkLeg(
-                        otherExp.Funds, anchorLeg,
-                        ref summedExpected, ref expectedCount);
-                    matched |= AccumulateMatchingPostWalkLeg(
-                        otherExp.Rep, anchorLeg,
-                        ref summedExpected, ref expectedCount);
-                    matched |= AccumulateMatchingPostWalkLeg(
-                        otherExp.Sci, anchorLeg,
-                        ref summedExpected, ref expectedCount);
-
-                    if (!matched) continue;
-
-                    if (primaryAction == null ||
-                        (!ActionHasRecordingScope(primaryAction) && ActionHasRecordingScope(other)))
-                        primaryAction = other;
-
-                    GetPostWalkObservedWindow(
-                        other,
-                        anchorLeg,
-                        out double contributorWindowStartUt,
-                        out double contributorWindowEndUt,
-                        out string ignoredContributorWindowLabel);
-                    GetPostWalkObservedDisplayWindow(
-                        other,
-                        anchorLeg,
-                        out double contributorDisplayWindowStartUt,
-                        out double contributorDisplayWindowEndUt,
-                        out string ignoredContributorDisplayWindowLabel);
-                    if (!hasObservedWindow || contributorWindowStartUt < observedWindowStartUt)
-                        observedWindowStartUt = contributorWindowStartUt;
-                    if (!hasObservedWindow || contributorWindowEndUt > observedWindowEndUt)
-                        observedWindowEndUt = contributorWindowEndUt;
-                    hasObservedWindow = true;
-                    if (!hasDisplayWindow || contributorDisplayWindowStartUt < displayWindowStartUt)
-                        displayWindowStartUt = contributorDisplayWindowStartUt;
-                    if (!hasDisplayWindow || contributorDisplayWindowEndUt > displayWindowEndUt)
-                        displayWindowEndUt = contributorDisplayWindowEndUt;
-                    hasDisplayWindow = true;
-                    contributorIds.Add(ActionIdForPostWalk(other));
-                }
-            }
-
-            if (expectedCount == 0)
-            {
-                GetPostWalkObservedWindow(
-                    anchorAction,
-                    anchorLeg,
-                    out observedWindowStartUt,
-                    out observedWindowEndUt,
-                    out string ignoredAnchorWindowLabel);
-                GetPostWalkObservedDisplayWindow(
-                    anchorAction,
-                    anchorLeg,
-                    out displayWindowStartUt,
-                    out displayWindowEndUt,
-                    out string ignoredAnchorDisplayWindowLabel);
-                return new PostWalkWindowAggregate
-                {
-                    Expected = anchorLeg.Expected,
-                    ContributorCount = 1,
-                    IsPrimary = true,
-                    ContributorLabel = $"id={ActionIdForPostWalk(anchorAction)}",
-                    ObservedWindowStartUt = observedWindowStartUt,
-                    ObservedWindowEndUt = observedWindowEndUt,
-                    DisplayWindowStartUt = displayWindowStartUt,
-                    DisplayWindowEndUt = displayWindowEndUt
-                };
-            }
-
-            return new PostWalkWindowAggregate
-            {
-                Expected = summedExpected,
-                ContributorCount = expectedCount,
-                IsPrimary = object.ReferenceEquals(primaryAction, anchorAction),
-                ContributorLabel = FormatPostWalkContributorLabel(contributorIds, expectedCount),
-                ObservedWindowStartUt = observedWindowStartUt,
-                ObservedWindowEndUt = observedWindowEndUt,
-                DisplayWindowStartUt = displayWindowStartUt,
-                DisplayWindowEndUt = displayWindowEndUt
-            };
-        }
-
         // Mirrored in GameStateEventConverter.EventMatchesRecordingScope; keep the two in sync.
         private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
         {
@@ -6097,40 +2816,6 @@ namespace Parsek
             string eventRecordingId = evt.recordingId ?? "";
             return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
         }
-
-        private static bool PostWalkEventMatchesAction(GameStateEvent evt, GameAction action)
-        {
-            if (evt.eventType == GameStateEventType.ScienceChanged &&
-                action != null &&
-                action.Type == GameActionType.ScienceEarning)
-            {
-                double actionStartUt = action.StartUT;
-                double actionEndUt = action.EndUT;
-                if (TryGetScienceReconcileWindow(
-                        action,
-                        out double reconstructedStartUt,
-                        out double reconstructedEndUt,
-                        out bool ignoredCollapsedPersistedSpan))
-                {
-                    actionStartUt = reconstructedStartUt;
-                    actionEndUt = reconstructedEndUt;
-                }
-
-                return DoesScienceEventMatchActionScope(
-                    evt,
-                    action,
-                    actionStartUt,
-                    actionEndUt,
-                    out bool _);
-            }
-
-            string eventRecordingId = evt.recordingId ?? "";
-            string actionRecordingId = action?.RecordingId ?? "";
-            if (string.IsNullOrEmpty(actionRecordingId))
-                return true;
-            return string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal);
-        }
-
         private static bool DoesScienceEventMatchActionScope(
             GameStateEvent evt,
             GameAction action,
@@ -6144,7 +2829,7 @@ namespace Parsek
                 out matchedViaUntaggedWindow);
         }
 
-        private static bool DoesScienceEventMatchActionScope(
+        internal static bool DoesScienceEventMatchActionScope(
             GameStateEvent evt,
             GameAction action,
             double actionStartUt,
@@ -6171,7 +2856,7 @@ namespace Parsek
             return true;
         }
 
-        private static string GetScienceChangedReasonKey(GameAction action)
+        internal static string GetScienceChangedReasonKey(GameAction action)
         {
             if (action != null && action.Method == ScienceMethod.Recovered)
                 return VesselRecoveryReasonKey;
@@ -6179,66 +2864,7 @@ namespace Parsek
             return "ScienceTransmission";
         }
 
-        private static string FormatPostWalkObservedWindowLabel(
-            GameAction action,
-            PostWalkLeg leg,
-            double startUt,
-            double endUt)
-        {
-            if (action != null &&
-                action.Type == GameActionType.ScienceEarning &&
-                leg.EventType == GameStateEventType.ScienceChanged &&
-                !string.IsNullOrEmpty(action.SubjectId) &&
-                !action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
-            {
-                return $"within science window [{FormatFixed1(startUt)},{FormatFixed1(endUt)}] for action ut={FormatFixed1(action.UT)}";
-            }
-
-            return $"within {FormatFixed1(PostWalkReconcileEpsilonSeconds)}s of ut={FormatFixed1(action.UT)}";
-        }
-
-        private static void LogSciencePostWalkReconcileDumpOnce(
-            string dumpKey,
-            GameAction action,
-            PostWalkLeg leg,
-            IReadOnlyList<GameStateEvent> events,
-            double observedWindowStartUt,
-            double observedWindowEndUt,
-            double livePruneThreshold)
-        {
-            if (events == null || events.Count == 0)
-                return;
-            if (leg.EventType != GameStateEventType.ScienceChanged)
-                return;
-            if (!emittedScienceReconcileDumpKeys.Add("postwalk-dump:" + (dumpKey ?? "")))
-                return;
-
-            double dumpStartUt = observedWindowStartUt - 5.0;
-            double dumpEndUt = observedWindowEndUt + 5.0;
-            var lines = new List<string>();
-            for (int i = 0; i < events.Count; i++)
-            {
-                var evt = events[i];
-                if (evt.eventType != GameStateEventType.ScienceChanged)
-                    continue;
-                if (evt.ut < dumpStartUt || evt.ut > dumpEndUt)
-                    continue;
-
-                bool scopeMatch = PostWalkEventMatchesAction(evt, action);
-                bool liveMatch = IsLivePostWalkObservedEvent(evt, livePruneThreshold);
-                lines.Add(FormatScienceEventForReconcileDump(evt, scopeMatch && liveMatch, scopeMatch && string.IsNullOrEmpty(evt.recordingId ?? "")));
-            }
-
-            string detail = lines.Count == 0
-                ? "(no ScienceChanged events in dump window)"
-                : string.Join(" | ", lines.ToArray());
-            ParsekLog.Error(Tag,
-                $"Science reconcile dump (post-walk): action={ActionIdForPostWalk(action)} " +
-                $"reason='{leg.ReasonKey}' window=[{FormatFixed1(observedWindowStartUt)},{FormatFixed1(observedWindowEndUt)}] " +
-                $"events={detail}");
-        }
-
-        private static string FormatScienceEventForReconcileDump(
+        internal static string FormatScienceEventForReconcileDump(
             GameStateEvent evt,
             bool matchedScope,
             bool matchedViaUntaggedWindow)
@@ -6256,68 +2882,7 @@ namespace Parsek
                 matchLabel,
                 untaggedLabel);
         }
-
-        private static bool PostWalkActionsShareScope(GameAction anchorAction, GameAction other)
-        {
-            string anchorRecordingId = anchorAction?.RecordingId ?? "";
-            string otherRecordingId = other?.RecordingId ?? "";
-            if (string.IsNullOrEmpty(anchorRecordingId))
-                return true;
-            return string.Equals(anchorRecordingId, otherRecordingId, StringComparison.Ordinal);
-        }
-
-        private static bool ActionHasRecordingScope(GameAction action)
-        {
-            return !string.IsNullOrEmpty(action?.RecordingId);
-        }
-
-        private static bool AccumulateMatchingPostWalkLeg(
-            PostWalkLeg candidate,
-            PostWalkLeg anchorLeg,
-            ref double summedExpected,
-            ref int expectedCount)
-        {
-            if (!candidate.Applies) return false;
-            if (candidate.EventType != anchorLeg.EventType) return false;
-
-            string candidateKey = candidate.ReasonKey ?? "";
-            string anchorKey = anchorLeg.ReasonKey ?? "";
-            if (!string.Equals(candidateKey, anchorKey, StringComparison.Ordinal))
-                return false;
-
-            if (Math.Abs(candidate.Expected) <= PostWalkAggregateContributionEpsilon)
-                return false;
-
-            summedExpected += candidate.Expected;
-            expectedCount++;
-            return true;
-        }
-
-        private static string FormatPostWalkContributorLabel(
-            List<string> contributorIds,
-            int contributorCount)
-        {
-            if (contributorIds == null || contributorIds.Count == 0)
-                return "id=(none)";
-
-            if (contributorCount <= 1 || contributorIds.Count == 1)
-                return $"id={contributorIds[0]}";
-
-            return $"ids=[{string.Join(", ", contributorIds.ToArray())}] across {contributorCount} action(s)";
-        }
-
-        private static bool HasTrackedPostWalkLeg(
-            PostWalkExpectation exp,
-            bool fundsTracked,
-            bool scienceTracked,
-            bool repTracked)
-        {
-            return (fundsTracked && exp.Funds.Applies)
-                || (scienceTracked && exp.Sci.Applies)
-                || (repTracked && exp.Rep.Applies);
-        }
-
-        private static void GetResourceTrackingAvailability(
+        internal static void GetResourceTrackingAvailability(
             out bool fundsTracked,
             out bool scienceTracked,
             out bool repTracked)
@@ -6328,7 +2893,7 @@ namespace Parsek
             repTracked = repTrackedOverrideForTesting ?? global::Reputation.Instance != null;
         }
 
-        private static void LogReconcileSkippedOnce(
+        internal static void LogReconcileSkippedOnce(
             string scopeKey,
             string scopeLabel,
             bool fundsTracked,
@@ -6345,23 +2910,17 @@ namespace Parsek
                 OneShotReconcileSkipLogIntervalSeconds);
         }
 
-        /// <summary>Pure: best-effort identifier for post-walk log lines.</summary>
-        private static string ActionIdForPostWalk(GameAction action)
+        internal static bool TryRegisterPostWalkDumpKey(string dumpKey)
         {
-            if (action == null) return "null";
-            if (!string.IsNullOrEmpty(action.ContractId)) return action.ContractId;
-            if (!string.IsNullOrEmpty(action.MilestoneId)) return action.MilestoneId;
-            if (!string.IsNullOrEmpty(action.SubjectId)) return action.SubjectId;
-            if (!string.IsNullOrEmpty(action.RecordingId)) return action.RecordingId;
-            return "(none)";
+            return emittedScienceReconcileDumpKeys.Add("postwalk-dump:" + (dumpKey ?? ""));
         }
 
-        private static string FormatFixed1(double value)
+        internal static string FormatFixed1(double value)
         {
             return value.ToString("F1", CultureInfo.InvariantCulture);
         }
 
-        private static string FormatFixed3(double value)
+        internal static string FormatFixed3(double value)
         {
             return value.ToString("F3", CultureInfo.InvariantCulture);
         }
@@ -6540,12 +3099,11 @@ namespace Parsek
             fundsTrackedOverrideForTesting = null;
             scienceTrackedOverrideForTesting = null;
             repTrackedOverrideForTesting = null;
-            migrateOldSaveEventsRanThisLoad = false;
+            ResetMigrateOldSaveEventsForTesting();
             kscSequenceCounter = 0;
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();
-            consumedRecoveryEventKeys.Clear();
-            pendingRecoveryFunds.Clear();
+            LedgerRecoveryFundsPairing.ResetForTesting();
             scienceModule = null;
             milestonesModule = null;
             contractsModule = null;

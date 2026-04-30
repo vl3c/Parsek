@@ -154,6 +154,16 @@ namespace Parsek
 
         #region Inner Classes
 
+        // INVARIANT: on-rails BG vessels never produce env-classified TrackSections.
+        // This class deliberately omits the `currentTrackSection` / `trackSections` /
+        // `environmentHysteresis` fields that BackgroundVesselState (loaded mode) carries.
+        // An on-rails BG vessel grazing atmosphere across N orbits therefore cannot generate
+        // optimizer-splittable Atmospheric<->ExoBallistic toggles — there is no place to
+        // store such a section, and no per-frame path runs while the vessel is packed.
+        // See `OnBackgroundPhysicsFrame`'s early-return on `bgVessel.packed`. Adding a
+        // TrackSection field here would resurrect the eccentric-orbit chain-explosion
+        // failure mode flagged in `docs/dev/research/extending-rewind-to-stable-leaves.md`
+        // §S16; do not.
         private class BackgroundOnRailsState
         {
             public uint vesselPid;
@@ -218,6 +228,18 @@ namespace Parsek
             public TrackSection currentTrackSection;
             public bool trackSectionActive;
             public List<TrackSection> trackSections = new List<TrackSection>();
+
+            // Phase 7: per-SurfaceMobile-section ground-clearance accumulators
+            // (background side mirror of FlightRecorder's foreground state).
+            // Reset on `StartBackgroundTrackSection`, populated by the
+            // background sampler when env == SurfaceMobile && Absolute, and
+            // summarised at section close so a `.prec` written from background
+            // recording surfaces the same clearance distribution diagnostic as
+            // foreground (HR-9 visibility parity).
+            public int surfaceMobileSamplesThisSection;
+            public double surfaceMobileMinClearanceThisSection = double.NaN;
+            public double surfaceMobileMaxClearanceThisSection = double.NaN;
+            public double surfaceMobileClearanceSumThisSection;
 
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
@@ -700,6 +722,14 @@ namespace Parsek
                     // Skip vessels we're already tracking in the tree
                     if (tree.BackgroundMap.ContainsKey(v.persistentId))
                         continue;
+
+                    if (!ParsekFlight.ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
+                    {
+                        ParsekLog.Verbose("BgRecorder",
+                            $"Background split scan: ignoring unrelated new vessel pid={v.persistentId} " +
+                            $"name='{v.vesselName ?? "<unnamed>"}' type={v.vesselType} reason={rejectReason}");
+                        continue;
+                    }
 
                     bool hasController = ParsekFlight.IsTrackableVessel(v);
                     newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
@@ -1201,6 +1231,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 7 (review pass 3): pure gate predicate for the background
+        /// SurfaceMobile clearance computation. Mirrors the inline gate in
+        /// <see cref="FlightRecorder.CommitRecordedPoint"/> so xUnit can pin
+        /// the four-condition AND without needing a live <c>Vessel</c> /
+        /// <c>FlightGlobals</c> runtime. The actual <c>TerrainAltitude</c>
+        /// call stays inline at the call site (Unity-only API).
+        ///
+        /// <para>All four conditions must hold for the BG sampler to
+        /// populate <c>recordedGroundClearance</c>: a section must be
+        /// active (no orphaned samples), the section must be
+        /// <see cref="ReferenceFrame.Absolute"/> (RELATIVE sections store
+        /// metres in lat/lon/alt — terrain math would be nonsense), the
+        /// environment must be <see cref="SegmentEnvironment.SurfaceMobile"/>
+        /// (terrain correction is meaningful only for ground-following
+        /// vessels), and the body must have a PQS controller (gas giants
+        /// without surface mesh return zero from <c>TerrainAltitude</c>,
+        /// which would produce a wrong-sign clearance).</para>
+        /// </summary>
+        internal static bool ShouldEmitBackgroundSurfaceMobileClearance(
+            bool trackSectionActive,
+            ReferenceFrame frame,
+            SegmentEnvironment env,
+            bool hasPqsController)
+        {
+            return trackSectionActive
+                && frame == ReferenceFrame.Absolute
+                && env == SegmentEnvironment.SurfaceMobile
+                && hasPqsController;
+        }
+
+        /// <summary>
         /// Pure decision: should a background vessel split be skipped because
         /// the parent recording's generation already meets the cascade-depth cap?
         /// True means HandleBackgroundVesselSplit returns without creating any
@@ -1396,7 +1457,13 @@ namespace Parsek
                 return;
             }
 
-            // Only process loaded/physics vessels (not packed)
+            // Only process loaded/physics vessels (not packed).
+            // Load-bearing for the eccentric-orbit invariant: this early-return is the
+            // sole reason on-rails BG vessels do not run `EnvironmentHysteresis.Update`
+            // and therefore do not emit Atmospheric<->ExoBallistic TrackSection toggles
+            // for periapsis grazes. Removing it would cause `RecordingOptimizer` to
+            // accumulate one split per orbit on long-coasting vessels — see
+            // `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16.
             if (bgVessel.packed)
             {
                 if (!hasOnRailsState)
@@ -1509,6 +1576,35 @@ namespace Parsek
             }
 
             TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
+
+            // Phase 7 (design doc §13, §18 Phase 7): for SurfaceMobile sections
+            // recorded by the loaded-background sampler, capture per-sample
+            // ground clearance so playback applies continuous terrain
+            // correction at render time. Mirrors `FlightRecorder.CommitRecordedPoint`
+            // for parity (a rover that drops out of focus and continues
+            // recording in background must keep emitting v9-shape clearance,
+            // not silently fall through to NaN). Mutates `point` BEFORE the
+            // flat list / section append so both stores see the same value.
+            // Non-SurfaceMobile / RELATIVE-frame / missing-PQS keep NaN, the
+            // sentinel for the legacy altitude path.
+            bool hasPqs = bgVessel != null && bgVessel.mainBody != null && bgVessel.mainBody.pqsController != null;
+            if (ShouldEmitBackgroundSurfaceMobileClearance(
+                    state.trackSectionActive,
+                    state.trackSectionActive ? state.currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
+                    state.trackSectionActive ? state.currentTrackSection.environment : SegmentEnvironment.SurfaceMobile,
+                    hasPqs))
+            {
+                double terrainHeight = bgVessel.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
+                point.recordedGroundClearance = point.altitude - terrainHeight;
+                state.surfaceMobileSamplesThisSection++;
+                if (double.IsNaN(state.surfaceMobileMinClearanceThisSection)
+                    || point.recordedGroundClearance < state.surfaceMobileMinClearanceThisSection)
+                    state.surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
+                if (double.IsNaN(state.surfaceMobileMaxClearanceThisSection)
+                    || point.recordedGroundClearance > state.surfaceMobileMaxClearanceThisSection)
+                    state.surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
+                state.surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
+            }
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -2277,6 +2373,7 @@ namespace Parsek
             int checkpointed = 0;
             int skippedNoVessel = 0;
             int skippedNotOrbital = 0;
+            int skippedDuplicateBoundary = 0;
 
             foreach (var kvp in onRailsStates)
             {
@@ -2288,6 +2385,12 @@ namespace Parsek
                 {
                     // Landed/splashed or no-orbit vessels don't need orbital checkpoints
                     skippedNotOrbital++;
+                    continue;
+                }
+
+                if (IsDuplicateOrbitSegmentBoundary(state.currentOrbitSegment, ut))
+                {
+                    skippedDuplicateBoundary++;
                     continue;
                 }
 
@@ -2323,11 +2426,20 @@ namespace Parsek
             // no-op summaries during a quiet warp burst collapse into one line.
             string key = string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,
-                "checkpoint-all-{0}-{1}-{2}",
-                checkpointed, skippedNotOrbital, skippedNoVessel);
+                "checkpoint-all-{0}-{1}-{2}-{3}",
+                checkpointed, skippedNotOrbital, skippedNoVessel, skippedDuplicateBoundary);
             ParsekLog.VerboseRateLimited("BgRecorder", key,
                 $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
-                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
+                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}, " +
+                $"skippedDuplicateBoundary={skippedDuplicateBoundary}");
+        }
+
+        private static bool IsDuplicateOrbitSegmentBoundary(OrbitSegment segment, double ut)
+        {
+            const double UTEpsilon = 0.000001;
+            return IsFiniteUT(segment.startUT)
+                && IsFiniteUT(ut)
+                && Math.Abs(segment.startUT - ut) <= UTEpsilon;
         }
 
         /// <summary>
@@ -2895,7 +3007,10 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: BG-recorded vessels don't reach SurfaceMobile sections
+                // (they're packed/on-rails); leave clearance as NaN sentinel.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -2970,7 +3085,9 @@ namespace Parsek
                 bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: NaN sentinel for non-SurfaceMobile points.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -2996,10 +3113,22 @@ namespace Parsek
             {
                 StartBackgroundTrackSection(loadedState, nextEnv, ReferenceFrame.Absolute, ut);
                 AddFrameToActiveTrackSection(loadedState, boundaryPoint);
+                // Mark the section as a recorder bookkeeping artifact: RecordingOptimizer
+                // never treats boundaries on either side of a seam-flagged section as
+                // split candidates (hard step-1 override, ahead of body / Surface /
+                // ExoPropulsive short-circuits). See TrackSection.isBoundarySeam and
+                // docs/dev/plans/optimizer-persistence-split.md §5.
+                // TrackSection is a struct; mutate via field assignment on the held copy.
+                loadedState.currentTrackSection.isBoundarySeam = true;
                 CloseBackgroundTrackSection(loadedState, ut);
+                // Read the flag from the closed section's held copy. CloseBackgroundTrackSection
+                // doesn't zero `currentTrackSection`, so the flag survives. This phrasing keeps
+                // the log honest if a future producer ever shares this code path with a non-seam
+                // emit (today the persistNoPayloadBoundarySection branch always sets the flag).
+                string seamSuffix = loadedState.currentTrackSection.isBoundarySeam ? " (seam=1)" : "";
                 ParsekLog.Info("BgRecorder",
                     $"Persisted no-payload on-rails boundary section: pid={loadedState.vesselPid} " +
-                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"{previousEnv}->{nextEnv} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}{seamSuffix}");
             }
 
             FlushTrackSectionsToRecording(loadedState, flushRec);
@@ -3125,6 +3254,13 @@ namespace Parsek
                 maxAltitude = float.NaN
             };
             state.trackSectionActive = true;
+            // Phase 7: reset per-section clearance accumulators (mirror
+            // FlightRecorder.StartNewTrackSection). Even when the new section
+            // is non-SurfaceMobile, resetting is cheap and keeps state crisp.
+            state.surfaceMobileSamplesThisSection = 0;
+            state.surfaceMobileMinClearanceThisSection = double.NaN;
+            state.surfaceMobileMaxClearanceThisSection = double.NaN;
+            state.surfaceMobileClearanceSumThisSection = 0.0;
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -3326,6 +3462,33 @@ namespace Parsek
                 $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={sectionDuration.ToString("F2", CultureInfo.InvariantCulture)}s " +
                 $"pid={state.vesselPid}");
+
+            // Phase 7: per-SurfaceMobile-section clearance distribution
+            // diagnostic. Mirrors FlightRecorder.CloseCurrentTrackSection so
+            // BG-recorded rovers surface the same `clearanceMin/Max/Avg/N`
+            // line as foreground-recorded rovers. Suppressed when no
+            // SurfaceMobile samples were captured (non-SurfaceMobile sections
+            // and Relative-frame sections leave the counter at zero).
+            if (state.currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && state.surfaceMobileSamplesThisSection > 0)
+            {
+                CultureInfo ic = CultureInfo.InvariantCulture;
+                double avg = state.surfaceMobileClearanceSumThisSection / state.surfaceMobileSamplesThisSection;
+                ParsekLog.Verbose("Pipeline-Terrain",
+                    $"BG section close env=SurfaceMobile pid={state.vesselPid} " +
+                    $"clearanceMin={state.surfaceMobileMinClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceMax={state.surfaceMobileMaxClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceAvg={avg.ToString("F3", ic)}m " +
+                    $"N={state.surfaceMobileSamplesThisSection}");
+            }
+
+            // Defensive accumulator reset (mirrors P3-3 follow-up on
+            // FlightRecorder.CloseCurrentTrackSection — closing without
+            // immediately opening must not leave stale state).
+            state.surfaceMobileSamplesThisSection = 0;
+            state.surfaceMobileMinClearanceThisSection = double.NaN;
+            state.surfaceMobileMaxClearanceThisSection = double.NaN;
+            state.surfaceMobileClearanceSumThisSection = 0.0;
         }
 
         /// <summary>

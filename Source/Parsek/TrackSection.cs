@@ -62,6 +62,15 @@ namespace Parsek
         public float boundaryDiscontinuityMeters; // Position gap at section start vs previous section end (0 = no gap)
         public float minAltitude;              // Minimum altitude during this section (NaN = not set)
         public float maxAltitude;              // Maximum altitude during this section (NaN = not set)
+        // Producer-emitted "this section is a recorder bookkeeping artifact, never a split candidate"
+        // marker. Set by BackgroundRecorder.FlushLoadedStateForOnRailsTransition for the no-payload
+        // boundary section (loaded->on-rails transition that produces no playable on-rails payload).
+        // RecordingOptimizer skips boundaries on either side of a flagged section as a hard step-1
+        // override, ahead of the body / Surface / ExoPropulsive short-circuits. Persisted: text codec
+        // sparse "seam=1" key (forward-tolerant); binary codec gated by
+        // RecordingStore.BoundarySeamFlagFormatVersion (mandatory v8 bump). See
+        // docs/dev/plans/optimizer-persistence-split.md §5.
+        public bool isBoundarySeam;
 
         public override string ToString()
         {
@@ -71,10 +80,11 @@ namespace Parsek
             int checkpointCount = checkpoints?.Count ?? 0;
             string altRange = !float.IsNaN(minAltitude) && !float.IsNaN(maxAltitude)
                 ? $" alt=[{minAltitude.ToString("F0", ic)},{maxAltitude.ToString("F0", ic)}]" : "";
+            string seam = isBoundarySeam ? " seam=1" : "";
             return $"TrackSection env={environment} ref={referenceFrame} " +
                    $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} absFrames={absoluteFrameCount} " +
                    $"checkpoints={checkpointCount} " +
-                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}";
+                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}{seam}";
         }
     }
 }

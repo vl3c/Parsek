@@ -5,14 +5,16 @@ namespace Parsek
 {
     /// <summary>
     /// Append-only supersede relation linking an old recording to a new one
-    /// (design doc section 5.3). Written at session-merge time; removed only by
-    /// whole-tree discard.
+    /// (design doc section 5.3). Written at session-merge time; normally
+    /// removed by whole-tree discard. Load-time cleanup also removes fully
+    /// orphaned rows where neither endpoint exists, because they cannot affect
+    /// effective recording resolution.
     ///
     /// Persisted as <c>ENTRY</c> children of the scenario's
-    /// <c>RECORDING_SUPERSEDES</c> node. Orphan relations (either endpoint id
-    /// missing from <see cref="RecordingStore"/>) are left in place with a Warn
-    /// log; the forward walk in <see cref="ChildSlot.EffectiveRecordingId"/>
-    /// handles them as terminators.
+    /// <c>RECORDING_SUPERSEDES</c> node. One-sided orphan relations are left in
+    /// place with a Warn log; the forward walk in
+    /// <see cref="ChildSlot.EffectiveRecordingId"/> handles them as
+    /// terminators.
     /// </summary>
     public class RecordingSupersedeRelation
     {

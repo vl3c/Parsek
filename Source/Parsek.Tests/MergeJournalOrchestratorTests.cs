@@ -268,6 +268,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RunMerge_SlotLookupFailure_AbortsBeforeJournalRelationsOrTombstones()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_existing",
+                OldRecordingId = "rec_prior_old",
+                NewRecordingId = "rec_prior_new",
+                UT = 1.0,
+            });
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb_existing",
+                ActionId = "act_existing",
+                RetiringRecordingId = "rec_prior_new",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_origin",
+                KerbalEndStateField = KerbalEndState.Dead,
+                UT = 12.0,
+            });
+            int relationCountBefore = scenario.RecordingSupersedes.Count;
+            int tombstoneCountBefore = scenario.LedgerTombstones.Count;
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                MergeJournalOrchestrator.RunMerge(
+                    scenario.ActiveReFlySessionMarker, provisional));
+
+            Assert.Contains("Site B-1 slot lookup failed", ex.Message);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+            Assert.Equal("rec_origin", provisional.SupersedeTargetId);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Empty(durableSaveCheckpoints);
+            Assert.Equal(relationCountBefore, scenario.RecordingSupersedes.Count);
+            Assert.Equal(tombstoneCountBefore, scenario.LedgerTombstones.Count);
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.NewRecordingId == "rec_provisional");
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == "act_death");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
+        [Fact]
         public void TagRpsForReap_NormalOriginRpWithNullCreatingSession_Promotes()
         {
             var marker = Marker("rec_origin", "rec_provisional");

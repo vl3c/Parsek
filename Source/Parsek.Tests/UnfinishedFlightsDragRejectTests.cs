@@ -94,7 +94,16 @@ namespace Parsek.Tests
                         RewindPointId = "rp_1",
                         BranchPointId = bpId,
                         UT = 0.0,
-                        SessionProvisional = false
+                        SessionProvisional = false,
+                        ChildSlots = new List<ChildSlot>
+                        {
+                            new ChildSlot
+                            {
+                                SlotIndex = 0,
+                                OriginChildRecordingId = rec.RecordingId,
+                                Controllable = true
+                            }
+                        }
                     }
                 }
             };

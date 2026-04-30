@@ -247,12 +247,12 @@ follow-up is validation/tuning work against larger corpora rather than another p
 - defer trajectory thinning, compression, or lazy loading until the snapshot bucket is re-measured
   and still justifies more work
 
-### v0.9 — Rewind to Staging
+### v0.9 — Rewind to Separation
 
 Phase 12 shipped: re-fly unfinished missions after multi-controllable splits (staging, undock, EVA
-with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-staging-design.md`](parsek-rewind-to-staging-design.md).
+with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md).
 The pre-implementation spec that drove v0.9 is archived at
-[`docs/dev/done/parsek-rewind-staging-design.md`](dev/done/parsek-rewind-staging-design.md).
+[`docs/dev/done/parsek-rewind-separation-design.md`](dev/done/parsek-rewind-separation-design.md).
 
 - **Rewind Points at split time** — every multi-controllable split writes a KSP quicksave to
   `saves/<save>/Parsek/RewindPoints/<rpId>.sfs` plus a persistent-id-to-slot map captured at save
@@ -282,18 +282,33 @@ The pre-implementation spec that drove v0.9 is archived at
 
 ---
 
-## Phase 13: Looped Transport Logistics
+## Phase 12.5: Unfinished Flights stable-leaf extension (planned, 0.9.x)
 
-Automated supply routes realized through Parsek's existing loop mechanic. Fly a cargo run once, loop the recording, each iteration is a supply delivery.
+Broadens the v0.9 Unfinished Flights group beyond Crashed-only siblings to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved. Full design: [`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md). Pre-implementation research note (R17) at [`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
 
-- **Route definition** — a recording with declared origin (Phase 10) and destination (Phase 10) plus resource/inventory/crew manifests (Phase 11)
-- **Three cargo types** — resources (LF, Ox, Ore, etc.), inventory items (stored parts in cargo containers), and crew (generic kerbals by trait)
-- **Delivery logic on loop completion** — recording completion triggers cargo transfer to nearest vessel within range
-- **Round-trip support** — initially two separate looped recordings (outbound loaded, return empty); eventual round-trip recording mode
-- **Time scaling** — deliveries at realistic intervals with UI showing "next delivery in: 3d 4h"
-- **Visual presence** — ghost supply ships actually fly (as ghosts) on every loop iteration; only approach/departure bubbles spawn visible ghosts, transit is invisible (the boring middle)
+- **Broader UF predicate** — `IsUnfinishedFlight` extends to non-focus stable-terminal leaves (Orbiting/SubOrbital) and stranded EVA kerbals, while keeping focus-continuation upper stages and successful auto-recovered boosters out of the list.
+- **Per-row Seal action** — new in-table affordance closes a slot permanently without touching the underlying recording. Gives the player a cleanup escape hatch for over-included rows; the recording continues to play back as a ghost.
+- **Three new persistent fields** — `ChildSlot.Sealed` (close signal), `RewindPoint.FocusSlotIndex` (focus attribution at split time, gates stable-terminal qualification), `ReFlySessionMarker.SupersedeTargetId` (linear supersede chain root for chain extension).
+- **Helper extraction** — `TryResolveRewindPointForRecording` and friends move from `UI/RecordingsTableUI.cs` into a new `UnfinishedFlightClassifier` so non-UI consumers (`RecordingStore`, `SupersedeCommit`) can call them without a layering inversion.
+- **Forward-only migration for vessels, retroactive for stranded EVAs** — pre-upgrade Orbiting siblings stay Immutable (no focus signal on legacy RPs); pre-upgrade stranded EVA kerbals do retroactively appear (intentional carve-out).
+- **Prerequisite v0.9 invocation linearization PR** — separate PR fixes a v0.9 chain-extension bug where re-fly invocation produces a star-shaped supersede graph that resolves incorrectly under multiple re-flies. Lands first; this feature builds on the linear-graph behavior it establishes.
 
-Every supply ship is a replay of a real mission the player flew — more immersive than abstracted route systems, more performance-demanding, but achievable within the existing architecture.
+---
+
+## Phase 13: Logistics (Supply Routes)
+
+Stock-first automated cargo delivery from proven player-flown Supply Runs. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then confirm the prompt to create a recurring Supply Route.
+
+- **v1 route shape** — docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred.
+- **Stock proof-of-work** — route creation derives the delivery manifest from connection-scoped snapshots: cargo must leave the transport-side part set and appear on the endpoint-side part set during the docking window. Aggregate merged-vessel totals are not enough proof.
+- **Origin cost model** — KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo. Non-KSC v1 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
+- **UT-driven scheduler** — route progress, delivery, pause behavior, save/load catch-up, and time-warp behavior are driven by universal time in `ParsekScenario`, with ghost playback treated as visual evidence rather than authoritative timing.
+- **Endpoint resolution** — orbital endpoints use recorded vessel PID only. Surface endpoints prefer the recorded PID and may fall back to one nearest compatible stock vessel near the recorded coordinates, never to an abstract area warehouse.
+- **Visual presence** — ghost supply vessels replay the recorded chain when visuals are available, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
+
+**Logistics prerequisites added to Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also require connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
+
+Every supply ship remains a replay of a real mission the player flew, but v1 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
 ---
 
@@ -385,14 +400,14 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     │  remaining follow-up is synthetic stress benchmarking/tuning
     │
     ▼
-Phase 12: Rewind to Staging (v0.9 ✓)
+Phase 12: Rewind to Separation (v0.9 ✓)
     │  Rewind Points at multi-controllable splits, Unfinished Flights
     │  group, append-only supersede, narrow v1 scope. Independent of
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
     │
     ▼
-Phase 13: Looped Transport Logistics
-    │  Routes = looped recordings with resource delivery
+Phase 13: Logistics (Supply Routes)
+    │  Stock-first Supply Routes from proven dock/transfer/undock Supply Runs
     │
     ▼
 Gloops Extraction ─── Extract ghost engine to separate assembly,
@@ -457,5 +472,5 @@ Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show fu
 - **Racing modes or lap timing**
 - **AI playback or autopilot**
 - **Real-time multiplayer synchronization** — Parsek's multiplayer model is async (Phases 13–14). No shared physics simulation, no lockstep networking.
-- **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Staging" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
+- **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Separation" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
 - **Timeline branching or alternate histories**

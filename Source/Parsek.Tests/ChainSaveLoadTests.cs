@@ -572,36 +572,35 @@ namespace Parsek.Tests
         #region Log assertions
 
         /// <summary>
-        /// Deterministic re-derivation logs "Chain built" both times with
-        /// matching fields. Verifies the chain walker exercises the same
-        /// code path on repeated calls.
+        /// Deterministic re-derivation: repeated calls with stable input return
+        /// identical chains. Per-frame callers (tracking station Update) hit this
+        /// path every tick; the diagnostic lines are emitted once via
+        /// VerboseOnChange and silently coalesced on stable repeats. The
+        /// determinism guarantee asserted here is on the returned chain map,
+        /// not on log-line counts.
         /// </summary>
         [Fact]
-        public void DeterministicReDerivation_LogsChainBuiltBothTimes()
+        public void DeterministicReDerivation_StableInput_ReturnsIdenticalChains()
         {
             var (trees, _) = BuildSingleChainScenario();
 
             logLines.Clear();
-            GhostChainWalker.ComputeAllGhostChains(trees, 900);
-            int firstCount = 0;
-            for (int i = 0; i < logLines.Count; i++)
-            {
-                if (logLines[i].Contains("[ChainWalker]")
-                    && logLines[i].Contains("Chain built"))
-                    firstCount++;
-            }
+            var first = GhostChainWalker.ComputeAllGhostChains(trees, 900);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ChainWalker]") && l.Contains("Chain built"));
 
-            GhostChainWalker.ComputeAllGhostChains(trees, 900);
-            int totalCount = 0;
-            for (int i = 0; i < logLines.Count; i++)
-            {
-                if (logLines[i].Contains("[ChainWalker]")
-                    && logLines[i].Contains("Chain built"))
-                    totalCount++;
-            }
+            var second = GhostChainWalker.ComputeAllGhostChains(trees, 900);
 
-            Assert.True(firstCount > 0, "First computation did not log 'Chain built'");
-            Assert.Equal(firstCount * 2, totalCount);
+            Assert.Equal(first.Count, second.Count);
+            foreach (var kvp in first)
+            {
+                Assert.True(second.TryGetValue(kvp.Key, out var s));
+                Assert.Equal(kvp.Value.OriginalVesselPid, s.OriginalVesselPid);
+                Assert.Equal(kvp.Value.Links.Count, s.Links.Count);
+                Assert.Equal(kvp.Value.TipRecordingId, s.TipRecordingId);
+                Assert.Equal(kvp.Value.SpawnUT, s.SpawnUT);
+                Assert.Equal(kvp.Value.IsTerminated, s.IsTerminated);
+            }
         }
 
         /// <summary>

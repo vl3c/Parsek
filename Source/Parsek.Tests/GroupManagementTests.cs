@@ -20,6 +20,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
         }
 
         public void Dispose()
@@ -30,6 +31,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
+            ParsekScenario.SetInstanceForTesting(null);
         }
 
         private static Recording MakeTreeRecording(string id, string name, string treeId,
@@ -221,6 +223,85 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("removed from hierarchy") && l.Contains("0 sub-groups"));
+        }
+
+        [Fact]
+        public void PruneUnusedHierarchyEntries_KeepsLiveAncestorsAndRemovesStaleAutoGroups()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+            GroupHierarchyStore.groupParents["Kerbal X (2) / Debris"] = "Kerbal X (2)";
+            GroupHierarchyStore.hiddenGroups.Add("Kerbal X (2) / Debris");
+
+            var liveMain = new Recording
+            {
+                RecordingId = "rec-live-main",
+                VesselName = "Kerbal X",
+                RecordingGroups = new List<string> { "Kerbal X" }
+            };
+            var liveDebris = new Recording
+            {
+                RecordingId = "rec-live-debris",
+                VesselName = "Kerbal X Debris",
+                RecordingGroups = new List<string> { "Kerbal X / Debris" }
+            };
+            var oldSuperseded = new Recording
+            {
+                RecordingId = "rec-old-superseded",
+                VesselName = "Old Booster",
+                RecordingGroups = new List<string> { "Kerbal X (2) / Debris" }
+            };
+            var newSuperseding = new Recording
+            {
+                RecordingId = "rec-new-superseding",
+                VesselName = "New Booster",
+                RecordingGroups = new List<string> { "Kerbal X" }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(liveMain);
+            RecordingStore.AddRecordingWithTreeForTesting(liveDebris);
+            RecordingStore.AddRecordingWithTreeForTesting(oldSuperseded);
+            RecordingStore.AddRecordingWithTreeForTesting(newSuperseding);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_groups",
+                        OldRecordingId = oldSuperseded.RecordingId,
+                        NewRecordingId = newSuperseding.RecordingId
+                    }
+                }
+            });
+
+            int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test");
+
+            Assert.Equal(2, removed);
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Debris", out var parent));
+            Assert.Equal("Kerbal X", parent);
+            Assert.False(GroupHierarchyStore.HasGroupParent("Kerbal X (2) / Debris"));
+            Assert.DoesNotContain("Kerbal X (2) / Debris", GroupHierarchyStore.HiddenGroups);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GroupHierarchy]")
+                && l.Contains("Pruned stale group hierarchy")
+                && l.Contains("reason=test"));
+        }
+
+        [Fact]
+        public void ClearCommitted_PrunesGroupHierarchy()
+        {
+            GroupHierarchyStore.groupParents["Stale / Debris"] = "Stale";
+            GroupHierarchyStore.hiddenGroups.Add("Stale / Debris");
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                RecordingId = "rec-group-clear",
+                VesselName = "Group Clear",
+                RecordingGroups = new List<string> { "Stale / Debris" }
+            });
+
+            RecordingStore.ClearCommitted();
+
+            Assert.Empty(GroupHierarchyStore.GroupParents);
+            Assert.Empty(GroupHierarchyStore.HiddenGroups);
         }
 
         // ─── GetDescendantGroups ───────────────────────────────────────────

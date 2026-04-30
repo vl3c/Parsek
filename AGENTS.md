@@ -37,7 +37,7 @@ Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DL
 
 ## Utility Scripts
 
-- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
+- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically, syncs this canonical `AGENTS.md` and `.claude/CLAUDE.md` to the parent workspace, and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
 - `python scripts/collect-logs.py [label] [--save NAME] [--skip-validation] [--skip-recordings] [--ksp-dir PATH]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`; runs log validation unless explicitly skipped.
 - `pwsh -File scripts/inject-recordings.ps1 [--clean-start] [--save-name NAME] [--target-save FILE] [--build] [--run-diagnostics-tests]` - injects synthetic test recordings into a chosen KSP save, optionally rebuilding first and/or running the diagnostics/observability test slice before injection.
 - `python scripts/release.py` - builds Release, runs the full headless test suite, and packages `Parsek-v{version}.zip` with the `GameData/Parsek/` release layout.
@@ -70,6 +70,7 @@ When investigating KSP API behavior, search the web and read other open-source K
 - Format-v6 `ReferenceFrame.Relative` track sections store anchor-local world rotation: `Inverse(anchor.rotation) * focusWorldRotation`, and playback resolves with `anchor.rotation * localRot`.
 - Format-v6 `ReferenceFrame.Relative` track sections store anchor-local Cartesian POSITION offset (metres) in `TrajectoryPoint.latitude`/`longitude`/`altitude`: `Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos)` — see `FlightRecorder.cs:5502-5543` (`ApplyRelativeOffset`) and `TrajectoryMath.ComputeRelativeLocalOffset` (recorder side); `TrajectoryMath.ApplyRelativeLocalOffset` and `ParsekFlight.TryResolveRelativeOffsetWorldPosition` (playback side). The field NAMES are misleading: in v6 RELATIVE sections those are NOT body-fixed lat/lon/alt — values commonly fall outside `[-90,90]` / `[-180,180]` and represent metres along the anchor's local x/y/z axes. Any code path that reads `point.latitude/longitude/altitude` from a flat `Recording.Points` list MUST first resolve `TrackSection.referenceFrame` for that UT and dispatch through `TryResolveRelativeWorldPosition` when the section is RELATIVE; calling `body.GetWorldSurfacePosition(lat, lon, alt)` directly on a RELATIVE-frame point will silently produce a position deep inside the planet because metre-scale dx/dy/dz are interpreted as degrees + altitude.
 - Legacy v5-and-older `ReferenceFrame.Relative` sections keep the older contract and must replay through the legacy path only; do not auto-reinterpret old RELATIVE payloads as v6 anchor-local data.
+- Format-v8 enums: `LaunchToLaunchLoopIntervalFormatVersion=4`, `PredictedOrbitSegmentFormatVersion=5`, `RelativeLocalFrameFormatVersion=6`, `RelativeAbsoluteShadowFormatVersion=7`, `BoundarySeamFlagFormatVersion=8=CurrentRecordingFormatVersion` — see `RecordingStore.cs:57-61`. New behaviour gated on a version comparison must use the named constants; raw integer comparisons rot when the next version lands. The binary `.prec` codec mirrors the bumps via `RelativeAbsoluteShadowBinaryVersion = 7` and `BoundarySeamFlagBinaryVersion = 8`; the binary write/read paths gate the seam flag on `binaryVersion >= 8` and default-false on legacy reads.
 
 **Krakensbane-corrected velocity**: `(Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity())`
 
@@ -84,6 +85,10 @@ When investigating KSP API behavior, search the web and read other open-source K
 **Test working dir**: xUnit runs from `Source/Parsek.Tests/bin/Debug/net472/` — use 5 `..` segments to reach project root. Classes touching shared static state (`ParsekLog`, `RecordingStore`, `ParsekScenario.crewReplacements`) need `[Collection("Sequential")]` and the corresponding `ResetForTesting()` calls.
 
 **Recording storage (format v3)**: bulk data lives in sidecar files under `saves/<save>/Parsek/Recordings/`: `<id>.prec` (trajectory), `<id>_vessel.craft`, `<id>_ghost.craft`, `<id>.pcrf` (ghost geometry). Only lightweight metadata + mutable state stays in `.sfs`. `RecordingPaths.ValidateRecordingId` rejects path traversal and invalid filename chars.
+
+**On-rails BG vessels emit no env-classified TrackSections**: `BackgroundOnRailsState` (`BackgroundRecorder.cs:157`) deliberately omits `currentTrackSection` / `trackSections` / `environmentHysteresis`, and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. An eccentric BG-recorded orbit grazing atmosphere across N orbits cannot generate optimizer-splittable Atmospheric<->ExoBallistic toggles — `RecordingOptimizer.FindSplitCandidatesForOptimizer` reads `rec.TrackSections` only, never `rec.OrbitSegments`. Don't add a TrackSection field to the on-rails state and don't move env-classification ahead of the packed/isOnRails gates without re-reading `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16. Guarded by `EccentricOrbitOptimizerInvariantTests`.
+
+**Optimizer split predicate (§3 ordering)**: `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` walks the boundary classification top-down: (1) seam short-circuit on `TrackSection.isBoundarySeam` — hard "always wins" override; (2) not-a-boundary skip; (3) body change (#251); (4) Surface (class 2) involvement; (5) ExoPropulsive at the crossing; (6) persistence predicate (`IsGrazePattern` collapse-walk on `SplitEnvironmentClass` runs, suppressing brief bracketed runs < `BriefSectionMaxSeconds = 120s`). The seam check is step 1 — Producer-C boundary seams emitted by `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` carry `isBoundarySeam=true`. Future producers that emit recorder bookkeeping artifacts should set the same flag; do NOT replicate the persistence predicate at producer level. See `docs/dev/plans/optimizer-persistence-split.md` for the full rationale and `docs/dev/research/optimizer-meaningful-split-rule.md` for the historical PartEvent-window dead end.
 
 ## Project Layout
 
@@ -118,9 +123,10 @@ Key source files and what they do - read the relevant one before modifying:
 - `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
 - `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
 - `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
+- `RecordingGroupStore.cs` - recording group membership/orchestration helpers (auto-generated tree groups, group mutations, and in-memory mirror of `Recording.AutoAssignedStandaloneGroupName`)
 - `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
 - `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
-- `RecordingStore.cs` - static recording storage surviving scene changes
+- `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to RecordingGroupStore
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
@@ -207,7 +213,9 @@ Before every commit that changes behavior (not just the first one in a PR), chec
 
 ## Code Review Follow-Ups
 
-When a reviewer flags fixes on an open PR, re-review only the changed fixes and any directly affected code paths. Do not restart a full-PR review from scratch on every follow-up unless the new changes actually broaden the risk surface.
+Do one full review at the end of a task/worktree before creating or finalizing the PR, except for low-risk small single-file fixes, docs-only changes, test-only changes, and obvious bug fixes with focused validation; for those, self-review and report validation.
+
+When a reviewer flags fixes on an open PR, re-review only the follow-up changes and any directly affected code paths. Do not restart a full-PR review from scratch on every follow-up unless the new changes actually broaden the risk surface.
 
 ## Workflow
 

@@ -7,7 +7,8 @@ namespace Parsek
     /// <summary>
     /// Phase 8 of Rewind-to-Staging (design §5.3 / §5.5 / §6.6 step 2-3 /
     /// §7.17 / §7.43 / §10.4): commits a re-fly session's supersede relations
-    /// for the subtree rooted at the marker's <c>OriginChildRecordingId</c>
+    /// for the subtree rooted at the marker's supersede target, falling back
+    /// to <c>OriginChildRecordingId</c> for legacy markers,
     /// and flips the provisional's <see cref="MergeState"/> to either
     /// <see cref="MergeState.Immutable"/> (Landed / stable) or
     /// <see cref="MergeState.CommittedProvisional"/> (Crashed — still
@@ -76,6 +77,8 @@ namespace Parsek
                 return;
             }
 
+            PreflightMergeStateClassification(marker, provisional, scenario);
+
             if (scenario.RecordingSupersedes == null)
                 scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
             if (scenario.LedgerTombstones == null)
@@ -90,7 +93,9 @@ namespace Parsek
             // Tombstones run AFTER the supersede relations land (so the
             // relations describe "what's superseded" before the ELS recomputes)
             // and BEFORE the MergeState flip's version bump so a single ELS
-            // rebuild covers both changes.
+            // rebuild covers both changes. The subtree is rooted at
+            // SupersedeTargetId when present; earlier origin -> prior-tip
+            // actions were already handled by the previous merge.
             CommitTombstones(marker, subtree, newRecordingId, ut, nowIso, scenario);
 
             FlipMergeStateAndClearTransient(marker, provisional, scenario, preserveMarker: false);
@@ -99,7 +104,7 @@ namespace Parsek
         /// <summary>
         /// Phase 10 decomposed helper (design §6.6 step 3): compute the
         /// forward-only merge-guarded subtree closure rooted at the marker's
-        /// origin child recording and append one
+        /// supersede target (or origin child recording for legacy markers) and append one
         /// <see cref="RecordingSupersedeRelation"/> per descendant pointing at
         /// the provisional. Idempotent: pre-existing relations are skipped
         /// with a Verbose log. Returns the closure so the downstream
@@ -136,8 +141,9 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario))
                 return new List<string>();
 
+            string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
             IReadOnlyCollection<string> subtree =
-                EffectiveState.ComputeSessionSuppressedSubtree(marker);
+                EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
             int subtreeCount = subtree?.Count ?? 0;
             string newRecordingId = provisional.RecordingId;
             string originId = marker.OriginChildRecordingId;
@@ -254,8 +260,9 @@ namespace Parsek
             }
 
             ParsekLog.Info(Tag,
-                $"Added {added.ToString(ic)} supersede relations for subtree rooted at {originId ?? "<none>"} " +
-                $"(subtreeCount={subtreeCount.ToString(ic)} skippedExisting={skippedExisting.ToString(ic)} " +
+                $"Added {added.ToString(ic)} supersede relations for subtree rooted at {closureRoot ?? "<none>"} " +
+                $"(origin={originId ?? "<none>"} subtreeCount={subtreeCount.ToString(ic)} " +
+                $"skippedExisting={skippedExisting.ToString(ic)} " +
                 $"skippedSelfLink={skippedSelfLink.ToString(ic)} " +
                 $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)})");
 
@@ -288,11 +295,10 @@ namespace Parsek
             if (marker == null || provisional == null
                 || object.ReferenceEquals(null, scenario)) return;
 
-            TerminalKind kind = TerminalKindClassifier.Classify(provisional);
-            MergeState newState = (kind == TerminalKind.Crashed)
-                ? MergeState.CommittedProvisional
-                : MergeState.Immutable;
-            provisional.MergeState = newState;
+            MergeStateClassification classification =
+                ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: true);
+
+            provisional.MergeState = classification.NewState;
 
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
@@ -300,17 +306,237 @@ namespace Parsek
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(Tag,
-                $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={newState} terminalKind={kind} " +
+                $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={classification.NewState} terminalKind={classification.Kind} " +
+                $"qualifies={classification.ClassifierQualifies} " +
+                $"slot={(classification.ClassifierResolvedSlot ? classification.SlotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"rp={(classification.ClassifierResolvedSlot ? classification.RewindPointId ?? "<no-rp>" : "<none>")} " +
+                $"focusSlot={(classification.ClassifierResolvedSlot ? classification.FocusSlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"classifierReason={classification.ClassifierReason ?? "<none>"} " +
                 $"priorTarget={priorTarget ?? "<none>"}");
 
             if (preserveMarker) return;
 
             string sessionId = marker.SessionId;
             scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        /// <summary>
+        /// Side-effect-free guard for call sites that will append supersede
+        /// relations and tombstones before flipping the provisional state.
+        /// Stable-leaf/EVA outcomes need a slot-aware verdict; if that lookup
+        /// is impossible, fail before any durable merge mutations land.
+        /// </summary>
+        internal static void PreflightMergeStateClassification(
+            ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario)
+        {
+            if (marker == null || provisional == null
+                || object.ReferenceEquals(null, scenario)) return;
+            ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: false);
+        }
+
+        private struct MergeStateClassification
+        {
+            public TerminalKind Kind;
+            public MergeState NewState;
+            public string ClassifierReason;
+            public bool ClassifierResolvedSlot;
+            public bool ClassifierQualifies;
+            public int SlotListIndex;
+            public string RewindPointId;
+            public int FocusSlotIndex;
+        }
+
+        private static MergeStateClassification ClassifyMergeStateOrThrow(
+            ReFlySessionMarker marker,
+            Recording provisional,
+            ParsekScenario scenario,
+            bool logFallback)
+        {
+            TerminalKind kind = TerminalKindClassifier.Classify(provisional);
+            var result = new MergeStateClassification
+            {
+                Kind = kind,
+                NewState = (kind == TerminalKind.Crashed)
+                    ? MergeState.CommittedProvisional
+                    : MergeState.Immutable,
+                ClassifierReason = "fallback:" + kind,
+                SlotListIndex = -1,
+                FocusSlotIndex = -1,
+            };
+
+            RewindPoint rp;
+            int slotListIndex;
+            string slotRejectReason;
+            if (TryResolveSlotForMergeClassification(
+                    marker, provisional, scenario, out rp, out slotListIndex,
+                    out slotRejectReason)
+                && rp?.ChildSlots != null
+                && slotListIndex >= 0
+                && slotListIndex < rp.ChildSlots.Count)
+            {
+                var slot = rp.ChildSlots[slotListIndex];
+                string classifierReason;
+                bool classifierQualifies = UnfinishedFlightClassifier.TryQualify(
+                    provisional, slot, rp, false, out classifierReason,
+                    treeContext: null, allowNotCommitted: true);
+
+                result.NewState = classifierQualifies
+                    ? MergeState.CommittedProvisional
+                    : MergeState.Immutable;
+                result.ClassifierReason = classifierReason;
+                result.ClassifierResolvedSlot = true;
+                result.ClassifierQualifies = classifierQualifies;
+                result.SlotListIndex = slotListIndex;
+                result.RewindPointId = rp.RewindPointId;
+                result.FocusSlotIndex = rp.FocusSlotIndex;
+                return result;
+            }
+
+            string slotLookupFailure =
+                $"Site B-1 slot lookup failed for provisional={provisional.RecordingId ?? "<no-id>"} " +
+                $"markerOrigin={marker.OriginChildRecordingId ?? "<none>"} " +
+                $"markerTarget={marker.SupersedeTargetId ?? "<none>"} " +
+                $"rp={marker.RewindPointId ?? "<none>"} reason={slotRejectReason ?? "slot-index-invalid"}; " +
+                $"terminal={DescribeTerminalForLogs(provisional)}";
+            if (!IsInPlaceContinuation(marker, provisional)
+                && RequiresSlotAwareMergeClassification(provisional))
+            {
+                ParsekLog.Error(Tag,
+                    slotLookupFailure +
+                    "; aborting because stable-leaf classification cannot safely fall back");
+                throw new InvalidOperationException(slotLookupFailure);
+            }
+
+            if (logFallback)
+            {
+                ParsekLog.Error(Tag,
+                    slotLookupFailure + "; falling back to v0.9 terminalKind classifier");
+            }
+
+            return result;
+        }
+
+        private static bool TryResolveSlotForMergeClassification(
+            ReFlySessionMarker marker,
+            Recording provisional,
+            ParsekScenario scenario,
+            out RewindPoint rp,
+            out int slotListIndex,
+            out string rejectReason)
+        {
+            if (UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    provisional, out rp, out slotListIndex, out rejectReason))
+                return true;
+
+            return TryResolveSlotByMarkerTarget(
+                marker, provisional, scenario, out rp, out slotListIndex, out rejectReason);
+        }
+
+        private static bool TryResolveSlotByMarkerTarget(
+            ReFlySessionMarker marker,
+            Recording provisional,
+            ParsekScenario scenario,
+            out RewindPoint rp,
+            out int slotListIndex,
+            out string rejectReason)
+        {
+            rp = null;
+            slotListIndex = -1;
+            rejectReason = null;
+            if (marker == null || provisional == null)
+            {
+                rejectReason = "marker-or-provisional-null";
+                return false;
+            }
+
+            string slotTarget = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
+            if (string.IsNullOrEmpty(slotTarget))
+            {
+                rejectReason = "noMarkerSlotTarget";
+                return false;
+            }
+
+            string parentBp = provisional.ParentBranchPointId;
+            string childBp = provisional.ChildBranchPointId;
+            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
+            {
+                rejectReason = "noParentBp";
+                return false;
+            }
+
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                rejectReason = "noScenario";
+                return false;
+            }
+
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+            var targetRec = new Recording { RecordingId = slotTarget };
+            bool matchedRp = false;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var candidate = scenario.RewindPoints[i];
+                if (candidate == null) continue;
+                bool matchesParent = !string.IsNullOrEmpty(parentBp)
+                    && string.Equals(candidate.BranchPointId, parentBp, StringComparison.Ordinal);
+                bool matchesChild = !string.IsNullOrEmpty(childBp)
+                    && string.Equals(candidate.BranchPointId, childBp, StringComparison.Ordinal);
+                if (!matchesParent && !matchesChild)
+                    continue;
+
+                matchedRp = true;
+                int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                    candidate, targetRec, supersedes);
+                if (resolved < 0)
+                    continue;
+
+                rp = candidate;
+                slotListIndex = resolved;
+                return true;
+            }
+
+            rejectReason = matchedRp ? "noMatchingMarkerTargetSlot" : "noMatchingRP";
+            return false;
+        }
+
+        private static bool RequiresSlotAwareMergeClassification(Recording rec)
+        {
+            if (rec == null) return false;
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            TerminalState? terminal = terminalRec.TerminalStateValue;
+            if (!terminal.HasValue) return false;
+            if (terminal.Value == TerminalState.Orbiting
+                || terminal.Value == TerminalState.SubOrbital)
+                return true;
+            return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal.Value != TerminalState.Boarded;
+        }
+
+        private static bool IsInPlaceContinuation(ReFlySessionMarker marker, Recording provisional)
+        {
+            return marker != null
+                && provisional != null
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && string.Equals(
+                    marker.OriginChildRecordingId,
+                    provisional.RecordingId,
+                    StringComparison.Ordinal);
+        }
+
+        private static string DescribeTerminalForLogs(Recording rec)
+        {
+            if (rec == null) return "<null>";
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            return terminalRec.TerminalStateValue.HasValue
+                ? terminalRec.TerminalStateValue.Value.ToString()
+                : "<none>";
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -113,13 +114,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldBypassLiveAnchorForActiveReFly_SamePidButNotParent_ReturnsFalse()
+        public void ShouldBypassLiveAnchorForActiveReFly_SamePidSiblingChain_ReturnsTrue()
         {
-            // Same pid alone is too broad: a sibling/rendezvous recording can
-            // legitimately be anchored to the active vessel. Only ghosts in the
-            // active Re-Fly recording's parent chain should bypass the live
-            // anchor and reconstruct from recorded motion.
-            Assert.False(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
+            // Repro for KSP.log 2026-04-26 a0d14b08 (Kerbal X upper stage):
+            // a sibling chain (NOT a parent of the re-flown probe) carried
+            // Relative sections anchored to the probe's PID. The earlier
+            // parent-chain-only restriction left those sections decoding
+            // against the player's live probe pose, producing visible
+            // sub-surface jumps and km-scale localOffset deltas. Match by
+            // anchorPid alone (modulo the explicit self-link guard) is
+            // correct: the only legitimately-Relative-anchored case for the
+            // active Re-Fly PID is the active recording itself, which the
+            // string-equality clause below filters out.
+            Assert.True(RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
                 anchorPid: 698412738u,
                 activeReFlyPid: 698412738u,
                 victimRecordingId: "sibling-stage",
@@ -172,6 +179,123 @@ namespace Parsek.Tests
                 victimRecordingId: null,
                 activeReFlyRecordingId: "booster",
                 victimIsParentOfActiveReFly: true));
+        }
+
+        #endregion
+
+        #region IsStaleLiveAnchor
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaBelowThreshold_ReturnsFalse()
+        {
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(100, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(100.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaAtThreshold_ReturnsFalse()
+        {
+            // Boundary semantics: equal does NOT trip the gate. Threshold is
+            // strict-greater-than so a tiny float-precision drift right at
+            // the limit doesn't false-positive.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(250, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(250.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_DeltaAboveThreshold_ReturnsTrue()
+        {
+            // The watch-jump bug case: anchor is in stable orbit ~818 km
+            // from where the recording wanted it. Comfortably above 250 m.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(818000, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.True(stale);
+            Assert.Equal(818000.0, delta, 1);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_NaNDelta_ReturnsFalse()
+        {
+            // NaN propagates from any-coord NaN through magnitude. A
+            // misbehaving anchor (uninitialized vessel, divide-by-zero
+            // somewhere upstream) must NOT trip the staleness gate — that
+            // would silently swap to recorded for legitimate live-anchor
+            // playback. Fall through to existing Live/Recorded selector.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(double.NaN, 0, 0),
+                new Vector3d(0, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.True(double.IsNaN(delta));
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_InfinityDelta_ReturnsFalse()
+        {
+            // Same defensive contract as NaN: a vessel pose that ended up at
+            // infinity (e.g. expired Krakensbane state) must not be treated
+            // as a staleness signal — fall through.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(double.PositiveInfinity, 0, 0),
+                new Vector3d(0, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.True(double.IsInfinity(delta));
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_NormalSampleGap_ReturnsFalse()
+        {
+            // Documents the design intent: typical sample-interp drift in
+            // physics-simulated atmospheric flight is tens of metres per
+            // sample-interval (~0.1-0.5 s). A drift of 50 m at the playback
+            // UT must NOT trip the staleness gate — that would silently
+            // swap to recorded for legitimate live-anchor playback. This
+            // test pins the threshold's role as "catch km-scale drift
+            // (the bug class), not catch normal physics interpolation
+            // noise."
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(0, 0, 0),
+                new Vector3d(50, 0, 0),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(50.0, delta, 3);
+        }
+
+        [Fact]
+        public void IsStaleLiveAnchor_ZeroDelta_ReturnsFalse()
+        {
+            // Identical poses (matching live anchor case): never stale.
+            bool stale = RelativeAnchorResolution.IsStaleLiveAnchor(
+                new Vector3d(123, 456, 789),
+                new Vector3d(123, 456, 789),
+                thresholdMeters: 250.0,
+                out double delta);
+
+            Assert.False(stale);
+            Assert.Equal(0.0, delta, 6);
         }
 
         #endregion
@@ -304,6 +428,135 @@ namespace Parsek.Tests
             Assert.Equal(0.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 105.0));
             Assert.Equal(2.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 98.0));
             Assert.Equal(3.0, ParsekFlight.DistanceOutsideRecordedAnchorCoverage(points, 113.0));
+        }
+
+        [Fact]
+        public void TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary()
+        {
+            var absoluteSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 90.0,
+                endUT = 100.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 95.0, latitude = 1.0 },
+                    new TrajectoryPoint { ut = 99.5, latitude = 2.0 },
+                }
+            };
+            var relativeSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0 },
+                    new TrajectoryPoint { ut = 105.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.0, latitude = 3.0 },
+                    new TrajectoryPoint { ut = 105.0, latitude = 4.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                TrackSections = new List<TrackSection> { absoluteSection, relativeSection }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.True(ParsekFlight.TryFindAbsoluteShadowBridgeFrame(
+                rec, relativeSection, 100.2, out bridge));
+            Assert.Equal(99.5, bridge.ut);
+            Assert.Equal(2.0, bridge.latitude);
+        }
+
+        [Fact]
+        public void ResolveAbsoluteShadowPlaybackFrames_BridgesForwardFromAdjacentRelativeSection()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var adjacentRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.5,
+                endUT = 110.0,
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 103.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward",
+                TrackSections = new List<TrackSection> { firstRelative, adjacentRelative }
+            };
+
+            List<TrajectoryPoint> resolved =
+                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, firstRelative, 100.4);
+
+            Assert.NotSame(firstRelative.absoluteFrames, resolved);
+            Assert.Equal(2, resolved.Count);
+            Assert.Equal(100.0, resolved[0].ut);
+            Assert.Equal(103.0, resolved[1].ut);
+            Assert.Equal(3.0, resolved[1].latitude);
+        }
+
+        [Fact]
+        public void TryFindAbsoluteShadowForwardBridgeFrame_SkipsMismatchedAnchorVesselId()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var otherAnchorRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.5,
+                endUT = 110.0,
+                anchorVesselId = 99u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward-mismatch",
+                TrackSections = new List<TrackSection> { firstRelative, otherAnchorRelative }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.False(ParsekFlight.TryFindAbsoluteShadowForwardBridgeFrame(
+                rec, firstRelative, 100.4, out bridge));
         }
 
         [Fact]

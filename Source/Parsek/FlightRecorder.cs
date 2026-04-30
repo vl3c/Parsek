@@ -42,6 +42,14 @@ namespace Parsek
         private bool pendingRestoreEnvironmentResync;
         private SegmentEnvironment restoreEnvironmentResyncTarget;
 
+        // Phase 7 (design doc §13, §18 Phase 7): per-section diagnostics for the
+        // SurfaceMobile clearance summary line emitted at section close. Reset
+        // when a new section opens so each closed section emits its own line.
+        private int surfaceMobileSamplesThisSection;
+        private double surfaceMobileMinClearanceThisSection = double.NaN;
+        private double surfaceMobileMaxClearanceThisSection = double.NaN;
+        private double surfaceMobileClearanceSumThisSection;
+
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
         private uint currentAnchorPid;
@@ -547,6 +555,21 @@ namespace Parsek
             });
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
             RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
+
+            // Phase 9 (design doc §12, §18 Phase 9): synthesize a structural-event
+            // snapshot for the recorded vessel at the exact joint-break UT so
+            // AnchorCandidateBuilder gets a physics-precision sample for the
+            // resulting BranchPointType.JointBreak ε. Both the joint host and the
+            // (pre-split) child still share v.persistentId == RecordingVesselId
+            // here; only the recording vessel matches and gets a snapshot.
+            // joint.Host.vessel and joint.Child.vessel typically reference the
+            // same Vessel pre-split, so we pass both — AppendStructuralEventSnapshot
+            // dedups by RecordingVesselId.
+            var jointBreakInvolved = new List<Vessel>(2);
+            if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
+            if (joint.Host?.vessel != null && (joint.Host.vessel != joint.Child.vessel))
+                jointBreakInvolved.Add(joint.Host.vessel);
+            AppendStructuralEventSnapshot(jointBreakUT, jointBreakInvolved, "JointBreak");
 
             // Signal potential vessel split for deferred check by ParsekFlight
             if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
@@ -4067,6 +4090,12 @@ namespace Parsek
                 maxAltitude = float.NaN
             };
             trackSectionActive = true;
+            // Phase 7: reset SurfaceMobile clearance accumulators so the summary
+            // log at the next CloseCurrentTrackSection reflects ONLY this section.
+            surfaceMobileSamplesThisSection = 0;
+            surfaceMobileMinClearanceThisSection = double.NaN;
+            surfaceMobileMaxClearanceThisSection = double.NaN;
+            surfaceMobileClearanceSumThisSection = 0.0;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -4121,6 +4150,34 @@ namespace Parsek
                 $"TrackSection closed: env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
                 $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
+
+            // Phase 7 (design doc §13, §19.2 Pipeline-Terrain row): when a
+            // SurfaceMobile section closes, summarise the clearance distribution
+            // captured during its samples. One Verbose line per closed section —
+            // bounded by the section count, no per-frame spam.
+            if (currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && surfaceMobileSamplesThisSection > 0)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                double avg = surfaceMobileClearanceSumThisSection / surfaceMobileSamplesThisSection;
+                ParsekLog.Verbose("Pipeline-Terrain",
+                    $"section close env=SurfaceMobile " +
+                    $"clearanceMin={surfaceMobileMinClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceMax={surfaceMobileMaxClearanceThisSection.ToString("F3", ic)}m " +
+                    $"clearanceAvg={avg.ToString("F3", ic)}m " +
+                    $"N={surfaceMobileSamplesThisSection}");
+            }
+
+            // P3-3: defensive accumulator reset. StartNewTrackSection already
+            // resets these when a new section opens, but closing without
+            // immediately opening (e.g. Stop Recording, scene exit) leaves
+            // stale state that any future defensive-coding path emitting a
+            // summary between sections would carry forward. Reset here so
+            // the accumulators always reflect the in-progress section only.
+            surfaceMobileSamplesThisSection = 0;
+            surfaceMobileMinClearanceThisSection = double.NaN;
+            surfaceMobileMaxClearanceThisSection = double.NaN;
+            surfaceMobileClearanceSumThisSection = 0.0;
         }
 
         /// <summary>
@@ -4295,6 +4352,24 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Rebuild treeVesselPids on every anchor-detection call. The
+                // initial cache from InitializeEnvironmentAndAnchorTracking is
+                // built ONCE at recording start, before staging spawns new
+                // chain members (probe, debris) — so a vessel that joins the
+                // tree mid-flight stays absent from the cached set forever.
+                // Concrete consequence (KSP.log 2026-04-26 a0d14b08 sections
+                // at UT 438.73 / 442.21): the probe (PID 2450432355) joined
+                // the tree at UT 140.79 but the upper stage's
+                // treeVesselPids was frozen at recording start, so when the
+                // upper stage came off rails at UT 438.71 the probe was
+                // selected as anchor again (cache said "non-tree, eligible")
+                // and the next 18 s were captured Relative against a vessel
+                // whose live pose during Re-Fly playback no longer matches
+                // the recorded one. The rebuild is O(tree members + bg map
+                // entries) and runs once per anchor-detection tick — same
+                // cost as BuildVesselInfoList itself, so amortised cost is
+                // negligible compared to physics frame work.
+                treeVesselPids = BuildTreeVesselPids();
                 var vesselInfos = BuildVesselInfoList();
                 var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(
                     RecordingVesselId, (Vector3d)v.transform.position, vesselInfos, treeVesselPids);
@@ -4311,12 +4386,14 @@ namespace Parsek
                     var ic = CultureInfo.InvariantCulture;
                     isRelativeMode = true;
                     currentAnchorPid = anchorPid;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    double boundaryUT = Planetarium.GetUniversalTime();
+                    CloseCurrentTrackSection(boundaryUT);
                     var env = environmentHysteresis != null
                         ? environmentHysteresis.CurrentEnvironment
                         : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Relative, Planetarium.GetUniversalTime());
+                    StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
                     currentTrackSection.anchorVesselId = currentAnchorPid;
+                    SeedRelativeBoundaryPoint(v, currentAnchorPid, boundaryUT);
                     ParsekLog.Info("Anchor",
                         $"RELATIVE mode entered: anchorPid={currentAnchorPid} " +
                         $"dist={anchorDist.ToString("F1", ic)}m " +
@@ -5262,8 +5339,54 @@ namespace Parsek
             if (resumeRef == ReferenceFrame.Relative)
             {
                 resumeAnchor = resumeSection.HasValue ? resumeSection.Value.anchorVesselId : currentAnchorPid;
-                isRelativeMode = resumeAnchor != 0;
-                currentAnchorPid = resumeAnchor;
+
+                // Validate the resume anchor before re-entering Relative. The
+                // saved anchor PID may now belong to a tree member (post-staging
+                // sibling) or to a vessel that's no longer loaded (destroyed,
+                // unloaded after time warp). In either case, decoded relative
+                // offsets at playback would multiply against the wrong pose
+                // and produce visible drift / sub-surface jumps. Same root
+                // cause as the freshly-rebuilt treeVesselPids in
+                // UpdateAnchorDetection, applied here at the resume seam so a
+                // stale-anchor restore downgrades cleanly to Absolute and
+                // lets the next anchor-detection tick re-pick a valid one.
+                //
+                // Skip the safety check when the scene's vessel list is
+                // unqueryable (xUnit / pre-FlightReady scene loads): we
+                // cannot prove the anchor is gone, so trust the saved
+                // metadata. Production paths that legitimately reach this
+                // method have FlightReady scene state available.
+                bool sceneVesselsQueryable = TryGetFlightGlobalsVesselsForResumeValidation() != null;
+                bool anchorIsTreeMember = false;
+                bool anchorLoaded = true;
+                if (sceneVesselsQueryable && resumeAnchor != 0)
+                {
+                    var freshTreePids = BuildTreeVesselPids();
+                    if (freshTreePids != null && freshTreePids.Contains(resumeAnchor))
+                        anchorIsTreeMember = true;
+                    Vessel anchorVessel = FindVesselByPid(resumeAnchor);
+                    anchorLoaded = anchorVessel != null && anchorVessel.loaded;
+                }
+                if (resumeAnchor == 0
+                    || (sceneVesselsQueryable && (anchorIsTreeMember || !anchorLoaded)))
+                {
+                    if (resumeAnchor != 0)
+                    {
+                        ParsekLog.Info("Anchor",
+                            $"RELATIVE resume rejected: anchorPid={resumeAnchor} " +
+                            $"treeMember={anchorIsTreeMember} loaded={anchorLoaded} " +
+                            $"vesselPid={RecordingVesselId} — starting ABSOLUTE section instead");
+                    }
+                    resumeAnchor = 0;
+                    resumeRef = ReferenceFrame.Absolute;
+                    isRelativeMode = false;
+                    currentAnchorPid = 0;
+                }
+                else
+                {
+                    isRelativeMode = true;
+                    currentAnchorPid = resumeAnchor;
+                }
             }
             else
             {
@@ -5277,6 +5400,46 @@ namespace Parsek
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
+
+            // Frame-mismatch repair when stale-anchor validation downgraded a
+            // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
+            // Relative section's last frame, whose lat/lon/alt fields hold
+            // anchor-local Cartesian metres (NOT body-fixed surface coords).
+            // Seeding it into a freshly-opened ABSOLUTE section would write
+            // a meaningless metre-scale "lat/lon/alt" sample at the seam,
+            // re-introducing the corrupted-trajectory class this PR closes.
+            // The parallel v7 absolute shadow already carries the focused
+            // vessel's true body-fixed position at the same UT — swap
+            // boundaryPoint to that shadow value so the new ABSOLUTE
+            // section's first sample matches its declared contract. Legacy
+            // recordings without an absolute shadow (v5 and earlier
+            // RELATIVE) fall through with no boundary seed; the next normal
+            // sample seeds the ABSOLUTE section cleanly.
+            bool downgradedRelativeToAbsolute = resumeSection.HasValue
+                && resumeSection.Value.referenceFrame == ReferenceFrame.Relative
+                && resumeRef == ReferenceFrame.Absolute;
+            if (downgradedRelativeToAbsolute)
+            {
+                if (absoluteBoundaryPoint.HasValue)
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: substituting absolute-shadow boundary point " +
+                        $"at ut={absoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"in place of relative-frame boundary point");
+                    boundaryPoint = absoluteBoundaryPoint;
+                }
+                else
+                {
+                    ParsekLog.Verbose("Anchor",
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no absolute-shadow " +
+                        $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
+                    boundaryPoint = null;
+                }
+                // The new section is ABSOLUTE, so absoluteBoundaryPoint will
+                // be ignored by SeedBoundaryPoint anyway — clear it for
+                // clarity.
+                absoluteBoundaryPoint = null;
+            }
 
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
@@ -5578,40 +5741,7 @@ namespace Parsek
             Vessel anchor = FindVesselByPid(currentAnchorPid);
             if (anchor != null)
             {
-                int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
-                bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
-                    recordingFormatVersion);
-                Vector3d offset;
-                if (useLocalContract)
-                {
-                    offset = TrajectoryMath.ComputeRelativeLocalOffset(
-                        v.GetWorldPos3D(),
-                        anchor.GetWorldPos3D(),
-                        anchor.transform.rotation);
-                    point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                        v.transform.rotation,
-                        anchor.transform.rotation);
-                }
-                else
-                {
-                    Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
-                        v.latitude, v.longitude, v.altitude);
-                    Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
-                        anchor.latitude, anchor.longitude, anchor.altitude);
-                    offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
-                }
-
-                point.latitude = offset.x;   // dx
-                point.longitude = offset.y;  // dy
-                point.altitude = offset.z;   // dz
-                // bodyName stays the same — both vessels are on the same body
-
-                ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
-                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
-                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorPid={currentAnchorPid} |offset|={offset.magnitude:F2}m",
-                    2.0);
-                return true;
+                return ApplyRelativeOffsetForAnchor(ref point, v, anchor, currentAnchorPid, logSample: true);
             }
             else
             {
@@ -5637,6 +5767,76 @@ namespace Parsek
             }
         }
 
+        private bool ApplyRelativeOffsetForAnchor(
+            ref TrajectoryPoint point,
+            Vessel v,
+            Vessel anchor,
+            uint anchorPid,
+            bool logSample)
+        {
+            if (v == null || anchor == null || anchorPid == 0u)
+                return false;
+
+            int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
+            bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
+                recordingFormatVersion);
+            Vector3d offset;
+            if (useLocalContract)
+            {
+                offset = TrajectoryMath.ComputeRelativeLocalOffset(
+                    v.GetWorldPos3D(),
+                    anchor.GetWorldPos3D(),
+                    anchor.transform.rotation);
+                point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                    v.transform.rotation,
+                    anchor.transform.rotation);
+            }
+            else
+            {
+                Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
+                    v.latitude, v.longitude, v.altitude);
+                Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
+                    anchor.latitude, anchor.longitude, anchor.altitude);
+                offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+            }
+
+            point.latitude = offset.x;
+            point.longitude = offset.y;
+            point.altitude = offset.z;
+
+            if (logSample)
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
+                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                    $"anchorPid={anchorPid} |offset|={offset.magnitude:F2}m",
+                    2.0);
+            }
+            return true;
+        }
+
+        private void SeedRelativeBoundaryPoint(Vessel v, uint anchorPid, double boundaryUT)
+        {
+            if (v == null || anchorPid == 0u)
+                return;
+            Vessel anchor = FindVesselByPid(anchorPid);
+            if (anchor == null)
+                return;
+
+            TrajectoryPoint absolutePoint = BuildTrajectoryPoint(
+                v,
+                SampleCurrentVelocity(v),
+                boundaryUT);
+            TrajectoryPoint relativePoint = absolutePoint;
+            if (!ApplyRelativeOffsetForAnchor(ref relativePoint, v, anchor, anchorPid, logSample: false))
+                return;
+
+            SeedBoundaryPoint(relativePoint, absolutePoint);
+            ParsekLog.Verbose("Anchor",
+                $"RELATIVE boundary seeded: anchorPid={anchorPid} " +
+                $"ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
         /// <summary>
         /// Appends the trajectory point to the flat Recording list and the current TrackSection,
         /// updates last-recorded bookkeeping, refreshes the backup snapshot, and emits periodic
@@ -5652,6 +5852,29 @@ namespace Parsek
             if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
             {
                 TrimRecordingToUT(point.ut);
+            }
+
+            // Phase 7 (design doc §13, §18 Phase 7): for SurfaceMobile sections,
+            // capture the per-sample ground clearance so playback can apply
+            // continuous terrain correction at render time. NaN for any other
+            // environment / RELATIVE frame; the playback path falls through
+            // to the legacy altitude branch. Mutates `point` BEFORE the flat
+            // list / section append so both stores see the same value.
+            if (trackSectionActive
+                && currentTrackSection.referenceFrame == ReferenceFrame.Absolute
+                && currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
+                && v != null && v.mainBody != null && v.mainBody.pqsController != null)
+            {
+                double terrainHeight = v.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
+                point.recordedGroundClearance = point.altitude - terrainHeight;
+                surfaceMobileSamplesThisSection++;
+                if (double.IsNaN(surfaceMobileMinClearanceThisSection)
+                    || point.recordedGroundClearance < surfaceMobileMinClearanceThisSection)
+                    surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
+                if (double.IsNaN(surfaceMobileMaxClearanceThisSection)
+                    || point.recordedGroundClearance > surfaceMobileMaxClearanceThisSection)
+                    surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
+                surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
             }
 
             Recording.Add(point);
@@ -5894,7 +6117,11 @@ namespace Parsek
                 bodyName = v.mainBody.name,
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                // Phase 7: NaN sentinel = "not captured / non-SurfaceMobile". The
+                // SurfaceMobile section append in CommitRecordedPoint overwrites
+                // with the real clearance when applicable.
+                recordedGroundClearance = double.NaN
             };
         }
 
@@ -5920,6 +6147,167 @@ namespace Parsek
 
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
+        }
+
+        /// <summary>
+        /// Phase 9 (design doc §12, §17.3.2, §18 Phase 9): builds a synthetic
+        /// <see cref="TrajectoryPoint"/> for <paramref name="v"/> at the exact
+        /// <paramref name="eventUT"/> of a structural event, with
+        /// <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/> set on the
+        /// returned <see cref="TrajectoryPoint.flags"/>. The point uses the vessel's
+        /// current physics state — KSP doesn't surface a sub-tick interpolation API
+        /// for <c>Vessel.latitude/longitude/altitude</c>, so this samples the live
+        /// state at the moment the event handler fires, which is the same instant
+        /// KSP's structural-event pipeline records as the event UT. Using one
+        /// helper for every event handler guarantees both vessels' snapshots come
+        /// from the same physics state read.
+        /// </summary>
+        /// <remarks>
+        /// Pure / static so xUnit can drive it directly with a fake vessel. The
+        /// caller (see <see cref="AppendStructuralEventSnapshot"/>) decides whether
+        /// to commit the point to a recording.
+        /// </remarks>
+        internal static TrajectoryPoint BuildStructuralEventSnapshot(
+            Vessel v, Vector3 velocity, double eventUT)
+        {
+            TrajectoryPoint pt = BuildTrajectoryPoint(v, velocity, eventUT);
+            return ApplyStructuralEventFlag(pt);
+        }
+
+        /// <summary>
+        /// Phase 9: pure flag-set helper. Returns a copy of <paramref name="pt"/>
+        /// with the <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>
+        /// bit OR'd into <see cref="TrajectoryPoint.flags"/>. Idempotent —
+        /// already-flagged points are returned unchanged. Tests use this seam
+        /// directly because the Vessel-driven overload requires a live KSP
+        /// runtime; this overload pins the bit-set semantics independently.
+        /// </summary>
+        internal static TrajectoryPoint ApplyStructuralEventFlag(TrajectoryPoint pt)
+        {
+            pt.flags = (byte)((TrajectoryPointFlags)pt.flags | TrajectoryPointFlags.StructuralEventSnapshot);
+            return pt;
+        }
+
+        /// <summary>
+        /// Phase 9 schema gate: returns true when the active recording's format version
+        /// permits writing <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
+        /// points. Legacy recordings (format &lt; v10) keep the interpolated event ε path
+        /// (design doc §15.17) — the writer would silently drop the byte but the in-memory
+        /// flag could still confuse the AnchorCandidateBuilder consumer until a save / load
+        /// round-trip clears it. Skipping the append at the recorder is cleaner.
+        ///
+        /// <para>Pure / static so xUnit can pin the gate semantics without a live KSP runtime
+        /// or an active <see cref="ActiveTree"/>; <see cref="AppendStructuralEventSnapshot"/>
+        /// resolves the active recording's format via
+        /// <see cref="ResolveActiveRecordingFormatVersion"/> and feeds it here.</para>
+        /// </summary>
+        internal static bool ShouldEmitStructuralEventSnapshot(int activeFormatVersion)
+        {
+            return activeFormatVersion >= RecordingStore.StructuralEventFlagFormatVersion;
+        }
+
+        /// <summary>
+        /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
+        /// point per involved vessel that matches this recorder's
+        /// <see cref="RecordingVesselId"/>. Callers pass one event UT captured from the live
+        /// structural event, so every snapshot emitted by this call shares the same physics-clock
+        /// timestamp. Position and velocity are sampled per matching vessel from the live state
+        /// when the handler runs.
+        ///
+        /// <para>No-op when the recorder is not currently recording (e.g. mid-stop), when the
+        /// recording's format version pre-dates v10 (legacy recordings keep their interpolation
+        /// path per §15.17), or when no involved vessel matches this recorder. Callers are
+        /// responsible for filtering "noise" structural events (e.g. non-structural joint
+        /// breaks, transient pid mismatches) before invoking the helper.</para>
+        ///
+        /// <para><b>"Every involved vessel" reduction:</b> the design doc §12 contract says the
+        /// recorder produces "a snapshot for every involved vessel". In Parsek's architecture,
+        /// each <see cref="FlightRecorder"/> tracks a single focused vessel
+        /// (<see cref="RecordingVesselId"/>); peer vessels in a dock / undock / EVA / joint-break
+        /// pair are owned by a different recorder (a <see cref="BackgroundRecorder"/> if they're
+        /// being proximity-recorded, or no recorder at all). "Every involved vessel" therefore
+        /// reduces to "this recorder's vessel" by construction — the dedup-by-RecordingVesselId
+        /// filter is the design, not a workaround. Peer coverage is a per-recorder concern: each
+        /// recorder satisfies §12 for its own focused vessel, and the BackgroundRecorder
+        /// integration for proximity-tracked peers is tracked under "Phase 9 follow-ups" in
+        /// <c>docs/dev/todo-and-known-bugs.md</c>.</para>
+        /// </summary>
+        internal void AppendStructuralEventSnapshot(
+            double eventUT, IEnumerable<Vessel> involved, string eventType)
+        {
+            if (!IsRecording)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot skipped: not recording (eventType={0} ut={1})",
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture)));
+                return;
+            }
+            if (involved == null)
+                return;
+
+            // Phase 9 schema gating: legacy recordings (format < v10) keep the
+            // interpolated event ε path (§15.17). Reading the active recording's
+            // format version mirrors how Phase 7 gates `recordedGroundClearance`.
+            int activeFormatVersion = ResolveActiveRecordingFormatVersion();
+            if (!ShouldEmitStructuralEventSnapshot(activeFormatVersion))
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot skipped: recording format v{0} < v{1} " +
+                        "(legacy interpolation path, §15.17) eventType={2} ut={3}",
+                        activeFormatVersion,
+                        RecordingStore.StructuralEventFlagFormatVersion,
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture)));
+                return;
+            }
+
+            int snapshotsAppended = 0;
+            int vesselsConsidered = 0;
+            foreach (Vessel v in involved)
+            {
+                vesselsConsidered++;
+                if (v == null) continue;
+                if (v.persistentId != RecordingVesselId) continue;
+
+                // Same physics state read as a regular tick sample. KSP's
+                // event-fire timing means the live state IS the event-UT state —
+                // there's no sub-tick interpolation API to bracket against.
+                Vector3 velocity = SampleCurrentVelocity(v);
+                TrajectoryPoint point = BuildStructuralEventSnapshot(v, velocity, eventUT);
+                TrajectoryPoint absolutePoint = point;
+                bool relativeApplied = ApplyRelativeOffset(ref point, v);
+
+                CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+                snapshotsAppended++;
+
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot UT={0} vesselId={1} eventType={2} flags={3} " +
+                        "lat={4} lon={5} alt={6} relativeApplied={7}",
+                        eventUT.ToString("F3", CultureInfo.InvariantCulture),
+                        v.persistentId,
+                        eventType ?? "<unknown>",
+                        point.flags,
+                        point.latitude.ToString("F4", CultureInfo.InvariantCulture),
+                        point.longitude.ToString("F4", CultureInfo.InvariantCulture),
+                        point.altitude.ToString("F1", CultureInfo.InvariantCulture),
+                        relativeApplied ? "true" : "false"));
+            }
+
+            if (vesselsConsidered > 0 && snapshotsAppended == 0)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot: no involved vessel matched RecordingVesselId={0} " +
+                        "(eventType={1} ut={2} considered={3})",
+                        RecordingVesselId,
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture),
+                        vesselsConsidered));
+            }
         }
 
         /// <summary>
@@ -6034,6 +6422,11 @@ namespace Parsek
             if (activeRec.RecordingFormatVersion < RecordingStore.PredictedOrbitSegmentFormatVersion)
                 return;
 
+            // Upgrading an already-open v6 recording does not synthesize
+            // absoluteFrames for relative samples captured before this point.
+            // Those legacy sections deliberately fall back to the pre-ReFly
+            // frozen anchor trajectory path; only new v7 samples append
+            // absolute shadow frames.
             int previousVersion = activeRec.RecordingFormatVersion;
             activeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             ParsekLog.Info("Recorder",
@@ -6602,6 +6995,40 @@ namespace Parsek
         {
             try { return FlightGlobals.Vessels; }
             catch (TypeInitializationException) { return null; }
+        }
+
+        /// <summary>
+        /// Used by <see cref="RestoreTrackSectionAfterFalseAlarm"/> to decide
+        /// whether the scene is ready enough to validate the resumed
+        /// Relative-mode anchor. Returns null when the scene's vessel list is
+        /// unqueryable (xUnit, pre-FlightReady), in which case the resume
+        /// path skips the safety check and trusts the saved anchor metadata.
+        /// </summary>
+        private static List<Vessel> TryGetFlightGlobalsVesselsForResumeValidation()
+        {
+            if (resumeValidationVesselsOverrideForTesting != null)
+                return resumeValidationVesselsOverrideForTesting();
+            return TryGetFlightGlobalsVessels();
+        }
+
+        // Test-only seam: lets xUnit drive the stale-anchor downgrade branch
+        // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
+        // production this stays null and the helper falls back to
+        // TryGetFlightGlobalsVessels(), which returns null in xUnit and so
+        // skips the safety check entirely. Returning a non-null (possibly
+        // empty) list from the override forces the validation path to run
+        // and treat the resume anchor as unloaded → downgrade to Absolute.
+        internal static System.Func<List<Vessel>> resumeValidationVesselsOverrideForTesting;
+
+        internal static void SetResumeValidationVesselsOverrideForTesting(
+            System.Func<List<Vessel>> @override)
+        {
+            resumeValidationVesselsOverrideForTesting = @override;
+        }
+
+        internal static void ResetResumeValidationVesselsOverrideForTesting()
+        {
+            resumeValidationVesselsOverrideForTesting = null;
         }
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)

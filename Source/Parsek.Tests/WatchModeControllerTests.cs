@@ -43,6 +43,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WatchRangeHysteresis_AllowsNearCutoffEntryAndExitsAfterBand()
+        {
+            Assert.True(WatchModeController.IsWithinWatchEntryRange(299_700.0));
+            Assert.False(WatchModeController.IsWithinWatchEntryRange(300_000.0));
+
+            Assert.True(WatchModeController.IsWithinWatchExitRange(299_700.0));
+            Assert.True(WatchModeController.IsWithinWatchExitRange(304_999.0));
+            Assert.False(WatchModeController.ShouldExitWatchForDistance(304_999.0));
+            Assert.True(WatchModeController.ShouldExitWatchForDistance(305_000.0));
+        }
+
+        [Fact]
+        public void ShouldExitWatchAfterCutoffDebounce_BelowThreshold_KeepsWatching()
+        {
+            // 0..N-1 consecutive cutoff frames must not fire the exit so a
+            // single-frame frame-seam glitch does not auto-eject the camera.
+            for (int frames = 0; frames < WatchModeController.WatchExitCutoffDebounceFrames; frames++)
+            {
+                Assert.False(WatchModeController.ShouldExitWatchAfterCutoffDebounce(frames));
+            }
+        }
+
+        [Fact]
+        public void ShouldExitWatchAfterCutoffDebounce_AtOrAboveThreshold_ExitsWatch()
+        {
+            // The debounce fires at exactly the configured frame count and
+            // every frame thereafter — once a real cutoff persists past the
+            // window, exits must not be delayed indefinitely.
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(
+                WatchModeController.WatchExitCutoffDebounceFrames + 1));
+            Assert.True(WatchModeController.ShouldExitWatchAfterCutoffDebounce(100));
+        }
+
+        [Fact]
+        public void RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter()
+        {
+            // logs/2026-04-27_1902/KSP.log line 208360: a single bogus
+            // frame-seam frame at cached 786169m must not exit watch mode
+            // because the very next frame the cache reports the real
+            // ~81 km again, resetting the debounce counter.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            // First cutoff frame: counter=1, do not exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Within-range frame: counter resets to 0.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(false));
+            Assert.Equal(0, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            // Another isolated cutoff frame: counter back to 1, still no exit.
+            Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(1, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+        }
+
+        [Fact]
+        public void RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold()
+        {
+            // Real cutoff crossings must exit after the configured debounce
+            // window. Drives the counter up to the threshold and asserts
+            // the boundary frame triggers the exit.
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var ctrl = new WatchModeController(host);
+            for (int frame = 1; frame < WatchModeController.WatchExitCutoffDebounceFrames; frame++)
+            {
+                Assert.False(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+                Assert.Equal(frame, ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+            }
+            Assert.True(ctrl.RegisterWatchCutoffSampleAndShouldExit(true));
+            Assert.Equal(WatchModeController.WatchExitCutoffDebounceFrames,
+                ctrl.WatchCutoffConsecutiveFramesForDiagnostics);
+        }
+
+        [Fact]
         public void PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState()
         {
             var state = new GhostPlaybackState
@@ -584,6 +658,118 @@ namespace Parsek.Tests
             Assert.True(
                 Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
                 $"Expected preserved orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+        }
+
+        [Fact]
+        public void MakeWatchCameraStateTargetRelative_ClearsBasisFields_KeepsPitchHeadingDistanceMode()
+        {
+            // Bug: explicit user W->W switches let many frames pass between
+            // capture and apply (the user clicks Watch on a different ghost
+            // while the source ghost has continued rotating). The captured
+            // world-orbit-direction would decompose into a visually surprising
+            // local angle on the destination ghost's rotated basis. The fix
+            // routes W->W switches through this helper so the captured (pitch,
+            // hdg) survive intact and re-apply directly relative to the new
+            // target's transform. Chain transfers (TransferWatchToNextSegment)
+            // intentionally bypass this helper to keep their world-direction
+            // path — they auto-handoff in a single frame with no drift window.
+            var captured = new WatchCameraTransitionState
+            {
+                Distance = 142f,
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                Mode = WatchCameraMode.Free,
+                UserModeOverride = true,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized
+            };
+
+            WatchCameraTransitionState result =
+                WatchModeController.MakeWatchCameraStateTargetRelative(captured);
+
+            Assert.False(result.HasTargetRotation);
+            Assert.Equal(Quaternion.identity, result.TargetRotation);
+            Assert.False(result.HasWorldOrbitDirection);
+            Assert.Equal(Vector3.zero, result.WorldOrbitDirection);
+            Assert.Equal(142f, result.Distance);
+            Assert.Equal(-31.5f, result.Pitch);
+            Assert.Equal(-166.5f, result.Heading);
+            Assert.Equal(WatchCameraMode.Free, result.Mode);
+            Assert.True(result.UserModeOverride);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_TargetRelativeStateIgnoresNewTargetRotation()
+        {
+            // After MakeWatchCameraStateTargetRelative strips the basis fields,
+            // CompensateTransferredWatchAngles must return the captured (pitch,
+            // hdg) verbatim regardless of the destination target's rotation.
+            // Simulates the W->W switch apply path: source ghost #10 yawed
+            // 90° while the user was watching ghost #0; on return the captured
+            // pitch=-31.5, hdg=-166.5 should re-apply to the rotated #10
+            // target unchanged.
+            var captured = new WatchCameraTransitionState
+            {
+                Distance = 142f,
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                Mode = WatchCameraMode.Free,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized
+            };
+
+            WatchCameraTransitionState targetRelative =
+                WatchModeController.MakeWatchCameraStateTargetRelative(captured);
+
+            Quaternion driftedDestinationRotation =
+                new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                targetRelative,
+                driftedDestinationRotation);
+
+            Assert.Equal(-31.5f, newPitch);
+            Assert.Equal(-166.5f, newHeading);
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_RawWorldDirectionStateStillProjectsForChainTransfers()
+        {
+            // Regression guard for chain transfers (TransferWatchToNextSegment):
+            // those still pass HasWorldOrbitDirection=true through to the
+            // apply path so the camera continues to point in the same world
+            // direction across the within-frame auto-handoff. If the W->W fix
+            // accidentally generalized to chain transfers, this assertion
+            // (preserved-direction within 0.999 cosine of the captured world
+            // vector) would fail because the camera would re-apply the raw
+            // captured (pitch, hdg) in the new target's basis instead.
+            Vector3 worldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized;
+            var state = new WatchCameraTransitionState
+            {
+                Pitch = -31.5f,
+                Heading = -166.5f,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0f, 1f, 0f, 0f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = worldOrbitDirection
+            };
+
+            Quaternion newTargetRotation = new Quaternion(0f, 0.7071068f, 0f, 0.7071068f);
+
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                state,
+                newTargetRotation);
+
+            Vector3 resolvedWorldDirection = WatchModeController.RotateVectorByQuaternion(
+                newTargetRotation,
+                OrbitDirectionFromAngles(newPitch, newHeading));
+
+            Assert.True(
+                Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
+                $"Chain-transfer path should still preserve world orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
         }
 
         [Fact]

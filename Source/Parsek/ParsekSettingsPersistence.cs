@@ -40,11 +40,21 @@ namespace Parsek
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
+        private const string UseSmoothingSplinesKey = "useSmoothingSplines";
+        private const string UseAnchorCorrectionKey = "useAnchorCorrection";
+        private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
+        private const string UseCoBubbleBlendKey = "useCoBubbleBlend";
+        private const string UseOutlierRejectionKey = "useOutlierRejection";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
+        private static bool? storedUseSmoothingSplines;
+        private static bool? storedUseAnchorCorrection;
+        private static bool? storedUseAnchorTaxonomy;
+        private static bool? storedUseCoBubbleBlend;
+        private static bool? storedUseOutlierRejection;
         private static bool loaded;
 
         /// <summary>
@@ -130,10 +140,70 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
+                string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
+                if (!string.IsNullOrEmpty(useSplinesStr)
+                    && bool.TryParse(useSplinesStr, out bool useSplines))
+                {
+                    storedUseSmoothingSplines = useSplines;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseSmoothingSplinesKey} — using default");
+                }
+
+                string useAnchorStr = root.GetValue(UseAnchorCorrectionKey);
+                if (!string.IsNullOrEmpty(useAnchorStr)
+                    && bool.TryParse(useAnchorStr, out bool useAnchor))
+                {
+                    storedUseAnchorCorrection = useAnchor;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorCorrectionKey} — using default");
+                }
+
+                string useTaxonomyStr = root.GetValue(UseAnchorTaxonomyKey);
+                if (!string.IsNullOrEmpty(useTaxonomyStr)
+                    && bool.TryParse(useTaxonomyStr, out bool useTaxonomy))
+                {
+                    storedUseAnchorTaxonomy = useTaxonomy;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorTaxonomyKey} — using default");
+                }
+
+                string useCoBubbleStr = root.GetValue(UseCoBubbleBlendKey);
+                if (!string.IsNullOrEmpty(useCoBubbleStr)
+                    && bool.TryParse(useCoBubbleStr, out bool useCoBubble))
+                {
+                    storedUseCoBubbleBlend = useCoBubble;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseCoBubbleBlendKey} — using default");
+                }
+
+                string useOutlierStr = root.GetValue(UseOutlierRejectionKey);
+                if (!string.IsNullOrEmpty(useOutlierStr)
+                    && bool.TryParse(useOutlierStr, out bool useOutlier))
+                {
+                    storedUseOutlierRejection = useOutlier;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
+                }
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
+                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
+                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<default>")}" +
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -169,6 +239,57 @@ namespace Parsek
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
             }
 
+            if (storedUseSmoothingSplines.HasValue
+                && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
+            {
+                bool prev = settings.useSmoothingSplines;
+                // Property setter emits Notify on change; explicit Notify call
+                // removed (would double-fire the Pipeline-Smoothing flip Info).
+                settings.useSmoothingSplines = storedUseSmoothingSplines.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useSmoothingSplines {prev} -> {storedUseSmoothingSplines.Value} from persistent store");
+            }
+
+            if (storedUseAnchorCorrection.HasValue
+                && storedUseAnchorCorrection.Value != settings.useAnchorCorrection)
+            {
+                bool prev = settings.useAnchorCorrection;
+                // Property setter emits Notify on change.
+                settings.useAnchorCorrection = storedUseAnchorCorrection.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useAnchorCorrection {prev} -> {storedUseAnchorCorrection.Value} from persistent store");
+            }
+
+            if (storedUseAnchorTaxonomy.HasValue
+                && storedUseAnchorTaxonomy.Value != settings.useAnchorTaxonomy)
+            {
+                bool prev = settings.useAnchorTaxonomy;
+                // Property setter emits Notify on change.
+                settings.useAnchorTaxonomy = storedUseAnchorTaxonomy.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useAnchorTaxonomy {prev} -> {storedUseAnchorTaxonomy.Value} from persistent store");
+            }
+
+            if (storedUseCoBubbleBlend.HasValue
+                && storedUseCoBubbleBlend.Value != settings.useCoBubbleBlend)
+            {
+                bool prev = settings.useCoBubbleBlend;
+                // Property setter emits Notify on change.
+                settings.useCoBubbleBlend = storedUseCoBubbleBlend.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useCoBubbleBlend {prev} -> {storedUseCoBubbleBlend.Value} from persistent store");
+            }
+
+            if (storedUseOutlierRejection.HasValue
+                && storedUseOutlierRejection.Value != settings.useOutlierRejection)
+            {
+                bool prev = settings.useOutlierRejection;
+                // Property setter emits Notify on change.
+                settings.useOutlierRejection = storedUseOutlierRejection.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored useOutlierRejection {prev} -> {storedUseOutlierRejection.Value} from persistent store");
+            }
+
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
             // now is ParsekSettings.Current authoritative enough for
             // EffectiveShowGhostsInTrackingStation to trust it and resync the
@@ -193,6 +314,115 @@ namespace Parsek
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
             Save();
+        }
+
+        internal static void RecordUseSmoothingSplines(bool value)
+        {
+            // SecurityException guard mirrors EffectiveShowGhostsInTrackingStation:
+            // under xUnit, KSPUtil.ApplicationRootPath throws SecurityException.
+            // The in-memory store is still updated below — that's what the tests
+            // (and the in-process value precedence) actually depend on.
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            // Idempotent: if the persistent store already has this value,
+            // skip Save() to avoid disk I/O on the restore-then-apply
+            // round-trip (the property setter calls Record on every real
+            // change, including the one that ApplyTo triggers when it
+            // restores the stored value into the live ParsekSettings).
+            if (storedUseSmoothingSplines.HasValue && storedUseSmoothingSplines.Value == value) return;
+            storedUseSmoothingSplines = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseSmoothingSplines: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseAnchorCorrection(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseAnchorCorrection.HasValue && storedUseAnchorCorrection.Value == value) return;
+            storedUseAnchorCorrection = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorCorrection: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseAnchorTaxonomy(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorTaxonomy: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseAnchorTaxonomy.HasValue && storedUseAnchorTaxonomy.Value == value) return;
+            storedUseAnchorTaxonomy = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseAnchorTaxonomy: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseCoBubbleBlend(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseCoBubbleBlend: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseCoBubbleBlend.HasValue && storedUseCoBubbleBlend.Value == value) return;
+            storedUseCoBubbleBlend = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseCoBubbleBlend: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordUseOutlierRejection(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseOutlierRejection: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedUseOutlierRejection.HasValue && storedUseOutlierRejection.Value == value) return;
+            storedUseOutlierRejection = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUseOutlierRejection: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         /// <summary>
@@ -291,11 +521,26 @@ namespace Parsek
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
+                if (storedUseSmoothingSplines.HasValue)
+                    root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
+                if (storedUseAnchorCorrection.HasValue)
+                    root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
+                if (storedUseAnchorTaxonomy.HasValue)
+                    root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
+                if (storedUseCoBubbleBlend.HasValue)
+                    root.AddValue(UseCoBubbleBlendKey, storedUseCoBubbleBlend.Value.ToString());
+                if (storedUseOutlierRejection.HasValue)
+                    root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}");
+                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
+                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
+                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
+                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<null>")}" +
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -313,6 +558,11 @@ namespace Parsek
         {
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
+            storedUseSmoothingSplines = null;
+            storedUseAnchorCorrection = null;
+            storedUseAnchorTaxonomy = null;
+            storedUseCoBubbleBlend = null;
+            storedUseOutlierRejection = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -332,11 +582,51 @@ namespace Parsek
         internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
 
         /// <summary>
+        /// True after <see cref="ApplyTo"/> has reconciled the persistent
+        /// store with live <see cref="ParsekSettings"/>. Property setters
+        /// that persist (useSmoothingSplines, useAnchorCorrection) check
+        /// this before calling <c>Record*</c>, so an early KSP-load assign
+        /// of a stale per-save value cannot clobber the user's persisted
+        /// intent before <c>ApplyTo</c> has had a chance to restore it
+        /// (PR #328 P2-A).
+        ///
+        /// <see cref="ParsekSettings.OnLoad"/> resets this flag to false
+        /// BEFORE calling <c>base.OnLoad</c> so the per-load cycle starts
+        /// fresh — the latch is not a one-way process-wide flip.
+        /// </summary>
+        internal static bool IsReconciled => reconciledWithLiveSettings;
+
+        /// <summary>
+        /// Reset the reconciliation latch to false. Called by
+        /// <see cref="ParsekSettings.OnLoad"/> at the start of each KSP
+        /// settings-load cycle so the property setters' persistence gate
+        /// closes again before <c>base.OnLoad</c> deserializes the .sfs
+        /// node. Otherwise a long-running KSP process would keep the
+        /// latch true after the first <see cref="ApplyTo"/> and the
+        /// second + subsequent loads would let stale .sfs values clobber
+        /// the persistent store.
+        /// </summary>
+        internal static void InvalidateReconciliation()
+        {
+            reconciledWithLiveSettings = false;
+        }
+
+        /// <summary>
         /// Test-only: returns the current stored readable-mirror value (null if unset).
         /// </summary>
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
+
+        internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
+
+        internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
+
+        internal static bool? GetStoredUseAnchorTaxonomy() => storedUseAnchorTaxonomy;
+
+        internal static bool? GetStoredUseCoBubbleBlend() => storedUseCoBubbleBlend;
+
+        internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
@@ -351,6 +641,36 @@ namespace Parsek
         internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
         {
             storedShowGhostsInTrackingStation = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseSmoothingSplinesForTesting(bool? value)
+        {
+            storedUseSmoothingSplines = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseAnchorCorrectionForTesting(bool? value)
+        {
+            storedUseAnchorCorrection = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseAnchorTaxonomyForTesting(bool? value)
+        {
+            storedUseAnchorTaxonomy = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseCoBubbleBlendForTesting(bool? value)
+        {
+            storedUseCoBubbleBlend = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredUseOutlierRejectionForTesting(bool? value)
+        {
+            storedUseOutlierRejection = value;
             loaded = true;
         }
     }

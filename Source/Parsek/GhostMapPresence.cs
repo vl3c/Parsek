@@ -76,6 +76,27 @@ namespace Parsek
         private const string Tag = "GhostMap";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         private static long ghostTargetRequestSequence;
+        private static ReFlySuppressionSearchTreeCache cachedReFlySuppressionSearchTrees;
+
+        private sealed class ReFlySuppressionSearchTreeCache
+        {
+            internal readonly IReadOnlyList<RecordingTree> CommittedTrees;
+            internal readonly RecordingTree PendingTree;
+            internal readonly RecordingTree[] CommittedSnapshot;
+            internal readonly IReadOnlyList<RecordingTree> ComposedTrees;
+
+            internal ReFlySuppressionSearchTreeCache(
+                IReadOnlyList<RecordingTree> committedTrees,
+                RecordingTree pendingTree,
+                RecordingTree[] committedSnapshot,
+                IReadOnlyList<RecordingTree> composedTrees)
+            {
+                CommittedTrees = committedTrees;
+                PendingTree = pendingTree;
+                CommittedSnapshot = committedSnapshot;
+                ComposedTrees = composedTrees;
+            }
+        }
 
         // -----------------------------------------------------------------
         // Observability (#582 follow-up): every create/position/update/destroy
@@ -468,6 +489,7 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
+        internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
         internal const string OrbitalCheckpointStateVectorRejectSaferSegment = "orbital-checkpoint-state-vector-safer-segment-source";
         internal const string OrbitalCheckpointStateVectorRejectNotSoiGap = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
@@ -759,7 +781,14 @@ namespace Parsek
         /// </summary>
         /// <param name="marker">Live re-fly marker, or null.</param>
         /// <param name="resolutionBranch">Branch label from
-        /// <see cref="StateVectorWorldFrame.Branch"/>: only "relative" suppresses.</param>
+        /// <see cref="StateVectorWorldFrame.Branch"/>: <c>"relative"</c> AND
+        /// <c>"absolute-shadow"</c> both suppress, because both describe a
+        /// RELATIVE track section (the latter is the v7 absolute-shadow
+        /// sibling of the same section, used when the live anchor is the
+        /// active Re-Fly target). Suppressing only <c>"relative"</c> would
+        /// leak a parent-chain v7 state-vector ghost into the scene during
+        /// active Re-Fly, contradicting the doubled-ProtoVessel guard
+        /// (PR #613 review P2).</param>
         /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
         /// <param name="victimRecordingId">RecordingId of the recording being
         /// mapped. Suppression is rejected with
@@ -827,7 +856,20 @@ namespace Parsek
                 return false;
             }
 
-            if (!string.Equals(resolutionBranch, "relative", StringComparison.Ordinal))
+            // Accept both "relative" and "absolute-shadow" — the latter is
+            // the v7 sibling of the same RELATIVE section, returned by
+            // ResolveStateVectorWorldPosition when the section's anchor PID
+            // matches the active Re-Fly target. The suppression decision
+            // depends on the section's underlying RELATIVE shape, not on
+            // which positioning source the resolver picked. Without this
+            // both-branches check the parent-chain doubled-ProtoVessel
+            // guard would silently break for v7 recordings and let a
+            // wrong-position ghost ProtoVessel into the scene during
+            // active Re-Fly (PR #613 review P2).
+            bool branchSuppresses =
+                string.Equals(resolutionBranch, "relative", StringComparison.Ordinal)
+                || string.Equals(resolutionBranch, "absolute-shadow", StringComparison.Ordinal);
+            if (!branchSuppresses)
             {
                 suppressReason = "not-suppressed-not-relative-frame";
                 return false;
@@ -1449,12 +1491,27 @@ namespace Parsek
         {
             int committedCount = committedTrees?.Count ?? 0;
             bool hasPending = pendingTree != null;
-            if (!hasPending) return committedTrees ?? Array.Empty<RecordingTree>();
+            if (!hasPending)
+            {
+                ClearCachedReFlySuppressionSearchTrees();
+                return committedTrees ?? Array.Empty<RecordingTree>();
+            }
+
+            if (TryGetCachedReFlySuppressionSearchTrees(
+                    committedTrees,
+                    committedCount,
+                    pendingTree,
+                    out IReadOnlyList<RecordingTree> cached))
+            {
+                return cached;
+            }
 
             var result = new List<RecordingTree>(committedCount + 1);
+            var snapshot = new RecordingTree[committedCount];
             for (int i = 0; i < committedCount; i++)
             {
                 RecordingTree t = committedTrees[i];
+                snapshot[i] = t;
                 if (t == null) continue;
                 if (string.Equals(t.Id, pendingTree.Id, StringComparison.Ordinal))
                 {
@@ -1471,7 +1528,49 @@ namespace Parsek
                 result.Add(t);
             }
             result.Add(pendingTree);
+            cachedReFlySuppressionSearchTrees = new ReFlySuppressionSearchTreeCache(
+                committedTrees,
+                pendingTree,
+                snapshot,
+                result);
             return result;
+        }
+
+        private static void ClearCachedReFlySuppressionSearchTrees()
+        {
+            cachedReFlySuppressionSearchTrees = null;
+        }
+
+        private static bool TryGetCachedReFlySuppressionSearchTrees(
+            IReadOnlyList<RecordingTree> committedTrees,
+            int committedCount,
+            RecordingTree pendingTree,
+            out IReadOnlyList<RecordingTree> cached)
+        {
+            cached = null;
+            ReFlySuppressionSearchTreeCache cache = cachedReFlySuppressionSearchTrees;
+            if (cache == null
+                || cache.ComposedTrees == null
+                || !ReferenceEquals(cache.CommittedTrees, committedTrees)
+                || !ReferenceEquals(cache.PendingTree, pendingTree)
+                || cache.CommittedSnapshot == null
+                || cache.CommittedSnapshot.Length != committedCount)
+            {
+                return false;
+            }
+
+            // RecordingStore keeps the list instance stable while mutating its
+            // contents in a few load/merge paths. Validate the source refs so
+            // the cache removes hot-path allocations without serving stale tree
+            // entries after same-count replacement.
+            for (int i = 0; i < committedCount; i++)
+            {
+                if (!ReferenceEquals(cache.CommittedSnapshot[i], committedTrees[i]))
+                    return false;
+            }
+
+            cached = cache.ComposedTrees;
+            return true;
         }
 
         private static double GetCurrentUTSafe()
@@ -4528,10 +4627,15 @@ namespace Parsek
                 return;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
             List<int> eligibleIndices = null;
             for (int i = 0; i < committed.Count; i++)
             {
-                var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[i], currentUT, chains);
+                var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
+                    committed[i],
+                    currentUT,
+                    chains,
+                    relationSupersededIds);
                 if (!needsSpawn)
                     continue;
 
@@ -4565,7 +4669,12 @@ namespace Parsek
                 return false;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(committed[index], currentUT, chains);
+            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
+                committed[index],
+                currentUT,
+                chains,
+                relationSupersededIds);
             if (!needsSpawn)
                 return false;
 
@@ -4755,8 +4864,32 @@ namespace Parsek
             Vector3d anchorWorldPos,
             Quaternion anchorWorldRot,
             uint anchorVesselId,
-            bool allowOrbitalCheckpointStateVector = false)
+            bool allowOrbitalCheckpointStateVector = false,
+            TrajectoryPoint? absoluteShadowPoint = null)
         {
+            // v7+ Relative sections store an `absoluteFrames` shadow alongside
+            // the anchor-local `frames`. When the caller has determined the
+            // live anchor is unsafe (most commonly: the section is anchored to
+            // the active Re-Fly target PID, so its live pose is being driven
+            // by the player and no longer matches the recording), it can pass
+            // the parallel shadow point here. Resolved through the standard
+            // body-fixed surface lookup it yields the recorded world position
+            // directly — no live anchor multiplication, no rotation drift.
+            // Returns Branch="absolute-shadow" so call-site logs and tests can
+            // distinguish this fallback from the regular Absolute path.
+            if (absoluteShadowPoint.HasValue)
+            {
+                TrajectoryPoint shadow = absoluteShadowPoint.Value;
+                Vector3d pos = absoluteSurfaceLookup(shadow.latitude, shadow.longitude, shadow.altitude);
+                return new StateVectorWorldFrame
+                {
+                    Resolved = true,
+                    WorldPos = pos,
+                    Branch = "absolute-shadow",
+                    FailureReason = null,
+                    AnchorPid = section?.anchorVesselId ?? 0u,
+                };
+            }
             // No track sections at all — fall back to the original Absolute interpretation.
             // This preserves behaviour for legacy / synthetic recordings that have not yet
             // been split into sections, where the lat/lon/alt fields are still surface coords.
@@ -4889,6 +5022,17 @@ namespace Parsek
                 }
             }
 
+            // Active-Re-Fly absolute-shadow opt-in: when this Relative section
+            // is anchored to the vessel currently being re-flown (the live
+            // anchor is being driven by the player, so it no longer matches
+            // the recorded anchor pose), prefer the v7 absolute shadow point
+            // over the live-anchor-multiplied relative offset. Without this
+            // the upper-stage / sibling-chain ghosts get spawned at the
+            // player's current world position with a hundreds-of-metres
+            // offset and visibly bounce around the map.
+            TrajectoryPoint? shadow = TryResolveActiveReFlyAbsoluteShadowPoint(
+                traj, section, anchorPid, point.ut);
+
             int formatVersion = traj?.RecordingFormatVersion ?? 0;
             return ResolveStateVectorWorldPositionPure(
                 point,
@@ -4899,7 +5043,89 @@ namespace Parsek
                 anchorPos,
                 anchorRot,
                 anchorPid,
-                allowOrbitalCheckpointStateVector);
+                allowOrbitalCheckpointStateVector,
+                shadow);
+        }
+
+        /// <summary>
+        /// Returns the parallel <c>absoluteFrames</c> entry from the section
+        /// when (a) we are inside an in-place Re-Fly session, (b) the
+        /// section's anchor PID matches the active Re-Fly target's PID, and
+        /// (c) the recording carries the v7 shadow payload. Otherwise null —
+        /// callers fall through to live-anchor relative resolution.
+        /// </summary>
+        private static TrajectoryPoint? TryResolveActiveReFlyAbsoluteShadowPoint(
+            IPlaybackTrajectory traj,
+            TrackSection? section,
+            uint anchorPid,
+            double pointUT)
+        {
+            if (!section.HasValue) return null;
+            if (section.Value.referenceFrame != ReferenceFrame.Relative) return null;
+            if (anchorPid == 0u) return null;
+            if (section.Value.absoluteFrames == null
+                || section.Value.absoluteFrames.Count == 0)
+                return null;
+            if (traj == null || string.IsNullOrEmpty(traj.RecordingId)) return null;
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null
+                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                || !string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            // Resolve active Re-Fly PID via the same composed-trees walk used
+            // elsewhere in this file (#611) so PendingTree placements during
+            // Re-Fly load are honoured.
+            uint activeReFlyPid = 0u;
+            IReadOnlyList<RecordingTree> trees = ComposeSearchTreesForReFlySuppression(
+                RecordingStore.CommittedTrees,
+                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (trees != null)
+            {
+                for (int t = 0; t < trees.Count && activeReFlyPid == 0u; t++)
+                {
+                    var tree = trees[t];
+                    if (tree?.Recordings == null) continue;
+                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
+                        && rec != null
+                        && rec.VesselPersistentId != 0u)
+                    {
+                        activeReFlyPid = rec.VesselPersistentId;
+                    }
+                }
+            }
+            if (activeReFlyPid == 0u || anchorPid != activeReFlyPid)
+                return null;
+
+            // Find the closest absolute-shadow entry to pointUT. The shadow
+            // list is sample-aligned with the relative `frames` list, so a
+            // simple linear scan picks the matching pair. For robustness
+            // against minor UT drift we accept the closest entry within one
+            // sample interval (~0.1 s); outside that we fall through and let
+            // the regular live-anchor path produce a (possibly wrong) result
+            // rather than synthesising a position from a far-away shadow.
+            const double matchToleranceSeconds = 0.5;
+            var frames = section.Value.absoluteFrames;
+            int bestIdx = -1;
+            double bestDelta = double.PositiveInfinity;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                double delta = System.Math.Abs(frames[i].ut - pointUT);
+                if (delta < bestDelta)
+                {
+                    bestDelta = delta;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx < 0 || bestDelta > matchToleranceSeconds) return null;
+            return frames[bestIdx];
         }
 
         /// <summary>
@@ -5553,6 +5779,27 @@ namespace Parsek
             double currentUT,
             Dictionary<uint, GhostChain> chains)
         {
+            // [ERS-exempt] Tracking Station materialization predicates operate
+            // on raw committed recordings because action selections and map
+            // ghosts carry raw recording ids/indices. Subtract explicit
+            // supersede relations here so callers using the convenience
+            // overload get the same display-effective spawn eligibility as
+            // the batch handoff path.
+            var relationSupersededIds =
+                CurrentRelationSupersededRecordingIds(RecordingStore.CommittedRecordings);
+            return ShouldSpawnAtTrackingStationEnd(
+                rec,
+                currentUT,
+                chains,
+                relationSupersededIds);
+        }
+
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            HashSet<string> relationSupersededIds)
+        {
             if (rec == null)
                 return (false, "null");
 
@@ -5561,6 +5808,11 @@ namespace Parsek
 
             if (currentUT < rec.EndUT)
                 return (false, TrackingStationSpawnSkipBeforeEnd);
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && relationSupersededIds != null
+                && relationSupersededIds.Contains(rec.RecordingId))
+                return (false, TrackingStationSpawnSkipSupersededByRelation);
 
             bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
                 && RecordingStore.IsChainLooping(rec.ChainId);
@@ -5575,6 +5827,15 @@ namespace Parsek
                 return (false, NormalizeTrackingStationSpawnSuppressionReason(chainSuppressed.reason));
 
             return spawnResult;
+        }
+
+        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+            IReadOnlyList<Recording> committed)
+        {
+            var scenario = ParsekScenario.Instance;
+            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
         }
 
         internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
@@ -5624,6 +5885,17 @@ namespace Parsek
         internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
             IReadOnlyList<Recording> recordings, double currentUT)
         {
+            var scenario = ParsekScenario.Instance;
+            var supersedes = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingSupersedes;
+            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes);
+        }
+
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
             var suppressed = new HashSet<string>();
             if (recordings == null)
                 return suppressed;
@@ -5639,7 +5911,25 @@ namespace Parsek
                     suppressed.Add(parentId);
             }
 
+            AddSupersedeRelationSuppressedRecordingIds(suppressed, recordings, supersedes);
             return suppressed;
+        }
+
+        private static void AddSupersedeRelationSuppressedRecordingIds(
+            HashSet<string> suppressed,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (suppressed == null || recordings == null || supersedes == null || supersedes.Count == 0)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!EffectiveState.IsSupersededByRelation(rec, supersedes))
+                    continue;
+                suppressed.Add(rec.RecordingId);
+            }
         }
 
         private static void AddActiveSessionSuppressedRecordingIds(
@@ -6247,6 +6537,7 @@ namespace Parsek
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
+            ClearCachedReFlySuppressionSearchTrees();
             lastKnownByRecordingIndex.Clear();
             lastKnownByChainPid.Clear();
             lifecycleCreatedThisTick = 0;
@@ -6272,6 +6563,7 @@ namespace Parsek
         internal static void ResetBetweenTestRuns(string reason)
         {
             ghostTargetRequestSequence = 0;
+            ClearCachedReFlySuppressionSearchTrees();
 
             int pidCount = ghostMapVesselPids.Count;
             int suppressedIconCount = ghostsWithSuppressedIcon.Count;

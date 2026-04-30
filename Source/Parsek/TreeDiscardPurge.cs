@@ -438,6 +438,7 @@ namespace Parsek
 
             string sessionId = marker.SessionId ?? "<no-id>";
             scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ParsekLog.Info(SessionTag,
                 $"End reason=treeDiscarded sess={sessionId} tree={treeId}");

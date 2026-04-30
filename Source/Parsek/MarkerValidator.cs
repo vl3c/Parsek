@@ -28,7 +28,7 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Phase 13 of Rewind-to-Staging (design §6.9 step 3): validates the six
+    /// Phase 13 of Rewind-to-Staging (design §6.9 step 3): validates the
     /// durable fields of a <see cref="ReFlySessionMarker"/> against the
     /// scenario state loaded just before the sweep runs.
     ///
@@ -45,6 +45,10 @@ namespace Parsek
     ///   <item><description><see cref="ReFlySessionMarker.OriginChildRecordingId"/>
     ///   resolves to a recording in
     ///   <see cref="RecordingStore.CommittedRecordings"/>.</description></item>
+    ///   <item><description><see cref="ReFlySessionMarker.SupersedeTargetId"/>
+    ///   is either null or weakly resolves to a committed recording or a
+    ///   recording in the matching pending tree; invalid non-null values are
+    ///   cleared without invalidating the marker.</description></item>
     ///   <item><description><see cref="ReFlySessionMarker.RewindPointId"/>
     ///   resolves to a live entry in
     ///   <see cref="ParsekScenario.RewindPoints"/>.</description></item>
@@ -58,13 +62,17 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// The validator is pure — no mutation. The caller
-    /// (<see cref="LoadTimeSweep"/>) is responsible for clearing the marker
-    /// on <see cref="MarkerValidationResult.Valid"/> = <c>false</c>.
+    /// The validator only mutates weak optional fields: an invalid non-null
+    /// <see cref="ReFlySessionMarker.SupersedeTargetId"/> is cleared and logged
+    /// without invalidating the whole marker. The caller
+    /// (<see cref="LoadTimeSweep"/>) is responsible for clearing the marker on
+    /// <see cref="MarkerValidationResult.Valid"/> = <c>false</c>.
     /// </para>
     /// </summary>
     internal static class MarkerValidator
     {
+        private const string SessionTag = "ReFlySession";
+
         // 1e15 seconds is ~31.7 million years: far beyond any legitimate
         // KSP campaign, while still catching overflow/garbage marker values.
         internal const double MaxReasonableInvokedUT = 1.0e15;
@@ -73,7 +81,8 @@ namespace Parsek
         // "Marker valid" lines do not drift from the actual validator rules.
         private const string AcceptedMarkerCheckPaths =
             "SessionId.nonEmpty,TreeId.exists,ActiveReFlyRecordingId.exists+mergeState," +
-            "OriginChildRecordingId.exists,RewindPointId.exists,InvokedUT.finite>=0<=1E+15";
+            "OriginChildRecordingId.exists,SupersedeTargetId.nullOrExists," +
+            "RewindPointId.exists,InvokedUT.finite>=0<=1E+15";
 
         /// <summary>
         /// Test seam: override the "current UT" captured for diagnostics.
@@ -91,7 +100,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Validates the six durable fields of <paramref name="marker"/>.
+        /// Validates the durable fields of <paramref name="marker"/>.
         /// A null marker returns <see cref="MarkerValidationResult.Valid"/> =
         /// <c>true</c> (no marker means "no session to validate", which is a
         /// legitimate state and the sweep short-circuits downstream).
@@ -134,6 +143,8 @@ namespace Parsek
                 return MarkerValidationResult.Invalid(
                     "OriginChildRecordingId",
                     "checked=OriginChildRecordingId.exists; rejected because origin recording was not found in RecordingStore.CommittedRecordings");
+
+            ValidateSupersedeTargetWeak(marker);
 
             // MergeState gate. The placeholder pattern (origin != active)
             // creates a fresh `NotCommitted` recording at re-fly start, so
@@ -270,6 +281,22 @@ namespace Parsek
                     return rp;
             }
             return null;
+        }
+
+        private static void ValidateSupersedeTargetWeak(ReFlySessionMarker marker)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.SupersedeTargetId))
+                return;
+
+            if (FindRecordingById(marker.SupersedeTargetId, marker.TreeId) != null)
+                return;
+
+            string invalidTarget = marker.SupersedeTargetId;
+            marker.SupersedeTargetId = null;
+            ParsekLog.Warn(SessionTag,
+                $"Marker invalid field=SupersedeTargetId; clearing " +
+                $"sess={marker.SessionId ?? "<no-id>"} " +
+                $"target={invalidTarget ?? "<none>"}");
         }
 
         private static double CurrentUt()

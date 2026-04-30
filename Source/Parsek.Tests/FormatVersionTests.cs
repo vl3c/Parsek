@@ -42,9 +42,56 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is7()
+        public void CurrentRecordingFormatVersion_Is10()
         {
-            Assert.Equal(7, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(10, RecordingStore.CurrentRecordingFormatVersion);
+        }
+
+        [Fact]
+        public void BoundarySeamFlagFormatVersion_Is8()
+        {
+            Assert.Equal(8, RecordingStore.BoundarySeamFlagFormatVersion);
+        }
+
+        [Fact]
+        public void TerrainGroundClearanceFormatVersion_Is9()
+        {
+            Assert.Equal(9, RecordingStore.TerrainGroundClearanceFormatVersion);
+        }
+
+        [Fact]
+        public void StructuralEventFlagFormatVersion_Is10()
+        {
+            Assert.Equal(10, RecordingStore.StructuralEventFlagFormatVersion);
+        }
+
+        // Cross-codec sync guard. The binary `.prec` codec gates the seam-flag
+        // write/read on its own `BoundarySeamFlagBinaryVersion` constant, while the
+        // public `RecordingStore.BoundarySeamFlagFormatVersion` drives the recording's
+        // `RecordingFormatVersion` stamp and the version-selection ladder. If those two
+        // ever drift (e.g. someone bumps one without the other), v8 round-trip silently
+        // breaks: the writer might emit the seam byte at a different version threshold
+        // than the reader expects. This test pins them together.
+        [Fact]
+        public void BoundarySeamFlag_FormatVersion_MatchesBinaryVersion()
+        {
+            Assert.Equal(
+                RecordingStore.BoundarySeamFlagFormatVersion,
+                TrajectorySidecarBinary.BoundarySeamFlagBinaryVersion);
+        }
+
+        // Phase 9 sync guard — same drift-pinning rationale as the v8 seam.
+        // RecordingStore.StructuralEventFlagFormatVersion drives the
+        // RecordingFormatVersion stamp + version-selection ladder;
+        // TrajectorySidecarBinary.StructuralEventFlagBinaryVersion gates the
+        // per-point flags byte read/write. Drift would silently break v10
+        // round-trip.
+        [Fact]
+        public void StructuralEventFlag_FormatVersion_MatchesBinaryVersion()
+        {
+            Assert.Equal(
+                RecordingStore.StructuralEventFlagFormatVersion,
+                TrajectorySidecarBinary.StructuralEventFlagBinaryVersion);
         }
 
         [Fact]

@@ -63,6 +63,168 @@ namespace Parsek
         public bool showGhostsInTrackingStation = true;
 
         /// <summary>
+        /// Phase 1 of the ghost trajectory rendering pipeline (design doc
+        /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, ABSOLUTE-frame
+        /// body-fixed ghost playback evaluates a Catmull-Rom smoothing
+        /// spline instead of the legacy <c>BracketPointAtUT</c>. Default
+        /// true; the flag exists so Phase 1 can ship behind a single rollout
+        /// gate and so tests can exercise the legacy fall-through.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use smoothing splines",
+            toolTip = "When on (Phase 1), absolute-frame ghost playback uses Catmull-Rom splines instead of bracketed nearest-sample lookup")]
+        public bool useSmoothingSplines
+        {
+            get { return _useSmoothingSplines; }
+            set
+            {
+                if (_useSmoothingSplines == value) return;
+                bool prev = _useSmoothingSplines;
+                _useSmoothingSplines = value;
+                NotifyUseSmoothingSplinesChanged(prev, value);
+                // Persist only after ParsekSettingsPersistence.ApplyTo has
+                // reconciled the store with live settings (PR #328 P2-A).
+                // Pre-reconciliation, a setter call most likely comes from
+                // KSP's GameParameters infrastructure deserializing the
+                // .sfs node; recording that stale value would clobber the
+                // user's persisted intent before ApplyTo can restore it.
+                // ApplyTo's restoration assignment also lands here; it
+                // happens after reconciledWithLiveSettings is set, so the
+                // gate lets it through and the idempotent guard inside
+                // RecordUseSmoothingSplines makes it a no-op.
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseSmoothingSplines(value);
+            }
+        }
+        private bool _useSmoothingSplines = true;
+
+        /// <summary>
+        /// Phase 2 of the ghost trajectory rendering pipeline (design doc
+        /// §6.3 Stage 3, §7.1, §18 Phase 2). When true, ghost siblings of an
+        /// active re-fly target are rendered with an additive
+        /// <c>AnchorCorrection</c> ε computed once at session-entry and held
+        /// constant across the segment (Phase 2's single-anchor case).
+        /// Default true; the flag exists so Phase 2 ships behind a single
+        /// rollout gate parallel to <see cref="useSmoothingSplines"/>.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use anchor correction",
+            toolTip = "When on (Phase 2), ghost siblings during a re-fly are rigid-translated by the recorded separation offset so they spawn aligned with the live vessel")]
+        public bool useAnchorCorrection
+        {
+            get { return _useAnchorCorrection; }
+            set
+            {
+                if (_useAnchorCorrection == value) return;
+                bool prev = _useAnchorCorrection;
+                _useAnchorCorrection = value;
+                NotifyUseAnchorCorrectionChanged(prev, value);
+                // See useSmoothingSplines comment above for the
+                // reconciliation gate rationale (PR #328 P2-A).
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseAnchorCorrection(value);
+            }
+        }
+        private bool _useAnchorCorrection = true;
+
+        /// <summary>
+        /// Phase 6 of the ghost trajectory rendering pipeline (design doc
+        /// §18 Phase 6, §7.1 — §7.10, §7.11). Gates BOTH the commit-time
+        /// emission of <see cref="Parsek.Rendering.AnchorCandidate"/> entries
+        /// (via <c>AnchorCandidateBuilder.BuildAndStorePerSection</c>) AND
+        /// the session-time DAG walk (via <c>AnchorPropagator.Run</c>). When
+        /// off, the rendering pipeline collapses back to Phase 2 behaviour:
+        /// LiveSeparation anchors are still computed (the Phase-2 path), but
+        /// no other taxonomy entries (Dock/Merge, RELATIVE-boundary,
+        /// OrbitalCheckpoint, SOI, BubbleEntry/Exit, Loop, SurfaceContinuous)
+        /// are produced. Default true.
+        ///
+        /// <para>
+        /// Two-flag rationale (vs. reusing <see cref="useAnchorCorrection"/>):
+        /// <see cref="useAnchorCorrection"/> gates render-time consumption of
+        /// any anchor in the <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// map; <see cref="useAnchorTaxonomy"/> gates whether non-LiveSeparation
+        /// entries get into the map at all. Two flags decouple the rollout
+        /// from regression bisection.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use anchor taxonomy",
+            toolTip = "When on (Phase 6), every anchor type from §7.1–§7.10 produces an AnchorCorrection and DAG propagation walks BranchPoint edges. Phase 2 LiveSeparation behaviour is unchanged.")]
+        public bool useAnchorTaxonomy
+        {
+            get { return _useAnchorTaxonomy; }
+            set
+            {
+                if (_useAnchorTaxonomy == value) return;
+                bool prev = _useAnchorTaxonomy;
+                _useAnchorTaxonomy = value;
+                NotifyUseAnchorTaxonomyChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseAnchorTaxonomy(value);
+            }
+        }
+        private bool _useAnchorTaxonomy = true;
+
+        /// <summary>
+        /// Phase 5 of the ghost trajectory rendering pipeline (design doc §6.5
+        /// / §10 / §18 Phase 5). When true, ghost peers that shared a physics
+        /// bubble with a co-recorded primary at recording time render via the
+        /// stored co-bubble offset trace (sub-meter relative geometry) instead
+        /// of falling through to standalone Stages 1+2+3+4. Default true.
+        ///
+        /// <para>
+        /// The flag participates in the <c>.pann</c> ConfigurationHash (HR-10
+        /// freshness): flipping it invalidates every cached <c>.pann</c> with
+        /// co-bubble traces so a stale empty block can't masquerade as fresh.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use co-bubble blend",
+            toolTip = "When on (Phase 5), close-formation ghosts blend toward sub-meter offsets stored in the recording. Off → standalone Stages 1-4 only.")]
+        public bool useCoBubbleBlend
+        {
+            get { return _useCoBubbleBlend; }
+            set
+            {
+                if (_useCoBubbleBlend == value) return;
+                bool prev = _useCoBubbleBlend;
+                _useCoBubbleBlend = value;
+                NotifyUseCoBubbleBlendChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseCoBubbleBlend(value);
+            }
+        }
+        private bool _useCoBubbleBlend = true;
+
+        /// <summary>
+        /// Phase 8 of the ghost trajectory rendering pipeline (design doc
+        /// §14, §18 Phase 8). When true, kraken-event single-frame
+        /// teleports are rejected before the smoothing spline is fit so the
+        /// spline does not deflect through physics-glitch samples. Off →
+        /// the spline fits raw samples (legacy behaviour). Default true.
+        ///
+        /// <para>
+        /// The flag participates in the <c>.pann</c> ConfigurationHash
+        /// (HR-10 freshness): flipping it invalidates every cached
+        /// <c>.pann</c> with outlier flags so a stale empty block can't
+        /// masquerade as fresh.
+        /// </para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Use outlier rejection",
+            toolTip = "When on (Phase 8), kraken-event samples are rejected before smoothing. Off → spline fits raw samples including kraken spikes.")]
+        public bool useOutlierRejection
+        {
+            get { return _useOutlierRejection; }
+            set
+            {
+                if (_useOutlierRejection == value) return;
+                bool prev = _useOutlierRejection;
+                _useOutlierRejection = value;
+                NotifyUseOutlierRejectionChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordUseOutlierRejection(value);
+            }
+        }
+        private bool _useOutlierRejection = true;
+
+        /// <summary>
         /// Recorder sample density preset (0=Low, 1=Medium, 2=High).
         /// Replaces the four individual sampling sliders (minSampleInterval,
         /// maxSampleInterval, velocityDirThreshold, speedChangeThreshold).
@@ -167,6 +329,18 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // Reset the reconciliation latch BEFORE base.OnLoad. KSP's
+            // GameParameters.OnLoad deserializes the .sfs node into our
+            // property-decorated members, including the persistent
+            // useSmoothingSplines / useAnchorCorrection setters. Those
+            // setters check ParsekSettingsPersistence.IsReconciled to
+            // decide whether to call Record*; if the latch is left over
+            // from a prior load cycle (true), the stale .sfs value would
+            // clobber the persistent store. Closing the gate here makes
+            // every per-load cycle start fresh — ApplyTo flips it back
+            // to true after ParsekScenario.OnLoad runs (PR #328 P2-A).
+            ParsekSettingsPersistence.InvalidateReconciliation();
+
             base.OnLoad(node);
 
             SamplingDensity level = ResolveSamplingDensityFromConfig(
@@ -305,5 +479,74 @@ namespace Parsek
             => (actual - preset) / range;
 
         private static double Square(double value) => value * value;
+
+        /// <summary>
+        /// Emits a single Pipeline-Smoothing log line when
+        /// <see cref="useSmoothingSplines"/> flips. Phase 1 spec (design doc
+        /// §19.2 Stage 1 row "Settings flag flip") requires Info-level
+        /// visibility for the toggle so a developer can see the rollout-gate
+        /// state in KSP.log. UI / settings code should call this at the
+        /// assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseSmoothingSplinesChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Smoothing", $"useSmoothingSplines: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Anchor log line when
+        /// <see cref="useAnchorCorrection"/> flips. Phase 2 spec (design doc
+        /// §19.2 Stage 3 row, §18 Phase 2) requires Info-level visibility for
+        /// the rollout gate so a developer can attribute a visual artifact to
+        /// the toggle moment in KSP.log. UI / settings code should call this
+        /// at the assignment site once T6 wires the live toggle.
+        /// </summary>
+        internal static void NotifyUseAnchorCorrectionChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Anchor", $"useAnchorCorrection: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Anchor log line when
+        /// <see cref="useAnchorTaxonomy"/> flips. Phase 6 spec (design doc
+        /// §19.2 Stage 3 / Stage 3b row, §18 Phase 6) requires Info-level
+        /// visibility for the rollout gate so a developer can attribute a
+        /// visual artifact to the toggle moment in KSP.log. Mirrors the
+        /// Phase 2 <see cref="NotifyUseAnchorCorrectionChanged"/> contract
+        /// line-for-line.
+        /// </summary>
+        internal static void NotifyUseAnchorTaxonomyChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Anchor", $"useAnchorTaxonomy: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-CoBubble log line when
+        /// <see cref="useCoBubbleBlend"/> flips. Phase 5 spec (design doc
+        /// §19.2 Stage 5 row "Settings flag flip") requires Info-level
+        /// visibility for the rollout gate so a developer can attribute a
+        /// visual artifact to the toggle moment in KSP.log.
+        /// </summary>
+        internal static void NotifyUseCoBubbleBlendChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-CoBubble", $"useCoBubbleBlend: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Pipeline-Outlier log line when
+        /// <see cref="useOutlierRejection"/> flips. Phase 8 spec (design doc
+        /// §19.2 Outlier Rejection row "Settings flag flip") requires
+        /// Info-level visibility for the rollout gate so a developer can
+        /// attribute a visual artifact to the toggle moment in KSP.log.
+        /// </summary>
+        internal static void NotifyUseOutlierRejectionChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Pipeline-Outlier", $"useOutlierRejection: {oldValue}->{newValue}");
+        }
     }
 }

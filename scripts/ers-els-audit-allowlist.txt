@@ -15,6 +15,7 @@ Source/Parsek/ParsekScenario.cs
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
+Source/Parsek/GameActions/LedgerLoadMigration.cs
 Source/Parsek/KerbalsModule.cs
 
 # --- Internal game-state-event suppression check ---
@@ -41,6 +42,19 @@ Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
 Source/Parsek/UI/SettingsWindowUI.cs
+
+# GroupHierarchyStore prunes persisted hierarchy state against the raw
+# committed list, then subtracts explicit supersede-relation ids so the saved
+# hierarchy matches the recordings table's display-effective group membership.
+# Documented at the call site with an inline [ERS-exempt] comment.
+Source/Parsek/GroupHierarchyStore.cs
+
+# RewindPointDiskUsage builds a Settings-only retained-RP diagnostic line.
+# It resolves each slot's already-walked effective id against the raw committed
+# list so the explicit scenario overload can classify a supplied scenario rather
+# than only ParsekScenario.Instance. The raw read is documented at the call site
+# with an inline [ERS-exempt] comment; no ledger reads.
+Source/Parsek/RewindPointDiskUsage.cs
 
 # --- Phase 4 ERS-exempt files ---
 # RewindPointAuthor captures PidSlotMap / RootPartPidMap at a multi-controllable
@@ -157,3 +171,45 @@ Source/Parsek/LoadTimeSweep.cs
 # The raw read is the only way to resolve the provisional to a Recording
 # reference for removal.
 Source/Parsek/RevertInterceptor.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 2) ---
+# RenderSessionState.RebuildFromMarker (ghost-trajectory-rendering-design
+# §7.1 / §6.3 / §18 Phase 2) reads marker.OriginChildRecordingId — the
+# active NotCommitted provisional re-fly target — and the recording's
+# in-tree siblings from CommittedRecordings to compute the recorded
+# offset between them at the branch-point UT. ERS would filter the
+# NotCommitted provisional out by construction, hiding the very
+# recording the anchor builder is parametrized on. The walk is read-
+# only against trajectory data (HR-1 / HR-5).
+Source/Parsek/Rendering/RenderSessionState.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 6) ---
+# AnchorPropagator.Run (ghost-trajectory-rendering-design §17.3.1 /
+# §18 Phase 6 / §9.1) reads CommittedRecordings + CommittedTrees to
+# walk every BranchPoint edge in scope. ERS would filter the active
+# re-fly target's NotCommitted provisional out of the recording list,
+# hiding the very seed anchor (Phase 2 LiveSeparation) that drives
+# the propagator's DAG walk. Read-only against trajectory data
+# (HR-1 / HR-5). Same rationale as the RenderSessionState exemption.
+Source/Parsek/Rendering/AnchorPropagator.cs
+
+# --- Ghost trajectory rendering pipeline (Phase 5) ---
+# SmoothingPipeline routes the Phase 5 co-bubble overlap detector
+# through CommittedRecordings at commit time + at per-trace peer
+# validation (ClassifyTraceDrift) at load time (design doc §6.5 /
+# §10 / §17.3.1 Per-Trace Peer Validation). ERS would filter the
+# active NotCommitted provisional re-fly target out of the recording
+# list, hiding live-anchored peers from co-bubble detection and
+# preventing per-trace peer signature recomputes for the live side.
+# Read-only against trajectory data (HR-1 / HR-5). Same rationale as
+# the RenderSessionState / AnchorPropagator exemptions.
+Source/Parsek/Rendering/SmoothingPipeline.cs
+
+# CoBubbleBlender.ResolveLivePeerRecording (Phase 5 P2-B) walks
+# CommittedRecordings at every TryEvaluateOffset call to re-validate
+# the trace's PeerSidecarEpoch / RecordingFormatVersion against the
+# live peer mid-session. ERS would filter the active NotCommitted
+# provisional re-fly target out, masking peer drift during the very
+# session whose supersede commit caused the drift. Read-only against
+# trajectory metadata; same rationale as SmoothingPipeline above.
+Source/Parsek/Rendering/CoBubbleBlender.cs

@@ -172,8 +172,10 @@ namespace Parsek
                 segCount = rec.SegmentEvents.Count;
             }
 
-            ParsekLog.Verbose("ChainWalker",
-                $"HasGhostingTriggerEvents: rec={rec.RecordingId} found={result} (scanned {partCount} part events, {segCount} segment events)");
+            ParsekLog.VerboseOnChange("ChainWalker",
+                identity: $"trigger|{rec.RecordingId}",
+                stateKey: $"{result}|{partCount}|{segCount}",
+                message: $"HasGhostingTriggerEvents: rec={rec.RecordingId} found={result} (scanned {partCount} part events, {segCount} segment events)");
 
             return result;
         }

@@ -59,7 +59,11 @@ namespace Parsek.Tests
         }
 
         private static ChildSlot MakeSlot(
-            int slotIndex, string recId, bool disabled = false, string disabledReason = null)
+            int slotIndex,
+            string recId,
+            bool disabled = false,
+            string disabledReason = null,
+            bool stashed = false)
         {
             return new ChildSlot
             {
@@ -67,7 +71,9 @@ namespace Parsek.Tests
                 OriginChildRecordingId = recId,
                 Controllable = true,
                 Disabled = disabled,
-                DisabledReason = disabledReason
+                DisabledReason = disabledReason,
+                Stashed = stashed,
+                StashedRealTime = stashed ? "2026-04-29T11:12:13.0000000Z" : null
             };
         }
 
@@ -205,6 +211,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveStashableUnfinishedFlightRewindPoint_LandedChildFindsRpSlot()
+        {
+            var landed = new Recording
+            {
+                RecordingId = "rec_landed",
+                VesselName = "Safe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed") }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool resolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
+                landed, out RewindPoint resolvedRp, out int slotListIndex, out string reason);
+
+            Assert.True(resolved);
+            Assert.Null(reason);
+            Assert.Same(rp, resolvedRp);
+            Assert.Equal(0, slotListIndex);
+        }
+
+        [Fact]
+        public void StashedLandedChildResolvesAsUnfinishedFlightAndNoLongerStashable()
+        {
+            var landed = new Recording
+            {
+                RecordingId = "rec_landed",
+                VesselName = "Safe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+                ParentBranchPointId = "bp_stage"
+            };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_landed", stashed: true) }
+            };
+            InstallScenarioWithRp(rp);
+
+            bool ufResolved = RecordingsTableUI.TryResolveUnfinishedFlightRewindPoint(
+                landed, out RewindPoint ufRp, out int ufSlot);
+            bool stashResolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
+                landed, out RewindPoint stashRp, out int stashSlot, out string reason);
+
+            Assert.True(ufResolved);
+            Assert.Same(rp, ufRp);
+            Assert.Equal(0, ufSlot);
+            Assert.False(stashResolved);
+            Assert.Null(stashRp);
+            Assert.Equal(-1, stashSlot);
+            Assert.Equal("alreadyStashed", reason);
+        }
+
+        [Fact]
+        public void TryResolveStashableUnfinishedFlightRewindPoint_AlreadyUnfinishedFlightReturnsFalse()
+        {
+            var crash = new Recording
+            {
+                RecordingId = "rec_crash",
+                VesselName = "Crash Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_crash") }
+            });
+
+            bool resolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
+                crash, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.False(resolved);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+            Assert.Equal("alreadyUnfinishedFlight", reason);
+        }
+
+        [Fact]
         public void ResolveUnfinishedFlightRewindRoute_SupersededOriginDoesNotPreemptLegacyButtons()
         {
             // The normal recordings list is backed by raw committed recordings,
@@ -245,7 +339,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveUnfinishedFlightRewindRoute_MissingSlotConsumesRowAsDisabled()
+        public void ResolveUnfinishedFlightRewindRoute_MissingSlotDoesNotExposeUnfinishedFlightButton()
         {
             var probe = new Recording
             {
@@ -265,7 +359,7 @@ namespace Parsek.Tests
             var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
                 probe, out RewindPoint rp, out int slotListIndex, out string reason);
 
-            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.MissingSlot, route);
+            Assert.Equal(RecordingsTableUI.UnfinishedFlightRewindRoute.NotUnfinishedFlight, route);
             Assert.Null(rp);
             Assert.Equal(-1, slotListIndex);
             Assert.Contains("slot", reason);
@@ -562,7 +656,7 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
@@ -579,7 +673,7 @@ namespace Parsek.Tests
         [Fact]
         public void TemporalButtons_RemainIndependentFromWatchState_PinnedBySourceInspection()
         {
-            // T60: the watch button uses ghost presence/body/range, but R/FF must stay
+            // T60: the watch button uses ghost presence/body/range, but Rewind/Forward must stay
             // coupled only to recording timing/save/runtime state. Pin that separation
             // in both row and group call sites so a future refactor can't silently wire
             // watch-distance variables into the temporal controls.
@@ -589,7 +683,7 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Fast-forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
@@ -600,7 +694,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain("sameBody", rowBlock);
             Assert.DoesNotContain("inRange", rowBlock);
 
-            int groupStart = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", StringComparison.Ordinal);
+            int groupStart = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", StringComparison.Ordinal);
             int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
             string groupBlock = uiSrc.Substring(groupStart, groupEnd - groupStart);
 
@@ -720,14 +814,14 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
             int rowWatchStart = uiSrc.IndexOf("// Watch button (flight only)", StringComparison.Ordinal);
-            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button", rowWatchStart, StringComparison.Ordinal);
+            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Forward button", rowWatchStart, StringComparison.Ordinal);
             string rowWatchBlock = uiSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
 
             Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
             int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
-            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Fast-forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
+            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
             string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
@@ -1424,6 +1518,48 @@ namespace Parsek.Tests
             Assert.True(grpToRecs.ContainsKey("Launch"));
             Assert.Contains(0, grpToRecs["Launch"]);
             Assert.Contains("Launch", rootGrps);
+        }
+
+        [Fact]
+        public void BuildGroupTreeData_SupersededRelation_HidesOldRecording()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        OldRecordingId = "old-probe-booster",
+                        NewRecordingId = "replacement-upper-stage"
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "old-probe-booster",
+                    VesselName = "Old Probe Booster",
+                    RecordingGroups = new List<string> { "Launch" }
+                },
+                new Recording
+                {
+                    RecordingId = "replacement-upper-stage",
+                    VesselName = "Replacement Upper Stage",
+                    RecordingGroups = new List<string> { "Launch" }
+                }
+            };
+
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0, 1 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.True(grpToRecs.ContainsKey("Launch"));
+            Assert.DoesNotContain(0, grpToRecs["Launch"]);
+            Assert.Contains(1, grpToRecs["Launch"]);
         }
 
         [Fact]

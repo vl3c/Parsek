@@ -51,6 +51,7 @@ namespace Parsek.Tests
         [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
@@ -556,6 +557,135 @@ namespace Parsek.Tests
             public bool SectionAuthoritative { get; set; }
             public int PointCount { get; set; }
             public int OrbitSegmentCount { get; set; }
+        }
+
+        // Test #28 from docs/dev/plans/optimizer-persistence-split.md §9.3.
+        // Mandatory binary round-trip: a seam-flagged TrackSection survives the v8 binary
+        // codec write/read cycle. Without this test, a regression in binary version gating
+        // would silently drop the flag on every save and the optimizer's seam short-circuit
+        // would stop firing — exactly the bug the plan fixes.
+        [Fact]
+        public void TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec()
+        {
+            const double t0 = 30000.0;
+            var rec = new Recording
+            {
+                RecordingId = "boundary-seam-binary-roundtrip",
+                // Pin to v8 explicitly so this test pins the seam-flag round-trip
+                // at its introduction version, independent of later format bumps
+                // (e.g. Phase 7's v9). The seam flag is gated on
+                // BoundarySeamFlagFormatVersion, so the contract under test is
+                // "v8 writer + v8 reader preserve the flag".
+                RecordingFormatVersion = RecordingStore.BoundarySeamFlagFormatVersion
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = t0,
+                latitude = 0,
+                longitude = 0,
+                altitude = 70000,
+                rotation = new Quaternion(0f, 0f, 0f, 1f),
+                velocity = new Vector3(0f, 0f, 0f),
+                bodyName = "Kerbin"
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = t0,
+                endUT = t0,
+                sampleRateHz = 0f,
+                frames = new List<TrajectoryPoint> { rec.Points[0] },
+                checkpoints = new List<OrbitSegment>(),
+                isBoundarySeam = true
+            });
+
+            string path = Path.Combine(tempDir, "seam-roundtrip.prec");
+            TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.Equal(RecordingStore.BoundarySeamFlagFormatVersion, probe.FormatVersion);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Single(restored.TrackSections);
+            Assert.True(restored.TrackSections[0].isBoundarySeam,
+                "Binary round-trip dropped TrackSection.isBoundarySeam — version-gated write/read is broken.");
+        }
+
+        // Test #29 from docs/dev/plans/optimizer-persistence-split.md §9.3.
+        // Legacy binary read: a recording written at v7 (before the seam field existed) loads
+        // with isBoundarySeam == false AND the post-seam fields (frames, etc.) deserialize at
+        // the correct positional offsets. Catches the worst-case regression where a v7
+        // file fed to a v8 reader desynchronizes positionally on the next field — the test
+        // would fail with mangled frame data, not just a wrong seam flag.
+        [Fact]
+        public void TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyBinaryLoad()
+        {
+            const double t0 = 31000.0;
+            var legacyPoint = new TrajectoryPoint
+            {
+                ut = t0 + 5,
+                latitude = 0.123,
+                longitude = -74.456,
+                altitude = 80000,
+                rotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.927f),
+                velocity = new Vector3(10f, 20f, 30f),
+                bodyName = "Kerbin",
+                funds = 12345,
+                science = 4.5f,
+                reputation = 0.25f
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "boundary-seam-legacy-binary",
+                // Pin the writer to v7 (RelativeAbsoluteShadowFormatVersion). The codec's
+                // version-selection ladder picks the highest tier that the in-memory format
+                // version permits, so v7 produces a v7 binary file — exactly the layout a
+                // pre-PR save on disk has.
+                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t0,
+                endUT = t0 + 10,
+                sampleRateHz = 5f,
+                frames = new List<TrajectoryPoint> { legacyPoint },
+                checkpoints = new List<OrbitSegment>(),
+                anchorVesselId = 0u,
+                // Setting the flag here is meaningless — the v7 writer will not emit the byte.
+                // The test's contract is "v7 readers see false regardless of in-memory state."
+                isBoundarySeam = true
+            });
+
+            string path = Path.Combine(tempDir, "seam-legacy-binary.prec");
+            TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.Equal(RecordingStore.RelativeAbsoluteShadowFormatVersion, probe.FormatVersion);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Single(restored.TrackSections);
+            var section = restored.TrackSections[0];
+            Assert.False(section.isBoundarySeam,
+                "v7 binary file loaded under v8 reader produced isBoundarySeam=true — version gating broken.");
+
+            // Positional sanity: if the seam byte read had desynchronised the stream, the
+            // frames list would deserialize as garbage (wrong count, wrong field values, or
+            // an exception). Verify the frame round-trips intact — this is the real catch
+            // for a positional desync regression.
+            Assert.Single(section.frames);
+            AssertPointEqual(legacyPoint, section.frames[0]);
         }
     }
 }

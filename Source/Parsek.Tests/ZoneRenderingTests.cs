@@ -223,6 +223,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetAbsoluteSectionPlaybackFrames_AbsoluteSection_UsesSectionFrames()
+        {
+            var sectionFrame = new TrajectoryPoint { ut = 1373.8077522469166, altitude = 53728.0 };
+            var relativeOffsetFrame = new TrajectoryPoint { ut = 1373.7277522469167, altitude = -0.05 };
+            var sectionFrames = new List<TrajectoryPoint> { sectionFrame };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 1373.8077522469166,
+                endUT = 1423.4706489753898,
+                frames = sectionFrames
+            };
+
+            Assert.True(ParsekFlight.TryGetAbsoluteSectionPlaybackFrames(
+                section,
+                out List<TrajectoryPoint> resolvedFrames));
+            Assert.Same(sectionFrames, resolvedFrames);
+            Assert.Single(resolvedFrames);
+            Assert.Equal(53728.0, resolvedFrames[0].altitude);
+            Assert.DoesNotContain(resolvedFrames, p =>
+                p.ut == relativeOffsetFrame.ut && p.altitude == relativeOffsetFrame.altitude);
+        }
+
+        [Fact]
+        public void TryGetAbsoluteSectionPlaybackFrames_RelativeSection_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1373.7277522469167, altitude = -0.05 }
+                }
+            };
+
+            Assert.False(ParsekFlight.TryGetAbsoluteSectionPlaybackFrames(
+                section,
+                out List<TrajectoryPoint> resolvedFrames));
+            Assert.Null(resolvedFrames);
+        }
+
+        [Fact]
+        public void TryGetAbsoluteSectionPlaybackFrames_AbsoluteSectionWithoutFrames_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute
+            };
+
+            Assert.False(ParsekFlight.TryGetAbsoluteSectionPlaybackFrames(
+                section,
+                out List<TrajectoryPoint> resolvedFrames));
+            Assert.Null(resolvedFrames);
+
+            section.frames = new List<TrajectoryPoint>();
+
+            Assert.False(ParsekFlight.TryGetAbsoluteSectionPlaybackFrames(
+                section,
+                out resolvedFrames));
+            Assert.Null(resolvedFrames);
+        }
+
+        [Fact]
         public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
             var (shouldHide, skipPartEvents, skipPositioning) =

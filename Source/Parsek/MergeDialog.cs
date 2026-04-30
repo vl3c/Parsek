@@ -9,6 +9,9 @@ namespace Parsek
     public static class MergeDialog
     {
         private const string MergeLockId = "ParsekMergeDialog";
+        // SplitAtSection writes back-to-back UT bounds; 50ms covers float
+        // rounding and one-frame skew without bridging a real inter-recording gap.
+        private const double InPlaceChainContinuityToleranceSeconds = 0.05;
 
         internal enum ReFlyMergeCommitResult
         {
@@ -130,8 +133,8 @@ namespace Parsek
                 // continuation path and just plain wrong about
                 // ghost-of-retired-attempt / kerbal-deaths-reversed).
                 message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this re-flight attempt permanently to the timeline. " +
-                          "This cannot be undone!</align>";
+                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
+                          "This cannot be undone.</align>";
             }
             else
             {
@@ -170,7 +173,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekMerge",
                     message,
-                    "Parsek - Merge to Timeline",
+                    "Confirm Merge to Timeline",
                     HighLogic.UISkin,
                     buttons
                 ),
@@ -441,14 +444,38 @@ namespace Parsek
                     // behaviour for un-split in-place merges.
                     if (scenario.RecordingSupersedes == null)
                         scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+                    List<Recording> contiguousInPlaceChain =
+                        ResolveContiguousInPlaceChainMembers(provisional);
+                    Recording contiguousTip = contiguousInPlaceChain.Count > 0
+                        ? contiguousInPlaceChain[contiguousInPlaceChain.Count - 1]
+                        : provisional;
                     Recording supersedeTargetRec =
                         EffectiveState.ResolveChainTerminalRecording(provisional);
                     Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
                         provisional, marker.SessionId);
-                    if (sessionOwnedTip != null)
+                    int sessionOwnedSize = CountSessionOwnedChainMembers(
+                        provisional, marker.SessionId);
+                    bool sessionOwnedResolved = IsDifferentRecording(
+                        sessionOwnedTip, provisional);
+                    if (sessionOwnedResolved)
                     {
                         supersedeTargetRec = sessionOwnedTip;
                     }
+                    else if (IsDifferentRecording(contiguousTip, provisional))
+                    {
+                        supersedeTargetRec = contiguousTip;
+                        ParsekLog.Info("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolved " +
+                            $"chain tip from contiguous split bounds: head={provisional.RecordingId} " +
+                            $"-> tip={contiguousTip.RecordingId} " +
+                            $"chainId={contiguousTip.ChainId ?? "<none>"} " +
+                            $"chainIndex={contiguousTip.ChainIndex} " +
+                            $"members=[{FormatRecordingIds(contiguousInPlaceChain)}] " +
+                            $"tolerance={InPlaceChainContinuityToleranceSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                            "(session metadata missing or only present on the head)");
+                    }
+                    supersedeTargetRec = EnsureInPlaceSupersedeTargetHasTerminalState(
+                        supersedeTargetRec, marker.SessionId);
                     bool resolvedToDifferentTip = supersedeTargetRec != null
                         && !object.ReferenceEquals(supersedeTargetRec, provisional)
                         && !string.Equals(supersedeTargetRec.RecordingId,
@@ -469,6 +496,15 @@ namespace Parsek
                     else
                     {
                         ParsekLog.Verbose("MergeDialog",
+                            $"TryCommitReFlySupersede: in-place continuation resolver audit " +
+                            $"head={provisional.RecordingId} " +
+                            $"sessionOwnedResolved={sessionOwnedResolved} " +
+                            $"sessionOwnedSize={sessionOwnedSize} " +
+                            $"sessionOwnedTip={(sessionOwnedTip != null ? sessionOwnedTip.RecordingId : "<null>")} " +
+                            $"contiguousResolved={IsDifferentRecording(contiguousTip, provisional)} " +
+                            $"contiguousSize={contiguousInPlaceChain.Count} " +
+                            $"contiguousTip={(contiguousTip != null ? contiguousTip.RecordingId : "<null>")}");
+                        ParsekLog.Verbose("MergeDialog",
                             $"TryCommitReFlySupersede: in-place continuation supersede target " +
                             $"unchanged from head={provisional.RecordingId} (no chain split, " +
                             $"or head already carries terminal)");
@@ -480,14 +516,24 @@ namespace Parsek
                     // original optimizer tails from the pre-Re-Fly flight can
                     // share that identity and still need supersede rows to the
                     // new chain tip. The in-place origin is tagged at
-                    // AtomicMarkerWrite; optimizer-created split children copy
-                    // CreatingSessionId, so session id is the ownership marker.
+                    // AtomicMarkerWrite; optimizer-created split children normally
+                    // copy CreatingSessionId. Quickload/restore can lose those
+                    // transient tags before merge finalization, so also protect
+                    // the contiguous post-optimizer chain discovered from UT
+                    // bounds. Older stale tails with the same chain identity are
+                    // non-contiguous and still receive supersede rows.
                     var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
                     chainSkipSet.Add(provisional.RecordingId);
                     if (supersedeTargetRec != null
                         && !string.IsNullOrEmpty(supersedeTargetRec.RecordingId))
                     {
                         chainSkipSet.Add(supersedeTargetRec.RecordingId);
+                    }
+                    for (int i = 0; i < contiguousInPlaceChain.Count; i++)
+                    {
+                        var member = contiguousInPlaceChain[i];
+                        if (member != null && !string.IsNullOrEmpty(member.RecordingId))
+                            chainSkipSet.Add(member.RecordingId);
                     }
                     if (!string.IsNullOrEmpty(provisional.ChainId)
                         && !string.IsNullOrEmpty(provisional.TreeId))
@@ -555,8 +601,8 @@ namespace Parsek
                     // That covers all the in-memory scenario mutations that a
                     // normal RunMerge does around AppendRelations + tombstones.
                     // Also clear CreatingSessionId / ProvisionalForRpId on every
-                    // session-owned continuation segment so split children no
-                    // longer look like session-scoped zombies to load-time sweep.
+                    // protected continuation segment so split children no longer
+                    // look like session-scoped zombies to load-time sweep.
                     var committedForTransientClear = RecordingStore.CommittedRecordings;
                     if (committedForTransientClear != null)
                     {
@@ -576,8 +622,8 @@ namespace Parsek
 
                     // Force MergeState to Immutable for the in-place
                     // continuation path. The default flip in
-                    // FlipMergeStateAndClearTransient picks
-                    // CommittedProvisional for Crashed re-flies so a
+                    // FlipMergeStateAndClearTransient can pick
+                    // CommittedProvisional for an unfinished outcome so a
                     // separate-recording journaled merge can offer "re-fly
                     // again" against the same RP. That semantic does NOT
                     // apply here: there IS no separate provisional, and a
@@ -585,11 +631,9 @@ namespace Parsek
                     // in place again. Treat the merge dialog confirm as
                     // the player's commitment to the timeline, regardless
                     // of whether the re-flight survived. Otherwise the
-                    // recording keeps MergeState=CommittedProvisional,
-                    // RewindPointReaper.IsReapEligible refuses to reap
-                    // (only Immutable counts), and the row stays in
-                    // Unfinished Flights forever — the duplicate the
-                    // 10:47 playtest reported.
+                    // unsealed recording keeps MergeState=CommittedProvisional,
+                    // RewindPointReaper.IsReapEligible refuses to reap it,
+                    // and the row stays in Unfinished Flights forever.
                     if (provisional.MergeState != MergeState.Immutable)
                     {
                         var priorState = provisional.MergeState;
@@ -601,6 +645,7 @@ namespace Parsek
                             "(merge is the player's commitment; no separate provisional " +
                             "exists to track a future re-fly)");
                     }
+                    ClearStashedSlotForInPlaceCommit(provisional, scenario);
 
                     // Reap the RP whose only slot is now Immutable (the
                     // recording we just flipped). The journaled merge runs
@@ -691,6 +736,62 @@ namespace Parsek
             }
 
             return ReFlyMergeCommitResult.Completed;
+        }
+
+        private static void ClearStashedSlotForInPlaceCommit(
+            Recording provisional,
+            ParsekScenario scenario)
+        {
+            if (provisional == null || object.ReferenceEquals(null, scenario))
+                return;
+
+            RewindPoint rp;
+            int slotListIndex;
+            string rejectReason;
+            if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    provisional, out rp, out slotListIndex, out rejectReason))
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"resolve stashed slot to clear rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"reason={rejectReason ?? "<none>"}");
+                return;
+            }
+
+            if (rp?.ChildSlots == null
+                || slotListIndex < 0
+                || slotListIndex >= rp.ChildSlots.Count)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"clear stashed slot rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"rp={rp?.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
+                    $"reason=slot-index-invalid");
+                return;
+            }
+
+            var slot = rp.ChildSlots[slotListIndex];
+            if (slot == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation could not " +
+                    $"clear stashed slot rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
+                    $"reason=slot-null");
+                return;
+            }
+
+            if (!slot.Stashed)
+                return;
+
+            slot.Stashed = false;
+            slot.StashedRealTime = null;
+            scenario.BumpSupersedeStateVersion();
+            ParsekLog.Info("MergeDialog",
+                $"TryCommitReFlySupersede: in-place continuation cleared stashed " +
+                $"slot={slotListIndex} rec={provisional.RecordingId ?? "<no-id>"} " +
+                $"rp={rp.RewindPointId ?? "<no-rp>"} " +
+                "(merge is the player's commitment; no separate provisional exists)");
         }
 
         // Raw committed-list scan by id. Kept local to the merge path so we
@@ -926,11 +1027,233 @@ namespace Parsek
             return best ?? provisional;
         }
 
+        private static int CountSessionOwnedChainMembers(
+            Recording provisional,
+            string sessionId)
+        {
+            if (provisional == null || string.IsNullOrEmpty(sessionId))
+                return 0;
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return 0;
+            }
+
+            int count = 0;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+                return 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var cand = committed[i];
+                if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
+                    continue;
+                if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
+                    continue;
+                if (cand.ChainBranch != provisional.ChainBranch)
+                    continue;
+                count++;
+            }
+
+            return count;
+        }
+
+        internal static List<Recording> ResolveContiguousInPlaceChainMembers(
+            Recording provisional)
+        {
+            var members = new List<Recording>();
+            if (provisional == null)
+                return members;
+
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                members.Add(provisional);
+
+            if (string.IsNullOrEmpty(provisional.ChainId)
+                || string.IsNullOrEmpty(provisional.TreeId))
+            {
+                return members;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                return members;
+
+            var visited = new HashSet<string>(System.StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                visited.Add(provisional.RecordingId);
+
+            Recording current = provisional;
+            while (current != null)
+            {
+                Recording next = FindNextContiguousInPlaceChainMember(
+                    provisional, current, committed, visited);
+                if (next == null)
+                    break;
+
+                members.Add(next);
+                visited.Add(next.RecordingId);
+                current = next;
+            }
+
+            return members;
+        }
+
+        private static Recording FindNextContiguousInPlaceChainMember(
+            Recording head,
+            Recording current,
+            IReadOnlyList<Recording> committed,
+            HashSet<string> visited)
+        {
+            if (head == null || current == null || committed == null)
+                return null;
+            if (!TryGetRecordingBounds(current, out _, out double currentEndUT))
+                return null;
+
+            Recording best = null;
+            double bestDelta = double.MaxValue;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var candidate = committed[i];
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (visited != null && visited.Contains(candidate.RecordingId))
+                    continue;
+                if (!MatchesInPlaceChain(head, candidate))
+                    continue;
+                if (candidate.ChainIndex <= current.ChainIndex)
+                    continue;
+                if (!TryGetRecordingBounds(candidate, out double candidateStartUT, out _))
+                    continue;
+
+                double delta = System.Math.Abs(candidateStartUT - currentEndUT);
+                if (delta > InPlaceChainContinuityToleranceSeconds)
+                    continue;
+
+                if (best == null
+                    || delta < bestDelta
+                    || (System.Math.Abs(delta - bestDelta) <= 1e-9
+                        && candidate.ChainIndex < best.ChainIndex))
+                {
+                    best = candidate;
+                    bestDelta = delta;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool MatchesInPlaceChain(Recording head, Recording candidate)
+        {
+            if (head == null || candidate == null)
+                return false;
+            if (string.IsNullOrEmpty(head.TreeId) || string.IsNullOrEmpty(head.ChainId))
+                return false;
+            if (!string.Equals(candidate.TreeId, head.TreeId, System.StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(candidate.ChainId, head.ChainId, System.StringComparison.Ordinal))
+                return false;
+            return candidate.ChainBranch == head.ChainBranch;
+        }
+
+        private static bool TryGetRecordingBounds(
+            Recording recording,
+            out double startUT,
+            out double endUT)
+        {
+            startUT = 0.0;
+            endUT = 0.0;
+            if (recording == null)
+                return false;
+
+            bool hasPayload =
+                (recording.Points != null && recording.Points.Count > 0)
+                || (recording.TrackSections != null && recording.TrackSections.Count > 0)
+                || (recording.OrbitSegments != null && recording.OrbitSegments.Count > 0)
+                || (!double.IsNaN(recording.ExplicitStartUT)
+                    && !double.IsNaN(recording.ExplicitEndUT));
+            if (!hasPayload)
+                return false;
+
+            startUT = recording.StartUT;
+            endUT = recording.EndUT;
+            return IsFinite(startUT) && IsFinite(endUT);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool IsDifferentRecording(Recording candidate, Recording head)
+        {
+            if (candidate == null || head == null)
+                return false;
+            if (object.ReferenceEquals(candidate, head))
+                return false;
+            return !string.Equals(
+                candidate.RecordingId, head.RecordingId,
+                System.StringComparison.Ordinal);
+        }
+
+        private static string FormatRecordingIds(List<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return string.Empty;
+
+            var ids = new List<string>();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                ids.Add(rec.RecordingId);
+            }
+
+            return string.Join(",", ids);
+        }
+
+        internal static Recording EnsureInPlaceSupersedeTargetHasTerminalState(
+            Recording supersedeTarget,
+            string sessionId)
+        {
+            if (supersedeTarget == null || supersedeTarget.TerminalStateValue.HasValue)
+                return supersedeTarget;
+
+            if (supersedeTarget.SceneExitSituation >= 0)
+            {
+                supersedeTarget.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState(supersedeTarget.SceneExitSituation);
+                RecordingEndpointResolver.RefreshEndpointDecision(
+                    supersedeTarget,
+                    "MergeDialog.InPlaceSupersedeTargetSceneExitRepair");
+                ParsekLog.Warn("MergeDialog",
+                    $"TryCommitReFlySupersede: repaired null terminal on in-place supersede target " +
+                    $"id={supersedeTarget.RecordingId} from SceneExitSituation={supersedeTarget.SceneExitSituation} " +
+                    $"terminal={supersedeTarget.TerminalStateValue} sess={sessionId ?? "<none>"}");
+                return supersedeTarget;
+            }
+
+            ParsekLog.Warn("MergeDialog",
+                $"TryCommitReFlySupersede: in-place supersede target " +
+                $"id={supersedeTarget.RecordingId ?? "<null>"} still has null terminal and no " +
+                $"SceneExitSituation repair source (sess={sessionId ?? "<none>"})");
+            return supersedeTarget;
+        }
+
         private static void ApplyActiveReFlyParentChainDefaults(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             string activeReFlyTargetId)
         {
+            // This runs only while BuildDefaultVesselDecisions is constructing
+            // the dialog's initial defaults. It is allowed to flip a freshly
+            // inferred spawnable parent-chain tip to ghost-only; there is no
+            // user-edited decision state yet.
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return;
 

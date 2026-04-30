@@ -77,11 +77,11 @@ All UI windows are read-only views of the three stores above (`RecordingStore`, 
 Each of these is the authoritative source for its area. This index doesn't duplicate their content.
 
 - **Flight recorder + ghost playback**: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md) — trajectory sampling, part-event capture, commit/discard, ghost spawn/despawn, loop and overlap semantics, watch mode.
-- **Recording finalization reliability**: [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md) — terminal-state and synthetic-tail contract for scene exit, crash, vessel unload/delete, background recordings, and Rewind-to-Staging dependencies.
+- **Recording finalization reliability**: [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md) — terminal-state and synthetic-tail contract for scene exit, crash, vessel unload/delete, background recordings, and Rewind-to-Separation dependencies.
 - **Timeline (entries + resource budget)**: [`parsek-timeline-design.md`](parsek-timeline-design.md) — timeline entry model, significance tiers, source toggles, time-range filter, resource-budget footer.
 - **Game actions & career resources**: [`parsek-game-actions-and-resources-recorder-design.md`](parsek-game-actions-and-resources-recorder-design.md) — how KSP career events become `GameAction` ledger entries, resource module semantics, recalculation engine, action replay.
-- **Logistics routes**: [`parsek-logistics-routes-design.md`](parsek-logistics-routes-design.md) — one-way routes, dock/transfer/undock validation, round-trip linking.
-- **Rewind to Staging (v0.9)**: [`parsek-rewind-to-staging-design.md`](parsek-rewind-to-staging-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, narrow v1 tombstone scope.
+- **Logistics / Supply Routes**: [`parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md) — stock-first Supply Runs, Supply Routes, dock/transfer/undock validation, and future round-trip linking.
+- **Rewind to Separation (v0.9)**: [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, narrow v1 tombstone scope.
 - **Career State window**: [`dev/plans/career-state-window.md`](dev/plans/career-state-window.md) — four-tab career-state view, current-vs-projected walk, slot math, companion Kerbals→Timeline scroll.
 
 Completed design specs (now implementation-historical) live under [`dev/done/`](dev/done/). Recent ones worth knowing:

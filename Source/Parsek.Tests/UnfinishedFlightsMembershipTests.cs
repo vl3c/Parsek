@@ -60,7 +60,9 @@ namespace Parsek.Tests
             TerminalState? terminal = null,
             string parentBranchPointId = null,
             string childBranchPointId = null,
-            string treeId = null)
+            string treeId = null,
+            bool isDebris = false,
+            string evaCrewName = null)
         {
             return new Recording
             {
@@ -70,7 +72,9 @@ namespace Parsek.Tests
                 TerminalStateValue = terminal,
                 ParentBranchPointId = parentBranchPointId,
                 ChildBranchPointId = childBranchPointId,
-                TreeId = treeId
+                TreeId = treeId,
+                IsDebris = isDebris,
+                EvaCrewName = evaCrewName
             };
         }
 
@@ -93,14 +97,46 @@ namespace Parsek.Tests
             return scenario;
         }
 
-        private static RewindPoint Rp(string rpId, string bpId)
+        private static ChildSlot Slot(
+            int slotIndex,
+            string recordingId,
+            bool sealedSlot = false,
+            bool stashedSlot = false)
         {
+            return new ChildSlot
+            {
+                SlotIndex = slotIndex,
+                OriginChildRecordingId = recordingId,
+                Controllable = true,
+                Sealed = sealedSlot,
+                SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
+                Stashed = stashedSlot,
+                StashedRealTime = stashedSlot ? "2026-04-29T09:10:11.0000000Z" : null
+            };
+        }
+
+        private static RewindPoint Rp(string rpId, string bpId, params string[] slotRecordingIds)
+        {
+            return RpWithFocus(rpId, bpId, -1, slotRecordingIds);
+        }
+
+        private static RewindPoint RpWithFocus(string rpId, string bpId, int focusSlotIndex, params string[] slotRecordingIds)
+        {
+            var slots = new List<ChildSlot>();
+            if (slotRecordingIds != null)
+            {
+                for (int i = 0; i < slotRecordingIds.Length; i++)
+                    slots.Add(Slot(i, slotRecordingIds[i]));
+            }
+
             return new RewindPoint
             {
                 RewindPointId = rpId,
                 BranchPointId = bpId,
                 UT = 0.0,
-                SessionProvisional = false
+                SessionProvisional = false,
+                FocusSlotIndex = focusSlotIndex,
+                ChildSlots = slots
             };
         }
 
@@ -125,11 +161,150 @@ namespace Parsek.Tests
             // overwritten by the helper, but that does not affect
             // IsUnfinishedFlight.
 
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Single(members);
             Assert.Equal("rec_A", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void DestroyedStagesWithDownstreamCrashBranch_AreMembers()
+        {
+            // 2026-04-29 Kerbal X repro: upper/root and probe/booster both
+            // crashed after the staging RP. The probe recording also carried a
+            // later child BP for its destruction event; that downstream crash
+            // bookkeeping must not suppress the already-conclusive Destroyed
+            // terminal outcome.
+            var upper = Rec(
+                "rec_upper",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                childBranchPointId: "bp_stage",
+                treeId: "tree_1");
+            var probe = Rec(
+                "rec_probe",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_stage",
+                childBranchPointId: "bp_probe_destroyed",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(upper, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_stage", "bp_stage", 0, "rec_upper", "rec_probe")
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Equal(2, members.Count);
+            Assert.Contains(members, r => r.RecordingId == "rec_upper");
+            Assert.Contains(members, r => r.RecordingId == "rec_probe");
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_upper") &&
+                l.Contains("reason=crashed") &&
+                l.Contains("side=active-parent-child"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=crashed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]") &&
+                l.Contains("rec=rec_probe") &&
+                l.Contains("reason=downstreamBp"));
+        }
+
+        [Fact]
+        public void DestroyedWithRealDownstreamRewindPoint_PrefersDownstreamRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(0, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void NonDestroyedWithParentAndChildRewindPoints_PrefersChildRoute()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.SubOrbital,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_old", "bp_old", "rec_stage"),
+                RpWithFocus("rp_new", "bp_new", 0, "rec_focus", "rec_stage")
+            });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                rec,
+                out RewindPoint resolved,
+                out int slotListIndex));
+            Assert.Equal("rp_new", resolved.RewindPointId);
+            Assert.Equal(1, slotListIndex);
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_stage", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void DestroyedAgainstOlderRewindPointWithRealDownstreamRoute_NotMemberForOlderPoint()
+        {
+            var rec = Rec(
+                "rec_stage",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: "bp_old",
+                childBranchPointId: "bp_new",
+                treeId: "tree_1");
+            var olderRp = Rp("rp_old", "bp_old", "rec_stage");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                olderRp,
+                Rp("rp_new", "bp_new", "rec_stage", "rec_sibling")
+            });
+
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                rec,
+                olderRp.ChildSlots[0],
+                olderRp,
+                considerSealed: true,
+                out string reason));
+            Assert.Equal("downstreamBp", reason);
         }
 
         [Fact]
@@ -144,7 +319,7 @@ namespace Parsek.Tests
                 treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
 
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Single(members);
@@ -152,18 +327,309 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyedUnderRPWithoutSlot_NotMember()
+        {
+            // Regression for 2026-04-26_2228: a debris recording can share the
+            // same BranchPoint/RewindPoint as a real controllable child, but if
+            // it was never assigned an RP child slot it cannot be re-flown and
+            // must not show as a disabled duplicate Unfinished Flight.
+            var rec = Rec("rec_debris", MergeState.Immutable,
+                TerminalState.Destroyed, parentBranchPointId: "bp_1",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_active_parent", "rec_controlled_child")
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=noMatchingRpSlot"));
+        }
+
+        [Fact]
         public void ImmutableLandedUnderRP_NotMember()
         {
-            // Regression: Landed terminals are NOT unfinished flights even if
-            // a parent RP exists — the classifier only treats crash-type
-            // terminals as unfinished (design §3.1).
+            // Regression: stable terminal vessel outcomes are NOT unfinished
+            // flights even when a parent RP exists.
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Empty(members);
+        }
+
+        [Fact]
+        public void StashedImmutableLandedUnderRP_IsMember()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_A", stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusUnderPostFeatureRP_IsMember()
+        {
+            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_probe")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_probe", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void OrbitingFocusSlotUnderPostFeatureRP_NotMember()
+        {
+            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_probe")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stableTerminalFocusSlot"));
+        }
+
+        [Fact]
+        public void StashedOrbitingFocusSlotUnderPostFeatureRP_IsMember()
+        {
+            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus", stashedSlot: true),
+                    Slot(1, "rec_probe")
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_focus", members[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
+        }
+
+        [Fact]
+        public void OrbitingLegacyNoFocusSignal_NotMember()
+        {
+            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_probe")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=noFocusSignalOrbiting"));
+        }
+
+        [Fact]
+        public void StashedOrbitingLegacyNoFocusSignal_IsMember()
+        {
+            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = -1,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_probe", stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_probe", members[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stashedStableLeaf"));
+        }
+
+        [Fact]
+        public void OrbitingDebrisUnderPostFeatureRP_NotMember()
+        {
+            var rec = Rec("rec_debris", MergeState.Immutable, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1", isDebris: true);
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_debris")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=notControllable"));
+        }
+
+        [Fact]
+        public void SubOrbitalNonFocusUnderPostFeatureRP_IsMember()
+        {
+            var rec = Rec("rec_upper", MergeState.Immutable, TerminalState.SubOrbital,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_upper")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_upper", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void StrandedEvaLegacyNoFocusSignal_IsMember()
+        {
+            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                Rp("rp_1", "bp_1", "rec_eva")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_eva", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void StashedBoardedEva_NotMember()
+        {
+            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Boarded,
+                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = -1,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_eva", stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stableTerminal"));
+        }
+
+        [Fact]
+        public void SealedSlot_NotMember()
+        {
+            var rec = Rec("rec_probe", MergeState.CommittedProvisional, TerminalState.Orbiting,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_probe", sealedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=slotSealed"));
+        }
+
+        [Fact]
+        public void StashedSealedSlot_NotMember()
+        {
+            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_probe", sealedSlot: true, stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=slotSealed"));
         }
 
         [Fact]
@@ -191,7 +657,7 @@ namespace Parsek.Tests
             var rec = Rec("rec_A", MergeState.NotCommitted, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Empty(members);
@@ -221,7 +687,7 @@ namespace Parsek.Tests
                 }
             };
             InstallScenario(
-                rps: new List<RewindPoint> { Rp("rp_1", "bp_1") },
+                rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") },
                 supersedes: supersedes);
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
@@ -247,7 +713,7 @@ namespace Parsek.Tests
                 OriginChildRecordingId = "rec_origin"
             };
             InstallScenario(
-                rps: new List<RewindPoint> { Rp("rp_1", "bp_1") },
+                rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_origin") },
                 marker: marker);
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
@@ -280,7 +746,7 @@ namespace Parsek.Tests
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
 
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1") });
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
 
             // Rate-limiter has state per ThreadStatic dict; clear so the
             // first recompute call below emits (the setup above did not

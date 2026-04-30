@@ -1390,6 +1390,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CheckpointAllVessels_DuplicateBoundary_DoesNotAppendZeroLengthSegment()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                var tree = MakeTree((100, "rec_bg1"));
+                var bgRecorder = new BackgroundRecorder(tree);
+                bgRecorder.SetVesselFinderForTesting(_ =>
+                    throw new InvalidOperationException("duplicate boundary should not resolve vessel"));
+                bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+                {
+                    startUT = 200.0,
+                    semiMajorAxis = 750000.0,
+                    bodyName = "Kerbin"
+                });
+
+                bgRecorder.CheckpointAllVessels(200.0);
+
+                Assert.Empty(tree.Recordings["rec_bg1"].OrbitSegments);
+                Assert.True(bgRecorder.GetOnRailsHasOpenSegment(100));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[BgRecorder]") &&
+                    l.Contains("CheckpointAllVessels") &&
+                    l.Contains("skippedDuplicateBoundary=1"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
         public void CheckpointAllVessels_ClosesSegmentEvenWhenVesselNotFound()
         {
             // Verifies that the segment is always closed at checkpoint UT,
