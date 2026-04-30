@@ -49,6 +49,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -184,6 +185,8 @@ namespace Parsek.Tests
         {
             // A closed-orbit segment is real Orbiting evidence even with a
             // single high-altitude point.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                bodyName => bodyName == "Kerbin" ? 600000.0 : (double?)null;
             var rec = new Recording { RecordingId = "stable-orbit" };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 50000.0, bodyName = "Kerbin" });
             rec.OrbitSegments.Add(new OrbitSegment
@@ -194,6 +197,41 @@ namespace Parsek.Tests
             });
 
             Assert.False(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
+        }
+
+        [Fact]
+        public void HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeBodyUnresolvedOrbit_ReturnsTrue()
+        {
+            // Orbit evidence only counts when the inference path can resolve the
+            // body radius and prove periapsis is above the surface.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = _ => null;
+            var rec = new Recording { RecordingId = "unresolved-orbit-body" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 50000.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.05,
+            });
+
+            Assert.True(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
+        }
+
+        [Fact]
+        public void HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeSurfaceIntersectingOrbit_ReturnsTrue()
+        {
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                bodyName => bodyName == "Kerbin" ? 600000.0 : (double?)null;
+            var rec = new Recording { RecordingId = "surface-intersecting-orbit" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 50000.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 500000.0,
+                eccentricity = 0.10,
+            });
+
+            Assert.True(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
         }
 
         [Fact]
@@ -214,6 +252,24 @@ namespace Parsek.Tests
             // No points at all — InferTerminalStateFromTrajectory returns
             // SubOrbital by its initial null/empty check. Same fabricated guess.
             var rec = new Recording { RecordingId = "no-points" };
+
+            Assert.True(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
+        }
+
+        [Fact]
+        public void HasOnlySubOrbitalFallbackEvidence_ZeroPointsWithStableOrbit_ReturnsTrue()
+        {
+            // InferTerminalStateFromTrajectory returns SubOrbital before it
+            // inspects orbit segments when there are zero points.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                bodyName => bodyName == "Kerbin" ? 600000.0 : (double?)null;
+            var rec = new Recording { RecordingId = "no-points-stable-orbit" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.05,
+            });
 
             Assert.True(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
         }

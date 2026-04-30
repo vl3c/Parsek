@@ -196,7 +196,7 @@ fallback is suppressed.
 
 xUnit coverage in `Source/Parsek.Tests/Bug2ProbeTerminalRegressionTests.cs`:
 the user's exact regression shape plus its active-non-leaf mirror, the pure
-`HasOnlySubOrbitalFallbackEvidence` helper across all 8 evidence combinations,
+`HasOnlySubOrbitalFallbackEvidence` helper across the evidence combinations,
 and a full split → strip → trim → second-finalize round-trip pin. The pre-fix
 test `FinalizeIndividualRecording_CacheRejected_FallsBackToTrajectoryInference`
 in `SceneExitFinalizationIntegrationTests.cs` was relying on the (now-removed)

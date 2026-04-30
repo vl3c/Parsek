@@ -11046,26 +11046,67 @@ namespace Parsek
             }
 
             // Check orbit segments for stable orbit (ecc < 1, periapsis above body surface).
-            // FlightGlobals is unavailable in unit tests — guard with try/catch.
             if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
             {
                 var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-                if (lastOrbit.eccentricity < 1.0 && !string.IsNullOrEmpty(lastOrbit.bodyName))
-                {
-                    double bodyRadius = 0;
-                    try
-                    {
-                        var body = FlightGlobals.GetBodyByName(lastOrbit.bodyName);
-                        if (body != null) bodyRadius = body.Radius;
-                    }
-                    catch { /* FlightGlobals unavailable outside KSP */ }
-                    if (bodyRadius > 0 && lastOrbit.semiMajorAxis * (1 - lastOrbit.eccentricity) > bodyRadius)
-                        return TerminalState.Orbiting;
-                }
+                if (HasStableOrbitEvidenceForTerminalInference(lastOrbit))
+                    return TerminalState.Orbiting;
             }
 
             // Default: vessel was in flight (atmospheric descent, suborbital, etc.)
             return TerminalState.SubOrbital;
+        }
+
+        internal static Func<string, double?> TerminalInferenceBodyRadiusResolverForTesting;
+
+        private static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
+        {
+            if (lastOrbit.eccentricity >= 1.0 || string.IsNullOrEmpty(lastOrbit.bodyName))
+                return false;
+            if (!TryResolveTerminalInferenceBodyRadius(lastOrbit.bodyName, out double bodyRadius)
+                || bodyRadius <= 0.0)
+                return false;
+
+            double periapsisRadius = lastOrbit.semiMajorAxis * (1.0 - lastOrbit.eccentricity);
+            return !double.IsNaN(periapsisRadius)
+                && !double.IsInfinity(periapsisRadius)
+                && periapsisRadius > bodyRadius;
+        }
+
+        private static bool TryResolveTerminalInferenceBodyRadius(string bodyName, out double bodyRadius)
+        {
+            bodyRadius = 0.0;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
+
+            Func<string, double?> resolver = TerminalInferenceBodyRadiusResolverForTesting;
+            if (resolver != null)
+            {
+                double? resolved = resolver(bodyName);
+                if (resolved.HasValue && resolved.Value > 0.0)
+                {
+                    bodyRadius = resolved.Value;
+                    return true;
+                }
+
+                return false;
+            }
+
+            try
+            {
+                var body = FlightGlobals.GetBodyByName(bodyName);
+                if (body != null && body.Radius > 0.0)
+                {
+                    bodyRadius = body.Radius;
+                    return true;
+                }
+            }
+            catch
+            {
+                // FlightGlobals is unavailable in headless tests.
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -11179,12 +11220,14 @@ namespace Parsek
                     return false;
             }
 
-            // Stable closed orbit = real orbiting evidence (mirrors the orbit check
-            // in InferTerminalStateFromTrajectory).
-            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            // Stable closed orbit = real orbiting evidence, but only for a
+            // one-point payload. With zero points, InferTerminalStateFromTrajectory
+            // returns SubOrbital before checking orbit segments.
+            if (rec.Points != null && rec.Points.Count == 1
+                && rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
             {
                 var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
-                if (lastOrbit.eccentricity < 1.0 && !string.IsNullOrEmpty(lastOrbit.bodyName))
+                if (HasStableOrbitEvidenceForTerminalInference(lastOrbit))
                     return false;
             }
 
