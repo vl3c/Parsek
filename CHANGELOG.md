@@ -164,7 +164,7 @@ All notable changes to Parsek are documented here.
 
 - `#613` Fresh loop and overlap-primary spawns that retire during relative-frame priming now suppress the first-spawn `RetargetToNewGhost` camera event, so watch mode never receives a pivot from the hidden origin-positioned ghost.
 
-- `#613` Non-loop past-end holds, hidden/watch priming, and single-point playback now resolve the active `TrackSection` before positioning. RELATIVE endpoints route through anchor-relative playback, and when the Re-Fly rewind has retired the anchor the engine suppresses completion/explosion side effects and destroys the hidden visual state, so final-frame ghosts no longer interpret metre offsets as body-fixed lat/lon/alt or fire policy from an origin-positioned transform.
+- `#613` Non-loop past-end holds, hidden/watch priming, and single-point playback now resolve the active `TrackSection` before positioning. RELATIVE endpoints route through anchor-relative playback, and when the Re-Fly rewind has retired the anchor the engine suppresses completion/explosion side effects for that frame while keeping the endpoint eligible to retry if the anchor resolves later, so final-frame ghosts no longer interpret metre offsets as body-fixed lat/lon/alt or fire policy from an origin-positioned transform.
 
 - Watch auto-follow now treats missing or partially built target ghosts as a deferred transfer, starts a retry hold, and only logs success after the transfer actually lands; watch range also has 300 km entry / 305 km exit hysteresis so near-cutoff transfers do not immediately pop the camera back out.
 

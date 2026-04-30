@@ -144,13 +144,6 @@ namespace Parsek
         // destructive part event. Keep those indices suppressed until a rewind/reset so
         // they do not respawn while the original recording window is still in range.
         private readonly HashSet<int> earlyDestroyedDebrisCompleted = new HashSet<int>();
-        // Past-end RELATIVE endpoints with retired anchors cannot safely emit the
-        // normal completion event: policy subscribers may read the endpoint transform
-        // for spawn/camera side effects, and the only transform available is stale.
-        // Treat them as terminally suppressed until rewind/reset instead of re-trying
-        // the same retired endpoint every frame.
-        private readonly HashSet<int> pastEndEndpointRetired = new HashSet<int>();
-
         private enum GhostVisualLoadStatus : byte
         {
             Failed = 0,
@@ -514,8 +507,7 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
                             traj, f, ctx.currentUT,
                             completedEventFired.Contains(i),
-                            earlyDestroyedDebrisCompleted.Contains(i))
-                        && !pastEndEndpointRetired.Contains(i))
+                            earlyDestroyedDebrisCompleted.Contains(i)))
                     {
                         bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
                         ParsekLog.Verbose("Engine",
@@ -564,7 +556,6 @@ namespace Parsek
                 {
                     completedEventFired.Remove(i);
                     earlyDestroyedDebrisCompleted.Remove(i);
-                    pastEndEndpointRetired.Remove(i);
                     if (ghostActive)
                     {
                         DestroyAllOverlapGhosts(i);
@@ -651,7 +642,6 @@ namespace Parsek
                             state = null;
                             // Clear completed-event flag so the debris can play again
                             completedEventFired.Remove(i);
-                            pastEndEndpointRetired.Remove(i);
                         }
 
                         bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
@@ -702,12 +692,9 @@ namespace Parsek
                 }
 
                 // === Past end: fire completed event, optionally destroy ===
-                if (ShouldEnterPastEndCompletion(
-                        pastEnd,
-                        pastEffectiveEnd,
-                        completedEventFired.Contains(i),
-                        earlyDestroyedDebrisCompleted.Contains(i),
-                        pastEndEndpointRetired.Contains(i)))
+                if ((pastEnd || pastEffectiveEnd)
+                    && !completedEventFired.Contains(i)
+                    && !earlyDestroyedDebrisCompleted.Contains(i))
                     HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPointData);
 
                 // === Stale past-end ghost cleanup ===
@@ -1143,13 +1130,12 @@ namespace Parsek
                     state != null,
                     "ghostActive implies an existing GhostPlaybackState");
 
-                // Bug #613 follow-up: the endpoint can itself be inside a
-                // RELATIVE section. If the Re-Fly rewind erased the anchor,
-                // PositionGhostAtRecordingEndpoint retires the ghost for this
-                // frame; do not let explosion/completion policy observe the
-                // stale transform. The suppressed-endpoint set below prevents
-                // re-entering the same permanently retired endpoint every
-                // frame after we destroy the hidden visual state.
+                // Bug #613 follow-up: endpoint retirement is frame-local.
+                // A RELATIVE anchor can resolve again through the recorded
+                // fallback path on a later frame, so keep the ghost alive and
+                // retry instead of marking completion or destroying state.
+                // While retired, policy must not observe the stale endpoint
+                // transform; FX are suppressed and the log below is rate-limited.
                 state.anchorRetiredThisFrame = false;
 
                 // Position ghost at the true recording endpoint.
@@ -1162,8 +1148,6 @@ namespace Parsek
                     ApplyFrameVisuals(i, traj, state, ResolveRecordingEndpointPlaybackUT(traj),
                         ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
                         allowTransientEffects: false);
-                    pastEndEndpointRetired.Add(i);
-                    DestroyGhost(i, traj, f, reason: "past-end relative endpoint retired");
                     ParsekLog.VerboseRateLimited("Engine", $"past-end-suppressed-{i}",
                         $"past-end completion suppressed: anchor retired ghost #{i} \"{traj?.VesselName}\"");
                     return;
@@ -1189,19 +1173,6 @@ namespace Parsek
                 LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
                 CurrentUT = ctx.currentUT
             });
-        }
-
-        internal static bool ShouldEnterPastEndCompletion(
-            bool pastEnd,
-            bool pastEffectiveEnd,
-            bool completionFired,
-            bool earlyCompletionFired,
-            bool endpointRetiredSuppressed)
-        {
-            return (pastEnd || pastEffectiveEnd)
-                && !completionFired
-                && !earlyCompletionFired
-                && !endpointRetiredSuppressed;
         }
 
         /// <summary>
@@ -2071,6 +2042,8 @@ namespace Parsek
 
         internal static double ResolveRecordingEndpointPlaybackUT(IPlaybackTrajectory traj)
         {
+            // Preserve endpoint-hold semantics: point-backed recordings hold the
+            // last sampled pose even when ExplicitEndUT extends beyond it.
             if (traj?.Points != null && traj.Points.Count > 0)
                 return traj.Points[traj.Points.Count - 1].ut;
             if (traj != null && traj.HasOrbitSegments)
@@ -3122,7 +3095,6 @@ namespace Parsek
             // does not suppress the new cycle's legitimate completion event
             // nor over-dedupe the audio warning across cycles.
             completedEventFired.Remove(index);
-            pastEndEndpointRetired.Remove(index);
             GhostVisualBuilder.ClearMissingAudioClipWarnings(state.ghost.name);
 
             // Step 1: pure-static per-cycle state reset. See
@@ -3419,10 +3391,7 @@ namespace Parsek
             spawnStopwatch.Start();
             frameSpawnCount++;
             if (resetCompletedEventDedup)
-            {
                 completedEventFired.Remove(index);
-                pastEndEndpointRetired.Remove(index);
-            }
 
             try
             {
@@ -4914,7 +4883,6 @@ namespace Parsek
             loggedReshow.Clear();
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
-            pastEndEndpointRetired.Clear();
 
         }
 
@@ -4933,7 +4901,6 @@ namespace Parsek
             ReindexSet(loggedReshow, removedIndex);
             ReindexSet(completedEventFired, removedIndex);
             ReindexSet(earlyDestroyedDebrisCompleted, removedIndex);
-            ReindexSet(pastEndEndpointRetired, removedIndex);
         }
 
         private static void ReindexDict<T>(Dictionary<int, T> dict, int removedIndex)

@@ -397,29 +397,6 @@ namespace Parsek.Tests
             Assert.Equal(0u, anchorPid);
         }
 
-        [Theory]
-        [InlineData(true, false, false, false, false, true)]
-        [InlineData(false, true, false, false, false, true)]
-        [InlineData(false, false, false, false, false, false)]
-        [InlineData(true, false, true, false, false, false)]
-        [InlineData(true, false, false, true, false, false)]
-        [InlineData(true, false, false, false, true, false)]
-        public void ShouldEnterPastEndCompletion_GatesAllDedupReasons(
-            bool pastEnd,
-            bool pastEffectiveEnd,
-            bool completionFired,
-            bool earlyCompletionFired,
-            bool endpointRetiredSuppressed,
-            bool expected)
-        {
-            Assert.Equal(expected, GhostPlaybackEngine.ShouldEnterPastEndCompletion(
-                pastEnd,
-                pastEffectiveEnd,
-                completionFired,
-                earlyCompletionFired,
-                endpointRetiredSuppressed));
-        }
-
         #endregion
 
         // ===================================================================
