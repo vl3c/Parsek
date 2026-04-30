@@ -4361,6 +4361,43 @@ namespace Parsek
         // captured failure while still leaving room for frame skew.
         internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
         internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
+        // Production anchor lookup has a wider 1.0s search window, but authoring
+        // child seed flags must stay at physics-clock equality so later coalescer
+        // samples are not marked as structural-event snapshots.
+        internal const double StructuralEventChildSeedUTToleranceSeconds = 1e-6;
+
+        internal static bool ShouldFlagStructuralEventChildSeed(
+            TrajectoryPoint point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            if (!IsFinite(point.ut) || !IsFinite(eventUT))
+                return false;
+
+            double tolerance = Math.Max(0.0, toleranceSeconds);
+            return Math.Abs(point.ut - eventUT) <= tolerance;
+        }
+
+        internal static TrajectoryPoint ApplyStructuralEventFlagToChildSeed(
+            TrajectoryPoint point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            return ShouldFlagStructuralEventChildSeed(point, eventUT, toleranceSeconds)
+                ? FlightRecorder.ApplyStructuralEventFlag(point)
+                : point;
+        }
+
+        internal static TrajectoryPoint? ApplyStructuralEventFlagToChildSeed(
+            TrajectoryPoint? point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            if (!point.HasValue)
+                return null;
+
+            return ApplyStructuralEventFlagToChildSeed(point.Value, eventUT, toleranceSeconds);
+        }
 
         internal static bool ShouldPreferLiveBreakupChildSeed(
             bool childHasController,
@@ -4492,6 +4529,10 @@ namespace Parsek
                     $"from child recId={childRec.RecordingId} (pid={pid}) to preserve monotonicity (#419)");
             }
 
+            TrajectoryPoint? structuralSeedPoint = ApplyStructuralEventFlagToChildSeed(
+                fallbackTrajectoryPoint,
+                breakupBp.UT);
+
             if (vessel != null)
             {
                 ConfigNode liveSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
@@ -4503,8 +4544,8 @@ namespace Parsek
                 SeedBreakupChildSnapshots(childRec, pid, liveSnapshot: null, preCapturedSnapshot: fallbackSnapshot);
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
-                if (fallbackTrajectoryPoint.HasValue)
-                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
+                if (structuralSeedPoint.HasValue)
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, structuralSeedPoint.Value);
                 ParsekLog.Info("Coalescer",
                     $"CreateBreakupChildRecording: using pre-captured snapshot for pid={pid} (vessel destroyed)");
             }
@@ -4512,9 +4553,9 @@ namespace Parsek
             {
                 childRec.TerminalStateValue = TerminalState.Destroyed;
                 childRec.ExplicitEndUT = breakupBp.UT;
-                if (fallbackTrajectoryPoint.HasValue)
+                if (structuralSeedPoint.HasValue)
                 {
-                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, fallbackTrajectoryPoint.Value);
+                    BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, structuralSeedPoint.Value);
                     ParsekLog.Info("Coalescer",
                         $"CreateBreakupChildRecording: using pre-captured trajectory point for pid={pid} (vessel destroyed)");
                 }
@@ -4538,6 +4579,7 @@ namespace Parsek
             TrajectoryPoint point = seedPoint.Value;
             string summary =
                 $"seedPoint@{point.ut.ToString("F2", ic)} body={point.bodyName} " +
+                $"flags={point.flags} " +
                 $"lla=({point.latitude.ToString("F2", ic)}," +
                 $"{point.longitude.ToString("F2", ic)}," +
                 $"{point.altitude.ToString("F2", ic)}) " +
@@ -4797,7 +4839,9 @@ namespace Parsek
                     // still alive 0.5s later; otherwise the ghost builds from a later
                     // post-split snapshot and can appear spatially ahead on frame 1.
                     ConfigNode ctrlSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
-                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    TrajectoryPoint? breakupChildPoint = ApplyStructuralEventFlagToChildSeed(
+                        crashCoalescer.GetPreCapturedTrajectoryPoint(pid),
+                        breakupBp.UT);
 
                     // Skip dead-on-arrival controlled children: once the live
                     // Vessel is gone before the coalescer window expires there
@@ -4825,6 +4869,7 @@ namespace Parsek
                         breakupChildPoint,
                         childVessel,
                         Planetarium.GetUniversalTime());
+                    initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
@@ -4873,7 +4918,9 @@ namespace Parsek
                     // the debris vessel survives the coalescing window; VesselSnapshot still
                     // comes from the later live state for spawning.
                     ConfigNode preSnap = crashCoalescer.GetPreCapturedSnapshot(pid);
-                    TrajectoryPoint? breakupChildPoint = crashCoalescer.GetPreCapturedTrajectoryPoint(pid);
+                    TrajectoryPoint? breakupChildPoint = ApplyStructuralEventFlagToChildSeed(
+                        crashCoalescer.GetPreCapturedTrajectoryPoint(pid),
+                        breakupBp.UT);
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
                         preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
 
@@ -4886,6 +4933,7 @@ namespace Parsek
                             initialPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
                                 debrisVessel, sampleUT, preferRootPartSurfacePose: true);
                         }
+                        initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
