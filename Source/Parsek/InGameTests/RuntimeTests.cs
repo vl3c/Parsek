@@ -13925,14 +13925,28 @@ namespace Parsek.InGameTests
                     targetUT,
                     out List<TrajectoryPoint> playbackFrames);
 
-                InGameAssert.IsTrue(usedShadow,
-                    "Stale live anchor should engage RELATIVE absolute shadow playback without an active marker");
-                InGameAssert.IsNotNull(playbackFrames,
-                    "Stale-anchor shadow path should return playback frames");
-                InGameAssert.AreEqual(3, playbackFrames.Count,
-                    "Forward bridge should append the next Absolute section's first sampled frame");
-                InGameAssert.ApproxEqual(110.6, playbackFrames[2].ut, 0.0001,
-                    "Forward bridge UT should be the next Absolute section's first sampled frame");
+                InGameAssert.IsFalse(usedShadow,
+                    "Close loaded anchors must stay on the live-anchor fast path even when their recorded pose is stale");
+                InGameAssert.IsNull(playbackFrames,
+                    "Close-anchor fast path should not return absolute shadow playback frames");
+
+                Vector3d activeWorld = activeVessel.GetWorldPos3D();
+                bool staleGate = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                    activeReFlyBypass: false,
+                    liveAnchorAvailable: true,
+                    liveAnchorWorld: activeWorld + new Vector3d(
+                        ParsekFlight.LiveAnchorProximityFastPathMeters + 1000.0, 0.0, 0.0),
+                    liveAnchorWithinActiveFastPath: false,
+                    recordedAnchorAvailable: true,
+                    recordedAnchorWorld: activeWorld,
+                    out string shadowReason,
+                    out double staleDeltaMeters);
+                InGameAssert.IsTrue(staleGate,
+                    "Stale live anchor outside the active-vessel fast path should engage RELATIVE absolute shadow playback");
+                InGameAssert.AreEqual("stale-anchor", shadowReason,
+                    "Stale-shadow reason must identify the non-marker trigger path");
+                InGameAssert.IsTrue(staleDeltaMeters > ParsekFlight.StaleRelativeAnchorRejectMeters,
+                    "Synthetic stale delta should exceed the stale-anchor threshold");
 
                 List<TrajectoryPoint> resolvedFrames =
                     ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(parent, relativeSection, targetUT);
@@ -13945,7 +13959,8 @@ namespace Parsek.InGameTests
                     "Pipeline_Smoothing_RelativeShadow_StaleAnchorBridgesIntoAbsolute: "
                     + "anchorPid=" + anchorPid
                     + " targetUT=" + targetUT.ToString("F2", CultureInfo.InvariantCulture)
-                    + " frames=" + playbackFrames.Count);
+                    + " resolvedFrames=" + resolvedFrames.Count
+                    + " staleDelta=" + staleDeltaMeters.ToString("F0", CultureInfo.InvariantCulture));
             }
             finally
             {

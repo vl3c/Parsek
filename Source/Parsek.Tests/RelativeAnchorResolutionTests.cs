@@ -309,6 +309,7 @@ namespace Parsek.Tests
                 activeReFlyBypass: true,
                 liveAnchorAvailable: false,
                 liveAnchorWorld: Vector3d.zero,
+                liveAnchorWithinActiveFastPath: true,
                 recordedAnchorAvailable: false,
                 recordedAnchorWorld: Vector3d.zero,
                 out string reason,
@@ -326,6 +327,7 @@ namespace Parsek.Tests
                 activeReFlyBypass: false,
                 liveAnchorAvailable: true,
                 liveAnchorWorld: new Vector3d(1000, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
                 recordedAnchorAvailable: true,
                 recordedAnchorWorld: Vector3d.zero,
                 out string reason,
@@ -337,12 +339,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_LiveAnchorFastPath_ReturnsFalseDespiteStaleDelta()
+        {
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(1000, 0, 0),
+                liveAnchorWithinActiveFastPath: true,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.False(useShadow);
+            Assert.Null(reason);
+            Assert.True(double.IsNaN(staleDeltaMeters));
+        }
+
+        [Fact]
         public void ShouldUseAbsoluteShadowForRelativeSection_CloseLiveAnchor_ReturnsFalse()
         {
             bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
                 activeReFlyBypass: false,
                 liveAnchorAvailable: true,
                 liveAnchorWorld: new Vector3d(120, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
                 recordedAnchorAvailable: true,
                 recordedAnchorWorld: Vector3d.zero,
                 out string reason,
@@ -360,6 +381,7 @@ namespace Parsek.Tests
                 activeReFlyBypass: false,
                 liveAnchorAvailable: true,
                 liveAnchorWorld: new Vector3d(double.NaN, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
                 recordedAnchorAvailable: true,
                 recordedAnchorWorld: Vector3d.zero,
                 out string nanReason,
@@ -368,6 +390,7 @@ namespace Parsek.Tests
                 activeReFlyBypass: false,
                 liveAnchorAvailable: true,
                 liveAnchorWorld: new Vector3d(double.PositiveInfinity, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
                 recordedAnchorAvailable: true,
                 recordedAnchorWorld: Vector3d.zero,
                 out string infinityReason,
@@ -379,6 +402,34 @@ namespace Parsek.Tests
             Assert.Null(infinityReason);
             Assert.True(double.IsNaN(nanDelta));
             Assert.True(double.IsInfinity(infinityDelta));
+        }
+
+        [Fact]
+        public void IsLiveAnchorWithinActiveFastPath_CloseFiniteDistance_ReturnsTrue()
+        {
+            bool withinFastPath = ParsekFlight.IsLiveAnchorWithinActiveFastPath(
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(100.0, 0.0, 0.0),
+                activeVesselAvailable: true,
+                activeVesselWorld: Vector3d.zero,
+                out double distanceMeters);
+
+            Assert.True(withinFastPath);
+            Assert.Equal(100.0, distanceMeters, 3);
+        }
+
+        [Fact]
+        public void IsLiveAnchorWithinActiveFastPath_NonFiniteDistance_ReturnsFalse()
+        {
+            bool withinFastPath = ParsekFlight.IsLiveAnchorWithinActiveFastPath(
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(double.NaN, 0.0, 0.0),
+                activeVesselAvailable: true,
+                activeVesselWorld: Vector3d.zero,
+                out double distanceMeters);
+
+            Assert.False(withinFastPath);
+            Assert.True(double.IsNaN(distanceMeters));
         }
 
         #endregion

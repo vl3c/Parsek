@@ -17747,10 +17747,12 @@ namespace Parsek
                 if (activeForFastPath != null)
                 {
                     Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
-                    double distFromActive = (livePose.worldPos - activeWorld).magnitude;
-                    if (!double.IsNaN(distFromActive)
-                        && !double.IsInfinity(distFromActive)
-                        && distFromActive < LiveAnchorProximityFastPathMeters)
+                    if (IsLiveAnchorWithinActiveFastPath(
+                            liveAnchorAvailable,
+                            livePose.worldPos,
+                            IsFiniteVector3d(activeWorld),
+                            activeWorld,
+                            out _))
                     {
                         pose = livePose;
                         return true;
@@ -18004,6 +18006,8 @@ namespace Parsek
 
             bool liveAnchorAvailable = false;
             Vector3d liveAnchorWorld = Vector3d.zero;
+            bool liveAnchorWithinActiveFastPath = false;
+            double liveAnchorActiveDistance = double.NaN;
             bool recordedAnchorAvailable = false;
             Vector3d recordedAnchorWorld = Vector3d.zero;
             if (!activeReFlyBypass)
@@ -18017,26 +18021,57 @@ namespace Parsek
 
                 if (liveAnchorAvailable)
                 {
-                    if (searchTrees == null)
+                    Vessel activeForFastPath = FlightGlobals.ActiveVessel;
+                    if (activeForFastPath != null)
                     {
-                        searchTrees =
-                            GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                                RecordingStore.CommittedTrees,
-                                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                        Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
+                        liveAnchorWithinActiveFastPath = IsLiveAnchorWithinActiveFastPath(
+                            liveAnchorAvailable,
+                            liveAnchorWorld,
+                            IsFiniteVector3d(activeWorld),
+                            activeWorld,
+                            out liveAnchorActiveDistance);
                     }
 
-                    if (TryResolveRecordedAnchorPoseWithCoverage(
-                            anchorVesselId,
-                            trajectory.RecordingId,
-                            targetUT,
-                            searchTrees,
-                            marker,
-                            bypassLiveAnchorForActiveReFly: false,
-                            requireCoverage: true,
-                            out RelativeAnchorPose recordedPose))
+                    if (liveAnchorWithinActiveFastPath)
                     {
-                        recordedAnchorWorld = recordedPose.worldPos;
-                        recordedAnchorAvailable = IsFiniteVector3d(recordedAnchorWorld);
+                        var ic = CultureInfo.InvariantCulture;
+                        ParsekLog.VerboseRateLimited(
+                            "Playback",
+                            string.Concat(
+                                "relative-absolute-shadow-live-fast-path|",
+                                trajectory.RecordingId, "|",
+                                anchorVesselId.ToString(ic), "|",
+                                section.startUT.ToString("R", ic)),
+                            $"RELATIVE absolute shadow skipped: reason=live-anchor-proximity-fast-path " +
+                            $"anchorPid={anchorVesselId} " +
+                            $"distFromActive={liveAnchorActiveDistance.ToString("F0", ic)}m " +
+                            $"threshold={LiveAnchorProximityFastPathMeters.ToString("F0", ic)}m",
+                            5.0);
+                    }
+                    else
+                    {
+                        if (searchTrees == null)
+                        {
+                            searchTrees =
+                                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                                    RecordingStore.CommittedTrees,
+                                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                        }
+
+                        if (TryResolveRecordedAnchorPoseWithCoverage(
+                                anchorVesselId,
+                                trajectory.RecordingId,
+                                targetUT,
+                                searchTrees,
+                                marker,
+                                bypassLiveAnchorForActiveReFly: false,
+                                requireCoverage: true,
+                                out RelativeAnchorPose recordedPose))
+                        {
+                            recordedAnchorWorld = recordedPose.worldPos;
+                            recordedAnchorAvailable = IsFiniteVector3d(recordedAnchorWorld);
+                        }
                     }
                 }
             }
@@ -18045,6 +18080,7 @@ namespace Parsek
                     activeReFlyBypass,
                     liveAnchorAvailable,
                     liveAnchorWorld,
+                    liveAnchorWithinActiveFastPath,
                     recordedAnchorAvailable,
                     recordedAnchorWorld,
                     out string shadowReason,
@@ -18081,6 +18117,7 @@ namespace Parsek
             bool activeReFlyBypass,
             bool liveAnchorAvailable,
             Vector3d liveAnchorWorld,
+            bool liveAnchorWithinActiveFastPath,
             bool recordedAnchorAvailable,
             Vector3d recordedAnchorWorld,
             out string reason,
@@ -18093,6 +18130,9 @@ namespace Parsek
                 reason = "active-refly-parent-chain";
                 return true;
             }
+
+            if (liveAnchorWithinActiveFastPath)
+                return false;
 
             if (!liveAnchorAvailable || !recordedAnchorAvailable)
                 return false;
@@ -18108,6 +18148,23 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        internal static bool IsLiveAnchorWithinActiveFastPath(
+            bool liveAnchorAvailable,
+            Vector3d liveAnchorWorld,
+            bool activeVesselAvailable,
+            Vector3d activeVesselWorld,
+            out double distanceMeters)
+        {
+            distanceMeters = double.NaN;
+            if (!liveAnchorAvailable || !activeVesselAvailable)
+                return false;
+
+            distanceMeters = (liveAnchorWorld - activeVesselWorld).magnitude;
+            return !double.IsNaN(distanceMeters)
+                && !double.IsInfinity(distanceMeters)
+                && distanceMeters < LiveAnchorProximityFastPathMeters;
         }
 
         // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
