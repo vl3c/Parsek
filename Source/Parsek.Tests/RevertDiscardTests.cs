@@ -25,12 +25,16 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            RewindInvokeContext.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             RevertDetector.ResetForTesting();
         }
 
         public void Dispose()
         {
             RevertDetector.ResetForTesting();
+            RewindInvokeContext.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             GameStateRecorder.ResetForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
@@ -251,7 +255,61 @@ namespace Parsek.Tests
             // the hard-discard, even when UT regresses and the scene stays in FLIGHT.
             Assert.Equal(
                 expected,
-                ParsekScenario.ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert));
+                ParsekScenario.ShouldRunQuickloadDiscard(
+                    utWentBackwards,
+                    isFlightToFlight,
+                    isRevert,
+                    isReFlySessionActive: false));
+        }
+
+        [Theory]
+        [InlineData(false, false, false)]
+        [InlineData(false, false, true)]
+        [InlineData(false, true, false)]
+        [InlineData(false, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(true, false, true)]
+        [InlineData(true, true, false)]
+        [InlineData(true, true, true)]
+        public void ShouldRunQuickloadDiscard_ActiveReFlySession_ReturnsFalse(
+            bool utWentBackwards, bool isFlightToFlight, bool isRevert)
+        {
+            Assert.False(ParsekScenario.ShouldRunQuickloadDiscard(
+                utWentBackwards,
+                isFlightToFlight,
+                isRevert,
+                isReFlySessionActive: true));
+        }
+
+        [Fact]
+        public void ShouldRunQuickloadDiscard_ActiveReFlyMarker_ReturnsFalse()
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_gate_marker",
+                    RewindPointId = "rp_gate_marker",
+                },
+            });
+
+            Assert.False(ParsekScenario.ShouldRunQuickloadDiscard(
+                utWentBackwards: true,
+                isFlightToFlight: true,
+                isRevert: false));
+        }
+
+        [Fact]
+        public void ShouldRunQuickloadDiscard_PendingReFlyInvoke_ReturnsFalse()
+        {
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess_gate_pending";
+            RewindInvokeContext.RewindPointId = "rp_gate_pending";
+
+            Assert.False(ParsekScenario.ShouldRunQuickloadDiscard(
+                utWentBackwards: true,
+                isFlightToFlight: true,
+                isRevert: false));
         }
 
         [Fact]

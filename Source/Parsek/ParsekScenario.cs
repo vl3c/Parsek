@@ -284,22 +284,79 @@ namespace Parsek
 
         /// <summary>
         /// #434 follow-up: dispatch-level guard that decides whether the OnLoad
-        /// quickload-discard branch should fire. Pure function of the three
-        /// classification bits so it can be unit-tested in isolation — the
-        /// <see cref="OnLoad"/> call site it gates is itself not reachable from
-        /// xUnit (ScenarioModule lifecycle).
+        /// quickload-discard branch should fire. The pure overload takes the
+        /// three scene-classification bits plus the active re-fly session bit so
+        /// it can be unit-tested in isolation — the <see cref="OnLoad"/> call
+        /// site it gates is itself not reachable from xUnit (ScenarioModule
+        /// lifecycle).
         ///
         /// The truth table that matters:
         /// <list type="bullet">
         ///   <item>Pure F5/F9 quickload (<c>isRevert=false</c>, UT back, flight-to-flight): <b>true</b> — hard-discard the stashed-this-transition tree.</item>
         ///   <item>Revert to Launch (<c>isRevert=true</c>, UT back, flight-to-flight): <b>false</b> — the revert branch owns pending-tree handling via <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>, which preserves sidecar files for F9-from-flight-quicksave.</item>
+        ///   <item>Active re-fly / retry invoke (<c>isReFlySessionActive=true</c>): <b>false</b> — the session owns the pending tree and rewind point being reloaded.</item>
         ///   <item>Scene reload with same UT: <b>false</b> — nothing to discard.</item>
         /// </list>
         /// </summary>
         internal static bool ShouldRunQuickloadDiscard(
             bool utWentBackwards, bool isFlightToFlight, bool isRevert)
         {
-            return utWentBackwards && isFlightToFlight && !isRevert;
+            return ShouldRunQuickloadDiscard(
+                utWentBackwards,
+                isFlightToFlight,
+                isRevert,
+                IsReFlySessionActiveForQuickloadDiscard());
+        }
+
+        internal static bool ShouldRunQuickloadDiscard(
+            bool utWentBackwards,
+            bool isFlightToFlight,
+            bool isRevert,
+            bool isReFlySessionActive)
+        {
+            return utWentBackwards
+                && isFlightToFlight
+                && !isRevert
+                && !isReFlySessionActive;
+        }
+
+        /// <summary>
+        /// True when quickload discard must treat a re-fly session as active.
+        /// This includes the normal persisted marker and the retry/invoke window
+        /// before <see cref="RewindInvoker.AtomicMarkerWrite"/> recreates the
+        /// marker from <see cref="RewindInvokeContext"/>.
+        /// </summary>
+        internal static bool IsReFlySessionActiveForQuickloadDiscard()
+        {
+            var scenario = Instance;
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null)
+                return true;
+
+            return RewindInvokeContext.Pending;
+        }
+
+        private static string DescribeReFlySessionForQuickloadDiscard()
+        {
+            var scenario = Instance;
+            var marker = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.ActiveReFlySessionMarker;
+            if (marker != null)
+            {
+                return "marker "
+                    + $"sess={marker.SessionId ?? "<no-id>"} "
+                    + $"rp={marker.RewindPointId ?? "<no-rp>"}";
+            }
+
+            if (RewindInvokeContext.Pending)
+            {
+                return "pending-invoke "
+                    + $"sess={RewindInvokeContext.SessionId ?? "<no-id>"} "
+                    + $"rp={RewindInvokeContext.RewindPointId ?? "<no-rp>"}";
+            }
+
+            return "none";
         }
 
         /// <summary>
@@ -324,8 +381,17 @@ namespace Parsek
         /// heuristic, but reverted recordings must survive on disk so a flight
         /// F5 quicksave's F9 can still restore. The production caller in
         /// <see cref="OnLoad"/> gates the call through
-        /// <see cref="ShouldRunQuickloadDiscard"/>; the defense-in-depth check
-        /// on the first line below refuses to proceed if a revert just fired.
+        /// <see cref="ShouldRunQuickloadDiscard"/>; the defense-in-depth checks
+        /// on the first lines below refuse to proceed if a revert just fired
+        /// or a re-fly session is active.
+        /// </para>
+        /// <para>
+        /// Retry during the Re-Fly dialog is the same class of exclusion as
+        /// revert: it clears the old marker, arms <see cref="RewindInvokeContext"/>
+        /// for the fresh invocation, and quickloads the RP back into FLIGHT.
+        /// During that pre-marker window the pending tree and RP quicksave are
+        /// still dependencies of the live session, so the quickload-discard
+        /// heuristic must not delete them.
         /// </para>
         /// </summary>
         internal static void DiscardStashedOnQuickload(
@@ -345,6 +411,16 @@ namespace Parsek
                     "DiscardStashedOnQuickload: refusing to run with armed RevertDetector " +
                     $"(pending={RevertDetector.PendingKind}). Caller skipped the #434 guard at " +
                     "the OnLoad dispatch — sidecar preservation invariant enforced here.");
+                return;
+            }
+
+            if (IsReFlySessionActiveForQuickloadDiscard())
+            {
+                ParsekLog.Warn("Scenario",
+                    "DiscardStashedOnQuickload: refusing to run with active re-fly session " +
+                    $"({DescribeReFlySessionForQuickloadDiscard()}). Caller skipped the re-fly " +
+                    "guard at the OnLoad dispatch — rewind point and pending-tree " +
+                    "preservation invariant enforced here.");
                 return;
             }
 
@@ -1245,6 +1321,12 @@ namespace Parsek
                     // could run, which would break F9-from-flight-quicksave in any playthrough
                     // where the user F5'd during the doomed flight. Gate extracted to
                     // ShouldRunQuickloadDiscard so the contract is unit-testable.
+                    //
+                    // Re-Fly retry has the same quickload shape, but during the pre-marker
+                    // invoke window the session is represented by RewindInvokeContext.Pending.
+                    // The gate treats that pending invoke as active so the RP quicksave and
+                    // pending tree survive until RewindInvoker.ConsumePostLoad recreates the
+                    // marker and resumes the session.
                     if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
                     {
                         DiscardStashedOnQuickload(preChangeUT, loadedUT);
