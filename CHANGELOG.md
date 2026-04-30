@@ -37,6 +37,7 @@ All notable changes to Parsek are documented here.
 - Phase 9 child-seed structural-event flags now mirror parent branch-point snapshots at exact branch UTs, so coalescer-created child recordings use the same anchor fast path as the parent.
 - Anchor propagation now avoids kraken-classified raw boundary samples when Phase 8 outlier flags are available, selecting a clean same-section frame instead of computing correction from a rejected spike.
 - Outlier rejection no longer treats sparse high-speed ascent/coast samples as bubble-radius teleports merely because the vessel travelled more than 2.5 km between multi-second samples. Cached `.pann` annotations recompute so previously persisted false-positive outlier flags are discarded on load.
+- Re-Fly tree anchor lock: every ghost in the active Re-Fly tree is now translated by a single spawn-time world-space delta (live player position minus recorded active-recording position at session-start UT), frozen for the rest of the session. The upper stage ghost lands at the correct relative offset to the live player at separation and continues along its own original recorded trajectory regardless of how the player's flight diverges, instead of gluing to the live player or appearing inside it.
 
 ### Log Hygiene
 
