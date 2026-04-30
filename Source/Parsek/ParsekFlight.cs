@@ -13257,7 +13257,8 @@ namespace Parsek
 
             if (HasSurfaceCoverageAtUT(rec, currentUT))
             {
-                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value, allowActivation: true);
+                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value, allowActivation: true,
+                    recordingId: rec.RecordingId);
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-surface-" + chain.OriginalVesselPid,
                     string.Format(CultureInfo.InvariantCulture,
@@ -13367,7 +13368,8 @@ namespace Parsek
                     // to feed the spline gate. Tracked in the Phase 1 plan.
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
-                        out _, skipOrbitSegments: surfaceSkip);
+                        out _, skipOrbitSegments: surfaceSkip,
+                        recordingId: bgRec.RecordingId);
 
                     // Update ghost map ProtoVessel orbit if segment changed
                     UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
@@ -17341,6 +17343,17 @@ namespace Parsek
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
+                // Re-Fly tree anchor lock: classify zone hiding / LOD / watch
+                // cutoff against the SAME spawn-aligned position the renderer
+                // will use, not the raw recorded position. Without this, the
+                // distance gate would hide / downscale the very ghost the
+                // anchor lock is trying to keep visible at the live player's
+                // spawn location. Cheap O(1) dict lookup per ghost per frame.
+                if (traj != null
+                    && TryGetReFlyTreeAnchorOffset(traj.RecordingId, playbackUT, out Vector3d treeDelta))
+                {
+                    worldPos += treeDelta;
+                }
                 return Vector3d.Distance(worldPos, referencePosition);
             }
 
@@ -19682,6 +19695,18 @@ namespace Parsek
                     dy,
                     dz,
                     recordingFormatVersion);
+
+                // Re-Fly tree anchor lock: before-first-frame and zero-duration
+                // edge cases route here (single-point relative fallback). Apply
+                // the same spawn-time delta as the regular relative path so
+                // these frames don't bypass coverage and LateUpdate's Relative
+                // branch preserves the anchored pose via reFlyTreeOffset.
+                Vector3d relReFlyTreeOffset = Vector3d.zero;
+                bool relHasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                    recordingId, point.ut, out relReFlyTreeOffset);
+                if (relHasReFlyTreeOffset)
+                    ghostPos += relReFlyTreeOffset;
+
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchorPose.worldRotation,
@@ -19699,7 +19724,8 @@ namespace Parsek
                     relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz,
-                    relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose)
+                    relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
+                    reFlyTreeOffset = relHasReFlyTreeOffset ? relReFlyTreeOffset : Vector3d.zero,
                 });
             }
             else
