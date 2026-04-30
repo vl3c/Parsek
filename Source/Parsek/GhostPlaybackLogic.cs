@@ -1867,6 +1867,7 @@ namespace Parsek
             var logicalPartIds = state.logicalPartIds;
             bool visibilityChanged = false;
             bool needsReentryMeshRebuild = false;
+            bool audioPowerChanged = false;
             HashSet<uint> placedTargetPartIds = null;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
@@ -1934,15 +1935,22 @@ namespace Parsek
                         // for backward compatibility. New recordings skip zero-throttle
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
                         SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
-                        SetEngineAudio(state, evt, System.Math.Max(evt.value, 0.01f));
+                        SetEngineAudio(
+                            state,
+                            evt,
+                            System.Math.Max(evt.value, 0.01f),
+                            enforcePlaybackCap: false);
+                        audioPowerChanged = true;
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
-                        SetEngineAudio(state, evt, 0f);
+                        SetEngineAudio(state, evt, 0f, enforcePlaybackCap: false);
+                        audioPowerChanged = true;
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
-                        SetEngineAudio(state, evt, evt.value);
+                        SetEngineAudio(state, evt, evt.value, enforcePlaybackCap: false);
+                        audioPowerChanged = true;
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -2034,6 +2042,8 @@ namespace Parsek
 
             int appliedCount = evtIdx - state.partEventIndex;
             state.partEventIndex = evtIdx;
+            if (audioPowerChanged)
+                EnforceLoopedAudioPlaybackCap(state);
             if (appliedCount > 0)
                 ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
                     $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
@@ -2247,8 +2257,10 @@ namespace Parsek
                 {
                     partPersistentId = persistentId,
                     moduleIndex = restores[i].moduleIndex
-                }, restores[i].power);
+                }, restores[i].power, enforcePlaybackCap: false);
             }
+            if (restores.Count > 0)
+                EnforceLoopedAudioPlaybackCap(state);
         }
 
         internal static void InitializeInventoryPlacementVisibility(
@@ -2833,7 +2845,11 @@ namespace Parsek
         /// Set engine audio volume/pitch from recorded throttle power.
         /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
         /// </summary>
-        internal static void SetEngineAudio(GhostPlaybackState state, PartEvent evt, float power)
+        internal static void SetEngineAudio(
+            GhostPlaybackState state,
+            PartEvent evt,
+            float power,
+            bool enforcePlaybackCap = true)
         {
             if (state.audioInfos == null) return;
 
@@ -2851,7 +2867,8 @@ namespace Parsek
             }
             if (ReferenceEquals(info.audioSource, null)) return;
 
-            EnforceLoopedAudioPlaybackCap(state);
+            if (enforcePlaybackCap)
+                EnforceLoopedAudioPlaybackCap(state);
         }
 
         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
@@ -3595,6 +3612,7 @@ namespace Parsek
                 }, restore.power);
             }
 
+            bool restoredAudioPower = false;
             foreach (var restore in CollectDeferredAudioPowerRestores(state))
             {
                 uint partPersistentId;
@@ -3604,8 +3622,11 @@ namespace Parsek
                 {
                     partPersistentId = partPersistentId,
                     moduleIndex = moduleIndex
-                }, restore.power);
+                }, restore.power, enforcePlaybackCap: false);
+                restoredAudioPower = true;
             }
+            if (restoredAudioPower)
+                EnforceLoopedAudioPlaybackCap(state);
         }
 
         #endregion
