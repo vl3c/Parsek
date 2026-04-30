@@ -1395,12 +1395,21 @@ recording remains untrimmed.
 **Review follow-up (2026-04-30):** the first context-capture patch armed
 the scope too early. Production arms the quickload-resume context before
 the later OnLoad phases that can create or clear the Re-Fly marker, so
-the stored scope could still be stale. Fixed by adding
-`RefreshPendingQuickloadTrimScope()` after `LoadTimeSweep.Run()` in both
-load branches. Added regressions for marker-created-after-arm
-(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling`)
-and marker-cleared-after-arm
-(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide`).
+the stored scope could still be stale. A second patch refreshed after
+`LoadTimeSweep.Run()` in both load branches, but that was still not late
+enough for async FLIGHT loads where `ConsumePostLoad` defers
+`AtomicMarkerWrite` until `onFlightReady`; the marker could be written
+after the final OnLoad refresh and before `RestoreActiveTreeFromPending`
+called `StartRecording`. The final fix also calls
+`RefreshPendingQuickloadTrimScope()` immediately after `AtomicMarkerWrite`
+successfully writes `ActiveReFlySessionMarker`, so the pending context is
+upgraded before recorder resume consumes it. Added regressions for
+marker-created-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling`),
+marker-cleared-after-arm
+(`PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide`),
+and deferred production marker creation
+(`AtomicMarkerWrite_InPlaceContinuation_RefreshesPendingQuickloadTrimScope`).
 
 **Status:** Closed with follow-up hardening on 2026-04-30.
 

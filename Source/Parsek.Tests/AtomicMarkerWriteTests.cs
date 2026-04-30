@@ -602,6 +602,62 @@ namespace Parsek.Tests
                 && l.Contains("inPlaceContinuation=True"));
         }
 
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_RefreshesPendingQuickloadTrimScope()
+        {
+            const uint kOriginPid = 9999u;
+            MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_origin",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            var tree = new RecordingTree
+            {
+                Id = origin.TreeId,
+                TreeName = "tree_origin",
+                RootRecordingId = origin.RecordingId,
+                ActiveRecordingId = origin.RecordingId,
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
+
+            // Production async load ordering: TryRestoreActiveTreeNode arms the
+            // quickload-resume context before the deferred onFlightReady
+            // AtomicMarkerWrite creates the Re-Fly marker.
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            var preMarkerScope = ParsekScenario.GetPendingQuickloadTrimScope(
+                tree.Id, out string preMarkerReason);
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, preMarkerScope);
+            Assert.Equal("no-active-refly-marker", preMarkerReason);
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_refresh_trim");
+
+            var postMarkerScope = ParsekScenario.GetPendingQuickloadTrimScope(
+                tree.Id, out string postMarkerReason);
+            Assert.Equal(ParsekScenario.QuickloadTrimScope.ActiveRecOnly, postMarkerScope);
+            Assert.Contains("refly-active", postMarkerReason);
+            Assert.Contains("sess=sess_refresh_trim", postMarkerReason);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("Quickload-resume context armed:")
+                && l.Contains("trimScope=TreeWide")
+                && l.Contains("no-active-refly-marker"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("Quickload-resume trim scope refreshed:")
+                && l.Contains("trimScope=ActiveRecOnly")
+                && l.Contains("sess=sess_refresh_trim"));
+        }
+
         /// <summary>
         /// New-recording path: when the origin recording is committed but its
         /// VesselPersistentId does not match the strip-selected pid (e.g. the
