@@ -144,7 +144,6 @@ namespace Parsek
         // destructive part event. Keep those indices suppressed until a rewind/reset so
         // they do not respawn while the original recording window is still in range.
         private readonly HashSet<int> earlyDestroyedDebrisCompleted = new HashSet<int>();
-
         private enum GhostVisualLoadStatus : byte
         {
             Failed = 0,
@@ -997,30 +996,25 @@ namespace Parsek
             // Position the ghost
             if (hasInterpolatedPoints)
             {
-                // Check for relative frame positioning (Phase 3b: docking/rendezvous)
-                bool usedRelative = false;
-                if (traj.TrackSections != null && traj.TrackSections.Count > 0)
-                {
-                    int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, visiblePlaybackUT);
-                    if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
-                    {
-                        positioner.InterpolateAndPositionRelative(i, traj, state,
-                            visiblePlaybackUT, suppressVisualFx,
-                            traj.TrackSections[sectionIdx].anchorVesselId);
-                        usedRelative = true;
-                    }
-                }
-                if (!usedRelative)
+                if (!TryPositionRelativeSectionAtPlaybackUT(
+                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
                 {
                     positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
                 }
             }
             else if (hasPointData)
             {
-                if (ShouldPrimeSinglePointGhostFromOrbit(traj, visiblePlaybackUT))
-                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
-                else
-                    positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+                // Relative single-point sections store metre offsets in
+                // latitude/longitude/altitude fields; never fall through to
+                // PositionAtPoint for them.
+                if (!TryPositionRelativeSectionAtPlaybackUT(
+                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                {
+                    if (ShouldPrimeSinglePointGhostFromOrbit(traj, visiblePlaybackUT))
+                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    else
+                        positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+                }
             }
             else if (hasSurfaceData)
             {
@@ -1130,16 +1124,40 @@ namespace Parsek
         private void HandlePastEndGhost(int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f,
             FrameContext ctx, GhostPlaybackState state, bool ghostActive, bool hasPointData)
         {
-            completedEventFired.Add(i);
-
             if (ghostActive)
             {
+                System.Diagnostics.Debug.Assert(
+                    state != null,
+                    "ghostActive implies an existing GhostPlaybackState");
+
+                // Bug #613 follow-up: endpoint retirement is frame-local.
+                // A RELATIVE anchor can resolve again through the recorded
+                // fallback path on a later frame, so keep the ghost alive and
+                // retry instead of marking completion or destroying state.
+                // While retired, policy must not observe the stale endpoint
+                // transform; FX are suppressed and the log below is rate-limited.
+                state.anchorRetiredThisFrame = false;
+
                 // Position ghost at the true recording endpoint.
                 PositionGhostAtRecordingEndpoint(i, traj, state);
+
+                bool endpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    state.anchorRetiredThisFrame);
+                if (endpointRetired)
+                {
+                    ApplyFrameVisuals(i, traj, state, ResolveRecordingEndpointPlaybackUT(traj),
+                        ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                    ParsekLog.VerboseRateLimited("Engine", $"past-end-suppressed-{i}",
+                        $"past-end completion suppressed: anchor retired ghost #{i} \"{traj?.VesselName}\"");
+                    return;
+                }
 
                 // Trigger explosion if destroyed
                 TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
             }
+
+            completedEventFired.Add(i);
 
             // Fire completed event (policy handles spawn/resources/camera).
             // Ghost stays alive — policy decides when to destroy
@@ -1998,6 +2016,11 @@ namespace Parsek
                 return;
             }
 
+            double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
+            if (TryPositionRelativeSectionAtPlaybackUT(
+                    index, traj, state, endpointUT, suppressFx: true))
+                return;
+
             if (traj.Points != null && traj.Points.Count > 0)
             {
                 positioner.PositionAtPoint(index, traj, state, traj.Points[traj.Points.Count - 1]);
@@ -2015,6 +2038,55 @@ namespace Parsek
 
             if (traj.HasOrbitSegments)
                 positioner.PositionFromOrbit(index, traj, state, traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT);
+        }
+
+        internal static double ResolveRecordingEndpointPlaybackUT(IPlaybackTrajectory traj)
+        {
+            // Preserve endpoint-hold semantics: point-backed recordings hold the
+            // last sampled pose even when ExplicitEndUT extends beyond it.
+            if (traj?.Points != null && traj.Points.Count > 0)
+                return traj.Points[traj.Points.Count - 1].ut;
+            if (traj != null && traj.HasOrbitSegments)
+                return traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT;
+            return traj?.EndUT ?? 0.0;
+        }
+
+        internal static bool TryGetRelativeSectionAnchorAtUT(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out uint anchorVesselId)
+        {
+            anchorVesselId = 0u;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0)
+                return false;
+
+            TrackSection section = traj.TrackSections[sectionIdx];
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return false;
+
+            anchorVesselId = section.anchorVesselId != 0u
+                ? section.anchorVesselId
+                : traj.LoopAnchorVesselId;
+            return true;
+        }
+
+        private bool TryPositionRelativeSectionAtPlaybackUT(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            bool suppressFx)
+        {
+            if (!TryGetRelativeSectionAnchorAtUT(traj, playbackUT, out uint anchorVesselId))
+                return false;
+
+            positioner.InterpolateAndPositionRelative(
+                index, traj, state, playbackUT, suppressFx, anchorVesselId);
+            return true;
         }
 
         #endregion
@@ -3847,26 +3919,17 @@ namespace Parsek
             if (!HasLoadedGhostVisuals(state) || traj == null || positioner == null)
                 return;
 
+            if (TryPositionRelativeSectionAtPlaybackUT(
+                    index, traj, state, playbackUT, suppressFx: true))
+                return;
+
             bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
             bool hasSurfaceData = traj.SurfacePos.HasValue;
             bool hasOrbitData = traj.HasOrbitSegments;
 
             if (hasPoints)
             {
-                bool usedRelative = false;
-                if (traj.TrackSections != null && traj.TrackSections.Count > 0)
-                {
-                    int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
-                    if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
-                    {
-                        positioner.InterpolateAndPositionRelative(index, traj, state,
-                            playbackUT, suppressFx: true, traj.TrackSections[sectionIdx].anchorVesselId);
-                        usedRelative = true;
-                    }
-                }
-
-                if (!usedRelative)
-                    positioner.InterpolateAndPosition(index, traj, state, playbackUT, suppressFx: true);
+                positioner.InterpolateAndPosition(index, traj, state, playbackUT, suppressFx: true);
                 return;
             }
 
