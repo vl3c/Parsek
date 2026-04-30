@@ -3646,6 +3646,82 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Re-Fly root finalization preserves the recorded-start ghost mesh")]
+        public void ReFlyRootFinalization_PreservesRecordedStartGhostMesh()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+                InGameAssert.Skip("No active vessel");
+
+            ConfigNode recordedStartSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            int recordedStartParts = CountPartNodes(recordedStartSnapshot);
+            if (recordedStartParts == 0)
+                InGameAssert.Skip("Active vessel backup snapshot has no PART nodes");
+
+            double commitUT = Planetarium.GetUniversalTime();
+            var rec = new Recording
+            {
+                RecordingId = "ingame-refly-root-ghost-preserve",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = vessel.vesselName ?? "Active Vessel",
+                VesselPersistentId = vessel.persistentId,
+                ExplicitStartUT = commitUT - 1.0,
+                ExplicitEndUT = commitUT,
+                VesselSnapshot = recordedStartSnapshot.CreateCopy(),
+                GhostVisualSnapshot = recordedStartSnapshot.CreateCopy(),
+                GhostSnapshotMode = GhostSnapshotMode.AliasVessel
+            };
+            ConfigNode terminalEmptyVessel = BuildEmptyVesselSnapshot(rec.VesselName, rec.VesselPersistentId);
+
+            try
+            {
+                IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                    (Recording recording, Vessel liveVessel, double appliedCommitUT, out IncompleteBallisticFinalizationResult finalization) =>
+                    {
+                        finalization = new IncompleteBallisticFinalizationResult
+                        {
+                            terminalState = TerminalState.Destroyed,
+                            terminalUT = appliedCommitUT + 1.0,
+                            vesselSnapshot = terminalEmptyVessel,
+                            ghostVisualSnapshot = terminalEmptyVessel.CreateCopy()
+                        };
+                        return true;
+                    };
+
+                InGameAssert.IsTrue(IncompleteBallisticSceneExitFinalizer.TryApply(
+                        rec,
+                        vessel: null,
+                        commitUT: commitUT,
+                        logContext: "ReFlyRootFinalization_PreservesRecordedStartGhostMesh"),
+                    "Synthetic finalizer should apply to the test recording");
+                InGameAssert.AreEqual(0, CountPartNodes(rec.VesselSnapshot),
+                    "Terminal vessel snapshot should simulate the empty post-breakup snapshot");
+                InGameAssert.AreEqual(recordedStartParts, CountPartNodes(rec.GhostVisualSnapshot),
+                    "Recorded-start ghost snapshot should survive terminal finalization");
+                InGameAssert.AreEqual(GhostSnapshotMode.Separate, rec.GhostSnapshotMode,
+                    "Preserved ghost snapshot should force Separate mode before metadata save");
+
+                GhostBuildResult buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    rec,
+                    "ParsekTest_ReFlyRootPreservedGhost");
+                InGameAssert.IsNotNull(buildResult, "Preserved recorded-start snapshot should build a real ghost visual");
+                InGameAssert.IsNotNull(buildResult.root, "Built ghost root should not be null");
+                runner.TrackForCleanup(buildResult.root);
+
+                MeshRenderer[] renderers = buildResult.root.GetComponentsInChildren<MeshRenderer>(true);
+                InGameAssert.IsGreaterThan(renderers.Length, 0,
+                    "Preserved recorded-start ghost should have mesh renderers, not sphere fallback");
+                ParsekLog.Verbose("TestRunner",
+                    $"Re-Fly root preserved ghost mesh built from {recordedStartParts} PART nodes " +
+                    $"with {renderers.Length} renderers");
+            }
+            finally
+            {
+                IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere positions correctly at vessel location")]
         public IEnumerator GhostSpherePositioning()
         {
@@ -4195,6 +4271,23 @@ namespace Parsek.InGameTests
             }
 
             return recording != null;
+        }
+
+        private static ConfigNode BuildEmptyVesselSnapshot(string name, uint pid)
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("persistentId", pid.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("name", name ?? "Active Vessel");
+            node.AddValue("type", "Ship");
+            node.AddValue("sit", "FLYING");
+            node.AddValue("root", "0");
+            node.AddNode("ORBIT");
+            return node;
+        }
+
+        private static int CountPartNodes(ConfigNode snapshot)
+        {
+            return snapshot?.GetNodes("PART")?.Length ?? 0;
         }
     }
 
