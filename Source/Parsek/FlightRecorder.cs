@@ -5752,6 +5752,12 @@ namespace Parsek
                 // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
                 // Close the RELATIVE section and start a new ABSOLUTE section so the frame
                 // tag matches the data.
+                //
+                // No explicit AppendSectionStartSeamPoint call here: every caller of
+                // ApplyRelativeOffset commits the (now-absolute) `point` immediately
+                // after we return — see the three call sites at FlightRecorder.cs ~5665,
+                // ~6228, ~6403. That commit lands at the same UT as the new section's
+                // startUT, so the section's first sampled point IS the seam.
                 ParsekLog.Warn("Anchor",
                     $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
                     $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
@@ -6709,6 +6715,13 @@ namespace Parsek
         /// isRelativeMode is true the point would have absolute values in a RELATIVE
         /// TrackSection, causing a position discontinuity during playback (#74).
         /// </summary>
+        /// <remarks>
+        /// No explicit AppendSectionStartSeamPoint call here: the sole caller
+        /// (OnVesselGoOnRails) invokes SamplePosition(v) immediately after this
+        /// method returns, which builds + commits a point at the same UT we
+        /// just used as the new ABSOLUTE section's startUT. That commit IS the
+        /// seam — adding an explicit call would emit a duplicate-UT point.
+        /// </remarks>
         private void ClearRelativeModeForRailsTransition()
         {
             if (isRelativeMode)
