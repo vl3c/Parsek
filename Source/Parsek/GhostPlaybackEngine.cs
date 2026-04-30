@@ -514,7 +514,8 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
                             traj, f, ctx.currentUT,
                             completedEventFired.Contains(i),
-                            earlyDestroyedDebrisCompleted.Contains(i)))
+                            earlyDestroyedDebrisCompleted.Contains(i))
+                        && !pastEndEndpointRetired.Contains(i))
                     {
                         bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
                         ParsekLog.Verbose("Engine",

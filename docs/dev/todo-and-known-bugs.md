@@ -1708,7 +1708,8 @@ the completion/explosion side effects plus transient FX when the endpoint
 anchor retires. Retired past-end endpoints are recorded in a separate
 dedupe set before the hidden visual state is destroyed, so the engine does
 not re-enter the same unresolvable endpoint every frame and does not later
-emit the unsafe completion event from an inactive ghost. New headless coverage in
+emit the unsafe completion event from an inactive ghost; the hidden
+`PlaybackEnabled=false` past-end completion path consults the same set. New headless coverage in
 `GhostPlaybackEngineTests` pins the endpoint-UT resolver, inclusive final
 RELATIVE-section lookup, single-point RELATIVE routing decision, loop-anchor
 fallback, zero-anchor retire routing, ABSOLUTE-section non-match, and the
