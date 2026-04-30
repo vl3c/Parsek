@@ -237,6 +237,20 @@ namespace Parsek
             GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
 
             // ----------------------------------------------------------------
+            // Step 8.6 (#688 follow-up): defensive backstop for orphan
+            // pre-Re-Fly anchor snapshots. The expected lifecycle clears
+            // each snapshot when its session ends (merge / retry / discard
+            // / invalid-marker branch above). This sweep catches any
+            // snapshot whose session id no longer matches the live marker
+            // — e.g. a future code path that clears the marker without
+            // calling SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession,
+            // or a save that interleaved a marker clear with a snapshot
+            // leftover. Keeps the persisted PRE_REFLY_ANCHOR ConfigNode
+            // bounded to active sessions only.
+            // ----------------------------------------------------------------
+            int orphanSnapshotsCleared = SweepOrphanPreReFlyAnchorSnapshots(scenario);
+
+            // ----------------------------------------------------------------
             // Step 9 (§6.9 step 10): summary log (§10.7).
             // ----------------------------------------------------------------
             ParsekLog.Info(SweepTag,
@@ -248,7 +262,8 @@ namespace Parsek
                 $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
-                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)}");
+                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
+                $"orphanReFlyAnchors={orphanSnapshotsCleared.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
             // Step 10 (§6.9 step 11): bump state versions once so every
@@ -257,6 +272,40 @@ namespace Parsek
             scenario.BumpSupersedeStateVersion();
             scenario.BumpTombstoneStateVersion();
             EffectiveState.ResetCachesForTesting();
+        }
+
+        /// <summary>
+        /// Defensive #688 backstop: clears any pre-Re-Fly anchor snapshot
+        /// whose <see cref="Recording.PreReFlyAnchorSessionId"/> doesn't
+        /// match the live <see cref="ParsekScenario.ActiveReFlySessionMarker"/>'s
+        /// session id. The expected lifecycle clears snapshots through the
+        /// session-end paths
+        /// (<see cref="SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession"/>);
+        /// any leftover here means a session-end path missed the clear or
+        /// a save interleaved a marker mutation with a snapshot leftover.
+        /// Returns the number of snapshots cleared.
+        /// </summary>
+        private static int SweepOrphanPreReFlyAnchorSnapshots(ParsekScenario scenario)
+        {
+            string liveSessionId = scenario?.ActiveReFlySessionMarker?.SessionId;
+            int cleared = 0;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return 0;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)) continue;
+                if (!string.IsNullOrEmpty(liveSessionId)
+                    && string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal))
+                    continue;
+                ParsekLog.Warn(SessionTag,
+                    $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
+                    $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) — clearing");
+                rec.ClearPreReFlyAnchorTrajectory();
+                cleared++;
+            }
+            return cleared;
         }
 
         // ------------------------------------------------------------------

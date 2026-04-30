@@ -17089,11 +17089,25 @@ namespace Parsek
         /// per-frame anchor offset can be computed for it (#688 spawn-frame
         /// fix). Cheap O(tree-count) committed-tree walk per call.
         /// </summary>
-        internal bool IsRecordingInActiveReFlyTree(string recordingId)
+        internal static bool IsRecordingInActiveReFlyTree(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId))
                 return false;
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            return IsRecordingInReFlyTreeMarker(recordingId, marker);
+        }
+
+        /// <summary>
+        /// Pure variant of <see cref="IsRecordingInActiveReFlyTree"/> that
+        /// takes the marker explicitly — usable from unit tests that want
+        /// to drive the predicate without setting up a live
+        /// <see cref="ParsekScenario.Instance"/>.
+        /// </summary>
+        internal static bool IsRecordingInReFlyTreeMarker(
+            string recordingId, ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
             if (marker == null || string.IsNullOrEmpty(marker.TreeId))
                 return false;
             string recTreeId = ResolveTreeIdForRecording(recordingId);
@@ -17102,15 +17116,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision helper for the spawn-frame activation gate (#688
+        /// follow-up). Returns the decision (raise / lower / lower-with-no-
+        /// op) given the inputs as parameters. Extracted so xUnit can drive
+        /// the gate logic without needing a MonoBehaviour-instantiated
+        /// <see cref="ParsekFlight"/> or a live KSP runtime.
+        ///
+        /// <para>
+        /// Callers compute <paramref name="offsetApplied"/> and
+        /// <paramref name="hasResolvableAnchorData"/> ahead of time. The
+        /// decision rule:
+        /// <list type="bullet">
+        ///   <item><description>Active ghost or no marker or out-of-tree → lower the gate.</description></item>
+        ///   <item><description>No resolvable anchor data → lower the gate (safety net for non-in-place Re-Fly).</description></item>
+        ///   <item><description>Offset applied → lower the gate.</description></item>
+        ///   <item><description>Inactive ghost in the active tree, anchor data exists, offset miss → raise the gate.</description></item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        internal static bool ShouldRaiseExternalActivationGate(
+            bool ghostActive,
+            string recordingId,
+            ReFlySessionMarker marker,
+            bool hasResolvableAnchorData,
+            bool offsetApplied)
+        {
+            if (ghostActive) return false;
+            if (!IsRecordingInReFlyTreeMarker(recordingId, marker)) return false;
+            if (!hasResolvableAnchorData) return false;
+            return !offsetApplied;
+        }
+
+        /// <summary>
         /// Updates <see cref="GhostPlaybackState.externalActivationDeferred"/>
-        /// for a freshly-positioned ghost. While the ghost has not yet been
-        /// activated, the gate stays raised whenever the recording belongs
-        /// to the active Re-Fly tree but the per-frame anchor offset could
-        /// not be resolved at <paramref name="currentUT"/> (e.g. live
-        /// anchor not yet finite, recorded snapshot still loading). Once
-        /// the ghost is active, the gate is unconditionally lowered so a
-        /// transient mid-playback offset miss does not flicker the ghost
-        /// back to invisible.
+        /// for a freshly-positioned ghost. While the ghost is inactive AND
+        /// belongs to the active Re-Fly tree AND the active Re-Fly target
+        /// has resolvable anchor data, the gate stays raised whenever the
+        /// per-frame anchor offset cannot be resolved at
+        /// <paramref name="currentUT"/> (e.g. live anchor not yet finite,
+        /// recorded snapshot still loading). While the ghost is active the
+        /// gate stays cleared — only an inactive ghost can have the gate
+        /// raised by an offset miss, so a transient mid-playback miss does
+        /// not flicker an already-stable ghost back to invisible.
+        ///
+        /// <para>
+        /// The "resolvable anchor data" precondition is the safety net that
+        /// keeps the gate from holding ghosts permanently invisible in the
+        /// non-in-place Re-Fly continuation path: that path creates a fresh
+        /// empty provisional and never captures a pre-Re-Fly snapshot
+        /// against it, so <see cref="TryGetReFlyTreeAnchorOffset"/> would
+        /// return false forever and the gate would never clear. When no
+        /// anchor data is reachable the gate is unconditionally lowered so
+        /// the engine activates the ghost at its unanchored recorded
+        /// position — the same behaviour as before the gate existed.
+        /// </para>
         ///
         /// <para>
         /// Cheap to call per-frame: only does work for ghosts that are
@@ -17125,22 +17184,102 @@ namespace Parsek
         {
             if (state?.ghost == null)
                 return;
-            // Once the ghost has been visible, leave the gate cleared so a
-            // transient mid-playback offset miss does not flicker an
-            // already-stable ghost back to invisible.
-            if (state.ghost.activeSelf)
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // Compute decision inputs in the order the static predicate
+            // expects, short-circuiting expensive work whenever an earlier
+            // branch already decides "lower."
+            bool ghostActive = state.ghost.activeSelf;
+            bool hasResolvableAnchorData = !ghostActive
+                && IsRecordingInReFlyTreeMarker(recordingId, marker)
+                && HasResolvableReFlyAnchorData(marker);
+            bool offsetApplied = false;
+            if (hasResolvableAnchorData)
             {
-                state.externalActivationDeferred = false;
-                return;
+                offsetApplied = TryGetReFlyTreeAnchorOffset(
+                    recordingId, currentUT, out Vector3d _);
             }
-            if (!IsRecordingInActiveReFlyTree(recordingId))
+            bool raise = ShouldRaiseExternalActivationGate(
+                ghostActive, recordingId, marker,
+                hasResolvableAnchorData, offsetApplied);
+
+            if (raise)
             {
-                state.externalActivationDeferred = false;
-                return;
+                RaiseExternalActivationGate(state, recordingId, currentUT);
             }
-            bool applied = TryGetReFlyTreeAnchorOffset(
-                recordingId, currentUT, out Vector3d _);
-            state.externalActivationDeferred = !applied;
+            else
+            {
+                string reason = ResolveLowerReason(
+                    ghostActive, recordingId, marker,
+                    hasResolvableAnchorData, offsetApplied);
+                LowerExternalActivationGate(state, recordingId, reason);
+            }
+        }
+
+        private static string ResolveLowerReason(
+            bool ghostActive, string recordingId, ReFlySessionMarker marker,
+            bool hasResolvableAnchorData, bool offsetApplied)
+        {
+            if (ghostActive) return "ghost-active";
+            if (!IsRecordingInReFlyTreeMarker(recordingId, marker)) return "out-of-tree";
+            if (!hasResolvableAnchorData) return "no-anchor-data";
+            if (offsetApplied) return "offset-resolved";
+            return "<unreachable>";
+        }
+
+        private static void LowerExternalActivationGate(
+            GhostPlaybackState state, string recordingId, string reason)
+        {
+            if (state == null) return;
+            bool wasRaised = state.externalActivationDeferred;
+            state.externalActivationDeferred = false;
+            if (wasRaised)
+            {
+                ParsekLog.Verbose("Playback",
+                    "Re-Fly anchor activation gate lowered: rec="
+                    + ShortRecordingId(recordingId)
+                    + " reason=" + (reason ?? "<none>"));
+            }
+        }
+
+        private static void RaiseExternalActivationGate(
+            GhostPlaybackState state, string recordingId, double currentUT)
+        {
+            if (state == null) return;
+            bool wasRaised = state.externalActivationDeferred;
+            state.externalActivationDeferred = true;
+            if (!wasRaised)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    "refly-gate-raise|" + (recordingId ?? "<no-rec>"),
+                    "Re-Fly anchor activation gate raised: rec="
+                    + ShortRecordingId(recordingId)
+                    + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " (offset not yet resolvable; ghost stays hidden until next positioning frame)",
+                    5.0);
+            }
+        }
+
+        /// <summary>
+        /// Returns true when the active Re-Fly target has trajectory data
+        /// the per-frame anchor model can sample — either a captured pre-
+        /// Re-Fly anchor snapshot (in-place path) or a populated live
+        /// trajectory (defensive: should not happen in non-in-place but
+        /// keeps the predicate self-consistent if a future session captures
+        /// snapshot during a non-in-place path). Pure read-only helper
+        /// used by the activation gate's safety net.
+        /// </summary>
+        private static bool HasResolvableReFlyAnchorData(ReFlySessionMarker marker)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
+            if (reFlyRec == null)
+                return false;
+            if (!string.IsNullOrEmpty(marker.SessionId)
+                && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                return true;
+            return reFlyRec.TrackSections != null && reFlyRec.TrackSections.Count > 0;
         }
 
         private bool TryComputeReFlyRecordingAnchorOffset(

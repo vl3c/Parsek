@@ -207,11 +207,27 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(recA);
             RecordingStore.AddCommittedInternal(recB);
 
-            int cleared = SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession("sess-target");
+            // Capture log output so we can assert the verbose summary fires.
+            var logLines = new System.Collections.Generic.List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                int cleared = SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession("sess-target");
+                Assert.Equal(1, cleared);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
 
-            Assert.Equal(1, cleared);
             Assert.False(recA.HasPreReFlyAnchorTrajectory("sess-target"));
             Assert.True(recB.HasPreReFlyAnchorTrajectory("sess-other"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Cleared 1 pre-Re-Fly anchor snapshot")
+                && l.Contains("sess-target"));
         }
 
         [Fact]
@@ -282,6 +298,163 @@ namespace Parsek.Tests
             };
             RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
             Assert.False(loaded.HasPreReFlyAnchorTrajectory("any-sess"));
+        }
+
+        // ============================================================
+        // RefreshReFlyAnchorActivationGate (#688 spawn-frame fix)
+        // ============================================================
+
+        [Fact]
+        public void ShouldRaiseGate_GhostAlreadyActive_AlwaysFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-active",
+            };
+            // Even with offset miss in the active tree, an active ghost
+            // must not get the gate raised.
+            Assert.False(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: true,
+                recordingId: "rec-in-tree",
+                marker: marker,
+                hasResolvableAnchorData: true,
+                offsetApplied: false));
+        }
+
+        [Fact]
+        public void ShouldRaiseGate_NoMarker_AlwaysFalse()
+        {
+            // No active Re-Fly session: gate must stay clear regardless of
+            // ghost active state.
+            Assert.False(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: false,
+                recordingId: "rec-foo",
+                marker: null,
+                hasResolvableAnchorData: false,
+                offsetApplied: false));
+        }
+
+        [Fact]
+        public void ShouldRaiseGate_OutOfTreeRecording_StaysClear()
+        {
+            var tree = MakeTreeWithRecording(treeId: "tree-active", recordingId: "rec-in-tree");
+            RecordingStore.CommittedTrees.Add(tree);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-active",
+                ActiveReFlyRecordingId = "rec-in-tree",
+            };
+
+            // recordingId not in any tree → out-of-tree → gate must stay clear.
+            Assert.False(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: false,
+                recordingId: "rec-foreign",
+                marker: marker,
+                hasResolvableAnchorData: true,
+                offsetApplied: false));
+        }
+
+        [Fact]
+        public void ShouldRaiseGate_NoResolvableAnchorData_StaysClear()
+        {
+            // Safety net: non-in-place Re-Fly creates an empty provisional
+            // with no captured snapshot and no track sections. Without this
+            // safety net the gate would hold the ghost permanently invisible.
+            var tree = MakeTreeWithRecording(treeId: "tree-1", recordingId: "rec-A");
+            RecordingStore.CommittedTrees.Add(tree);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-A",
+            };
+
+            Assert.False(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: false,
+                recordingId: "rec-A",
+                marker: marker,
+                hasResolvableAnchorData: false,
+                offsetApplied: false));
+        }
+
+        [Fact]
+        public void ShouldRaiseGate_InTreeAnchorDataPresentOffsetMiss_RaisesGate()
+        {
+            var tree = MakeTreeWithRecording(treeId: "tree-1", recordingId: "rec-A");
+            RecordingStore.CommittedTrees.Add(tree);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-A",
+            };
+
+            // Inactive ghost, in active tree, anchor data exists, offset
+            // miss → gate must raise so the activation pipeline waits.
+            Assert.True(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: false,
+                recordingId: "rec-A",
+                marker: marker,
+                hasResolvableAnchorData: true,
+                offsetApplied: false));
+        }
+
+        [Fact]
+        public void ShouldRaiseGate_OffsetResolved_StaysClear()
+        {
+            var tree = MakeTreeWithRecording(treeId: "tree-1", recordingId: "rec-A");
+            RecordingStore.CommittedTrees.Add(tree);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-A",
+            };
+
+            Assert.False(ParsekFlight.ShouldRaiseExternalActivationGate(
+                ghostActive: false,
+                recordingId: "rec-A",
+                marker: marker,
+                hasResolvableAnchorData: true,
+                offsetApplied: true));
+        }
+
+        [Fact]
+        public void IsRecordingInReFlyTreeMarker_NullRecordingOrMarker_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.IsRecordingInReFlyTreeMarker(null, null));
+            Assert.False(ParsekFlight.IsRecordingInReFlyTreeMarker(
+                "rec-A", new ReFlySessionMarker { TreeId = null }));
+            Assert.False(ParsekFlight.IsRecordingInReFlyTreeMarker(
+                "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
+            // Recording does not exist → returns false.
+        }
+
+        [Fact]
+        public void IsRecordingInReFlyTreeMarker_RecordingTreeMatches_ReturnsTrue()
+        {
+            var tree = MakeTreeWithRecording(treeId: "tree-1", recordingId: "rec-A");
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.True(ParsekFlight.IsRecordingInReFlyTreeMarker(
+                "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
+        }
+
+        [Fact]
+        public void IsRecordingInReFlyTreeMarker_RecordingInDifferentTree_ReturnsFalse()
+        {
+            var tree1 = MakeTreeWithRecording(treeId: "tree-1", recordingId: "rec-A");
+            var tree2 = MakeTreeWithRecording(treeId: "tree-2", recordingId: "rec-B");
+            RecordingStore.CommittedTrees.Add(tree1);
+            RecordingStore.CommittedTrees.Add(tree2);
+
+            Assert.False(ParsekFlight.IsRecordingInReFlyTreeMarker(
+                "rec-A", new ReFlySessionMarker { TreeId = "tree-2" }));
+            Assert.True(ParsekFlight.IsRecordingInReFlyTreeMarker(
+                "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
         }
 
         // ============================================================

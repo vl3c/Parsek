@@ -698,6 +698,20 @@ namespace Parsek
             PreReFlyAnchorTrackSections = null;
         }
 
+        /// <summary>
+        /// Builds a synthetic <see cref="Recording"/> populated with the
+        /// captured snapshot's trajectory data (Points / OrbitSegments /
+        /// TrackSections) plus a minimal identity (recording id, vessel
+        /// name, tree / chain refs) so callers can drive the existing
+        /// trajectory codecs against the snapshot without leaking the
+        /// original recording's mutable post-trim live data.
+        /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
+        /// <see cref="SegmentEvents"/> are intentionally left at their
+        /// default-empty initialisers — only position-history data matters
+        /// for the per-frame anchor sample, and emitting events from the
+        /// snapshot would re-fire structural events at every save. Returns
+        /// null when no snapshot is captured for <paramref name="sessionId"/>.
+        /// </summary>
         internal Recording BuildPreReFlyAnchorTrajectoryRecording(string sessionId)
         {
             if (!HasPreReFlyAnchorTrajectory(sessionId))
