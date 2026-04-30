@@ -1258,19 +1258,22 @@ namespace Parsek.Rendering
             // recorder's physics-precision capture at the structural event UT, so
             // anchor ε at re-fly merge points lands at meter-scale instead of
             // tens-of-meters tick-interpolation noise. Recordings without the
-            // flag (format ≤ v9) miss every flagged-sample lookup and fall through
-            // to TryFindFirstPointAtOrAfter — exactly today's behaviour.
+            // flag (format <= v9) miss every flagged-sample lookup and fall through
+            // to TryFindFirstPointAtOrAfter — exactly today's behaviour. The flagged
+            // lookup is intentionally scoped to this TrackSection's frames: the flat
+            // Points list can contain same-UT samples from adjacent sections, including
+            // RELATIVE-frame points whose lat/lon/alt fields are anchor-local metres.
             // Tolerance: 1.0s — conservative, well above a single physics tick;
             // production candidate UTs come straight from BranchPoint.UT which
             // matches the flagged sample's UT to physics precision, so the
             // tolerance just guards against round-trip jitter.
             const double Phase9FlaggedTolerance = 1.0;
             int flaggedIdx = AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
-                rec.Points, ut, Phase9FlaggedTolerance);
+                section.frames, ut, Phase9FlaggedTolerance);
             TrajectoryPoint sample;
             if (flaggedIdx >= 0)
             {
-                sample = rec.Points[flaggedIdx];
+                sample = section.frames[flaggedIdx];
                 ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
                     "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
                     "flagged=true sampleUT={3} delta={4}",

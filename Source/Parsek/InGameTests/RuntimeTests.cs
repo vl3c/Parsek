@@ -13883,40 +13883,15 @@ namespace Parsek.InGameTests
             Description = "Phase 9 GameEvents wiring contract: dock/undock/EVA/joint-break handlers registered by Parsek")]
         public void Pipeline_Smoothing_StructuralEvent_HandlersRegistered()
         {
-            // KSP's `EventData<T>` exposes its listener list as an internal
-            // `events` field of type `List<EvtDelegate>`; each `EvtDelegate`
-            // wraps the user-supplied delegate in `originalDelegate`. Probe the
-            // first event to discover the field names — they're consistent
-            // across the four EventData<T> instances we check.
             var coupleEv = GameEvents.onPartCouple;
             InGameAssert.IsNotNull(coupleEv,
                 "GameEvents.onPartCouple must be non-null in flight scene");
 
-            // EventData<T> is generic; the `events` field lives on the closed
-            // generic type. Walk via reflection so we don't compile-bind to KSP's
-            // internal type.
-            var coupleType = coupleEv.GetType();
-            FieldInfo eventsField = coupleType.GetField("events",
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (eventsField == null)
-            {
-                InGameAssert.Skip(
-                    "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
-                    + "GameEvents EventData<T> internal field 'events' missing — "
-                    + "KSP may have renamed the field. Probe via Alt+F12 to find "
-                    + "the new name and update this test.");
-                return;
-            }
-
             int totalAsserted = 0;
-            AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, eventsField,
-                ref totalAsserted);
-            AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, eventsField,
-                ref totalAsserted);
-            AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, eventsField,
-                ref totalAsserted);
-            AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, eventsField,
-                ref totalAsserted);
+            AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, ref totalAsserted);
+            AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, ref totalAsserted);
+            AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, ref totalAsserted);
+            AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, ref totalAsserted);
 
             ParsekLog.Info("Pipeline-Smoothing",
                 "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
@@ -13925,8 +13900,22 @@ namespace Parsek.InGameTests
         }
 
         private static void AssertHandlerRegistered(
-            string eventName, object eventData, FieldInfo eventsField, ref int totalAsserted)
+            string eventName, object eventData, ref int totalAsserted)
         {
+            InGameAssert.IsNotNull(eventData,
+                "GameEvents." + eventName + " must be non-null in flight scene");
+            FieldInfo eventsField = eventData.GetType().GetField("events",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (eventsField == null)
+            {
+                InGameAssert.Skip(
+                    "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
+                    + "GameEvents." + eventName + " internal field 'events' missing — "
+                    + "KSP may have renamed the field. Probe via Alt+F12 to find "
+                    + "the new name and update this test.");
+                return;
+            }
+
             // The events field is a List<EvtDelegate>; we can't compile-bind to
             // EvtDelegate so iterate as IEnumerable and reflect for the
             // originalDelegate field.
