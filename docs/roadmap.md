@@ -282,16 +282,43 @@ The pre-implementation spec that drove v0.9 is archived at
 
 ---
 
-## Phase 12.5: Unfinished Flights stable-leaf extension (planned, 0.9.x)
+### v0.9.1 — Unfinished Flights Stable Leaves & Re-Fly Hardening
 
-Broadens the v0.9 Unfinished Flights group beyond Crashed-only siblings to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved. Full design: [`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md). Pre-implementation research note (R17) at [`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
+The 0.9.1 line shipped the Phase 12.5 Unfinished Flights stable-leaf extension
+and a focused Re-Fly hardening pass. Full design:
+[`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md).
+Pre-implementation research note (R17) at
+[`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
 
-- **Broader UF predicate** — `IsUnfinishedFlight` extends to non-focus stable-terminal leaves (Orbiting/SubOrbital) and stranded EVA kerbals, while keeping focus-continuation upper stages and successful auto-recovered boosters out of the list.
-- **Per-row Seal action** — new in-table affordance closes a slot permanently without touching the underlying recording. Gives the player a cleanup escape hatch for over-included rows; the recording continues to play back as a ghost.
-- **Three new persistent fields** — `ChildSlot.Sealed` (close signal), `RewindPoint.FocusSlotIndex` (focus attribution at split time, gates stable-terminal qualification), `ReFlySessionMarker.SupersedeTargetId` (linear supersede chain root for chain extension).
-- **Helper extraction** — `TryResolveRewindPointForRecording` and friends move from `UI/RecordingsTableUI.cs` into a new `UnfinishedFlightClassifier` so non-UI consumers (`RecordingStore`, `SupersedeCommit`) can call them without a layering inversion.
-- **Forward-only migration for vessels, retroactive for stranded EVAs** — pre-upgrade Orbiting siblings stay Immutable (no focus signal on legacy RPs); pre-upgrade stranded EVA kerbals do retroactively appear (intentional carve-out).
-- **Prerequisite v0.9 invocation linearization PR** — separate PR fixes a v0.9 chain-extension bug where re-fly invocation produces a star-shaped supersede graph that resolves incorrectly under multiple re-flies. Lands first; this feature builds on the linear-graph behavior it establishes.
+- **Broader Unfinished Flights predicate** — `IsUnfinishedFlight` now includes
+  controllable non-focus Rewind Point children that end `Orbiting` or
+  `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states.
+  Focus-continuation upper stages, debris, and successful auto-recovered
+  boosters stay out of the list.
+- **STASH system group and row actions** — the virtual Unfinished Flights group
+  is now displayed as `STASH`; rows expose `Fly` and `Seal`, and stable terminal
+  leaves backed by a Rewind Point can be manually `Stash`ed without changing the
+  underlying recording or merge state.
+- **Persistent slot signals** — `ChildSlot.Sealed`, `ChildSlot.Stashed`,
+  `RewindPoint.FocusSlotIndex`, and `ReFlySessionMarker.SupersedeTargetId`
+  preserve stable-leaf qualification, manual closure, and linear re-fly chain
+  extension across save/load.
+- **Helper extraction** — Unfinished Flight membership and route resolution now
+  live outside the table UI so commit/merge/reap code can use the same predicate
+  as the Recordings Manager.
+- **Re-Fly supersede linearization** — repeated re-flies append from the slot's
+  prior effective tip rather than creating origin-rooted star relations. Legacy
+  star-shaped portions are tolerated while new appends form the dominant linear
+  chain.
+- **Re-Fly visibility and resume hardening** — session suppression no longer
+  hides unrelated side-off siblings, raw playback/materialization paths share
+  relation-supersede filtering, doubled GhostMap ProtoVessels are suppressed
+  during pending-tree restore windows, and quickload-resume keeps active-only
+  trim scope intact.
+- **Ghost trajectory follow-through** — 0.9.1 also folded in the current ghost
+  trajectory rendering hardening: continuous terrain correction, structural-event
+  snapshots, outlier rejection, anchor/co-bubble fixes, and recorded-anchor
+  fallbacks for Re-Fly relative playback.
 
 ---
 
@@ -404,6 +431,11 @@ Phase 12: Rewind to Separation (v0.9 ✓)
     │  Rewind Points at multi-controllable splits, Unfinished Flights
     │  group, append-only supersede, narrow v1 scope. Independent of
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
+    │
+    ▼
+Phase 12.5: Stable Leaves + Re-Fly Hardening (v0.9.1 ✓)
+    │  STASH, Fly/Seal/Stash, slot-aware stable leaves, linear supersede,
+    │  quickload/visibility/relative-playback hardening
     │
     ▼
 Phase 13: Logistics (Supply Routes)

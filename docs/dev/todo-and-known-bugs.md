@@ -131,13 +131,13 @@ fallback or warning semantics.
 ## 637. Track remaining refactor opportunities after Refactor-4 archive
 
 **Status:** TODO - active reference in
-`docs/dev/plans/refactor-remaining-opportunities.md`.
+`docs/dev/plans/refactor-remaining-opportunities.md`, reconciled 2026-04-30.
 
 Refactor-4's completed planning docs are archived under
 `docs/dev/done/refactor/`. The remaining opportunities are not approved
 implementation work; use the linked document to choose the next focused
-proposal and avoid overlap with active unfinished-flight, ghost trajectory, or
-rendering branches.
+proposal and avoid overlap with active Re-Fly follow-ups, ghost
+trajectory/rendering, or Phase 13 logistics prerequisite work.
 
 ## 636. Destroyed staged flights could miss Unfinished Flights when finalization stamped stale SubOrbital ~~done~~
 

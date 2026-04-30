@@ -1,27 +1,53 @@
 # Remaining Refactor Opportunities
 
-Date: 2026-04-29
+Date: 2026-04-30
 
-Status: active reference after the Refactor-4 archive. This is not approval to
-move production code. Every item below still needs a focused proposal, explicit
-scope, and review before implementation.
+Status: active reference after the Refactor-4 archive and the merged
+post-archive cleanup work. This is not approval to move production code. Every
+item below still needs a focused proposal, explicit scope, and review before
+implementation.
 
-Refactor-4 completed the behavior-neutral owner splits that were ready to land:
-storage and sidecar owners, tree record codec extraction, KSC action
-classifier/reconciler extraction, post-walk reconciliation extraction,
-LedgerOrchestrator load migration, recovery/rollout helpers,
-FacilityStatePatcher, GameStateFacilityRecorder, RecordingGroupStore, and
-RecordingsTableFormatters. The completed planning docs are archived under
-`docs/dev/done/refactor/`.
+This document is intentionally a short live inventory. Completed design and
+implementation notes are archived under `docs/dev/done/refactor/`; do not
+re-open those slices unless a new behavior-changing design explicitly requires
+it.
 
-The remaining opportunities below are structural only. They should preserve
-serialized formats, log text and tags, event ordering, mutation ordering,
-reflection behavior, public/internal compatibility facades, and existing test
-surfaces unless a separate behavior-changing design is approved first.
+## Already Landed
 
-## Best Orthogonal Candidates
+The previous inventory listed several areas that are now complete or covered by
+new owner seams. Treat these as closed for generic refactor planning:
 
-### KspStatePatcher State Families
+- Recording storage and sidecar ownership: `SidecarFileCommitBatch`,
+  `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`,
+  `RecordingManifestCodec`, `RecordingTreeRecordCodec`, and
+  `SnapshotSidecarCodec` own the current sidecar/codecs surface behind
+  compatibility wrappers.
+- Recording group ownership: `RecordingGroupStore` owns auto-generated tree
+  groups, standalone auto-assignment, group naming, and group mutation helpers.
+- Ledger decomposition: `KscActionExpectationClassifier`,
+  `KscActionReconciler`, `PostWalkActionReconciler`, `LedgerLoadMigration`,
+  `LedgerRecoveryFundsPairing`, and `LedgerRolloutAdoption` cover the
+  high-value low-risk LedgerOrchestrator slices.
+- KSP state / game-state first slices: `FacilityStatePatcher` and
+  `GameStateFacilityRecorder` own the facility patching and facility polling
+  slices. Other state and event families remain listed below only when a crisp
+  proposal is still useful.
+- Thin UI presentation seams: `TestRunnerPresentation`,
+  `SettingsWindowPresentation`, `SpawnControlPresentation`,
+  `GroupPickerPresentation`, `RecordingsTableFormatters`, and
+  `UnfinishedFlightsGroup` cover the pure decision/formatting seams that were
+  safe to extract without moving broad IMGUI state.
+- Recording finalization support: `RecordingFinalizationCache`,
+  `RecordingFinalizationCacheProducer`, `RecordingFinalizationCacheApplier`,
+  and `IncompleteBallisticSceneExitFinalizer` now own the reliability hooks
+  that used to make finalization look like one generic extraction target.
+- Runtime builder seams: `EngineFxBuilder` and `GhostVisualBuilder` now have
+  explicit headless ownership-style coverage for important builder decisions.
+  Further runtime/rendering movement is still coupled and remains below.
+
+## Best Remaining Candidates
+
+### KspStatePatcher Non-Facility Families
 
 Done: `FacilityStatePatcher`.
 
@@ -32,9 +58,10 @@ Remaining candidates:
 - Milestones/progress patch helpers.
 - Contract patch helpers.
 
-Why it remains: `KspStatePatcher.PatchAll` still owns several distinct state
-families after the facilities split. Each family has clear method clusters, but
-the patch order and suppression scope are behavior-critical.
+Why it remains: `KspStatePatcher.PatchAll` still owns several state families
+after the facilities split. The remaining methods are coherent clusters, but
+the patch order, suppression scope, singleton readiness probes, and exact log
+text are behavior-critical.
 
 Proposal requirements:
 
@@ -44,7 +71,7 @@ Proposal requirements:
 - List every reflection and UI mutation dependency for the chosen family.
 - Validate with focused patcher tests plus the full non-injection xUnit gate.
 
-### GameStateRecorder Handler Families
+### GameStateRecorder Non-Facility Handler Families
 
 Done: `GameStateFacilityRecorder`.
 
@@ -56,9 +83,9 @@ Remaining candidates:
 - Progress/milestone handlers.
 - Strategy and KSC action handlers.
 
-Why it remains: `GameStateRecorder` still contains multiple event-handler
-families with subscription, suppression, emit, and ledger-forwarding rules. A
-handler-family extraction can be low risk only if it is scoped around one
+Why it remains: `GameStateRecorder` still owns multiple event-handler families
+with subscription, suppression, emit, and ledger-forwarding rules. A handler
+family extraction can be low risk only if it is scoped around one
 subscription/emit cluster.
 
 Proposal requirements:
@@ -70,7 +97,7 @@ Proposal requirements:
 - Validate with focused recorder/ledger tests and the full non-injection xUnit
   gate.
 
-### RecordingStore Orchestration
+### RecordingStore Remaining Orchestration
 
 Done: sidecar commit/store/codecs, manifest codec, tree record codec, and
 `RecordingGroupStore`.
@@ -79,13 +106,14 @@ Remaining candidates:
 
 - Optimizer orchestration and commit-time optimizer plumbing.
 - Deletion and cleanup orchestration.
-- Rewind/recording finalization orchestration.
+- Rewind/load invocation helpers that still live behind `RecordingStore`.
 - State-version and timeline notification ownership.
 
 Why it remains: `RecordingStore` has fewer storage responsibilities than before,
-but still mixes orchestration, lifecycle, and UI-facing compatibility state.
-These slices should avoid active unfinished-flight or recording-tree work unless
-that work has merged and the proposal is rebased.
+but still mixes timeline hub state, lifecycle orchestration, and UI-facing
+compatibility facades. These slices should avoid active Re-Fly, unfinished-flight,
+or Phase 13 logistics work unless that work has merged and the proposal is
+rebased.
 
 Proposal requirements:
 
@@ -97,33 +125,22 @@ Proposal requirements:
 - Validate with focused recording-store/tree tests and the full non-injection
   xUnit gate.
 
-### RecordingsTableUI Row And Tree Surfaces
+## Coupled Or Lower-Priority Candidates
 
-Done: `RecordingsTableFormatters`.
+### RecordingsTableUI Stateful Surfaces
+
+Done: `RecordingsTableFormatters` and `UnfinishedFlightsGroup`.
 
 Remaining candidates:
 
 - Row rendering for recording entries.
 - Group tree rendering.
-- Unfinished Flights group rendering and action cells.
 - Recording block/chain rendering.
-- Loop period editing cell.
+- Loop period editing cell and edit-focus state.
 
-Why it remains: the formatter split lowered the risk for future UI work, but
-the table still has broad shared IMGUI state and callback coupling. This area is
-not a good parallel target while unfinished-flight UI changes are active.
-
-Proposal requirements:
-
-- Start with a field and callback ownership map.
-- Keep all visible labels, tooltips, sort behavior, selection behavior, and
-  button enablement stable.
-- Prefer a render-helper owner before moving stateful editor/session logic.
-- Validate with focused formatter/table tests where possible, then run the full
-  non-injection xUnit gate. Runtime visual review is required for visible UI
-  changes.
-
-## Lower-Priority Or Coupled Candidates
+Why it is coupled: the table still has broad shared IMGUI state and callback
+coupling. The easy pure helpers have already moved; future work needs a field
+and callback ownership map before touching code.
 
 ### LedgerOrchestrator Residual Bands
 
@@ -139,24 +156,24 @@ Remaining candidates only if a crisp owner emerges:
   paths.
 - Tree-commit notification helpers.
 
-Why it is lower priority: the highest-value low-risk LedgerOrchestrator slices
-have already landed. Further splits risk crossing ledger mutation order,
+Why it is lower priority: the highest-value low-risk `LedgerOrchestrator`
+slices have already landed. Further splits risk crossing ledger mutation order,
 resource/currency ordering, patch timing, and logging policy boundaries.
 
 ### Runtime, Ghost, And Rendering Owners
 
 Candidates:
 
-- `GhostVisualBuilder`
 - `GhostPlaybackEngine`
 - `GhostMapPresence`
 - `ParsekKSC`
-- `EngineFxBuilder`
 - `VesselGhoster`
+- deeper `EngineFxBuilder` / `GhostVisualBuilder` behavior movement beyond the
+  current test seams
 
 Why it is coupled: these files touch runtime-only KSP behavior, rendering, map
 presence, and ghost trajectory work. They should be deferred while ghost
-trajectory/rendering branches are active.
+trajectory/rendering or Re-Fly hardening branches are active.
 
 Proposal requirements:
 
@@ -186,12 +203,13 @@ Candidates:
 
 - Rewind invocation helpers.
 - Scenario lifecycle hooks in `ParsekScenario`.
-- Finalization producer/applier boundaries.
+- Remaining finalization boundary cleanup after the cache producer/applier split.
 - `ParsekFlight` finalization and checkpoint helpers.
 
-Why it is coupled: these paths interact with unfinished-flight behavior, rewind
-point routing, save/load lifecycle, and scene transitions. They need checkpoint
-ownership and rollback planning before code moves.
+Why it is coupled: these paths interact with unfinished-flight behavior, Rewind
+Point routing, save/load lifecycle, scene transitions, and active Re-Fly
+session state. They need checkpoint ownership and rollback planning before code
+moves.
 
 ## Cross-Cutting Follow-Ups
 
@@ -200,13 +218,12 @@ ownership and rollback planning before code moves.
   `WatchModeController`, and `GhostPlaybackEngine`.
 - Audit magic thresholds, literal reason keys, and rate-limit keys after
   `ParsekConfig` centralization.
-- Identify any remaining compatibility facades that can be removed only after
-  source and reflection call sites move.
+- Identify compatibility facades that can be removed only after source and
+  reflection call sites move.
 
 ## Suggested Next Proposal
 
-The lowest-overlap next proposal is a remaining `KspStatePatcher` state-family
-map or a `GameStateRecorder` handler-family map, depending on which nearby
-branches are active. Avoid `RecordingStore`, `RecordingsTableUI`, ghost
-rendering, and rewind/finalization slices while unfinished-flight or ghost
-trajectory work is still moving.
+The lowest-overlap next proposal is a non-facility `KspStatePatcher` state
+family map or a non-facility `GameStateRecorder` handler-family map. Avoid
+`RecordingStore`, `RecordingsTableUI`, ghost rendering, and rewind/finalization
+slices while Phase 13 logistics prerequisites or Re-Fly follow-ups are moving.
