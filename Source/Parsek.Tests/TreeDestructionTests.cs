@@ -241,7 +241,7 @@ namespace Parsek.Tests
             bool result = RecordingTree.AreAllLeavesTerminal(recs, null, true);
 
             Assert.False(result);
-            Assert.True(logLines.Count <= 2, "AreAllLeavesTerminal should emit at most an entry and summary line.");
+            Assert.Single(logLines);
             Assert.Contains(logLines, l =>
                 l.Contains("[TreeDestruction]")
                 && l.Contains("AreAllLeavesTerminal")
