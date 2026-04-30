@@ -1179,6 +1179,9 @@ namespace Parsek
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
                         {
                             Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
+                            // Re-Fly tree anchor lock — preserve the spawn-time
+                            // delta across the FloatingOrigin LateUpdate re-pos.
+                            pos += e.reFlyTreeOffset;
                             e.ghost.transform.position = pos;
 
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
@@ -1263,6 +1266,9 @@ namespace Parsek
                         {
                             pos += cpLateEps;
                         }
+                        // Re-Fly tree anchor lock — preserve the spawn-time
+                        // delta across the FloatingOrigin LateUpdate re-pos.
+                        pos += e.reFlyTreeOffset;
                         e.ghost.transform.position = pos;
 
                         Orbit orbit;
@@ -1327,8 +1333,12 @@ namespace Parsek
                     case GhostPosMode.Surface:
                     {
                         if (e.bodyBefore == null) break;
-                        e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
+                        Vector3d surfacePos = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
+                        // Re-Fly tree anchor lock — preserve the spawn-time
+                        // delta across the FloatingOrigin LateUpdate re-pos.
+                        surfacePos += e.reFlyTreeOffset;
+                        e.ghost.transform.position = surfacePos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.surfaceRot;
                         break;
                     }
@@ -15083,10 +15093,17 @@ namespace Parsek
             {
                 int absolutePlaybackIdx = state.playbackIndex;
                 InterpolationResult absoluteInterpResult;
+                // Thread recordingId/sectionIndex through so the inner
+                // InterpolateAndPosition can apply the Re-Fly tree anchor
+                // offset on the absolute-shadow path. Without these, the
+                // shadow renders at the original recorded world position
+                // instead of the spawn-aligned position.
                 InterpolateAndPosition(state.ghost, absoluteFrames, null,
                     ref absolutePlaybackIdx, ut, index * 10000, out absoluteInterpResult,
                     allowActivation: ShouldAutoActivateGhost(state),
-                    skipOrbitSegments: true);
+                    skipOrbitSegments: true,
+                    recordingId: traj.RecordingId,
+                    sectionIndex: sectionIdx);
                 state.SetInterpolated(absoluteInterpResult);
                 state.playbackIndex = absolutePlaybackIdx;
                 return;
@@ -15151,7 +15168,7 @@ namespace Parsek
                 }
             }
 
-            PositionGhostAt(state.ghost, positioned);
+            PositionGhostAt(state.ghost, positioned, traj?.RecordingId);
 
             // Keep the watch-mode overlay + diagnostics consistent with the
             // clamped position. WatchModeController reads state.lastInterpolatedAltitude
@@ -15425,7 +15442,8 @@ namespace Parsek
                 positioned.altitude = syntheticPoint.altitude;
             }
 
-            PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state));
+            PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state),
+                traj?.RecordingId);
             state.lastInterpolatedBodyName = positioned.body;
             state.lastInterpolatedAltitude = positioned.altitude;
         }
@@ -15444,7 +15462,7 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Playback", logKey, logMessage, 1.0);
                 }
 
-                PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000);
+                PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000, traj.RecordingId);
             }
         }
 
@@ -15636,17 +15654,6 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            // Re-Fly tree anchor lock: when the ghost belongs to the active
-            // Re-Fly tree, translate by the spawn-time delta so the recorded
-            // trajectory aligns with the live player at session start and the
-            // ghost continues along its own original path independent of
-            // the player's later movement. Frozen for the session.
-            Vector3d reFlyTreeOffset = Vector3d.zero;
-            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, targetUT, out reFlyTreeOffset);
-            if (hasReFlyTreeOffset)
-                interpolatedPos += reFlyTreeOffset;
-
             // Phase 5 co-bubble overlap blend (design doc §6.5, §10, §18 Phase 5).
             // When the recording is a peer of a designated primary AND a
             // populated co-bubble offset trace covers the current playback UT,
@@ -15676,6 +15683,24 @@ namespace Parsek
                         recordingId, "primary-standalone-failed");
                 }
             }
+
+            // Re-Fly tree anchor lock: when the ghost belongs to the active
+            // Re-Fly tree, translate by the spawn-time delta so the recorded
+            // trajectory aligns with the live player at session start and the
+            // ghost continues along its own original path independent of
+            // the player's later movement. Frozen for the session. Applied
+            // AFTER the Phase 5 co-bubble override so the override does not
+            // discard the offset — the engine reads ghost.transform
+            // immediately after positioning for ApplyFrameVisuals,
+            // TrackGhostAppearance, explosion anchors, and distance
+            // diagnostics; without this ordering co-bubble frames would use
+            // the unanchored position during Update and only re-apply the
+            // offset in LateUpdate.
+            Vector3d reFlyTreeOffset = Vector3d.zero;
+            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                recordingId, targetUT, out reFlyTreeOffset);
+            if (hasReFlyTreeOffset)
+                interpolatedPos += reFlyTreeOffset;
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
@@ -16534,7 +16559,7 @@ namespace Parsek
         }
 
 
-        void PositionGhostAt(GameObject ghost, TrajectoryPoint point)
+        void PositionGhostAt(GameObject ghost, TrajectoryPoint point, string recordingId = null)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
             if (body == null)
@@ -16567,7 +16592,18 @@ namespace Parsek
                 point.latitude, point.longitude, effectiveAltitude);
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
-            ghost.transform.position = worldPos;
+
+            // Re-Fly tree anchor lock: when this ghost belongs to the active
+            // Re-Fly tree, translate by the spawn-time delta so single-point
+            // ghosts in the tree align to the live player at session start
+            // and stay on their original recorded path independent of player
+            // movement. The same offset feeds the LateUpdate SinglePoint
+            // branch via GhostPosEntry.reFlyTreeOffset so FloatingOrigin
+            // re-pos preserves the alignment.
+            Vector3d singlePointReFlyTreeOffset = Vector3d.zero;
+            if (!string.IsNullOrEmpty(recordingId))
+                TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
+            ghost.transform.position = worldPos + singlePointReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
@@ -16579,6 +16615,7 @@ namespace Parsek
                 latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
+                reFlyTreeOffset = singlePointReFlyTreeOffset,
             });
         }
 
@@ -16666,7 +16703,8 @@ namespace Parsek
         // Cache to avoid reconstructing Orbit objects every frame
         private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
-        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey)
+        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
+            string recordingId = null)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
@@ -16704,7 +16742,16 @@ namespace Parsek
                 worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
             }
 
-            ghost.transform.position = worldPos;
+            // Re-Fly tree anchor lock: orbit-driven ghosts in the active
+            // Re-Fly tree are translated by the spawn-time delta so they
+            // align to the live player at session start and continue along
+            // their own original orbital geometry instead of the tree-shared
+            // recording-time world frame. LateUpdate Orbit branch reads the
+            // same offset via GhostPosEntry.reFlyTreeOffset.
+            Vector3d orbitReFlyTreeOffset = Vector3d.zero;
+            if (!string.IsNullOrEmpty(recordingId))
+                TryGetReFlyTreeAnchorOffset(recordingId, ut, out orbitReFlyTreeOffset);
+            ghost.transform.position = worldPos + orbitReFlyTreeOffset;
 
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
 
@@ -16743,7 +16790,8 @@ namespace Parsek
                 orbitAngularVelocity = segment.angularVelocity,
                 isSpinning = spinning,
                 orbitSegmentStartUT = segment.startUT,
-                boundaryWorldRot = boundaryWorldRot
+                boundaryWorldRot = boundaryWorldRot,
+                reFlyTreeOffset = orbitReFlyTreeOffset,
             });
         }
 
@@ -16826,7 +16874,7 @@ namespace Parsek
                     if (loggedOrbitSegments.Add(cacheKey))
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
                             $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
-                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey);
+                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey, rec?.RecordingId);
                     if (allowActivation)
                         ghost.SetActive(true);
                     return;
@@ -16840,7 +16888,8 @@ namespace Parsek
         /// Positions a ghost at a fixed surface position (body, lat, lon, alt, rotation).
         /// Used for background vessels that are landed/splashed.
         /// </summary>
-        void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos, bool allowActivation)
+        void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos, bool allowActivation,
+            string recordingId = null, double pointUT = double.NaN)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == surfPos.body);
             if (body == null)
@@ -16849,7 +16898,19 @@ namespace Parsek
                 ghost.SetActive(false);
                 return;
             }
-            ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
+            // Re-Fly tree anchor lock: translate landed/splashed ghosts in
+            // the active Re-Fly tree by the spawn-time delta. Surface mode
+            // shares the offset with PositionGhostAt — same intent, different
+            // entry mode. LateUpdate Surface branch reads the same
+            // GhostPosEntry.reFlyTreeOffset.
+            Vector3d surfReFlyTreeOffset = Vector3d.zero;
+            if (!string.IsNullOrEmpty(recordingId))
+            {
+                double offsetUT = double.IsNaN(pointUT) ? Planetarium.GetUniversalTime() : pointUT;
+                TryGetReFlyTreeAnchorOffset(recordingId, offsetUT, out surfReFlyTreeOffset);
+            }
+            ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude)
+                + surfReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
             if (allowActivation)
                 ghost.SetActive(true);
@@ -16861,7 +16922,8 @@ namespace Parsek
                 mode = GhostPosMode.Surface,
                 bodyBefore = body,
                 latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
-                surfaceRot = surfPos.rotation
+                surfaceRot = surfPos.rotation,
+                reFlyTreeOffset = surfReFlyTreeOffset,
             });
 
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
@@ -17444,6 +17506,18 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
+            // Re-Fly tree anchor lock: translate Checkpoint section playback
+            // by the spawn-time delta so checkpoint-driven ghosts in the
+            // active Re-Fly tree align to the live player at session start
+            // and stay on their original recorded path. LateUpdate
+            // CheckpointPoint branch reads the same offset via
+            // GhostPosEntry.reFlyTreeOffset.
+            Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
+            bool hasCheckpointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                recordingId, playbackUT, out checkpointReFlyTreeOffset);
+            if (hasCheckpointReFlyTreeOffset)
+                interpolatedPos += checkpointReFlyTreeOffset;
+
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
@@ -17493,6 +17567,7 @@ namespace Parsek
                 // ghost would drop the anchor correction every late frame.
                 anchorRecordingId = recordingId,
                 anchorSectionIndex = sectionIdx,
+                reFlyTreeOffset = checkpointReFlyTreeOffset,
             });
 
             interpResult = new InterpolationResult(
@@ -19332,10 +19407,16 @@ namespace Parsek
                 if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
                         recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
                 {
+                    // Thread recordingId/sectionIndex so the inner
+                    // InterpolateAndPosition can apply the Re-Fly tree anchor
+                    // offset on the loop absolute-shadow path. Mirrors the
+                    // same fix in InterpolateAndPositionRelative outer.
                     InterpolateAndPosition(ghost, absoluteFrames, null,
                         ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                         allowActivation: allowActivation,
-                        skipOrbitSegments: true);
+                        skipOrbitSegments: true,
+                        recordingId: rec.RecordingId,
+                        sectionIndex: sectionIdx);
                     return;
                 }
 
@@ -19673,7 +19754,7 @@ namespace Parsek
                         if (loggedOrbitSegments.Add(cacheKey))
                             Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
                                 $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
-                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
+                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey, recordingId);
                         Vector3 vel = Vector3.zero;
                         Orbit orbit;
                         if (orbitCache.TryGetValue(cacheKey, out orbit))
