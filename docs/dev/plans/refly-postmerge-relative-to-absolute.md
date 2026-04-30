@@ -2,9 +2,31 @@
 
 ## Status
 
-Plan only. Depends on PR #604 (`fix-refly-upper-stage-absolute`) landing first
-because it introduces format v7 and `TrackSection.absoluteFrames`. Branch
-`plan-refly-postmerge-rel-to-abs` is forked from that PR's branch.
+Plan only. The original dependency on PR #604
+(`fix-refly-upper-stage-absolute`) is now satisfied on `main`: format v7
+introduced `TrackSection.absoluteFrames`, and current `main` has since
+advanced the recording format to v10. This branch was merged with
+`origin/main` on 2026-04-30.
+
+After that merge, this plan should be read as a durable post-merge
+canonicalization and storage-cleanup proposal, not as the only runtime
+visual fix. Current `main` already has runtime safeguards that reduce the
+urgency of this pass:
+
+- `ParsekFlight.TryGetAbsoluteSectionPlaybackFrames` makes playback and
+  watch-position resolution prefer section-local ABSOLUTE frames instead
+  of falling through to adjacent flat `Recording.Points` samples.
+- `ParsekFlight` / `RelativeAnchorResolution` now detect stale live
+  relative anchors and prefer recorded anchor poses when the live anchor
+  has drifted far from the recorded pose.
+- The active Re-Fly relative-anchor bypass is now broader than the
+  original parent-chain-only shape: same-PID sibling and cousin victims can
+  be protected at runtime.
+
+The remaining value is still real, but narrower: promote the
+high-confidence parent-chain subset once the merge makes its anchor-local
+copy dead state, keep flat fallback data in sync, drop redundant shadow
+payloads, and remove one class of future reader / tooling footgun.
 
 ## Rationale
 
@@ -749,15 +771,42 @@ The implementation PR must run the existing terminal-tip collector tests
 with zero expectation changes so the richer helper does not broaden the
 merge-dialog spawn-default behavior by accident.
 
-### v7 format-version handling
+Current `main` note: runtime bypass policy in
+`RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly` is broader
+than this helper's parent-chain promotion scope. Keep this plan's
+promotion scope conservative for the first implementation. Persisting the
+broader "any non-active victim section anchored to the active Re-Fly PID"
+runtime policy is plausible follow-up work, but it needs separate product
+policy and regression tests for docking / logistics-loop cases where
+RELATIVE anchoring is intentionally live.
 
-No bump. v7 already supports mixed reference frames in a single recording
-— a recording can hold one promoted ABSOLUTE section (no shadows) next to
-an unpromoted RELATIVE section (with shadows). Per-section serialization
-in `RecordingStore.SerializeTrackSections` already gates `ABSOLUTE_POINT`
-writes on `referenceFrame == Relative` (line 5202-5210), so promoted
-sections naturally stop emitting them. `IsAcceptableSidecarVersionLag`
-contracts are unchanged.
+### Format-version and codec handling
+
+No bump. v7 already supports mixed reference frames in a single recording,
+and current `main` is v10. A recording can hold one promoted ABSOLUTE
+section (no shadows) next to an unpromoted RELATIVE section (with
+shadows).
+
+The relevant serializer code moved during the storage refactor:
+
+- Text codec: `TrajectoryTextSidecarCodec.SerializeTrackSections` gates
+  `ABSOLUTE_POINT` text nodes on `referenceFrame == Relative` and
+  `recordingFormatVersion >= RecordingStore.RelativeAbsoluteShadowFormatVersion`.
+  Promoted ABSOLUTE sections naturally stop emitting text shadows.
+- Binary codec: `TrajectorySidecarBinary.WriteTrackSections` still writes
+  the `absoluteFrames` point-list slot for v7+ binaries regardless of
+  reference frame. The promotion pass should clear / null the promoted
+  section's `absoluteFrames` so the binary sidecar emits an empty shadow
+  list for that section.
+- Section-authoritative write decisions now route through
+  `TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory`
+  and the binary writer's `RecordingStore.ShouldWriteSectionAuthoritativeTrajectory`
+  wrapper. The flat-list splice remains useful because
+  `HasTrackSectionPayloadMatchingFlatTrajectory` with
+  `allowRelativeSections: true` rebuilds from `TrackSection.frames` and
+  compares against `Recording.Points`.
+
+`IsAcceptableSidecarVersionLag` contracts are unchanged.
 
 ### CHANGELOG / todo entries
 
