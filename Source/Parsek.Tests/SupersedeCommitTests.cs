@@ -991,6 +991,123 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap()
+        {
+            const string kSessionId = "sess_inplace_crash_survivor";
+            const string kTreeId = "tree_inplace_crash_survivor";
+            const string kBpId = "bp_inplace_crash_survivor";
+            var origin = Rec("rec_probe_origin", kTreeId,
+                childBranchPointId: kBpId,
+                state: MergeState.CommittedProvisional,
+                terminal: TerminalState.Destroyed,
+                vesselPid: 3605824670u);
+            origin.Points.Add(new TrajectoryPoint { ut = 126.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 126.5 });
+
+            var survivor = Rec("rec_probe_survivor", kTreeId,
+                parentBranchPointId: kBpId,
+                state: MergeState.Immutable,
+                terminal: TerminalState.Recovered,
+                vesselPid: 1337511177u);
+            survivor.Points.Add(new TrajectoryPoint { ut = 126.5 });
+            survivor.Points.Add(new TrajectoryPoint { ut = 131.5 });
+
+            InstallTree(kTreeId,
+                new List<Recording> { origin, survivor },
+                new List<BranchPoint>
+                {
+                    Bp(kBpId, BranchPointType.Breakup,
+                        parents: new List<string> { "rec_probe_origin" },
+                        children: new List<string> { "rec_probe_survivor" }),
+                });
+
+            var marker = Marker(
+                originId: "rec_probe_origin",
+                provisionalId: "rec_probe_origin",
+                sessionId: kSessionId,
+                treeId: kTreeId);
+            var scenario = InstallScenario(marker);
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_inflight_survivor",
+                BranchPointId = kBpId,
+                UT = 127.0,
+                FocusSlotIndex = 0,
+                SessionProvisional = true,
+                CreatingSessionId = kSessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_probe_origin",
+                        Controllable = true,
+                    },
+                    new ChildSlot
+                    {
+                        SlotIndex = 1,
+                        OriginChildRecordingId = "rec_probe_survivor",
+                        Controllable = true,
+                    },
+                },
+            };
+            scenario.RewindPoints.Add(rp);
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "expected destroyed in-place origin to appear in Unfinished Flights before merge");
+            Assert.False(RewindPointReaper.IsReapEligible(rp, scenario.RecordingSupersedes),
+                "session-provisional RPs must not be reap-eligible before merge promotion");
+
+            int deletes = 0;
+            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            {
+                deletes++;
+                Assert.Equal("rp_inflight_survivor", id);
+                return true;
+            };
+            try
+            {
+                var result = MergeDialog.TryCommitReFlySupersede();
+                Assert.Equal(MergeDialog.ReFlyMergeCommitResult.Completed, result);
+            }
+            finally
+            {
+                RewindPointReaper.ResetTestOverrides();
+            }
+
+            Assert.False(rp.SessionProvisional);
+            Assert.Null(rp.CreatingSessionId);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.False(EffectiveState.IsUnfinishedFlight(origin),
+                "expected origin to leave Unfinished Flights after the session-created RP was reaped");
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.Equal(MergeState.Immutable, survivor.MergeState);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(1, deletes);
+            int sessionEndLogIndex = logLines.FindIndex(l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=merged")
+                && l.Contains(kSessionId));
+            int tagLogIndex = logLines.FindIndex(l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("tagging session-provisional RPs for reap")
+                && l.Contains(kSessionId));
+            Assert.True(sessionEndLogIndex >= 0,
+                "expected the in-place merge to log session end / marker clear before RP promotion");
+            Assert.True(tagLogIndex > sessionEndLogIndex,
+                "expected session-created RP promotion to run only after marker clear succeeds");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]")
+                && l.Contains("TagRpsForReap: promoted 1")
+                && l.Contains("sess=" + kSessionId)
+                && l.Contains("fromSession=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Reaped rp=rp_inflight_survivor")
+                && l.Contains("slots=2"));
+        }
+
+        [Fact]
         public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocus_ForcedImmutable_DoesNotSealSlot()
         {
             const string kBpId = "bp_inplace_stable_leaf";
