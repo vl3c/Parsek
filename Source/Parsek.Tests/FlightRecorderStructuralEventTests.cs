@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Parsek;
+using Parsek.Rendering;
 using UnityEngine;
 using Xunit;
 
@@ -280,6 +281,111 @@ namespace Parsek.Tests
 
             Assert.Equal(flaggedA.ut, flaggedB.ut);
             Assert.Equal(flaggedA.flags, flaggedB.flags);
+        }
+
+        // ----- Phase 9 follow-up: coalescer child-seed parity -----
+
+        [Fact]
+        public void CreateBreakupChildRecording_SeedAtStructuralEventUT_FlagsChildSeed()
+        {
+            const double eventUT = 16884.922537602102;
+            var seed = MakePoint(eventUT);
+
+            Recording child = CreateBreakupChildRecordingWithSeed(eventUT, seed);
+
+            Assert.Single(child.Points);
+            Assert.Equal(eventUT, child.Points[0].ut);
+            Assert.Equal(
+                (byte)TrajectoryPointFlags.StructuralEventSnapshot,
+                child.Points[0].flags);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_SeedOffsetFromStructuralEventUT_DoesNotFlagChildSeed()
+        {
+            const double eventUT = 16884.922537602102;
+            var seed = MakePoint(eventUT + 0.02);
+
+            Recording child = CreateBreakupChildRecordingWithSeed(eventUT, seed);
+
+            Assert.Single(child.Points);
+            Assert.Equal(seed.ut, child.Points[0].ut);
+            Assert.Equal((byte)0, child.Points[0].flags);
+        }
+
+        [Fact]
+        public void CreateBreakupChildRecording_FlaggedChildSeed_BinaryRoundTripPreservesFlag()
+        {
+            const double eventUT = 16884.922537602102;
+            Recording child = CreateBreakupChildRecordingWithSeed(eventUT, MakePoint(eventUT));
+
+            string tempPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "parsek-fr-phase9-child-seed-roundtrip-" + Guid.NewGuid().ToString("N") + ".prec");
+            try
+            {
+                TrajectorySidecarBinary.Write(tempPath, child, sidecarEpoch: 1);
+
+                Assert.True(TrajectorySidecarBinary.TryProbe(tempPath, out TrajectorySidecarProbe probe));
+                Assert.Equal(RecordingStore.StructuralEventFlagFormatVersion, probe.FormatVersion);
+
+                var restored = new Recording();
+                TrajectorySidecarBinary.Read(tempPath, restored, probe);
+
+                Assert.Single(restored.Points);
+                Assert.Equal(eventUT, restored.Points[0].ut);
+                Assert.Equal(
+                    (byte)TrajectoryPointFlags.StructuralEventSnapshot,
+                    restored.Points[0].flags);
+            }
+            finally
+            {
+                if (System.IO.File.Exists(tempPath))
+                {
+                    try { System.IO.File.Delete(tempPath); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void AnchorCandidateBuilder_FindsCoalescerChildSeedAtStructuralEventUT()
+        {
+            const double eventUT = 16884.922537602102;
+            Recording child = CreateBreakupChildRecordingWithSeed(eventUT, MakePoint(eventUT));
+
+            int childSeedIndex = AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                child.Points,
+                eventUT,
+                tolerance: 0.1);
+
+            Assert.Equal(0, childSeedIndex);
+            Assert.Equal(eventUT, child.Points[childSeedIndex].ut);
+        }
+
+        private static Recording CreateBreakupChildRecordingWithSeed(double eventUT, TrajectoryPoint seed)
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-phase9-child-seed-" + Guid.NewGuid().ToString("N"),
+                TreeName = "Phase 9 Child Seed Test",
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-phase9-child-seed-" + Guid.NewGuid().ToString("N"),
+                UT = eventUT,
+                Type = BranchPointType.JointBreak,
+            };
+
+            return ParsekFlight.CreateBreakupChildRecording(
+                tree,
+                bp,
+                pid: 42,
+                vessel: null,
+                isDebris: true,
+                fallbackName: "Debris",
+                fallbackSnapshot: null,
+                fallbackTrajectoryPoint: seed,
+                parentGeneration: 0);
         }
 
         private static TrajectoryPoint MakePoint(double ut)

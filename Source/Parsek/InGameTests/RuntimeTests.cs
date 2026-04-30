@@ -13866,6 +13866,153 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Phase 9 follow-up (§15.17): parent and child recordings seeded at the
+        /// same structural-event UT must both expose a flagged sample so anchor
+        /// resolution is symmetric at multi-child branch points.
+        /// </summary>
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "Phase 9 structural-event child seed flag parity at branch UT")]
+        public void Pipeline_Smoothing_StructuralEvent_ChildSeedFlagParityAtBranchPointUT()
+        {
+            const double branchUT = 60100.0;
+            const string parentId = "phase9-parent";
+            const string childId = "phase9-child";
+
+            var parentFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = branchUT - 0.05,
+                    latitude = 0.001, longitude = 0.001, altitude = 81000,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                },
+                FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+                {
+                    ut = branchUT,
+                    latitude = 0.002, longitude = 0.002, altitude = 81100,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                }),
+                new TrajectoryPoint
+                {
+                    ut = branchUT + 0.05,
+                    latitude = 0.003, longitude = 0.003, altitude = 81200,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                },
+            };
+
+            var childFrames = new List<TrajectoryPoint>
+            {
+                ParsekFlight.ApplyStructuralEventFlagToChildSeed(new TrajectoryPoint
+                {
+                    ut = branchUT,
+                    latitude = 0.011, longitude = 0.011, altitude = 80500,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                }, branchUT),
+                new TrajectoryPoint
+                {
+                    ut = branchUT + 0.05,
+                    latitude = 0.012, longitude = 0.012, altitude = 80600,
+                    rotation = Quaternion.identity, velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN,
+                    flags = 0,
+                },
+            };
+
+            var parent = new Recording
+            {
+                RecordingId = parentId,
+                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+            };
+            parent.Points.AddRange(parentFrames);
+            parent.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = parentFrames[0].ut,
+                endUT = parentFrames[parentFrames.Count - 1].ut,
+                sampleRateHz = 20f,
+                frames = new List<TrajectoryPoint>(parentFrames),
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var child = new Recording
+            {
+                RecordingId = childId,
+                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                ParentBranchPointId = "phase9-branch",
+                ExplicitStartUT = branchUT,
+            };
+            child.Points.AddRange(childFrames);
+            child.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = childFrames[0].ut,
+                endUT = childFrames[childFrames.Count - 1].ut,
+                sampleRateHz = 20f,
+                frames = new List<TrajectoryPoint>(childFrames),
+                checkpoints = new List<OrbitSegment>(),
+            });
+
+            var tree = new RecordingTree { Id = "phase9-dual-seed-tree", TreeName = "Phase 9 Dual Seed" };
+            tree.Recordings[parentId] = parent;
+            tree.Recordings[childId] = child;
+            var branch = new BranchPoint
+            {
+                Id = "phase9-branch",
+                UT = branchUT,
+                Type = BranchPointType.JointBreak,
+            };
+            branch.ParentRecordingIds.Add(parentId);
+            branch.ChildRecordingIds.Add(childId);
+            tree.BranchPoints.Add(branch);
+
+            int parentIdx = Parsek.Rendering.AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                parent.TrackSections[0].frames, branchUT, tolerance: 0.1);
+            int childIdx = Parsek.Rendering.AnchorCandidateBuilder.TryFindFlaggedSampleAtUT(
+                child.TrackSections[0].frames, branchUT, tolerance: 0.1);
+            int flagBit = (int)TrajectoryPointFlags.StructuralEventSnapshot;
+
+            InGameAssert.AreEqual(1, tree.BranchPoints.Count,
+                "Synthetic dual-recording tree must contain one branch point");
+            InGameAssert.IsTrue(parentIdx >= 0,
+                "Parent recording must expose a flagged sample at the branch UT");
+            InGameAssert.IsTrue(childIdx >= 0,
+                "Child recording must expose a flagged seed sample at the branch UT");
+            InGameAssert.AreEqual(branchUT, parent.TrackSections[0].frames[parentIdx].ut,
+                "Parent flagged sample UT must equal branch UT");
+            InGameAssert.AreEqual(branchUT, child.TrackSections[0].frames[childIdx].ut,
+                "Child flagged seed UT must equal branch UT");
+            InGameAssert.AreEqual(flagBit,
+                (int)parent.TrackSections[0].frames[parentIdx].flags & flagBit,
+                "Parent flagged sample must carry StructuralEventSnapshot");
+            InGameAssert.AreEqual(flagBit,
+                (int)child.TrackSections[0].frames[childIdx].flags & flagBit,
+                "Child flagged seed must carry StructuralEventSnapshot");
+
+            ParsekLog.Info("Pipeline-Smoothing",
+                "Pipeline_Smoothing_StructuralEvent_ChildSeedFlagParityAtBranchPointUT: "
+                + "branchUT=" + branchUT.ToString("F1", CultureInfo.InvariantCulture)
+                + " parentIdx=" + parentIdx
+                + " childIdx=" + childIdx);
+        }
+
+        /// <summary>
         /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the four
         /// structural-event handlers that drive
         /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/>. The test does
