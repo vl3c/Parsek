@@ -75,6 +75,7 @@ namespace Parsek
         // Interval for updating ExplicitEndUT on background recordings
         private const double ExplicitEndUpdateInterval = 30.0;
         private const double BackgroundStateDriftCheckInterval = 5.0;
+        private const double BranchBoundaryUTTolerance = 1e-6;
         private double lastBackgroundStateDriftCheckUT = double.MinValue;
 
         // Debris TTL: stop recording debris after this many seconds
@@ -453,10 +454,11 @@ namespace Parsek
                 return;
             }
             state.decoupledPartIds.Add(joint.Child.persistentId);
+            double jointBreakUT = Planetarium.GetUniversalTime();
 
             treeRec.PartEvents.Add(new PartEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = jointBreakUT,
                 partPersistentId = joint.Child.persistentId,
                 eventType = PartEventType.Decoupled,
                 partName = joint.Child.partInfo?.name ?? "unknown"
@@ -467,6 +469,14 @@ namespace Parsek
                 $"Part joint break on background vessel: Decoupled " +
                 $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
                 $"vesselPid={vesselPid} breakForce={breakForce:F1}");
+
+            var jointBreakInvolved = new List<Vessel>(2);
+            if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
+            if (joint.Host?.vessel != null && joint.Host.vessel != joint.Child.vessel)
+                jointBreakInvolved.Add(joint.Host.vessel);
+            AppendStructuralEventSnapshot(
+                jointBreakUT, jointBreakInvolved, "JointBreak", preferRootPartSurfacePose: true);
+
             RefreshFinalizationCacheForVessel(joint.Child.vessel, recordingId, FinalizationCacheOwner.BackgroundLoaded,
                 "background_joint_break", force: true);
 
@@ -474,7 +484,7 @@ namespace Parsek
             // KSP needs one frame to finalize vessel splits after joint breaks.
             if (!pendingBackgroundSplitChecks.ContainsKey(vesselPid))
             {
-                double branchUT = Planetarium.GetUniversalTime();
+                double branchUT = jointBreakUT;
 
                 // Snapshot all current vessel PIDs so we can identify NEW ones next frame
                 var snapshot = new HashSet<uint>();
@@ -493,6 +503,9 @@ namespace Parsek
                     ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
                         joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
+                if (parentBoundaryPoint.HasValue
+                    && FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
+                    parentBoundaryPoint = FlightRecorder.ApplyStructuralEventFlag(parentBoundaryPoint.Value);
                 pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
                 ParsekLog.Info("BgRecorder",
@@ -855,7 +868,7 @@ namespace Parsek
 
         /// <summary>
         /// Closes the parent recording at a branch point: sets ChildBranchPointId, ExplicitEndUT,
-        /// closes any open orbit segment, samples a final boundary point, and removes from tracking dicts.
+        /// closes any open orbit/loaded track section, samples a final boundary point, and removes from tracking dicts.
         /// </summary>
         private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId,
             double branchUT, TrajectoryPoint? parentBoundaryPoint = null)
@@ -874,19 +887,37 @@ namespace Parsek
             BackgroundVesselState parentLoaded;
             if (loadedStates.TryGetValue(parentPid, out parentLoaded))
             {
+                TrimParentAtBranchBoundary(parentRec, parentLoaded, parentPid, branchUT);
+
                 if (parentBoundaryPoint.HasValue)
                 {
-                    ApplyTrajectoryPointToRecording(parentRec, parentBoundaryPoint.Value);
+                    TrajectoryPoint boundary = parentBoundaryPoint.Value;
+                    if (HasStructuralEventPointAtUT(parentRec, boundary.ut))
+                    {
+                        ParsekLog.Verbose("BgRecorder",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "CloseParentRecording: structural boundary already recorded " +
+                                "parentPid={0} recId={1} ut={2:R}",
+                                parentPid,
+                                parentRec.RecordingId,
+                                boundary.ut));
+                    }
+                    else
+                    {
+                        ApplyTrajectoryPointToRecording(parentRec, boundary);
+                    }
                 }
                 else
                 {
                     Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
                     if (parentVessel != null)
                     {
-                        double sampleUT = Planetarium.GetUniversalTime();
-                        SampleBoundaryPoint(parentVessel, parentRec, sampleUT);
+                        SampleBoundaryPoint(parentVessel, parentRec, branchUT);
                     }
                 }
+
+                CloseBackgroundTrackSection(parentLoaded, branchUT);
+                FlushTrackSectionsToRecording(parentLoaded, parentRec);
             }
 
             // Remove parent from BackgroundMap (it has branched, no longer a live recording)
@@ -895,6 +926,109 @@ namespace Parsek
             loadedStates.Remove(parentPid);
             debrisTTLExpiry.Remove(parentPid);
             finalizationCaches.Remove(parentPid);
+        }
+
+        private static bool HasStructuralEventPointAtUT(Recording rec, double ut)
+        {
+            if (rec?.Points == null) return false;
+            for (int i = rec.Points.Count - 1; i >= 0; i--)
+            {
+                TrajectoryPoint point = rec.Points[i];
+                if (Math.Abs(point.ut - ut) > 1e-6)
+                {
+                    if (point.ut < ut) break;
+                    continue;
+                }
+
+                if (((TrajectoryPointFlags)point.flags & TrajectoryPointFlags.StructuralEventSnapshot) != 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static void TrimParentAtBranchBoundary(
+            Recording parentRec, BackgroundVesselState parentLoaded, uint parentPid, double branchUT)
+        {
+            int flatRemoved = TrimTrajectoryPointsAfterUT(parentRec?.Points, branchUT);
+            int sectionFramesRemoved = 0;
+            int absoluteFramesRemoved = 0;
+            if (parentLoaded != null && parentLoaded.trackSectionActive)
+            {
+                sectionFramesRemoved = TrimTrajectoryPointsAfterUT(
+                    parentLoaded.currentTrackSection.frames, branchUT);
+                absoluteFramesRemoved = TrimTrajectoryPointsAfterUT(
+                    parentLoaded.currentTrackSection.absoluteFrames, branchUT);
+                if (sectionFramesRemoved > 0 || absoluteFramesRemoved > 0)
+                    RecomputeCurrentTrackSectionAltitudeRange(parentLoaded);
+            }
+
+            int removed = flatRemoved + sectionFramesRemoved + absoluteFramesRemoved;
+            if (removed == 0) return;
+
+            if (parentRec != null)
+            {
+                parentRec.MarkFilesDirty();
+                parentRec.CachedStats = null;
+                parentRec.CachedStatsPointCount = 0;
+            }
+
+            ParsekLog.Warn("BgRecorder",
+                string.Format(CultureInfo.InvariantCulture,
+                    "CloseParentRecording: trimmed post-branch parent samples " +
+                    "parentPid={0} recId={1} branchUT={2:R} flatRemoved={3} " +
+                    "sectionFramesRemoved={4} absoluteFramesRemoved={5}",
+                    parentPid,
+                    parentRec?.RecordingId ?? "<null>",
+                    branchUT,
+                    flatRemoved,
+                    sectionFramesRemoved,
+                    absoluteFramesRemoved));
+        }
+
+        private static int TrimTrajectoryPointsAfterUT(List<TrajectoryPoint> points, double maxUT)
+        {
+            if (points == null || points.Count == 0) return 0;
+
+            int removed = 0;
+            double limit = maxUT + BranchBoundaryUTTolerance;
+            for (int i = points.Count - 1; i >= 0; i--)
+            {
+                if (points[i].ut <= limit) continue;
+                points.RemoveAt(i);
+                removed++;
+            }
+
+            return removed;
+        }
+
+        private static void RecomputeCurrentTrackSectionAltitudeRange(BackgroundVesselState state)
+        {
+            if (state == null)
+                return;
+
+            if (state.currentTrackSection.frames == null
+                || state.currentTrackSection.frames.Count == 0)
+            {
+                state.currentTrackSection.minAltitude = float.NaN;
+                state.currentTrackSection.maxAltitude = float.NaN;
+                return;
+            }
+
+            float min = float.NaN;
+            float max = float.NaN;
+            for (int i = 0; i < state.currentTrackSection.frames.Count; i++)
+            {
+                double altitude = state.currentTrackSection.frames[i].altitude;
+                if (double.IsNaN(altitude)) continue;
+                if (float.IsNaN(min) || altitude < min)
+                    min = (float)altitude;
+                if (float.IsNaN(max) || altitude > max)
+                    max = (float)altitude;
+            }
+
+            state.currentTrackSection.minAltitude = min;
+            state.currentTrackSection.maxAltitude = max;
         }
 
         /// <summary>
@@ -1235,8 +1369,9 @@ namespace Parsek
         /// SurfaceMobile clearance computation. Mirrors the inline gate in
         /// <see cref="FlightRecorder.CommitRecordedPoint"/> so xUnit can pin
         /// the four-condition AND without needing a live <c>Vessel</c> /
-        /// <c>FlightGlobals</c> runtime. The actual <c>TerrainAltitude</c>
-        /// call stays inline at the call site (Unity-only API).
+        /// <c>FlightGlobals</c> runtime. The Unity-only
+        /// <c>TerrainAltitude</c> call is isolated in
+        /// <see cref="ApplySurfaceMobileClearanceToPoint"/>.
         ///
         /// <para>All four conditions must hold for the BG sampler to
         /// populate <c>recordedGroundClearance</c>: a section must be
@@ -1259,6 +1394,37 @@ namespace Parsek
                 && frame == ReferenceFrame.Absolute
                 && env == SegmentEnvironment.SurfaceMobile
                 && hasPqsController;
+        }
+
+        private static void ApplySurfaceMobileClearanceToPoint(
+            BackgroundVesselState state,
+            Vessel bgVessel,
+            ref TrajectoryPoint point)
+        {
+            bool hasPqs = bgVessel != null && bgVessel.mainBody != null && bgVessel.mainBody.pqsController != null;
+            if (!ShouldEmitBackgroundSurfaceMobileClearance(
+                    state != null && state.trackSectionActive,
+                    state != null && state.trackSectionActive
+                        ? state.currentTrackSection.referenceFrame
+                        : ReferenceFrame.Absolute,
+                    state != null && state.trackSectionActive
+                        ? state.currentTrackSection.environment
+                        : SegmentEnvironment.SurfaceMobile,
+                    hasPqs))
+            {
+                return;
+            }
+
+            double terrainHeight = bgVessel.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
+            point.recordedGroundClearance = point.altitude - terrainHeight;
+            state.surfaceMobileSamplesThisSection++;
+            if (double.IsNaN(state.surfaceMobileMinClearanceThisSection)
+                || point.recordedGroundClearance < state.surfaceMobileMinClearanceThisSection)
+                state.surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
+            if (double.IsNaN(state.surfaceMobileMaxClearanceThisSection)
+                || point.recordedGroundClearance > state.surfaceMobileMaxClearanceThisSection)
+                state.surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
+            state.surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
         }
 
         /// <summary>
@@ -1587,24 +1753,7 @@ namespace Parsek
             // flat list / section append so both stores see the same value.
             // Non-SurfaceMobile / RELATIVE-frame / missing-PQS keep NaN, the
             // sentinel for the legacy altitude path.
-            bool hasPqs = bgVessel != null && bgVessel.mainBody != null && bgVessel.mainBody.pqsController != null;
-            if (ShouldEmitBackgroundSurfaceMobileClearance(
-                    state.trackSectionActive,
-                    state.trackSectionActive ? state.currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
-                    state.trackSectionActive ? state.currentTrackSection.environment : SegmentEnvironment.SurfaceMobile,
-                    hasPqs))
-            {
-                double terrainHeight = bgVessel.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
-                point.recordedGroundClearance = point.altitude - terrainHeight;
-                state.surfaceMobileSamplesThisSection++;
-                if (double.IsNaN(state.surfaceMobileMinClearanceThisSection)
-                    || point.recordedGroundClearance < state.surfaceMobileMinClearanceThisSection)
-                    state.surfaceMobileMinClearanceThisSection = point.recordedGroundClearance;
-                if (double.IsNaN(state.surfaceMobileMaxClearanceThisSection)
-                    || point.recordedGroundClearance > state.surfaceMobileMaxClearanceThisSection)
-                    state.surfaceMobileMaxClearanceThisSection = point.recordedGroundClearance;
-                state.surfaceMobileClearanceSumThisSection += point.recordedGroundClearance;
-            }
+            ApplySurfaceMobileClearanceToPoint(state, bgVessel, ref point);
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -4336,6 +4485,104 @@ namespace Parsek
             }
         }
 
+        internal int AppendStructuralEventSnapshot(
+            double eventUT,
+            IEnumerable<Vessel> involved,
+            string eventType,
+            bool preferRootPartSurfacePose = false)
+        {
+            if (tree == null || involved == null) return 0;
+
+            int considered = 0;
+            int backgroundMatches = 0;
+            int loadedMatches = 0;
+            int recordingMatches = 0;
+            int legacySkipped = 0;
+            int rejected = 0;
+            int appended = 0;
+
+            foreach (Vessel v in involved)
+            {
+                considered++;
+                if (v == null) continue;
+
+                uint pid = v.persistentId;
+                string recordingId;
+                if (!tree.BackgroundMap.TryGetValue(pid, out recordingId))
+                    continue;
+                backgroundMatches++;
+
+                BackgroundVesselState state;
+                if (!loadedStates.TryGetValue(pid, out state))
+                    continue;
+                loadedMatches++;
+
+                Recording treeRec;
+                if (!tree.Recordings.TryGetValue(recordingId, out treeRec))
+                    continue;
+                recordingMatches++;
+
+                if (!FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
+                {
+                    legacySkipped++;
+                    continue;
+                }
+
+                Vector3 velocity = v.packed
+                    ? (Vector3)v.obt_velocity
+                    : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+                TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                    v,
+                    eventUT,
+                    velocity,
+                    preferRootPartSurfacePose);
+                point = FlightRecorder.ApplyStructuralEventFlag(point);
+                ApplySurfaceMobileClearanceToPoint(state, v, ref point);
+
+                if (!ApplyTrajectoryPointToRecording(treeRec, point))
+                {
+                    rejected++;
+                    continue;
+                }
+
+                AppendFrameToCurrentTrackSection(state, point);
+                state.lastRecordedUT = point.ut;
+                state.lastRecordedVelocity = point.velocity;
+                appended++;
+
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "BG structural event snapshot appended: event={0} ut={1:R} vesselId={2} recId={3} " +
+                        "flags={4} lat={5:R} lon={6:R} alt={7:R}",
+                        eventType ?? "unknown",
+                        point.ut,
+                        pid,
+                        recordingId ?? "<null>",
+                        point.flags,
+                        point.latitude,
+                        point.longitude,
+                        point.altitude));
+            }
+
+            if (considered > 0 && appended == 0)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "BG structural event snapshot skipped: event={0} ut={1:R} considered={2} " +
+                        "backgroundMatches={3} loadedMatches={4} recordingMatches={5} legacySkipped={6} rejected={7}",
+                        eventType ?? "unknown",
+                        eventUT,
+                        considered,
+                        backgroundMatches,
+                        loadedMatches,
+                        recordingMatches,
+                        legacySkipped,
+                        rejected));
+            }
+
+            return appended;
+        }
+
         #endregion
 
         #region Jettison Name Cache
@@ -4638,6 +4885,12 @@ namespace Parsek
         {
             RecordingFinalizationCache cache;
             return finalizationCaches.TryGetValue(pid, out cache) ? cache : null;
+        }
+
+        internal void CloseParentRecordingForTesting(Recording parentRec, uint parentPid, string branchPointId,
+            double branchUT, TrajectoryPoint? parentBoundaryPoint = null)
+        {
+            CloseParentRecording(parentRec, parentPid, branchPointId, branchUT, parentBoundaryPoint);
         }
 
         internal bool GetOnRailsHasOpenSegment(uint pid)

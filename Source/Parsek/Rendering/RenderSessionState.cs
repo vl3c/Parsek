@@ -1175,9 +1175,10 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Phase 6 §9.1 helper. Evaluates both <c>recorded_world(ut)</c>
-        /// (the raw boundary sample's world-frame position) and
+        /// (the selected recorded sample's world-frame position) and
         /// <c>smoothed_world(ut)</c> (the spline + frame-tag dispatch
-        /// output) for a given <c>(recordingId, sectionIndex, ut)</c>.
+        /// output at <paramref name="ut"/>) for a given
+        /// <c>(recordingId, sectionIndex, ut)</c>.
         /// Used by both the Phase 2 LiveSeparation path (inline) and the
         /// Phase 6 <see cref="AnchorPropagator"/> §9.1 propagation rule
         /// to compute <c>recordedOffset_at_event</c> and
@@ -1191,13 +1192,18 @@ namespace Parsek.Rendering
         ///   resolver that does not compose with <paramref name="surfaceLookup"/>'s
         ///   body-fixed semantics.</item>
         ///   <item>No recorded sample exists at or after <paramref name="ut"/>.</item>
-        ///   <item>The recorded sample's body cannot be resolved via
+        ///   <item>Outlier annotations exist but no clean same-section sample
+        ///   exists at or after <paramref name="ut"/>.</item>
+        ///   <item>The selected recorded sample's body cannot be resolved via
         ///   <paramref name="surfaceLookup"/> (production: the test
         ///   override is null and KSP can't find the body; xUnit:
         ///   the seam threw).</item>
         /// </list>
-        /// On success, <paramref name="recordedWorld"/> is the raw boundary
-        /// sample's world position; <paramref name="smoothedWorld"/> is
+        /// On success, <paramref name="recordedWorld"/> is the selected sample's
+        /// world position. Phase 9 flagged samples at the event UT win; otherwise
+        /// Phase 8 outlier annotations can advance to the next clean same-section
+        /// frame, while legacy/no-flags recordings keep the flat-list first-at-or-after
+        /// fallback. <paramref name="smoothedWorld"/> is
         /// either the spline-evaluated world position (when a Phase 1
         /// spline is cached for the section) OR a copy of
         /// <paramref name="recordedWorld"/> with <paramref name="splineHit"/>
@@ -1284,23 +1290,51 @@ namespace Parsek.Rendering
             }
             else
             {
-                // TODO(Phase 8 follow-up): outlier-aware boundary search.
-                // Reads recordedWorld via TryFindFirstPointAtOrAfter on a flat
-                // Recording.Points list; if that sample is rejected by
-                // OutlierClassifier the propagator computes ε from a kraken
-                // sample. See docs/dev/todo-and-known-bugs.md "Phase 8 follow-ups".
-                if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out sample))
+                OutlierFlags outlierFlags;
+                if (SectionAnnotationStore.TryGetOutlierFlags(
+                        rec.RecordingId, sectionIndex, out outlierFlags)
+                    && outlierFlags != null
+                    && outlierFlags.RejectedCount > 0)
+                {
+                    if (!TryFindFirstNonRejectedFrameAtOrAfter(
+                            section.frames, ut, outlierFlags,
+                            out int sampleIndex, out sample, out int rejectedSkipped))
+                    {
+                        failureReason = "no-clean-sample";
+                        ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                            "anchor sample skipped: recordingId={0} sectionIndex={1} ut={2} " +
+                            "reason=no-clean-sample rejectedCount={3}",
+                            rec.RecordingId, sectionIndex,
+                            ut.ToString("R", CultureInfo.InvariantCulture),
+                            outlierFlags.RejectedCount));
+                        return false;
+                    }
+
+                    ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                        "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
+                        "flagged=false outlierAware=true sampleIndex={3} sampleUT={4} delta={5} rejectedSkipped={6}",
+                        rec.RecordingId, sectionIndex,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        sampleIndex,
+                        sample.ut.ToString("R", CultureInfo.InvariantCulture),
+                        (sample.ut - ut).ToString("R", CultureInfo.InvariantCulture),
+                        rejectedSkipped));
+                }
+                else if (!TryFindFirstPointAtOrAfter(rec.Points, ut, out sample))
                 {
                     failureReason = "no-sample";
                     return false;
                 }
-                ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
-                    "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
-                    "flagged=false sampleUT={3} delta={4}",
-                    rec.RecordingId, sectionIndex,
-                    ut.ToString("R", CultureInfo.InvariantCulture),
-                    sample.ut.ToString("R", CultureInfo.InvariantCulture),
-                    (sample.ut - ut).ToString("R", CultureInfo.InvariantCulture)));
+                else
+                {
+                    ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                        "anchor sample selected: recordingId={0} sectionIndex={1} ut={2} " +
+                        "flagged=false outlierAware=false sampleUT={3} delta={4}",
+                        rec.RecordingId, sectionIndex,
+                        ut.ToString("R", CultureInfo.InvariantCulture),
+                        sample.ut.ToString("R", CultureInfo.InvariantCulture),
+                        (sample.ut - ut).ToString("R", CultureInfo.InvariantCulture)));
+                }
             }
             if (!TryLookupSurfacePosition(
                     surfaceLookup, sample.bodyName,
@@ -1402,6 +1436,53 @@ namespace Parsek.Rendering
                     return true;
                 }
             }
+            return false;
+        }
+
+        internal static bool TryFindFirstNonRejectedFrameAtOrAfter(
+            IList<TrajectoryPoint> frames,
+            double ut,
+            OutlierFlags rejected,
+            out int selectedIndex,
+            out TrajectoryPoint pt,
+            out int rejectedSkipped)
+        {
+            selectedIndex = -1;
+            pt = default;
+            rejectedSkipped = 0;
+            if (frames == null || frames.Count == 0) return false;
+
+            int firstAtOrAfter = -1;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (frames[i].ut >= ut)
+                {
+                    firstAtOrAfter = i;
+                    break;
+                }
+            }
+            if (firstAtOrAfter < 0) return false;
+
+            if (rejected == null || rejected.RejectedCount <= 0)
+            {
+                selectedIndex = firstAtOrAfter;
+                pt = frames[firstAtOrAfter];
+                return true;
+            }
+
+            for (int i = firstAtOrAfter; i < frames.Count; i++)
+            {
+                if (rejected.IsRejected(i))
+                {
+                    rejectedSkipped++;
+                    continue;
+                }
+
+                selectedIndex = i;
+                pt = frames[i];
+                return true;
+            }
+
             return false;
         }
 

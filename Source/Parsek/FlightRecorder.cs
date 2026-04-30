@@ -6227,9 +6227,8 @@ namespace Parsek
         /// being proximity-recorded, or no recorder at all). "Every involved vessel" therefore
         /// reduces to "this recorder's vessel" by construction — the dedup-by-RecordingVesselId
         /// filter is the design, not a workaround. Peer coverage is a per-recorder concern: each
-        /// recorder satisfies §12 for its own focused vessel, and the BackgroundRecorder
-        /// integration for proximity-tracked peers is tracked under "Phase 9 follow-ups" in
-        /// <c>docs/dev/todo-and-known-bugs.md</c>.</para>
+        /// recorder satisfies §12 for its own focused vessel; proximity-tracked peers are covered
+        /// by <see cref="BackgroundRecorder.AppendStructuralEventSnapshot"/>.</para>
         /// </summary>
         internal void AppendStructuralEventSnapshot(
             double eventUT, IEnumerable<Vessel> involved, string eventType)

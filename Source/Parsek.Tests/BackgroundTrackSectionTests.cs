@@ -439,6 +439,107 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CloseParentRecording_FlushesStructuralBoundaryFrameIntoTrackSections()
+        {
+            uint pid = 7011;
+            string recId = "rec_split_parent";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+            var boundary = FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+            {
+                ut = 1200.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            });
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1190.0);
+            Assert.True(BackgroundRecorder.ApplyTrajectoryPointToRecording(tree.Recordings[recId], boundary));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, boundary);
+
+            bgRecorder.CloseParentRecordingForTesting(
+                tree.Recordings[recId],
+                pid,
+                "bp_structural_parent",
+                boundary.ut,
+                boundary);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal("bp_structural_parent", rec.ChildBranchPointId);
+            Assert.Equal(boundary.ut, rec.ExplicitEndUT);
+            Assert.False(tree.BackgroundMap.ContainsKey(pid));
+            Assert.False(bgRecorder.HasLoadedState(pid));
+            Assert.Single(rec.Points);
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(boundary.ut, rec.TrackSections[0].endUT);
+            Assert.Single(rec.TrackSections[0].frames);
+            Assert.Equal(boundary.ut, rec.TrackSections[0].frames[0].ut);
+            Assert.True(((TrajectoryPointFlags)rec.TrackSections[0].frames[0].flags
+                & TrajectoryPointFlags.StructuralEventSnapshot)
+                == TrajectoryPointFlags.StructuralEventSnapshot);
+        }
+
+        [Fact]
+        public void CloseParentRecording_TrimsDeferredPostBranchFramesBeforeFlush()
+        {
+            uint pid = 7012;
+            string recId = "rec_split_parent_tail";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+            var boundary = FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+            {
+                ut = 1200.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            });
+            var deferredSample = new TrajectoryPoint
+            {
+                ut = 1201.0,
+                latitude = 1.1,
+                longitude = 2.1,
+                altitude = 999.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(4f, 5f, 6f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1190.0);
+            Assert.True(BackgroundRecorder.ApplyTrajectoryPointToRecording(tree.Recordings[recId], boundary));
+            Assert.True(BackgroundRecorder.ApplyTrajectoryPointToRecording(tree.Recordings[recId], deferredSample));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, boundary);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, deferredSample);
+
+            bgRecorder.CloseParentRecordingForTesting(
+                tree.Recordings[recId],
+                pid,
+                "bp_structural_parent_tail",
+                boundary.ut,
+                boundary);
+
+            var rec = tree.Recordings[recId];
+            Assert.Equal(boundary.ut, rec.ExplicitEndUT);
+            Assert.Equal(new[] { boundary.ut }, rec.Points.Select(p => p.ut).ToArray());
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(new[] { boundary.ut }, rec.TrackSections[0].frames.Select(p => p.ut).ToArray());
+            Assert.Equal((float)boundary.altitude, rec.TrackSections[0].minAltitude);
+            Assert.Equal((float)boundary.altitude, rec.TrackSections[0].maxAltitude);
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("trimmed post-branch parent samples")
+                && l.Contains("flatRemoved=1")
+                && l.Contains("sectionFramesRemoved=1"));
+        }
+
+        [Fact]
         public void FinalizeAllForCommit_ClosesSectionAndSetsEndUT()
         {
             uint pid = 702;

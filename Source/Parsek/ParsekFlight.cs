@@ -5420,6 +5420,13 @@ namespace Parsek
                     return; // another split is being processed
                 }
 
+                double evaEventUT = Planetarium.GetUniversalTime();
+                var evaInvolved = new List<Vessel>(2);
+                if (data.from?.vessel != null) evaInvolved.Add(data.from.vessel);
+                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
+                    evaInvolved.Add(data.to.vessel);
+                backgroundRecorder?.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA");
+
                 // Only trigger if EVA is from the vessel we're recording
                 if (data.from?.vessel == null ||
                     data.from.vessel.persistentId != recorder.RecordingVesselId)
@@ -5444,12 +5451,7 @@ namespace Parsek
                 // EVA kerbal-as-vessel is also "involved" per §12; AppendStructuralEventSnapshot
                 // dedups by RecordingVesselId so only the parent capsule's snapshot is
                 // committed in the typical case where the parent is the recorded vessel.
-                var evaInvolved = new List<Vessel>(2);
-                if (data.from?.vessel != null) evaInvolved.Add(data.from.vessel);
-                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
-                    evaInvolved.Add(data.to.vessel);
-                recorder.AppendStructuralEventSnapshot(
-                    Planetarium.GetUniversalTime(), evaInvolved, "EVA");
+                recorder.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA");
 
                 // Tree mode: stop recorder synchronously, defer tree branch creation
                 recorder.StopRecordingForChainBoundary();
@@ -7049,13 +7051,18 @@ namespace Parsek
             ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
+            double dockEventUT = Planetarium.GetUniversalTime();
+            var dockInvolved = new List<Vessel>(2);
+            if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
+            if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
+                dockInvolved.Add(data.to.vessel);
 
             // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
             // exact dock UT for the recorded vessel. Done BEFORE
             // StopRecordingForChainBoundary so the snapshot lands in the active section
             // (the helper no-ops once IsRecording flips false). Both vessels in the
-            // dock pair are passed; AppendStructuralEventSnapshot dedups by
-            // RecordingVesselId so only the relevant snapshot is committed.
+            // dock pair are passed; the focused recorder filters by RecordingVesselId
+            // and the background recorder filters by BackgroundMap membership.
             //
             // Skip the snapshot when this couple is the abort half of a split-in-
             // progress: the tree-mode path below early-returns at the
@@ -7066,12 +7073,8 @@ namespace Parsek
             // downstream merge path will actually act on.
             if (recorder != null && recorder.IsRecording && !pendingSplitInProgress)
             {
-                var dockInvolved = new List<Vessel>(2);
-                if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
-                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
-                    dockInvolved.Add(data.to.vessel);
-                recorder.AppendStructuralEventSnapshot(
-                    Planetarium.GetUniversalTime(), dockInvolved, "Dock");
+                recorder.AppendStructuralEventSnapshot(dockEventUT, dockInvolved, "Dock");
+                backgroundRecorder?.AppendStructuralEventSnapshot(dockEventUT, dockInvolved, "Dock");
             }
 
             // --- TREE MODE: create merge branch instead of chain segment ---
@@ -7194,9 +7197,10 @@ namespace Parsek
             // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
             // exact undock UT for the recorded vessel. Done BEFORE
             // StopRecordingForChainBoundary so the snapshot lands in the active
-            // section. The split halves still share most state at the event UT —
-            // AppendStructuralEventSnapshot dedups by RecordingVesselId so only the
-            // tracked half gets a snapshot.
+            // section. The split halves still share most state at the event UT; the
+            // focused recorder filters by RecordingVesselId and the background
+            // recorder filters by BackgroundMap membership.
+            double undockEventUT = Planetarium.GetUniversalTime();
             var undockInvolved = new List<Vessel>(2);
             if (undockedPart.vessel != null) undockInvolved.Add(undockedPart.vessel);
             // The pre-undock parent vessel is the one matching RecordingVesselId.
@@ -7215,8 +7219,8 @@ namespace Parsek
                     }
                 }
             }
-            recorder.AppendStructuralEventSnapshot(
-                Planetarium.GetUniversalTime(), undockInvolved, "Undock");
+            recorder.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
+            backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
 
             // Tree mode: create branch instead of chain segment.
             // Stop recorder synchronously to prevent OnPhysicsFrame interference.

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
+using Parsek.Rendering;
 using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
@@ -420,6 +421,87 @@ namespace Parsek.Tests
             b.WithTerrainHeightAtEnd(35.0);
 
             return b;
+        }
+
+        internal static RecordingBuilder PipelineOutlierKraken(double baseUT = 0)
+        {
+            // Phase 8 manual fixture: a mostly smooth atmospheric section with
+            // one single-tick >2.5 km position spike. The immediate return-to-
+            // path sample is also bubble-rejected, leaving 10/12 clean samples
+            // so the spline can still fit and the cluster bit stays below the
+            // 20% section-wide warning threshold.
+            double t = baseUT + 260;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double baseAlt = 900.0;
+            Quaternion rot = new Quaternion(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            var frames = new List<TrajectoryPoint>();
+            var b = new RecordingBuilder("Pipeline Outlier Kraken")
+                .WithRecordingId("pipeline-outlier-kraken")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            for (int i = 0; i < 12; i++)
+            {
+                double ut = t + i;
+                double lat = baseLat + i * 0.00001;
+                double lon = baseLon + i * 0.00001;
+                double alt = baseAlt + i * 5.0;
+                if (i == 5)
+                {
+                    lat = baseLat + 0.25;
+                    lon = baseLon + 0.25;
+                    alt = baseAlt + 300.0;
+                }
+
+                b.AddPoint(ut, lat, lon, alt);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = ut,
+                    latitude = lat,
+                    longitude = lon,
+                    altitude = alt,
+                    rotation = rot,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN
+                });
+            }
+
+            b.AddTrackSection(
+                SegmentEnvironment.Atmospheric,
+                ReferenceFrame.Absolute,
+                TrackSectionSource.Active,
+                t,
+                t + 11.0,
+                frames,
+                new List<OrbitSegment>(),
+                sampleRateHz: 1.0f);
+            return b;
+        }
+
+        [Fact]
+        public void PipelineOutlierKrakenFixture_ClassifiesBubbleSpikeWithoutCluster()
+        {
+            RecordingBuilder builder = PipelineOutlierKraken(baseUT: 1000.0);
+            Assert.Equal("pipeline-outlier-kraken", builder.GetRecordingId());
+
+            var rec = new Recording
+            {
+                RecordingId = builder.GetRecordingId(),
+                TrackSections = builder.GetTrackSections()
+            };
+            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default);
+
+            Assert.Equal(2, flags.RejectedCount);
+            Assert.True(flags.IsRejected(5));
+            Assert.True(flags.IsRejected(6));
+            Assert.Equal(
+                (byte)OutlierClassifier.ClassifierBit.BubbleRadius,
+                (byte)(flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.BubbleRadius));
+            Assert.Equal(
+                0,
+                flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.Cluster);
         }
 
         internal static RecordingBuilder[] EvaBoardChain(double baseUT = 0)
@@ -5764,6 +5846,8 @@ namespace Parsek.Tests
                 .WithRecordingGroup("Synthetic"));
             writer.AddRecordingAsTree(IslandProbe(baseUT).WithLoopPlayback()
                 .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(PipelineOutlierKraken(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -5927,6 +6011,7 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Close Spawn Conflict", content);
                     Assert.Contains("vesselName = Island Probe", content);
+                    Assert.Contains("vesselName = Pipeline Outlier Kraken", content);
                     Assert.Contains("vesselName = Part Showcase - Lights v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Nav v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Strip v1", content);
