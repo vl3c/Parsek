@@ -884,6 +884,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildValidatedRespawnSnapshot_EmptyVesselSnapshotWithGhostParts_LogsExplicitCounts()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("lat", "1.0");
+            snapshot.AddValue("lon", "2.0");
+            snapshot.AddValue("alt", "3.0");
+
+            var ghostSnapshot = new ConfigNode("VESSEL");
+            ghostSnapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+
+            var rec = new Recording
+            {
+                RecordingId = "empty-vessel-with-ghost",
+                VesselName = "Surface Continuation",
+                VesselSnapshot = snapshot,
+                GhostVisualSnapshot = ghostSnapshot,
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            ConfigNode validated = VesselSpawner.BuildValidatedRespawnSnapshot(
+                rec,
+                currentUT: 158.14,
+                logContext: "KSC spawn",
+                out string rejectionReason);
+
+            Assert.Null(validated);
+            Assert.Contains("no PART", rejectionReason);
+            Assert.Contains("terminalState=Landed", rejectionReason);
+            Assert.Contains("vesselSnapshotParts=0", rejectionReason);
+            Assert.Contains("ghostSnapshotParts=1", rejectionReason);
+            Assert.Contains("empty-vessel-with-ghost", rejectionReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") &&
+                l.Contains("rejected materialization") &&
+                l.Contains("Surface Continuation") &&
+                l.Contains("ghostSnapshotParts=1") &&
+                l.Contains("terminalState=Landed"));
+        }
+
+        [Fact]
         public void BuildValidatedRespawnSnapshot_NonFiniteSurfaceVector_RejectsBeforeMaterialization()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12));

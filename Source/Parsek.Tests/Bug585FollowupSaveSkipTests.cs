@@ -329,5 +329,88 @@ namespace Parsek.Tests
                 l.Contains("SaveRecordingFiles: skipping write") &&
                 l.Contains(fresh.RecordingId));
         }
+
+        [Fact]
+        public void SaveRecordingFiles_OnePointSectionAuthoritativeShrink_LogsWarningAndStillWrites()
+        {
+            var original = new Recording
+            {
+                RecordingId = "refly-shrink-hardening",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                SidecarEpoch = 8,
+            };
+
+            for (int i = 0; i < 12; i++)
+            {
+                original.Points.Add(new TrajectoryPoint
+                {
+                    ut = 100.0 + i,
+                    latitude = -0.05,
+                    longitude = -74.5,
+                    altitude = 1000.0 + i * 50.0,
+                    bodyName = "Kerbin",
+                });
+            }
+
+            string precPath = Path.Combine(tempDir, original.RecordingId + ".prec");
+            string vesselPath = Path.Combine(tempDir, original.RecordingId + "_vessel.craft");
+            string ghostPath = Path.Combine(tempDir, original.RecordingId + "_ghost.craft");
+
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                original, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+            int originalEpoch = original.SidecarEpoch;
+
+            TrajectoryPoint onlyPoint = original.Points[0];
+            var shrink = new Recording
+            {
+                RecordingId = original.RecordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                SidecarEpoch = originalEpoch,
+                FilesDirty = true,
+            };
+            shrink.Points.Add(onlyPoint);
+            shrink.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = onlyPoint.ut,
+                endUT = onlyPoint.ut,
+                frames = new List<TrajectoryPoint> { onlyPoint },
+                checkpoints = new List<OrbitSegment>(),
+            });
+            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(shrink));
+
+            logLines.Clear();
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                shrink, precPath, vesselPath, ghostPath, incrementEpoch: true));
+            Assert.Equal(originalEpoch + 1, shrink.SidecarEpoch);
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.Single(restored.Points);
+            Assert.Equal(onlyPoint.ut, restored.Points[0].ut, 6);
+
+            TrajectorySidecarProbe diskProbe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
+            Assert.Equal(originalEpoch + 1, diskProbe.SidecarEpoch);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("near-empty section-authoritative trajectory will overwrite richer existing sidecar") &&
+                l.Contains("recId=" + original.RecordingId) &&
+                l.Contains("currentEpoch=" + originalEpoch) &&
+                l.Contains("nextEpoch=" + (originalEpoch + 1)) &&
+                l.Contains("existingProbeRecordingId=" + original.RecordingId) &&
+                l.Contains("existingProbeEpoch=" + originalEpoch) &&
+                l.Contains("existingProbeVersion=" + RecordingStore.CurrentRecordingFormatVersion) &&
+                l.Contains("existingProbeEncoding=BinaryV3") &&
+                l.Contains("existingPoints=12") &&
+                l.Contains("incomingPoints=1") &&
+                l.Contains("sectionAuthoritative=True") &&
+                l.Contains("continuing normal save"));
+        }
     }
 }
