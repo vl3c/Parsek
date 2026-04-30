@@ -928,13 +928,19 @@ namespace Parsek
             finalizationCaches.Remove(parentPid);
         }
 
+        // Walks rec.Points in reverse, breaking once we step earlier than
+        // (ut - tolerance). Relies on Points being sorted ascending by ut —
+        // every callsite (CloseParentRecording, the structural-event helpers)
+        // appends in UT order, and TrimParentAtBranchBoundary preserves that
+        // ordering by removing tail entries only. If a future caller appends
+        // out of order, this scan will exit too early and miss matches.
         private static bool HasStructuralEventPointAtUT(Recording rec, double ut)
         {
             if (rec?.Points == null) return false;
             for (int i = rec.Points.Count - 1; i >= 0; i--)
             {
                 TrajectoryPoint point = rec.Points[i];
-                if (Math.Abs(point.ut - ut) > 1e-6)
+                if (Math.Abs(point.ut - ut) > BranchBoundaryUTTolerance)
                 {
                     if (point.ut < ut) break;
                     continue;
@@ -4564,15 +4570,17 @@ namespace Parsek
                         point.altitude));
             }
 
-            if (considered > 0 && appended == 0)
+            if (considered > appended)
             {
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
                         "BG structural event snapshot skipped: event={0} ut={1:R} considered={2} " +
-                        "backgroundMatches={3} loadedMatches={4} recordingMatches={5} legacySkipped={6} rejected={7}",
+                        "appended={3} backgroundMatches={4} loadedMatches={5} recordingMatches={6} " +
+                        "legacySkipped={7} rejected={8}",
                         eventType ?? "unknown",
                         eventUT,
                         considered,
+                        appended,
                         backgroundMatches,
                         loadedMatches,
                         recordingMatches,

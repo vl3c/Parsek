@@ -7051,11 +7051,6 @@ namespace Parsek
             ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
-            double dockEventUT = Planetarium.GetUniversalTime();
-            var dockInvolved = new List<Vessel>(2);
-            if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
-            if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
-                dockInvolved.Add(data.to.vessel);
 
             // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
             // exact dock UT for the recorded vessel. Done BEFORE
@@ -7073,6 +7068,11 @@ namespace Parsek
             // downstream merge path will actually act on.
             if (recorder != null && recorder.IsRecording && !pendingSplitInProgress)
             {
+                double dockEventUT = Planetarium.GetUniversalTime();
+                var dockInvolved = new List<Vessel>(2);
+                if (data.from?.vessel != null) dockInvolved.Add(data.from.vessel);
+                if (data.to?.vessel != null && data.to.vessel != data.from?.vessel)
+                    dockInvolved.Add(data.to.vessel);
                 recorder.AppendStructuralEventSnapshot(dockEventUT, dockInvolved, "Dock");
                 backgroundRecorder?.AppendStructuralEventSnapshot(dockEventUT, dockInvolved, "Dock");
             }
