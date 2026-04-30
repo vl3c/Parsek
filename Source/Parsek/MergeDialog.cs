@@ -133,7 +133,7 @@ namespace Parsek
                 // continuation path and just plain wrong about
                 // ghost-of-retired-attempt / kerbal-deaths-reversed).
                 message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this re-flight attempt permanently to the timeline. " +
+                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
                           "This cannot be undone!</align>";
             }
             else

@@ -59,7 +59,7 @@ namespace Parsek
             try
             {
                 ScreenMessages.PostScreenMessage(
-                    "Cannot move Unfinished Flights to manual groups",
+                    "Cannot move STASH entries to manual groups",
                     3f, ScreenMessageStyle.UPPER_CENTER);
             }
             catch (System.Exception ex)

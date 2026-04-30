@@ -109,11 +109,7 @@ namespace Parsek
             string body =
                 $"Seal \"{vesselName}\" ({terminal} at UT {ut})?\n\n" +
                 "This action CANNOT BE UNDONE.\n\n" +
-                "After sealing:\n" +
-                "- This slot is closed permanently; the recording can never be re-flown from this Rewind Point.\n" +
-                "- The Play button on this row disappears.\n" +
-                "- The rewind point quicksave may be deleted once every sibling slot is closed.\n" +
-                "- The recording itself is unchanged and remains in the timeline.\n\n" +
+                "After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
                 "If you might want to re-fly this later, click Cancel.";
 
             var captured = rec;
