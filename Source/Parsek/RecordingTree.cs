@@ -974,6 +974,10 @@ namespace Parsek
             int aliveCount = 0;
             bool result = true;
 
+            // Deliberately scan every leaf here: this is a destruction merge gate,
+            // and the log summary is useful only when its counts describe the
+            // whole tree. The all-terminal path had to inspect every leaf before
+            // this log-hygiene change as well.
             foreach (var kvp in recordings)
             {
                 var rec = kvp.Value;

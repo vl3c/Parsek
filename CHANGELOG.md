@@ -33,7 +33,7 @@ All notable changes to Parsek are documented here.
 
 ### Log Hygiene
 
-- Collapsed `TreeDestruction.AreAllLeavesTerminal` per-leaf verbose diagnostics into one counted summary per call, and downgraded the routine `Extrapolator` NullSolver patched-conic fallback from WARN to verbose while keeping non-NullSolver snapshot failures at WARN.
+- Collapsed `TreeDestruction.AreAllLeavesTerminal` per-leaf verbose diagnostics into one counted summary per call, downgraded the routine `Extrapolator` NullSolver patched-conic fallback from WARN to verbose, and corrected non-NullSolver snapshot-failure WARN text to say the live-orbit fallback is skipped.
 
 ### Enhancements
 
