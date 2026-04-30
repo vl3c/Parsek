@@ -10557,16 +10557,26 @@ namespace Parsek
                 // MaxDistanceFromLaunch + stable orbit segment + low-altitude
                 // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
                 // doc comment.
+                //
+                // Bug 2 follow-up (2026-04-30 STASH probe regression): also skip the
+                // inference when the surviving payload would only support the
+                // SubOrbital fallback default — see HasOnlySubOrbitalFallbackEvidence's
+                // doc.
+                string subOrbitalFallbackReason;
+                bool subOrbitalFallbackOnly =
+                    HasOnlySubOrbitalFallbackEvidence(activeRec, out subOrbitalFallbackReason);
                 if (preserveRestoredSceneExitTerminalState
                     || ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
-                        activeRec, out restoredSceneExitReason))
+                        activeRec, out restoredSceneExitReason)
+                    || subOrbitalFallbackOnly)
                 {
                     activeRec.RestoredFromCommittedTreeThisFrame = false;
                     PopulateTerminalOrbitFromLastSegment(activeRec);
+                    string skipReason = restoredSceneExitReason ?? subOrbitalFallbackReason;
                     ParsekLog.Info("Flight",
                         $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
                         $"for active recording '{activeRec.RecordingId}' " +
-                        $"(vessel pid={activeRec.VesselPersistentId}) — {restoredSceneExitReason} " +
+                        $"(vessel pid={activeRec.VesselPersistentId}) — {skipReason} " +
                         $"(lastPtAlt={(activeRec.Points.Count > 0 ? activeRec.Points[activeRec.Points.Count - 1].altitude : double.NaN):F1}m " +
                         $"maxDist={activeRec.MaxDistanceFromLaunch:F0}m " +
                         $"orbitSegs={activeRec.OrbitSegments?.Count ?? 0})");
@@ -10824,19 +10834,28 @@ namespace Parsek
                     // altitude last point) and adding such a clause would regress
                     // EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory
                     // and SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog.
+                    //
+                    // Bug 2 follow-up (2026-04-30 STASH probe regression): also skip the
+                    // inference when the surviving payload would only support the SubOrbital
+                    // fallback default — see HasOnlySubOrbitalFallbackEvidence's doc.
+                    string subOrbitalFallbackReason;
+                    bool subOrbitalFallbackOnly =
+                        HasOnlySubOrbitalFallbackEvidence(rec, out subOrbitalFallbackReason);
                     if (preserveRestoredSceneExitTerminalState
                         || ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
-                            rec, out restoredSceneExitReason))
+                            rec, out restoredSceneExitReason)
+                        || subOrbitalFallbackOnly)
                     {
                         rec.RestoredFromCommittedTreeThisFrame = false;
                         // Recover terminal orbit metadata from the last orbit segment if
                         // available — preserves the orbital fingerprint for ghost-map
                         // playback even though the terminal state remains unset.
                         PopulateTerminalOrbitFromLastSegment(rec);
+                        string skipReason = restoredSceneExitReason ?? subOrbitalFallbackReason;
                         ParsekLog.Info("Flight",
                             $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
                             $"for '{rec.RecordingId}' (vessel pid={rec.VesselPersistentId}) — " +
-                            $"{restoredSceneExitReason} " +
+                            $"{skipReason} " +
                             $"(lastPtAlt={(rec.Points.Count > 0 ? rec.Points[rec.Points.Count - 1].altitude : double.NaN):F1}m " +
                             $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
                             $"orbitSegs={rec.OrbitSegments?.Count ?? 0})");
@@ -11050,21 +11069,36 @@ namespace Parsek
         }
 
         /// <summary>
-        /// PR #572 second-order data-loss companion. Decides whether
+        /// Decides whether
         /// <see cref="FinalizeIndividualRecording"/> /
         /// <see cref="EnsureActiveRecordingTerminalState"/> should skip the
         /// scene-exit "vessel was alive when unloaded → infer Landed/Splashed
         /// from last trajectory point" branch.
         ///
         /// <para>
-        /// The gate fires when the recording was just repaired from the
-        /// committed tree this frame
+        /// PR #572 follow-up — the gate fires when the recording was just
+        /// repaired from the committed tree this frame
         /// (<see cref="Recording.RestoredFromCommittedTreeThisFrame"/>).
         /// The trajectory is a copy of a recording that was committed
         /// mid-flight without a terminal state — typically because the
         /// missing live pid is a deliberate Re-Fly strip casualty, not a
         /// natural unload — so the surface inference's "vessel was alive
         /// when unloaded" assumption does not apply.
+        /// </para>
+        ///
+        /// <para>
+        /// Bug 2 follow-up (2026-04-30 STASH probe regression) — the gate
+        /// also fires when the recording's trajectory has fewer than 2
+        /// points. After an optimizer split nulls the original half's
+        /// terminal state and a subsequent quickload-resume tree trim
+        /// removes everything past the cutoff, the surviving payload is a
+        /// single ascending start-point. <see cref="InferTerminalStateFromTrajectory"/>
+        /// then defaults to <see cref="TerminalState.SubOrbital"/>, silently
+        /// overwriting what was Splashed on a sibling chain segment that no
+        /// longer exists. Skipping the inference leaves the terminal unset
+        /// so <see cref="EffectiveState.ResolveChainTerminalRecording"/> /
+        /// <see cref="UnfinishedFlightClassifier"/> see "no terminal" and
+        /// the recording falls out of UF/STASH naturally.
         /// </para>
         ///
         /// <para>
@@ -11079,10 +11113,8 @@ namespace Parsek
         /// pinned tests
         /// <c>EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory</c>
         /// and <c>SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog</c>.
-        /// The user's 2026-04-25 case is solved by the restore flag alone
-        /// because the committed copy carried no terminal state. Future
-        /// readers: do not add an orbital-evidence clause here without
-        /// first revisiting those two tests.
+        /// Future readers: do not add an orbital-evidence clause here
+        /// without first revisiting those two tests.
         /// </para>
         ///
         /// Returns true with a human-readable <paramref name="reason"/>
@@ -11105,6 +11137,62 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns true when the only outcome
+        /// <see cref="InferTerminalStateFromTrajectory"/> can produce for this
+        /// recording is the <see cref="TerminalState.SubOrbital"/> default (i.e.
+        /// no altitude&lt;50m point, no SurfaceMobile/Stationary terminal section,
+        /// no stable orbit segment) AND the trajectory carries fewer than 2
+        /// points. A single high-altitude point is typically a quickload-trim
+        /// or optimizer-split survivor whose actual terminal data lived on a
+        /// now-removed sibling chain segment — the SubOrbital default would be
+        /// a fabricated guess, not measurement.
+        /// </summary>
+        internal static bool HasOnlySubOrbitalFallbackEvidence(Recording rec)
+        {
+            string reason;
+            return HasOnlySubOrbitalFallbackEvidence(rec, out reason);
+        }
+
+        internal static bool HasOnlySubOrbitalFallbackEvidence(Recording rec, out string reason)
+        {
+            reason = null;
+            if (rec == null) return false;
+            // Need at least 2 points to corroborate "vessel was actually mid-flight"
+            // rather than "single trim-survivor start point".
+            if (rec.Points != null && rec.Points.Count >= 2)
+                return false;
+
+            // Single low-altitude point = real landed evidence; let the inference run.
+            if (rec.Points != null && rec.Points.Count == 1
+                && rec.Points[0].altitude < 50.0)
+                return false;
+
+            // SurfaceMobile/Stationary last section = real landed evidence.
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+            {
+                var lastEnv = rec.TrackSections[rec.TrackSections.Count - 1].environment;
+                if (lastEnv == SegmentEnvironment.SurfaceMobile
+                    || lastEnv == SegmentEnvironment.SurfaceStationary)
+                    return false;
+            }
+
+            // Stable closed orbit = real orbiting evidence (mirrors the orbit check
+            // in InferTerminalStateFromTrajectory).
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+            {
+                var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                if (lastOrbit.eccentricity < 1.0 && !string.IsNullOrEmpty(lastOrbit.bodyName))
+                    return false;
+            }
+
+            reason = "trajectory has insufficient points for inference " +
+                $"(points={(rec.Points?.Count ?? 0)} < 2 with no Landed/Orbiting signal; " +
+                "likely quickload-trim or split survivor whose terminal lived on a " +
+                "now-removed sibling chain segment)";
+            return true;
         }
 
         /// <summary>
