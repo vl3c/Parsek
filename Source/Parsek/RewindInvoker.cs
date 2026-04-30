@@ -955,6 +955,20 @@ namespace Parsek
                 throw;
             }
 
+            // The quickload-resume context can be armed before this method runs
+            // on async FLIGHT loads. Refresh after the marker exists so recorder
+            // resume consumes the Re-Fly active-only trim scope instead of the
+            // pre-marker TreeWide fallback.
+            try
+            {
+                ParsekScenario.RefreshPendingQuickloadTrimScope();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"AtomicMarkerWrite: quickload trim-scope refresh threw (non-fatal): {ex.Message}");
+            }
+
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
                 $"provisional={activeReFlyRecordingId} " +
