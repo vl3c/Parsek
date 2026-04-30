@@ -15046,6 +15046,7 @@ namespace Parsek
             {
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = playbackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15072,6 +15073,7 @@ namespace Parsek
                     sectionIndex: splineSectionIdx);
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15085,6 +15087,7 @@ namespace Parsek
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
@@ -15120,6 +15123,7 @@ namespace Parsek
                     sectionIndex: sectionIdx);
                 state.SetInterpolated(absoluteInterpResult);
                 state.playbackIndex = absolutePlaybackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15150,6 +15154,7 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -15192,6 +15197,7 @@ namespace Parsek
                 positioned.velocity,
                 positioned.bodyName,
                 positioned.altitude));
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, positioned.ut);
         }
 
         bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
@@ -15460,6 +15466,11 @@ namespace Parsek
                 traj?.RecordingId);
             state.lastInterpolatedBodyName = positioned.body;
             state.lastInterpolatedAltitude = positioned.altitude;
+            // Surface positioning has no playback UT of its own — the
+            // landed/splashed ghost sits at a fixed surface point. Use the
+            // current planetary UT so the gate evaluates the offset at
+            // "now," matching what PositionGhostAtSurface did internally.
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, Planetarium.GetUniversalTime());
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -15478,6 +15489,7 @@ namespace Parsek
 
                 PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000, traj.RecordingId);
             }
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
@@ -15505,6 +15517,7 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
@@ -17067,6 +17080,67 @@ namespace Parsek
                     + (reason ?? "<none>"));
                 loggedReFlyTreeAnchorKeys.Clear();
             }
+        }
+
+        /// <summary>
+        /// Returns true when the given recording belongs to the tree that
+        /// the active Re-Fly session is targeting. Used by the activation
+        /// gate so a ghost in the active tree stays hidden until the
+        /// per-frame anchor offset can be computed for it (#688 spawn-frame
+        /// fix). Cheap O(tree-count) committed-tree walk per call.
+        /// </summary>
+        internal bool IsRecordingInActiveReFlyTree(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null || string.IsNullOrEmpty(marker.TreeId))
+                return false;
+            string recTreeId = ResolveTreeIdForRecording(recordingId);
+            return !string.IsNullOrEmpty(recTreeId)
+                && string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Updates <see cref="GhostPlaybackState.externalActivationDeferred"/>
+        /// for a freshly-positioned ghost. While the ghost has not yet been
+        /// activated, the gate stays raised whenever the recording belongs
+        /// to the active Re-Fly tree but the per-frame anchor offset could
+        /// not be resolved at <paramref name="currentUT"/> (e.g. live
+        /// anchor not yet finite, recorded snapshot still loading). Once
+        /// the ghost is active, the gate is unconditionally lowered so a
+        /// transient mid-playback offset miss does not flicker the ghost
+        /// back to invisible.
+        ///
+        /// <para>
+        /// Cheap to call per-frame: only does work for ghosts that are
+        /// inactive AND in the active Re-Fly tree. Each branch short-
+        /// circuits before the per-call <see cref="TryGetReFlyTreeAnchorOffset"/>
+        /// invocation, so the no-Re-Fly common case is a single dict
+        /// lookup + early return.
+        /// </para>
+        /// </summary>
+        internal void RefreshReFlyAnchorActivationGate(
+            string recordingId, GhostPlaybackState state, double currentUT)
+        {
+            if (state?.ghost == null)
+                return;
+            // Once the ghost has been visible, leave the gate cleared so a
+            // transient mid-playback offset miss does not flicker an
+            // already-stable ghost back to invisible.
+            if (state.ghost.activeSelf)
+            {
+                state.externalActivationDeferred = false;
+                return;
+            }
+            if (!IsRecordingInActiveReFlyTree(recordingId))
+            {
+                state.externalActivationDeferred = false;
+                return;
+            }
+            bool applied = TryGetReFlyTreeAnchorOffset(
+                recordingId, currentUT, out Vector3d _);
+            state.externalActivationDeferred = !applied;
         }
 
         private bool TryComputeReFlyRecordingAnchorOffset(

@@ -681,6 +681,23 @@ namespace Parsek
                 || (PreReFlyAnchorOrbitSegments != null && PreReFlyAnchorOrbitSegments.Count > 0);
         }
 
+        /// <summary>
+        /// Clears the captured pre-Re-Fly anchor trajectory snapshot so the
+        /// transient bulk lists do not linger past the session that captured
+        /// them. Called from <see cref="SupersedeCommit"/> after the merge
+        /// commit transitions the recording to its final committed state,
+        /// from the rewind-rollback path on a failed session, and from
+        /// <see cref="ParsekScenario"/> revert-on-load. Safe to call when no
+        /// snapshot is present (idempotent no-op).
+        /// </summary>
+        internal void ClearPreReFlyAnchorTrajectory()
+        {
+            PreReFlyAnchorSessionId = null;
+            PreReFlyAnchorPoints = null;
+            PreReFlyAnchorOrbitSegments = null;
+            PreReFlyAnchorTrackSections = null;
+        }
+
         internal Recording BuildPreReFlyAnchorTrajectoryRecording(string sessionId)
         {
             if (!HasPreReFlyAnchorTrajectory(sessionId))

@@ -3975,6 +3975,16 @@ namespace Parsek
             if (state?.ghost == null)
                 return false;
 
+            // Host-scene gate (#688 follow-up): keep the ghost hidden while
+            // the positioner reports an unresolved gating condition (e.g.
+            // active Re-Fly anchor offset not yet computable for this UT).
+            // The fresh-spawn deferVisibilityUntilPlaybackSync flag is left
+            // in place so the next frame the gate clears, the activation
+            // pipeline still treats this as the first sync and runs the
+            // deferred FX restore.
+            if (state.externalActivationDeferred)
+                return false;
+
             bool restoredDeferredState = state.deferVisibilityUntilPlaybackSync;
 
             if (!state.ghost.activeSelf)

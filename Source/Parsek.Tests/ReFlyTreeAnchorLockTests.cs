@@ -149,6 +149,142 @@ namespace Parsek.Tests
         }
 
         // ============================================================
+        // Pre-Re-Fly anchor snapshot lifecycle (#688 follow-up)
+        // ============================================================
+
+        [Fact]
+        public void ClearPreReFlyAnchorTrajectory_NoSnapshot_NoOp()
+        {
+            var rec = new Recording { RecordingId = "rec-empty" };
+
+            rec.ClearPreReFlyAnchorTrajectory();
+
+            Assert.Null(rec.PreReFlyAnchorSessionId);
+            Assert.Null(rec.PreReFlyAnchorPoints);
+            Assert.Null(rec.PreReFlyAnchorOrbitSegments);
+            Assert.Null(rec.PreReFlyAnchorTrackSections);
+            Assert.False(rec.HasPreReFlyAnchorTrajectory("any"));
+        }
+
+        [Fact]
+        public void ClearPreReFlyAnchorTrajectory_WithSnapshot_ClearsAllFields()
+        {
+            var rec = new Recording { RecordingId = "rec-with-snap" };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 1.0, endUT = 2.0 });
+            rec.TrackSections.Add(new TrackSection { referenceFrame = ReferenceFrame.Absolute, startUT = 0, endUT = 5 });
+            rec.CapturePreReFlyAnchorTrajectory("sess-1");
+
+            Assert.True(rec.HasPreReFlyAnchorTrajectory("sess-1"));
+
+            rec.ClearPreReFlyAnchorTrajectory();
+
+            Assert.Null(rec.PreReFlyAnchorSessionId);
+            Assert.Null(rec.PreReFlyAnchorPoints);
+            Assert.Null(rec.PreReFlyAnchorOrbitSegments);
+            Assert.Null(rec.PreReFlyAnchorTrackSections);
+            Assert.False(rec.HasPreReFlyAnchorTrajectory("sess-1"));
+        }
+
+        [Fact]
+        public void ClearPreReFlyAnchorSnapshotsForSession_NullOrEmpty_ReturnsZero()
+        {
+            Assert.Equal(0, SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(null));
+            Assert.Equal(0, SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(""));
+        }
+
+        [Fact]
+        public void ClearPreReFlyAnchorSnapshotsForSession_OnlyMatchingSession_Cleared()
+        {
+            var recA = new Recording { RecordingId = "rec-A" };
+            recA.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            recA.CapturePreReFlyAnchorTrajectory("sess-target");
+
+            var recB = new Recording { RecordingId = "rec-B" };
+            recB.Points.Add(new TrajectoryPoint { ut = 2.0 });
+            recB.CapturePreReFlyAnchorTrajectory("sess-other");
+
+            RecordingStore.AddCommittedInternal(recA);
+            RecordingStore.AddCommittedInternal(recB);
+
+            int cleared = SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession("sess-target");
+
+            Assert.Equal(1, cleared);
+            Assert.False(recA.HasPreReFlyAnchorTrajectory("sess-target"));
+            Assert.True(recB.HasPreReFlyAnchorTrajectory("sess-other"));
+        }
+
+        [Fact]
+        public void RecordingTreeRecordCodec_RoundTrip_PreservesPreReFlyAnchorSnapshot()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-roundtrip",
+                VesselName = "Round Trip",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0, latitude = 1.5, longitude = -2.5, altitude = 1234.0,
+                rotation = new Quaternion(0, 0, 0, 1), bodyName = "Kerbin",
+                velocity = new Vector3(10, 20, 30),
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0, endUT = 200.0, bodyName = "Kerbin",
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0, endUT = 200.0,
+                frames = new List<TrajectoryPoint>(rec.Points),
+            });
+
+            rec.CapturePreReFlyAnchorTrajectory("sess-roundtrip");
+            Assert.True(rec.HasPreReFlyAnchorTrajectory("sess-roundtrip"));
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(node, rec);
+
+            var loaded = new Recording
+            {
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal("sess-roundtrip", loaded.PreReFlyAnchorSessionId);
+            Assert.True(loaded.HasPreReFlyAnchorTrajectory("sess-roundtrip"));
+            Assert.NotNull(loaded.PreReFlyAnchorPoints);
+            Assert.Single(loaded.PreReFlyAnchorPoints);
+            Assert.Equal(100.0, loaded.PreReFlyAnchorPoints[0].ut);
+            Assert.Equal(1.5, loaded.PreReFlyAnchorPoints[0].latitude);
+        }
+
+        [Fact]
+        public void RecordingTreeRecordCodec_RoundTrip_NoSnapshot_OmitsAnchorNode()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-nosnap",
+                VesselName = "No Snapshot",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            // Snapshot intentionally not captured.
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetNode("PRE_REFLY_ANCHOR"));
+
+            var loaded = new Recording
+            {
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+            Assert.False(loaded.HasPreReFlyAnchorTrajectory("any-sess"));
+        }
+
+        // ============================================================
         // Helpers
         // ============================================================
 
