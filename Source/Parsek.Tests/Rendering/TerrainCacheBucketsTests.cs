@@ -244,6 +244,27 @@ namespace Parsek.Tests.Rendering
             Assert.True(double.IsNaN(height));
         }
 
+        [Fact]
+        public void GetCachedSurfaceHeight_NaNFromResolver_DoesNotCache_AllowsLaterRetry()
+        {
+            int resolverCalls = 0;
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) =>
+            {
+                resolverCalls++;
+                return resolverCalls == 1 ? double.NaN : 88.0;
+            };
+
+            double first = TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.0, 0.0);
+            double second = TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.0, 0.0);
+            double third = TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.0, 0.0);
+
+            Assert.True(double.IsNaN(first));
+            Assert.Equal(88.0, second);
+            Assert.Equal(88.0, third);
+            Assert.Equal(2, resolverCalls);
+            Assert.Equal(1, TerrainCacheBuckets.CachedBucketCount);
+        }
+
         // ----- cap-warn behaviour (P2-4 review pass) -----
 
         [Fact]

@@ -186,11 +186,16 @@ namespace Parsek.Rendering
             // matches what the existing landed-ghost clamp uses).
             height = ResolveTerrainHeight(body, bodyName, lat, lon);
 
-            if (Cache.Count < cap)
+            // A NaN height is a transient resolver miss (PQS not spun yet,
+            // body without controller, or test seam simulating either). Do
+            // not cache it: the renderer intentionally falls back for that
+            // frame, but a later frame must be allowed to retry once terrain
+            // becomes available.
+            if (!double.IsNaN(height) && Cache.Count < cap)
             {
                 Cache[key] = height;
             }
-            else if (!capWarnEmitted)
+            else if (!double.IsNaN(height) && !capWarnEmitted)
             {
                 capWarnEmitted = true;
                 ParsekLog.Warn(Tag,
