@@ -108,8 +108,7 @@ namespace Parsek
 
             string body =
                 $"Seal \"{vesselName}\" ({terminal} at UT {ut})?\n\n" +
-                "This action CANNOT BE UNDONE.\n\n" +
-                "After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
+                "This cannot be undone. After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
                 "If you might want to re-fly this later, click Cancel.";
 
             var captured = rec;
@@ -122,7 +121,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     DialogName,
                     body,
-                    "Seal Unfinished Flight?",
+                    "Confirm Seal Unfinished Flight",
                     HighLogic.UISkin,
                     new DialogGUIButton("Seal Permanently", () =>
                     {
