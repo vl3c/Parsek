@@ -251,6 +251,47 @@ namespace Parsek
                 && recording.TerminalStateValue.Value == TerminalState.Destroyed;
         }
 
+        /// <summary>
+        /// Clears a stale <c>Destroyed</c> terminal verdict on a recording that
+        /// is being re-armed for active recording (Re-Fly resume / quickload).
+        /// The earlier verdict came from <c>TryFinalizeRecording</c>'s sub-surface
+        /// path firing on a transient <c>NullSolver</c> live-orbit fallback (e.g.
+        /// during stage decouple). Once the player rewinds and resumes flight,
+        /// the vessel is alive again, but the cached verdict makes
+        /// <see cref="IsAlreadyClassifiedDestroyed"/> short-circuit every
+        /// FinalizerCache refresh thereafter. Clearing
+        /// <c>TerminalStateValue</c> + <c>ExplicitEndUT</c> releases that
+        /// short-circuit so the next refresh observes the live (now orbiting)
+        /// state. Returns <c>true</c> when a stale verdict was actually cleared,
+        /// so callers can attribute the log line to a real state change.
+        /// </summary>
+        internal static bool ClearStaleDestroyedTerminalForResume(
+            Recording recording,
+            string logContext)
+        {
+            if (!IsAlreadyClassifiedDestroyed(recording))
+                return false;
+
+            string recordingId = recording.RecordingId ?? "(null)";
+            double previousTerminalUT = !double.IsNaN(recording.ExplicitEndUT)
+                ? recording.ExplicitEndUT
+                : recording.EndUT;
+
+            recording.TerminalStateValue = null;
+            recording.ExplicitEndUT = double.NaN;
+            recording.MarkFilesDirty();
+
+            ParsekLog.Info("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: cleared stale Destroyed terminal for resume rec={1} previousTerminalUT={2:F1}; " +
+                    "FinalizerCache will re-evaluate on next refresh",
+                    string.IsNullOrEmpty(logContext) ? "ResumeRecording" : logContext,
+                    recordingId,
+                    previousTerminalUT));
+            return true;
+        }
+
         internal static void LogAlreadyClassifiedDestroyedSkip(
             Recording recording,
             string context,

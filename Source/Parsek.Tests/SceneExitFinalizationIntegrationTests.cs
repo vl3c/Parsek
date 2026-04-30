@@ -2248,5 +2248,142 @@ namespace Parsek.Tests
             });
             return cache;
         }
+
+        [Fact]
+        public void ClearStaleDestroyedTerminalForResume_RecordingWithDestroyedVerdict_ClearsAndReleasesShortCircuit()
+        {
+            // Regression for the FinalizerCache sticky-Destroyed bug: a transient
+            // NullSolver event mid-flight stamped TerminalStateValue=Destroyed
+            // via the sub-surface path. After the player rewinds and resumes
+            // flight, we must clear the stale verdict so subsequent FinalizerCache
+            // refreshes can re-evaluate the (now alive) vessel.
+            var rec = new Recording
+            {
+                RecordingId = "stale-destroyed-rec",
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 159.7
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 159.0, altitude = 80000.0, bodyName = "Kerbin" });
+
+            // Pre-condition: the short-circuit fires while the verdict is sticky.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsAlreadyClassifiedDestroyed(rec));
+
+            bool cleared = IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                rec,
+                "RestoreActiveTreeFromPending");
+
+            Assert.True(cleared);
+            Assert.False(rec.TerminalStateValue.HasValue);
+            Assert.True(double.IsNaN(rec.ExplicitEndUT));
+            // Post-condition: the short-circuit no longer fires, so the cache producer
+            // can re-evaluate the recording from the live vessel state.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsAlreadyClassifiedDestroyed(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][Extrapolator]") &&
+                l.Contains("RestoreActiveTreeFromPending") &&
+                l.Contains("cleared stale Destroyed terminal for resume") &&
+                l.Contains("rec=stale-destroyed-rec") &&
+                l.Contains("previousTerminalUT=159.7"));
+        }
+
+        [Fact]
+        public void ClearStaleDestroyedTerminalForResume_RecordingWithoutTerminalState_NoOp()
+        {
+            // Recording that hasn't been finalized yet — never had a Destroyed
+            // verdict, so ClearStaleDestroyedTerminalForResume must do nothing
+            // and emit no log line.
+            var rec = new Recording
+            {
+                RecordingId = "live-rec-not-destroyed",
+                ExplicitEndUT = double.NaN
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
+
+            bool cleared = IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                rec,
+                "RestoreActiveTreeFromPending");
+
+            Assert.False(cleared);
+            Assert.False(rec.TerminalStateValue.HasValue);
+            Assert.True(double.IsNaN(rec.ExplicitEndUT));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("cleared stale Destroyed terminal for resume"));
+        }
+
+        [Fact]
+        public void ClearStaleDestroyedTerminalForResume_RecordingWithOrbitingVerdict_NoOpAndKeepsVerdict()
+        {
+            // Only Destroyed verdicts trigger the short-circuit, so only Destroyed
+            // verdicts get cleared. A legitimate Orbiting/Landed/Splashed verdict
+            // must survive (it represents a real terminal classification that
+            // ghost playback / spawning depend on).
+            var rec = new Recording
+            {
+                RecordingId = "orbiting-rec",
+                TerminalStateValue = TerminalState.Orbiting,
+                ExplicitEndUT = 500.0
+            };
+
+            bool cleared = IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                rec,
+                "RestoreActiveTreeFromPending");
+
+            Assert.False(cleared);
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+            Assert.Equal(500.0, rec.ExplicitEndUT);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("cleared stale Destroyed terminal for resume"));
+        }
+
+        [Fact]
+        public void ClearStaleDestroyedTerminalForResume_NullRecording_ReturnsFalseSafely()
+        {
+            bool cleared = IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                null,
+                "RestoreActiveTreeFromPending");
+
+            Assert.False(cleared);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("cleared stale Destroyed terminal for resume"));
+        }
+
+        [Fact]
+        public void ClearStaleDestroyedTerminalForResume_AfterClear_FinalizerCacheRefreshNoLongerShortCircuits()
+        {
+            // End-to-end: with a stale Destroyed verdict, TryBuildAlreadyClassifiedDestroyedSkip
+            // returns true (cache short-circuits). After ClearStaleDestroyedTerminalForResume,
+            // it returns false — releasing the cache to do a real refresh.
+            var rec = new Recording
+            {
+                RecordingId = "end-to-end-rec",
+                VesselPersistentId = 12345u,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 150.0
+            };
+
+            bool skipsBefore = RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip(
+                rec,
+                vesselPid: 12345u,
+                owner: FinalizationCacheOwner.ActiveRecorder,
+                refreshUT: 200.0,
+                reason: "test-before-clear",
+                cache: out _);
+            Assert.True(skipsBefore);
+
+            bool cleared = IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                rec,
+                "RestoreActiveTreeFromPending");
+            Assert.True(cleared);
+
+            bool skipsAfter = RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip(
+                rec,
+                vesselPid: 12345u,
+                owner: FinalizationCacheOwner.ActiveRecorder,
+                refreshUT: 200.0,
+                reason: "test-after-clear",
+                cache: out _);
+            Assert.False(skipsAfter);
+        }
     }
 }
