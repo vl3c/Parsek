@@ -15286,17 +15286,17 @@ namespace Parsek
             // so the points reaching here are always Absolute-frame body-
             // fixed lat/lon/alt. The explicit argument is the P2-1 safety
             // gate at the helper.
-            double altBefore = ResolvePhase7EffectiveAltitude(
+            double effectiveAltBefore = ResolvePhase7EffectiveAltitude(
                 bodyBefore, before.latitude, before.longitude, before.altitude,
                 before.recordedGroundClearance, ReferenceFrame.Absolute);
-            double altAfter = ResolvePhase7EffectiveAltitude(
+            double effectiveAltAfter = ResolvePhase7EffectiveAltitude(
                 bodyAfter, after.latitude, after.longitude, after.altitude,
                 after.recordedGroundClearance, ReferenceFrame.Absolute);
 
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, altBefore);
+                before.latitude, before.longitude, effectiveAltBefore);
             Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, altAfter);
+                after.latitude, after.longitude, effectiveAltAfter);
 
             Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
@@ -15419,8 +15419,8 @@ namespace Parsek
                     mode = GhostPosMode.CoBubble,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
                     interpolatedRot = interpolatedRot,
@@ -15439,8 +15439,8 @@ namespace Parsek
                     mode = GhostPosMode.PointInterp,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
                     interpolatedRot = interpolatedRot,
@@ -15714,8 +15714,14 @@ namespace Parsek
                 : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
             if (object.ReferenceEquals(body, null)) return false;
 
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+            double altBefore = ResolvePhase7EffectiveAltitude(
+                body, before.latitude, before.longitude, before.altitude,
+                before.recordedGroundClearance, ReferenceFrame.Absolute);
+            double altAfter = ResolvePhase7EffectiveAltitude(
+                body, after.latitude, after.longitude, after.altitude,
+                after.recordedGroundClearance, ReferenceFrame.Absolute);
+            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
+            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
             Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
 
             // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
@@ -16281,7 +16287,7 @@ namespace Parsek
                 ghost = ghost,
                 mode = GhostPosMode.SinglePoint,
                 bodyBefore = body,
-                latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
+                latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
             });
