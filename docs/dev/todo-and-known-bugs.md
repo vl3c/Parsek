@@ -1705,10 +1705,14 @@ or `LoopAnchorVesselId` fallback, while non-RELATIVE sections keep the
 existing direct point/surface/orbit paths. `HandlePastEndGhost` clears and
 reads `anchorRetiredThisFrame` around endpoint positioning and suppresses
 the completion/explosion side effects plus transient FX when the endpoint
-anchor retires. New headless coverage in
+anchor retires. Retired past-end endpoints are recorded in a separate
+dedupe set before the hidden visual state is destroyed, so the engine does
+not re-enter the same unresolvable endpoint every frame and does not later
+emit the unsafe completion event from an inactive ghost. New headless coverage in
 `GhostPlaybackEngineTests` pins the endpoint-UT resolver, inclusive final
 RELATIVE-section lookup, single-point RELATIVE routing decision, loop-anchor
-fallback, zero-anchor retire routing, and ABSOLUTE-section non-match.
+fallback, zero-anchor retire routing, ABSOLUTE-section non-match, and the
+past-end completion gate's endpoint-retired suppression.
 
 **Status:** Open until merged.
 
