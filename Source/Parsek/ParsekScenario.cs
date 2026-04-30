@@ -1681,6 +1681,7 @@ namespace Parsek
                     // sweep's post-zombie-removal state).
                     loadPhase = "load-time-sweep";
                     LoadTimeSweep.Run();
+                    RefreshPendingQuickloadTrimScope();
 
                     // Phase 11 housekeeping pass — same rationale as the
                     // cold-start branch below; runs after the finisher so
@@ -1935,6 +1936,7 @@ namespace Parsek
                 // sweep's zombie-removed state).
                 loadPhase = "load-time-sweep";
                 LoadTimeSweep.Run();
+                RefreshPendingQuickloadTrimScope();
 
                 // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
                 // housekeeping pass for RPs orphaned by merges that crashed
@@ -4198,6 +4200,8 @@ namespace Parsek
         private sealed class QuickloadResumeContext
         {
             internal string TreeId;
+            internal QuickloadTrimScope TrimScope;
+            internal string TrimScopeReason;
         }
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
@@ -4213,19 +4217,62 @@ namespace Parsek
                 return;
             }
 
+            var marker = Instance?.ActiveReFlySessionMarker;
+            var trimScope = ChooseQuickloadTrimScope(tree.Id, marker, out string trimScopeReason);
+
             pendingQuickloadResumeContext = new QuickloadResumeContext
             {
-                TreeId = tree.Id
+                TreeId = tree.Id,
+                TrimScope = trimScope,
+                TrimScopeReason = trimScopeReason,
             };
 
             ParsekLog.Verbose("Scenario",
-                $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId}");
+                $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
+                $"trimScope={trimScope} ({trimScopeReason})");
+        }
+
+        internal static void RefreshPendingQuickloadTrimScope()
+        {
+            QuickloadResumeContext context = pendingQuickloadResumeContext;
+            if (context == null)
+                return;
+
+            var marker = Instance?.ActiveReFlySessionMarker;
+            var trimScope = ChooseQuickloadTrimScope(context.TreeId, marker, out string trimScopeReason);
+            context.TrimScope = trimScope;
+            context.TrimScopeReason = trimScopeReason;
+
+            ParsekLog.Verbose("Scenario",
+                $"Quickload-resume trim scope refreshed: treeId={context.TreeId} " +
+                $"trimScope={trimScope} ({trimScopeReason})");
         }
 
         internal static bool MatchesPendingQuickloadResumeContext(string treeId)
         {
             return pendingQuickloadResumeContext != null
                 && string.Equals(pendingQuickloadResumeContext.TreeId, treeId, StringComparison.Ordinal);
+        }
+
+        internal static QuickloadTrimScope GetPendingQuickloadTrimScope(
+            string treeId,
+            out string reason)
+        {
+            if (pendingQuickloadResumeContext == null)
+            {
+                reason = "no-pending-quickload-resume-context";
+                return QuickloadTrimScope.TreeWide;
+            }
+
+            if (string.IsNullOrEmpty(treeId)
+                || !string.Equals(pendingQuickloadResumeContext.TreeId, treeId, StringComparison.Ordinal))
+            {
+                reason = $"pending-context-tree-mismatch contextTree={pendingQuickloadResumeContext.TreeId ?? "<null>"} resumeTree={treeId ?? "<null>"}";
+                return QuickloadTrimScope.TreeWide;
+            }
+
+            reason = pendingQuickloadResumeContext.TrimScopeReason ?? "pending-context-no-reason";
+            return pendingQuickloadResumeContext.TrimScope;
         }
 
         internal static void ClearPendingQuickloadResumeContext()
