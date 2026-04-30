@@ -243,54 +243,45 @@ namespace Parsek
 
         /// <summary>
         /// Builds the dialog body copy for the given revert-target context.
-        /// Launch variant says "returns you to the Space Center"; Prelaunch
-        /// variant says "returns you to the VAB or SPH" and clarifies that
-        /// Retry still returns the player to FLIGHT (not the editor)
-        /// regardless of which button they clicked. When
+        /// Launch variant says Discard returns you to the Space Center;
+        /// Prelaunch variant says Discard returns you to the VAB or SPH.
+        /// Retry always says it restarts the Re-Fly in FLIGHT because it is
+        /// anchored to the rewind-point quicksave regardless of which stock
+        /// Revert button the player clicked. When
         /// <paramref name="journalActive"/> is true the Discard Re-fly
         /// bullet is replaced with a notice explaining the button is hidden
         /// while a merge is in progress.
         /// </summary>
         internal static string BuildBody(RevertTarget target, bool journalActive = false)
         {
-            string retryLine = target == RevertTarget.Prelaunch
-                ? "- Retry from Rewind Point: discard this attempt and re-load the " +
-                  "rewind-point quicksave. This returns you to FLIGHT at the split " +
-                  "moment regardless of which Revert button you clicked. The " +
-                  "Unfinished Flight entry stays available so you can try again.\n"
-                : "- Retry from Rewind Point: discard this attempt and re-load the " +
-                  "rewind-point quicksave. The Unfinished Flight entry stays available " +
-                  "so you can try again.\n";
+            string retryLine =
+                "- Retry from Rewind Point: restart this Re-Fly from the split moment in FLIGHT.\n";
 
             string discardLine;
             if (journalActive)
             {
                 discardLine =
-                    "- Discard Re-Fly is unavailable while a merge is in progress. " +
-                    "Finish or roll back the merge (load the save) and try again.\n";
+                    "- Discard Re-Fly: unavailable while a merge is in progress. " +
+                    "Finish the merge or reload the save, then try again.\n";
             }
             else if (target == RevertTarget.Prelaunch)
             {
                 discardLine =
-                    "- Discard Re-Fly: throw away the current Re-Fly attempt and reload " +
-                    "the rewind point; returns you to the VAB or SPH at the moment you " +
-                    "opened the Rewind Point. The tree's other Rewind Points stay intact. " +
-                    "STASH still shows this entry so you can try again.\n";
+                    "- Discard Re-Fly: abandon this attempt, restore the rewind-point save, " +
+                    "and return to the VAB or SPH. The STASH entry stays available.\n";
             }
             else
             {
                 discardLine =
-                    "- Discard Re-Fly: throw away the current Re-Fly attempt and reload " +
-                    "the rewind point; returns you to the Space Center at the moment you " +
-                    "opened the Rewind Point. The tree's other Rewind Points stay intact. " +
-                    "STASH still shows this entry so you can try again.\n";
+                    "- Discard Re-Fly: abandon this attempt, restore the rewind-point save, " +
+                    "and return to the Space Center. The STASH entry stays available.\n";
             }
 
             return
-                "You are re-flying an unfinished mission. What would you like to do?\n\n" +
+                "You are in a Re-Fly session. Choose how to handle the current attempt.\n\n" +
                 retryLine +
                 discardLine +
-                "- Continue Flying: keep the current attempt; do nothing.";
+                "- Continue Flying: close this dialog and keep flying.";
         }
 
         private static bool IsMergeJournalActive()

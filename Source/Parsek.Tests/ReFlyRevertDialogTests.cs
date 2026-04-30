@@ -925,7 +925,7 @@ namespace Parsek.Tests
         // ---------- Body-copy context variants --------------------------
 
         [Fact]
-        public void Show_LaunchTarget_BodyContainsSpaceCenter()
+        public void Show_LaunchTarget_BodySummarizesEachButton()
         {
             var marker = MakeMarker();
             string capturedBody = null;
@@ -936,8 +936,21 @@ namespace Parsek.Tests
                 () => { }, () => { }, () => { });
 
             Assert.NotNull(capturedBody);
+            Assert.Contains("You are in a Re-Fly session", capturedBody);
+            Assert.Contains(
+                "Retry from Rewind Point: restart this Re-Fly from the split moment in FLIGHT",
+                capturedBody);
+            Assert.Contains(
+                "Discard Re-Fly: abandon this attempt, restore the rewind-point save, and return to the Space Center",
+                capturedBody);
+            Assert.Contains("The STASH entry stays available", capturedBody);
+            Assert.Contains("Continue Flying: close this dialog and keep flying", capturedBody);
             Assert.Contains("Space Center", capturedBody);
             Assert.DoesNotContain("VAB or SPH", capturedBody);
+            Assert.DoesNotContain("Unfinished Flight entry", capturedBody);
+            Assert.DoesNotContain("tree's other Rewind Points", capturedBody);
+            Assert.DoesNotContain("supersede", capturedBody);
+            Assert.DoesNotContain("tombstone", capturedBody);
         }
 
         [Fact]
@@ -968,7 +981,37 @@ namespace Parsek.Tests
             Assert.NotNull(capturedBody);
             Assert.Contains("VAB or SPH", capturedBody);
             Assert.Contains("FLIGHT", capturedBody);
+            Assert.Contains(
+                "Discard Re-Fly: abandon this attempt, restore the rewind-point save, and return to the VAB or SPH",
+                capturedBody);
             Assert.DoesNotContain("Space Center", capturedBody);
+        }
+
+        [Fact]
+        public void Show_JournalActive_BodyExplainsDiscardUnavailable()
+        {
+            var marker = MakeMarker();
+            var journal = new MergeJournal
+            {
+                JournalId = "journal_body",
+                SessionId = marker.SessionId,
+                Phase = MergeJournal.Phases.Begin,
+            };
+            InstallScenario(marker: marker, journal: journal);
+
+            string capturedBody = null;
+            ReFlyRevertDialog.BodyHookForTesting = (_, body) => capturedBody = body;
+            ReFlyRevertDialog.ShowHookForTesting = _ => { };
+
+            ReFlyRevertDialog.Show(marker, RevertTarget.Launch,
+                () => { }, () => { }, () => { });
+
+            Assert.NotNull(capturedBody);
+            Assert.Contains(
+                "Discard Re-Fly: unavailable while a merge is in progress",
+                capturedBody);
+            Assert.Contains("Finish the merge or reload the save", capturedBody);
+            Assert.DoesNotContain("return to the Space Center", capturedBody);
         }
 
         [Fact]
