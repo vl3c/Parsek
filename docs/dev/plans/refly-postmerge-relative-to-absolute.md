@@ -2,7 +2,7 @@
 
 ## Status
 
-Plan only. The original dependency on PR #604
+Historical, deferred plan only. The original dependency on PR #604
 (`fix-refly-upper-stage-absolute`) is now satisfied on `main`: format v7
 introduced `TrackSection.absoluteFrames`, and current `main` has since
 advanced the recording format to v10. This branch was merged with
@@ -27,6 +27,17 @@ The remaining value is still real, but narrower: promote the
 high-confidence parent-chain subset once the merge makes its anchor-local
 copy dead state, keep flat fallback data in sync, drop redundant shadow
 payloads, and remove one class of future reader / tooling footgun.
+
+**2026-04-30 decision:** do not implement this during the current
+correctness-stabilization push. The bugs that motivated the original
+plan are handled by runtime fixes on `main`; implementing this now would
+mainly be data canonicalization and sidecar-size cleanup. If the plan is
+revived later, the review findings already folded into this document
+remain hard correctness requirements for that implementation: boundary
+ownership must follow `FindTrackSectionForUT`, parent-chain coverage must
+be transitive and #614-safe, zero active target PIDs must never match,
+and skipped legacy v6 / partial-shadow sections must keep explicit
+runtime fallback or warning expectations.
 
 ## Rationale
 
@@ -55,12 +66,12 @@ permanent footgun in the data:
    demotion at any other time is fragile or wrong; doing it at merge is a
    one-shot cost on a code path that already runs the optimizer.
 
-The fix is a new optimizer pass that runs once per Re-Fly merge, walks the
-just-merged Re-Fly target's parent-chain ancestry, and promotes RELATIVE
-sections whose `anchorVesselId` matches the merged target vessel pid to
-ABSOLUTE — copying `absoluteFrames` over `frames`, rewriting the
-corresponding flat `Recording.Points` entries, clearing `anchorVesselId`,
-and dropping the now-redundant shadow payload.
+The deferred cleanup would be a new optimizer pass that runs once per
+Re-Fly merge, walks the just-merged Re-Fly target's parent-chain
+ancestry, and promotes RELATIVE sections whose `anchorVesselId` matches
+the merged target vessel pid to ABSOLUTE — copying `absoluteFrames` over
+`frames`, rewriting the corresponding flat `Recording.Points` entries,
+clearing `anchorVesselId`, and dropping the now-redundant shadow payload.
 
 ## When RELATIVE data IS load-bearing — preserved scenarios
 
