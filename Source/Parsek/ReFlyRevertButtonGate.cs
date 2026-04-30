@@ -24,9 +24,10 @@ namespace Parsek
     /// While a re-fly marker is active we forcibly set
     /// <c>FlightDriver.CanRevertToPostInit = true</c> so the button is clickable.
     /// This is safe because the Harmony prefix on <c>FlightDriver.RevertToLaunch</c>
-    /// short-circuits the stock body before it can dereference the null
-    /// <c>PostInitState</c> we never had — every click reaches our 3-option
-    /// dialog instead.
+    /// short-circuits the stock body before it can replay the captured
+    /// <c>PostInitState</c> (which holds the mid-flight RP-quicksave state, not
+    /// a launch-time backup — <c>FlightDriver.PostInit</c> rebuilds it on every
+    /// scene load) — every click reaches our 3-option dialog instead.
     /// </para>
     ///
     /// <para>
@@ -51,8 +52,11 @@ namespace Parsek
         // True iff Parsek's last Apply() forced CanRevertToPostInit from false
         // to true. Cleared in the reset branch (marker cleared post-force) and
         // by ResetForTesting. We only restore engine-default state when this is
-        // true, so a normal launch that legitimately set the flag (line
-        // 835/387 of FlightDriver) is never disturbed.
+        // true, so a normal launch that legitimately set the flag (NEW_FROM_FILE
+        // hits line 835 of decompiled FlightDriver, RESUME_SAVED_CACHE hits line
+        // 387) is never disturbed. ComputeNaturalCanRevertToPostInit below
+        // mirrors only the RESUME_SAVED_CACHE formula, which is the only branch
+        // where forcedFlag could plausibly have been set true beforehand.
         private static bool forcedFlag;
         internal static bool ForcedFlagForTesting => forcedFlag;
 
@@ -65,6 +69,11 @@ namespace Parsek
         {
             ApplyForTesting = null;
             forcedFlag = false;
+            // Tear down any leftover GameEvents subscription so a test that
+            // called Subscribe() can re-Subscribe() in a follow-up test
+            // without double-registration. The Unsubscribe call is a no-op
+            // when subscribed=false.
+            Unsubscribe();
         }
 
         // KSP's EventData<T>.EvtDelegate..ctor reads evt.Target.GetType().Name
@@ -147,16 +156,24 @@ namespace Parsek
                 }
                 else if (forcedFlag)
                 {
+                    // Mirror the force-branch ordering: assign the engine
+                    // field FIRST, then drop the override-tracking bool. If the
+                    // field assignment threw, forcedFlag stays true and the
+                    // next Apply gets another chance to reset; if we dropped
+                    // forcedFlag first and the assignment threw, the override
+                    // would be silently forgotten and the engine flag stuck at
+                    // true forever.
                     bool natural = ComputeNaturalCanRevertToPostInit();
-                    forcedFlag = false;
                     if (FlightDriver.CanRevertToPostInit != natural)
                     {
                         FlightDriver.CanRevertToPostInit = natural;
+                        forcedFlag = false;
                         ParsekLog.Info(Tag,
                             $"ReFlyRevertButtonGate: reset FlightDriver.CanRevertToPostInit={natural} at {site ?? "(no-site)"} — re-fly marker cleared");
                     }
                     else
                     {
+                        forcedFlag = false;
                         ParsekLog.Verbose(Tag,
                             $"ReFlyRevertButtonGate: reset cleared override at {site ?? "(no-site)"} — flag already at natural value {natural}");
                     }

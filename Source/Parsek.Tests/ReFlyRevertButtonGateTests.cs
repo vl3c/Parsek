@@ -232,6 +232,59 @@ namespace Parsek.Tests
                 && l.Contains("test:second"));
         }
 
+        // ---------- Reset-branch ordering safety -------------------------
+
+        [Fact]
+        public void Apply_ResetBranch_FlagAlreadyAtNatural_StillClearsForcedFlag()
+        {
+            // Edge case: the force was applied while marker was active, then
+            // some external code (test or unrelated subsystem) reset the
+            // engine flag to false on its own before the marker cleared.
+            // Reset branch hits the "already at natural" arm and must still
+            // drop the forcedFlag override so a future Apply does not skip
+            // a legitimate reset.
+            var scenario = InstallScenario(marker: MakeMarker());
+            FlightDriver.CanRevertToPostInit = false;
+            ReFlyRevertButtonGate.ResetForTesting();
+            ReFlyRevertButtonGate.Apply("test:setup");
+            Assert.True(ReFlyRevertButtonGate.ForcedFlagForTesting);
+            FlightDriver.CanRevertToPostInit = false; // external reset
+            scenario.ActiveReFlySessionMarker = null;
+            logLines.Clear();
+
+            ReFlyRevertButtonGate.Apply("test:reset-already-natural");
+
+            Assert.False(ReFlyRevertButtonGate.ForcedFlagForTesting);
+            Assert.False(FlightDriver.CanRevertToPostInit);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("reset cleared override")
+                && l.Contains("test:reset-already-natural"));
+        }
+
+        [Fact]
+        public void ApplyForTesting_Hook_BypassesRealFlagAndForcedFlag()
+        {
+            // Test seam contract: when ApplyForTesting is set, Apply must not
+            // touch the live FlightDriver static state OR forcedFlag — both
+            // are owned by the test harness for that call. Without this
+            // guarantee a unit test that drives Apply through the seam would
+            // randomly mutate the xUnit-process-shared FlightDriver flag and
+            // silently break a follow-up integration test in the same run.
+            InstallScenario(marker: MakeMarker());
+            FlightDriver.CanRevertToPostInit = false;
+            ReFlyRevertButtonGate.ResetForTesting();
+
+            bool? observed = null;
+            ReFlyRevertButtonGate.ApplyForTesting = active => observed = active;
+
+            ReFlyRevertButtonGate.Apply("test:seam-no-mutation");
+
+            Assert.True(observed ?? false);
+            Assert.False(FlightDriver.CanRevertToPostInit);
+            Assert.False(ReFlyRevertButtonGate.ForcedFlagForTesting);
+        }
+
         // ---------- Subscribe / Unsubscribe ------------------------------
 
         [Fact]

@@ -110,38 +110,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 - ~~P3-2: Cluster-Warn dedup regression test missing (plan §10.2 line item).~~ New `Outlier_ClusterWarn_DedupedAcrossRecompute` test in `SmoothingPipelineLoggingTests.cs` calls `FitAndStorePerSection` twice on the same kraken-clustered fixture and asserts exactly one Cluster Warn line emits across both calls. Pins the `s_clusterWarnLogged` HashSet behaviour. Companion `Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection` test pins the HR-9-visibility contract for clean sections.
 - ~~P3-4: `Pipeline_Outlier_Kraken` in-game test residual ratio too coarse + leaked overrides.~~ Added an absolute residual cap (10 km) alongside the existing 5x ratio so the test fails if the spline blows up to some other large offset. Removed the redundant `flags.SampleCount = sampleCount` line (Classify already sets it). The test already calls `SmoothingPipeline.ResetForTesting` before `yield break`, which clears `BodyResolverForTesting` and `UseOutlierRejectionResolverForTesting` (and `s_clusterWarnLogged`); a comment now documents that explicitly.
 
-## ~~681. Esc-menu Revert button grayed out during an active Re-Fly~~
+## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 
-**Status:** ~~done~~ on PR #fix-revert-button-during-refly.
+**Status:** ~~done~~ on PR #670 (`fix-revert-button-during-refly`).
 
 KSP's `FlightDriver.Start` `RESUME_SAVED_CACHE` branch sets
 `CanRevertToPostInit = (vessel.situation == PRELAUNCH)` (decompile of
-`FlightDriver.cs:386-387`). When `RewindInvoker.StartInvoke` loads a rewind
+`FlightDriver.cs:387`). When `RewindInvoker.StartInvoke` loads a rewind
 point's quicksave via `FlightDriver.StartAndFocusVessel`, the focused vessel
 is mid-flight at the staging point, so the engine correctly computes false.
-`PreLaunchState` / `PostInitState` are also wiped by `GamePersistence.LoadGame`
-so `CanRevertToPrelaunch` lands false too. The pause menu's Revert button is
+`PreLaunchState` is also wiped by `GamePersistence.LoadGame` so
+`CanRevertToPrelaunch` lands false too. The pause menu's Revert button row is
 gated on `FlightDriver.CanRevert` (decompile of `PauseMenu.cs:573`) and
 gray-outs, blocking access to `RevertInterceptor.Prefix` and the 3-option
-Re-Fly dialog (Retry Re-Fly / Discard Re-Fly / Cancel) entirely.
+Re-Fly dialog (Retry Re-Fly / Discard Re-Fly / Cancel).
+
+Scope: this fix re-enables the **Revert to Launch** button only. The
+**Revert to VAB / SPH** options gate on `CanRevertToPrelaunch` (decompile of
+`PauseMenu.cs:1364`), which would also need `PreLaunchState` /
+`ShipConstruction.ShipConfig` repopulated — those are not safe to synthesise
+post-Re-Fly-load, so the prelaunch revert button stays gray. Re-fly cleanup
+through Revert-to-Launch + Discard Re-fly is the canonical exit path; the
+prelaunch path adds no functional capability the dialog does not already
+expose.
 
 **Fix:** new `ReFlyRevertButtonGate` static type force-sets
 `FlightDriver.CanRevertToPostInit = true` whenever an active re-fly marker
-exists, so the button stays clickable. The Harmony prefix on
-`FlightDriver.RevertToLaunch` short-circuits the stock body before it can
-dereference the null `PostInitState`, so the click only ever reaches our
-dialog. The gate tracks a single `forcedFlag` so it only restores engine
-defaults when we previously claimed ownership — a normal launch's
-legitimately-true flag (line 835/387) is never disturbed. Apply is wired at
-every marker change reachable from a flight scene: `AtomicMarkerWrite` (set),
-`OnLoad` (load with marker), `RetryHandler` / `DiscardReFlyHandler` /
-`SupersedeCommit` / `MergeJournalOrchestrator` / `LoadTimeSweep` /
-`TreeDiscardPurge` (clear), plus `GameEvents.onFlightReady` for the cold-load
-path. xUnit coverage in `ReFlyRevertButtonGateTests` (9 tests, force/reset
-cycle + idempotence + engine-true non-clobber + subscribe idempotence). Live
-in-game canary in `ReFlyRevertButtonGateTest` asserts the engine flag actually
-flips on the live `FlightDriver` static and that `FlightDriver.CanRevert` is
-true while the marker is active.
+exists. The Harmony prefix on `FlightDriver.RevertToLaunch` short-circuits the
+stock body before it can replay the captured `PostInitState`, which now
+holds the mid-flight RP-quicksave state rather than a launch-time backup —
+`FlightDriver.PostInit` rebuilds it on every scene load. The click only ever
+reaches our dialog. The gate tracks a single `forcedFlag` so it only restores
+engine defaults when we previously claimed ownership — a normal launch's
+legitimately-true flag is never disturbed. Apply is wired at every marker
+change reachable from a flight scene: `AtomicMarkerWrite` (set),
+`ReconciliationBundle.Restore` (load + rollback), `OnLoad` (cold load with
+marker), `RetryHandler` / `DiscardReFlyHandler` / `SupersedeCommit` /
+`MergeJournalOrchestrator` / `LoadTimeSweep` / `TreeDiscardPurge` (clear),
+plus `GameEvents.onFlightReady` for the cold-load-then-flight path. xUnit
+coverage in `ReFlyRevertButtonGateTests` (force/reset cycle + idempotence +
+engine-true non-clobber + subscribe idempotence). Live in-game canary in
+`ReFlyRevertButtonGateTest` asserts the engine flag actually flips on the
+live `FlightDriver` static and that `FlightDriver.CanRevert` is true while
+the marker is active.
 
 ## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
 

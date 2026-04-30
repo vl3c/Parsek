@@ -28,10 +28,19 @@ namespace Parsek.InGameTests
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
 
+            // Refuse to run while a real Re-Fly is in flight: ResetForTesting
+            // clobbers forcedFlag and our finally-block restore would
+            // mis-classify the engine flag's ownership for the live session.
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                InGameAssert.Skip(
+                    "Cannot exercise gate while a live Re-Fly session is active — would clobber ownership tracking");
+                return;
+            }
+
             // Snapshot prior state — restored unconditionally on teardown so a
             // failure here does not corrupt the player's session.
             bool savedFlag = FlightDriver.CanRevertToPostInit;
-            var savedMarker = scenario.ActiveReFlySessionMarker;
             ReFlyRevertButtonGate.ResetForTesting();
 
             string sessionId = "sess_btn_gate_igt_" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -73,6 +82,7 @@ namespace Parsek.InGameTests
                 // Clear the marker — this is what RetryHandler / DiscardReFlyHandler
                 // / SupersedeCommit do on teardown. Apply must drop the override.
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("igt:reset-after-marker-cleared");
                 ReFlyRevertButtonGate.Apply("igt:reset-after-marker-cleared");
 
                 InGameAssert.IsFalse(ReFlyRevertButtonGate.ForcedFlagForTesting,
@@ -88,7 +98,13 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                scenario.ActiveReFlySessionMarker = savedMarker;
+                // Order matters: clear the synthetic marker first, restore
+                // the engine flag, then ResetForTesting wipes forcedFlag last.
+                // Skipping above guarantees we never enter the finally with a
+                // pre-existing live marker, so this restore sequence cannot
+                // corrupt a live session.
+                scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("igt:gate-test-teardown");
                 FlightDriver.CanRevertToPostInit = savedFlag;
                 ReFlyRevertButtonGate.ResetForTesting();
             }
@@ -101,8 +117,17 @@ namespace Parsek.InGameTests
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
 
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                InGameAssert.Skip(
+                    "Cannot exercise inactive-gate behaviour while a live Re-Fly session is active");
+                return;
+            }
+
             bool savedFlag = FlightDriver.CanRevertToPostInit;
-            var savedMarker = scenario.ActiveReFlySessionMarker;
+            // Reset BEFORE Apply so a stale forcedFlag from a prior test or
+            // session does not route us through the reset branch and clobber
+            // the very flag this test is supposed to verify is preserved.
             ReFlyRevertButtonGate.ResetForTesting();
 
             try
@@ -113,6 +138,7 @@ namespace Parsek.InGameTests
                 // gray out the Revert button on an ordinary launch.
                 FlightDriver.CanRevertToPostInit = true;
                 scenario.ActiveReFlySessionMarker = null;
+                Parsek.Rendering.RenderSessionState.Clear("igt:engine-true-test-setup");
 
                 ReFlyRevertButtonGate.Apply("igt:no-op-on-engine-true");
 
@@ -123,7 +149,6 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                scenario.ActiveReFlySessionMarker = savedMarker;
                 FlightDriver.CanRevertToPostInit = savedFlag;
                 ReFlyRevertButtonGate.ResetForTesting();
             }
