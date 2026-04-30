@@ -30,11 +30,14 @@ namespace Parsek
     internal static class UnfinishedFlightsGroup
     {
         /// <summary>
-        /// Display name of the virtual group. Chosen to not collide with any
-        /// user-creatable group name (leading uppercase + space, matching the
-        /// natural display text in the recordings table).
+        /// Player-facing display name of the virtual group. The underlying
+        /// feature/architectural concept is still "Unfinished Flights" — the
+        /// group label is the shelf the items sit on, not the items
+        /// themselves. All-caps is the visual signal that this is a
+        /// system-controlled group (not user-typed) and is unlikely to
+        /// collide with any natural user-created group name.
         /// </summary>
-        public const string GroupName = "Unfinished Flights";
+        public const string GroupName = "STASH";
 
         public const string Tooltip =
             "Vessels and kerbals that ended up in a state where you might want to re-fly them -- crashed, abandoned in orbit, stranded on a surface. Click Play to take control at the separation moment; click Seal to close the slot permanently if you're done with it.";
