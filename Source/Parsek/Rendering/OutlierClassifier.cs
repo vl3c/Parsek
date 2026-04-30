@@ -28,8 +28,9 @@ namespace Parsek.Rendering
         public float AccelCeilingSurfaceStationary;  // m/s², default 10
         public float AccelCeilingApproach;           // m/s², default 50
 
-        /// <summary>KSP physics-bubble radius (~2500 m). Single-tick position
-        /// deltas exceeding this are kraken teleports.</summary>
+        /// <summary>KSP physics-bubble radius (~2500 m). Used as the
+        /// single-tick excess-distance budget for BubbleRadius rejection after
+        /// accounting for recorded speed over the sample dt.</summary>
         public float MaxSingleTickPositionDeltaMeters;
 
         /// <summary>Lower altitude bound (m). Default -100 to accommodate
@@ -264,9 +265,10 @@ namespace Parsek.Rendering
                         ref verboseEmitted, ref verboseSuppressed);
                 }
 
-                // -- Bubble-radius (single-tick position delta) --
+                // -- Bubble-radius (position delta beyond recorded-speed envelope) --
                 double posDelta = ComputePositionDeltaMagnitude(prev, p, body);
-                if (IsFiniteDouble(posDelta) && posDelta > bubbleCap)
+                double effectiveBubbleCap = ComputeBubbleRadiusLimit(prev, p, bubbleCap);
+                if (IsFiniteDouble(posDelta) && posDelta > effectiveBubbleCap)
                 {
                     if (!rejected[i])
                     {
@@ -274,7 +276,7 @@ namespace Parsek.Rendering
                     }
                     bubbleCount++;
                     EmitPerSampleVerbose(recordingId, sectionIndex, i,
-                        ClassifierBit.BubbleRadius, posDelta, bubbleCap,
+                        ClassifierBit.BubbleRadius, posDelta, effectiveBubbleCap,
                         ref verboseEmitted, ref verboseSuppressed);
                 }
             }
@@ -389,6 +391,34 @@ namespace Parsek.Rendering
             double horizontalM = 2.0 * radius * Math.Asin(Math.Sqrt(a));
             double dAltM = cur.altitude - prev.altitude;
             return Math.Sqrt(horizontalM * horizontalM + dAltM * dAltM);
+        }
+
+        private static double ComputeBubbleRadiusLimit(
+            TrajectoryPoint prev, TrajectoryPoint cur, float baseBubbleCap)
+        {
+            double dt = cur.ut - prev.ut;
+            if (dt <= 0) return baseBubbleCap;
+
+            double speed = 0.0;
+            double prevSpeed = RecordedSpeedMagnitude(prev.velocity);
+            double curSpeed = RecordedSpeedMagnitude(cur.velocity);
+            if (IsFiniteDouble(prevSpeed) && prevSpeed > speed) speed = prevSpeed;
+            if (IsFiniteDouble(curSpeed) && curSpeed > speed) speed = curSpeed;
+            if (speed <= 0.0)
+                return baseBubbleCap;
+
+            // The 2.5 km bubble cap is a single-tick teleport budget. Sections
+            // can contain sparse multi-second gaps during ordinary ascent or
+            // orbital coast, so allow the distance the vessel was already
+            // recorded as travelling across this dt, then treat only excess
+            // displacement beyond that envelope as a teleport.
+            return baseBubbleCap + speed * dt;
+        }
+
+        private static double RecordedSpeedMagnitude(Vector3 v)
+        {
+            if (VectorIsZero(v)) return double.NaN;
+            return v.magnitude;
         }
 
         private static bool VectorIsZero(Vector3 v)

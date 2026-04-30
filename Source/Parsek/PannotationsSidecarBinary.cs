@@ -217,8 +217,8 @@ namespace Parsek
         // alg-stamp-drift on first load so v8 files are discarded and
         // recomputed with the populated outlier block (HR-10). Phase 8
         // pre-rebase coordination notes called out 7 → 8 (and a later
-        // amendment 7 → 9 once Phase 5 review-pass-5 landed); the
-        // current value reflects the actual rebase landing.
+        // amendment 7 → 9 once Phase 5 review-pass-5 landed); the v9 value
+        // reflects the actual Phase 8 rebase landing.
         //
         // §7.7 BubbleEntry/BubbleExit (merged in from main via the post-
         // #643 main merge): AnchorCandidateBuilder now emits a seventh
@@ -227,8 +227,8 @@ namespace Parsek
         // BubbleExit fit in the existing type-byte taxonomy bits 0-6),
         // but the byte content for any recording that has those
         // transitions changes. Mainline shipped this at v5; with the
-        // Phase 8 v9 stamp here, v5 mainline .pann files invalidate via
-        // alg-stamp-drift (5 ≠ 9) and recompute with co-bubble traces,
+        // Phase 8+ stamp here, v5 mainline .pann files invalidate via
+        // alg-stamp-drift and recompute with co-bubble traces,
         // §7.7 candidates, AND outlier flags all active (HR-10).
         //
         // Phase 8 review-pass-2 (P2 deferred recompute, P3
@@ -250,7 +250,16 @@ namespace Parsek
         //     (selector doesn't read the field), and the next
         //     AlgStamp bump for any other reason will sweep them up.
         //     Bumping for every PrimaryDesignation flip would be churn.
-        internal const int AlgorithmStampVersion = 9;
+        //
+        // Bumped to 10 in the Phase 8 outlier follow-up: BubbleRadius
+        // rejection now uses the recorded speed over the sample dt as the
+        // expected-travel envelope, with the 2.5 km cap treated as the
+        // single-tick excess-distance budget. v9 .pann files can persist
+        // false-positive OutlierFlags for sparse high-speed ascent/coast
+        // sections (for example ~6 km over ~3 s at ~2.2 km/s), which excludes
+        // legitimate samples from the spline fit. The alg-stamp bump forces
+        // those cached flags to recompute on first load (HR-10).
+        internal const int AlgorithmStampVersion = 10;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
