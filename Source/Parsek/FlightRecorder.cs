@@ -4335,16 +4335,18 @@ namespace Parsek
                 // Was flying in RELATIVE mode, just landed — exit RELATIVE
                 // Sample boundary point BEFORE closing — adaptive sampler may have
                 // skipped frames, so last recorded point could be far from here.
-                SamplePosition(v);
+                double boundaryUT = Planetarium.GetUniversalTime();
+                SamplePositionAtUT(v, boundaryUT);
                 var ic = CultureInfo.InvariantCulture;
                 var oldAnchor = currentAnchorPid;
                 isRelativeMode = false;
                 currentAnchorPid = 0;
-                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                CloseCurrentTrackSection(boundaryUT);
                 var env = environmentHysteresis != null
                     ? environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric;
-                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
+                AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-landing");
                 ParsekLog.Info("Anchor",
                     $"RELATIVE mode exited on landing: previousAnchorPid={oldAnchor} " +
                     $"situation={v.situation} vesselPid={RecordingVesselId}");
@@ -4403,16 +4405,18 @@ namespace Parsek
                     // Exiting RELATIVE mode
                     // Sample boundary point BEFORE closing — adaptive sampler may have
                     // skipped frames, so last recorded point could be far from here.
-                    SamplePosition(v);
+                    double boundaryUT = Planetarium.GetUniversalTime();
+                    SamplePositionAtUT(v, boundaryUT);
                     var ic = CultureInfo.InvariantCulture;
                     var oldAnchor = currentAnchorPid;
                     isRelativeMode = false;
                     currentAnchorPid = 0;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    CloseCurrentTrackSection(boundaryUT);
                     var env = environmentHysteresis != null
                         ? environmentHysteresis.CurrentEnvironment
                         : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                    StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
+                    AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
                     ParsekLog.Info("Anchor",
                         $"RELATIVE mode exited: previousAnchorPid={oldAnchor} " +
                         $"dist={anchorDist.ToString("F1", ic)}m " +
@@ -5748,6 +5752,12 @@ namespace Parsek
                 // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
                 // Close the RELATIVE section and start a new ABSOLUTE section so the frame
                 // tag matches the data.
+                //
+                // No explicit AppendSectionStartSeamPoint call here: every caller of
+                // ApplyRelativeOffset commits the (now-absolute) `point` immediately
+                // after we return — see the three call sites at FlightRecorder.cs ~5665,
+                // ~6228, ~6403. That commit lands at the same UT as the new section's
+                // startUT, so the section's first sampled point IS the seam.
                 ParsekLog.Warn("Anchor",
                     $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
                     $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
@@ -5843,6 +5853,22 @@ namespace Parsek
         /// </summary>
         private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
         {
+            if (object.ReferenceEquals(v, null))
+            {
+                CommitRecordedPointWithoutVessel(point, absoluteShadowPoint);
+                return;
+            }
+
+            CommitRecordedPointWithVessel(point, v, absoluteShadowPoint);
+        }
+
+        private void CommitRecordedPointWithVessel(
+            TrajectoryPoint point,
+            Vessel v,
+            TrajectoryPoint? absoluteShadowPoint = null)
+        {
+            const bool hasVessel = true;
+
             // Guard: detect time regression (quickload/revert during recording).
             // Trim all points recorded after the new time to maintain monotonicity.
             // Callers (this method + SamplePosition) reset lastRecordedUT to point.ut
@@ -5862,7 +5888,7 @@ namespace Parsek
             if (trackSectionActive
                 && currentTrackSection.referenceFrame == ReferenceFrame.Absolute
                 && currentTrackSection.environment == SegmentEnvironment.SurfaceMobile
-                && v != null && v.mainBody != null && v.mainBody.pqsController != null)
+                && hasVessel && v.mainBody != null && v.mainBody.pqsController != null)
             {
                 double terrainHeight = v.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
                 point.recordedGroundClearance = point.altitude - terrainHeight;
@@ -5879,10 +5905,10 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
-            lastRecordedWorldRotation = v != null
+            lastRecordedWorldRotation = hasVessel
                 ? TrajectoryMath.SanitizeQuaternion(v.transform.rotation)
-                : Quaternion.identity;
-            hasLastRecordedWorldRotation = v != null;
+                : default(Quaternion);
+            hasLastRecordedWorldRotation = hasVessel;
             LastRecordedAltitude = point.altitude;
 
             // Dual-write: flat Points list + current TrackSection
@@ -5899,9 +5925,67 @@ namespace Parsek
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
 
-            RefreshBackupSnapshot(v, "periodic");
+            if (hasVessel)
+                RefreshBackupSnapshot(v, "periodic");
 
             // Update diagnostics growth rate
+            if (DiagnosticsState.hasActiveGrowthRate)
+            {
+                var gr = DiagnosticsState.activeGrowthRate;
+                gr.totalPoints = Recording.Count;
+                gr.totalEvents = PartEvents.Count;
+                double startUT = Recording.Count > 0 ? Recording[0].ut : point.ut;
+                gr.elapsedSeconds = point.ut - startUT;
+                if (gr.elapsedSeconds > 0)
+                {
+                    gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
+                    gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
+                }
+                else
+                {
+                    gr.pointsPerSecond = 0;
+                    gr.eventsPerSecond = 0;
+                }
+                gr.estimatedFinalBytes = (long)(gr.totalPoints * DiagnosticsState.avgBytesPerPoint + gr.totalEvents * 40);
+                DiagnosticsState.activeGrowthRate = gr;
+            }
+
+            if (Recording.Count % 10 == 0)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
+                    $"Recorded point #{Recording.Count}: {point}", 5.0);
+            }
+        }
+
+        private void CommitRecordedPointWithoutVessel(
+            TrajectoryPoint point,
+            TrajectoryPoint? absoluteShadowPoint = null)
+        {
+            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            {
+                TrimRecordingToUT(point.ut);
+            }
+
+            Recording.Add(point);
+            lastRecordedUT = point.ut;
+            lastRecordedVelocity = point.velocity;
+            lastRecordedWorldRotation = default(Quaternion);
+            hasLastRecordedWorldRotation = false;
+            LastRecordedAltitude = point.altitude;
+
+            if (trackSectionActive && currentTrackSection.frames != null)
+            {
+                currentTrackSection.frames.Add(point);
+                if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                    && absoluteShadowPoint.HasValue)
+                {
+                    if (currentTrackSection.absoluteFrames == null)
+                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                }
+                UpdateTrackSectionAltitude((float)point.altitude);
+            }
+
             if (DiagnosticsState.hasActiveGrowthRate)
             {
                 var gr = DiagnosticsState.activeGrowthRate;
@@ -6129,6 +6213,11 @@ namespace Parsek
         /// </summary>
         public void SamplePosition(Vessel v)
         {
+            SamplePositionAtUT(v, Planetarium.GetUniversalTime());
+        }
+
+        private void SamplePositionAtUT(Vessel v, double ut)
+        {
             if (v == null)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "sample-null-vessel",
@@ -6140,12 +6229,53 @@ namespace Parsek
             TrajectoryPoint point = BuildTrajectoryPoint(
                 v,
                 currentVelocity,
-                Planetarium.GetUniversalTime());
+                ut);
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
+        }
+
+        private void AppendSectionStartSeamPoint(Vessel v, double startUT, string reason)
+        {
+            if (v == null)
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-Smoothing", "section-start-seam-null-vessel",
+                    $"section-start seam skipped: reason={reason ?? "<unknown>"} null vessel");
+                return;
+            }
+
+            TrajectoryPoint seamPoint = BuildTrajectoryPoint(v, SampleCurrentVelocity(v), startUT);
+            AppendSectionStartSeamPoint(seamPoint, v, reason);
+        }
+
+        internal void AppendSectionStartSeamPointForTesting(TrajectoryPoint seamPoint, string reason)
+        {
+            AppendSectionStartSeamPoint(seamPoint, null, reason);
+        }
+
+        private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
+        {
+            if (!trackSectionActive
+                || currentTrackSection.referenceFrame != ReferenceFrame.Absolute
+                || currentTrackSection.frames == null)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    $"section-start seam skipped: reason={reason ?? "<unknown>"} sectionActive={trackSectionActive} " +
+                    $"sectionRef={currentTrackSection.referenceFrame}");
+                return;
+            }
+
+            seamPoint.ut = currentTrackSection.startUT;
+            seamPoint.flags = (byte)((TrajectoryPointFlags)seamPoint.flags & ~TrajectoryPointFlags.StructuralEventSnapshot);
+            CommitRecordedPoint(seamPoint, v);
+            ParsekLog.Verbose("Pipeline-Smoothing",
+                $"section-start seam committed: reason={reason ?? "<unknown>"} " +
+                $"ut={seamPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"lat={seamPoint.latitude.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"lon={seamPoint.longitude.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"alt={seamPoint.altitude.ToString("R", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -6585,6 +6715,13 @@ namespace Parsek
         /// isRelativeMode is true the point would have absolute values in a RELATIVE
         /// TrackSection, causing a position discontinuity during playback (#74).
         /// </summary>
+        /// <remarks>
+        /// No explicit AppendSectionStartSeamPoint call here: the sole caller
+        /// (OnVesselGoOnRails) invokes SamplePosition(v) immediately after this
+        /// method returns, which builds + commits a point at the same UT we
+        /// just used as the new ABSOLUTE section's startUT. That commit IS the
+        /// seam — adding an explicit call would emit a duplicate-UT point.
+        /// </remarks>
         private void ClearRelativeModeForRailsTransition()
         {
             if (isRelativeMode)
@@ -7031,7 +7168,7 @@ namespace Parsek
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)
         {
-            if (vessel == null) return;
+            if (object.ReferenceEquals(vessel, null) || vessel == null) return;
 
             double ut = Planetarium.GetUniversalTime();
             if (!ShouldRefreshSnapshot(lastSnapshotRefreshUT, ut, snapshotRefreshIntervalUT, force))

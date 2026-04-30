@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Ghost trajectory rendering: Upper-stage ghosts now stay aligned through stage separation during Re-Fly and Watch mode. The trajectory line no longer bounces across the relative-to-absolute transition.
 - A vessel that was incorrectly stamped `Destroyed` mid-flight by a transient finalizer fallback (e.g. during stage decouple) no longer remains stuck as Destroyed in STASH after the player rewinds and resumes flying it. Re-Fly resume now clears the stale terminal verdict so the FinalizerCache re-evaluates the vessel's live state.
 - The Esc-menu Revert to Launch button is no longer grayed out during an active Re-Fly. The loaded rewind-point quicksave is mid-flight so KSP correctly disables the button, but Parsek's interceptor (Retry / Discard Re-Fly / Cancel dialog) was unreachable as a result. While a Re-Fly session marker is active the button is force-enabled so clicking it routes into the Parsek dialog; on marker clear the engine's natural state is restored.
 - Retrying a Re-Fly no longer lets the quickload-discard heuristic purge the active rewind point quicksave and pending tree before the retry finishes loading, so a follow-up Discard Re-Fly still finds the RP file it needs.

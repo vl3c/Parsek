@@ -300,6 +300,140 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Absolute shadow gate
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_ActiveReFlyBypass_ReturnsTrue()
+        {
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: true,
+                liveAnchorAvailable: false,
+                liveAnchorWorld: Vector3d.zero,
+                liveAnchorWithinActiveFastPath: true,
+                recordedAnchorAvailable: false,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.True(useShadow);
+            Assert.Equal("active-refly-parent-chain", reason);
+            Assert.True(double.IsNaN(staleDeltaMeters));
+        }
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_StaleAnchor_ReturnsTrue()
+        {
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(1000, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.True(useShadow);
+            Assert.Equal("stale-anchor", reason);
+            Assert.Equal(1000.0, staleDeltaMeters, 3);
+        }
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_LiveAnchorFastPath_ReturnsFalseDespiteStaleDelta()
+        {
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(1000, 0, 0),
+                liveAnchorWithinActiveFastPath: true,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.False(useShadow);
+            Assert.Null(reason);
+            Assert.True(double.IsNaN(staleDeltaMeters));
+        }
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_CloseLiveAnchor_ReturnsFalse()
+        {
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(120, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.False(useShadow);
+            Assert.Null(reason);
+            Assert.Equal(120.0, staleDeltaMeters, 3);
+        }
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_NonFiniteDelta_ReturnsFalse()
+        {
+            bool nanShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(double.NaN, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string nanReason,
+                out double nanDelta);
+            bool infinityShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(double.PositiveInfinity, 0, 0),
+                liveAnchorWithinActiveFastPath: false,
+                recordedAnchorAvailable: true,
+                recordedAnchorWorld: Vector3d.zero,
+                out string infinityReason,
+                out double infinityDelta);
+
+            Assert.False(nanShadow);
+            Assert.False(infinityShadow);
+            Assert.Null(nanReason);
+            Assert.Null(infinityReason);
+            Assert.True(double.IsNaN(nanDelta));
+            Assert.True(double.IsInfinity(infinityDelta));
+        }
+
+        [Fact]
+        public void IsLiveAnchorWithinActiveFastPath_CloseFiniteDistance_ReturnsTrue()
+        {
+            bool withinFastPath = ParsekFlight.IsLiveAnchorWithinActiveFastPath(
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(100.0, 0.0, 0.0),
+                activeVesselAvailable: true,
+                activeVesselWorld: Vector3d.zero,
+                out double distanceMeters);
+
+            Assert.True(withinFastPath);
+            Assert.Equal(100.0, distanceMeters, 3);
+        }
+
+        [Fact]
+        public void IsLiveAnchorWithinActiveFastPath_NonFiniteDistance_ReturnsFalse()
+        {
+            bool withinFastPath = ParsekFlight.IsLiveAnchorWithinActiveFastPath(
+                liveAnchorAvailable: true,
+                liveAnchorWorld: new Vector3d(double.NaN, 0.0, 0.0),
+                activeVesselAvailable: true,
+                activeVesselWorld: Vector3d.zero,
+                out double distanceMeters);
+
+            Assert.False(withinFastPath);
+            Assert.True(double.IsNaN(distanceMeters));
+        }
+
+        #endregion
+
         #region SelectAnchorFrameSource
 
         [Fact]
@@ -521,6 +655,82 @@ namespace Parsek.Tests
             Assert.Equal(100.0, resolved[0].ut);
             Assert.Equal(103.0, resolved[1].ut);
             Assert.Equal(3.0, resolved[1].latitude);
+        }
+
+        [Fact]
+        public void ResolveAbsoluteShadowPlaybackFrames_BridgesForwardFromAdjacentAbsoluteSection()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var adjacentAbsolute = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.6,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.2, latitude = 5.0 },
+                    new TrajectoryPoint { ut = 102.0, latitude = 6.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward-absolute",
+                TrackSections = new List<TrackSection> { firstRelative, adjacentAbsolute }
+            };
+
+            List<TrajectoryPoint> resolved =
+                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, firstRelative, 100.4);
+
+            Assert.NotSame(firstRelative.absoluteFrames, resolved);
+            Assert.Equal(2, resolved.Count);
+            Assert.Equal(100.0, resolved[0].ut);
+            Assert.Equal(101.2, resolved[1].ut);
+            Assert.Equal(5.0, resolved[1].latitude);
+        }
+
+        [Fact]
+        public void TryFindAbsoluteShadowForwardBridgeFrame_SkipsAbsoluteSectionOutsideAdjacencyTolerance()
+        {
+            var firstRelative = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 100.5,
+                anchorVesselId = 42u,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
+                }
+            };
+            var lateAbsolute = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 101.01,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 101.2, latitude = 5.0 },
+                }
+            };
+            var rec = new Recording
+            {
+                RecordingId = "shadow-forward-absolute-late",
+                TrackSections = new List<TrackSection> { firstRelative, lateAbsolute }
+            };
+
+            TrajectoryPoint bridge;
+            Assert.False(ParsekFlight.TryFindAbsoluteShadowForwardBridgeFrame(
+                rec, firstRelative, 100.4, out bridge));
         }
 
         [Fact]
