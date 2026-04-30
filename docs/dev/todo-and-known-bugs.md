@@ -4779,7 +4779,7 @@ contract), and `LogsKillEligibleCounters_WhenMatchesFound`
 
 ---
 
-## doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel
+## ~~doubled-upper-stage-ghostmap-protovessel. Re-Fly creates a real registered "Ghost: <name>" Vessel colocated with the active vessel~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13201`.
 After the in-place-continuation Re-Fly of the booster, with the
@@ -4826,12 +4826,13 @@ and gated the create site in
 predicate suppresses when (a) a `ReFlySessionMarker` is active,
 (b) the marker is in the in-place-continuation pattern
 (`origin == active`, mirroring `#587`'s placeholder carve-out),
-(c) the resolution branch is `relative`, (d) the resolution's
-`anchorPid` matches the active Re-Fly target's
-`Recording.VesselPersistentId`, and (e) the recording being
-mapped is in the active Re-Fly recording's parent chain (per
-PR #574 review P2: scope to the parent BranchPoint topology so
-legitimate `#583` / `#584` docking/rendezvous map ghosts whose
+(c) the resolution branch is `relative` or the v7
+`absolute-shadow` branch for the same RELATIVE section,
+(d) the resolution's `anchorPid` matches the active Re-Fly
+target's `Recording.VesselPersistentId`, and (e) the recording
+being mapped is in the active Re-Fly recording's parent chain
+(per PR #574 review P2: scope to the parent BranchPoint topology
+so legitimate `#583` / `#584` docking/rendezvous map ghosts whose
 anchor happens to be the active vessel are NOT suppressed). The
 predicate also signals retry-later semantics back through the
 new `out bool retryLater` parameter on
@@ -4848,18 +4849,22 @@ gives playtest logs a unique grep target. The
 exactly the one the user wants kept. Tests:
 `Bug587ThirdFacetDoubledGhostMapTests` covers the user's exact
 case (parent capsule recording during in-place Re-Fly of
-booster) plus 17 defensive negatives — no-marker, placeholder
-pattern, absolute branch, anchor-is-different-vessel,
-zero-anchor, missing/zero pid in committed list, null
-committed list, empty marker fields, `no-section` and
-`orbital-checkpoint` branches, structured-log-line shape,
-docking-target sibling (PR #574 P2 not-parent gate),
+booster), the v7 `absolute-shadow` branch, the PendingTree
+load-window lookup, create-time lookahead suppression, and the
+defensive negatives — no-marker, placeholder pattern, absolute
+branch, anchor-is-different-vessel, zero-anchor, missing/zero
+pid in committed list, null committed list, empty marker fields,
+`no-section` and `orbital-checkpoint` branches, structured-log-line
+shape, docking-target sibling (PR #574 P2 not-parent gate),
 multi-hop grandparent walk, victim-is-active idempotency,
 null/missing tree topology, null victim id, and direct
 `IsRecordingInParentChainOfActiveReFly` coverage including
 the BP-cycle bail.
 
-**Status:** Open until merged.
+**Status:** CLOSED 2026-04-30. Fixed on main by PR #574 plus the later
+PendingTree/load-window and `absolute-shadow` follow-ups; focused regression
+suite `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter
+Bug587ThirdFacetDoubledGhostMapTests` passes 37/37.
 
 ---
 
