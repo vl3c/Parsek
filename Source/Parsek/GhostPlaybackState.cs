@@ -129,6 +129,11 @@ namespace Parsek
             fidelityDisabledRenderers = null;
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
+            // Teardown only — bypasses ParsekFlight.LowerExternalActivationGate
+            // logging by design. The ghost mesh is going away (loop rebuild,
+            // distance-LOD unload, scene exit), not transitioning to visible,
+            // so a "gate lowered" log line here would mislead future debug
+            // sessions correlating gate state with visibility.
             externalActivationDeferred = false;
             anchorRetiredThisFrame = false;
             cameraPivot = null;

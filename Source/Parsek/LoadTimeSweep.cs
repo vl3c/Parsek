@@ -299,11 +299,19 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(liveSessionId)
                     && string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal))
                     continue;
-                ParsekLog.Warn(SessionTag,
+                // Per CLAUDE.md batch counting convention: per-item events at
+                // Verbose, single Warn summary after the loop when cleared > 0.
+                ParsekLog.Verbose(SessionTag,
                     $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
                     $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) — clearing");
                 rec.ClearPreReFlyAnchorTrajectory();
                 cleared++;
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Warn(SessionTag,
+                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly anchor " +
+                    $"snapshot(s) at load time (live sess={liveSessionId ?? "<none>"})");
             }
             return cleared;
         }

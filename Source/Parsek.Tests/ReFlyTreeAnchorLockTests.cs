@@ -443,6 +443,176 @@ namespace Parsek.Tests
                 "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
         }
 
+        // ============================================================
+        // HasResolvableReFlyAnchorData (#688 safety-net branch)
+        // ============================================================
+
+        [Fact]
+        public void HasResolvableAnchorData_NullOrEmptyMarker_ReturnsFalse()
+        {
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(null));
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker { ActiveReFlyRecordingId = null }));
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker { ActiveReFlyRecordingId = "" }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_RecordingMissing_ReturnsFalse()
+        {
+            // Empty store → committed-tree walk finds no recording.
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-missing",
+                }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_NonInPlaceEmptyProvisional_ReturnsFalse()
+        {
+            // Non-in-place Re-Fly captures no snapshot and the fresh
+            // provisional has no track sections — safety-net target.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-empty",
+            };
+            tree.Recordings["rec-empty"] = new Recording
+            {
+                RecordingId = "rec-empty",
+                TreeId = "tree-1",
+                VesselName = "Empty Provisional",
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-empty",
+                }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_SnapshotMatchesSession_ReturnsTrue()
+        {
+            // In-place Re-Fly with captured snapshot.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-with-snap",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-with-snap",
+                TreeId = "tree-1",
+                VesselName = "Origin",
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            rec.CapturePreReFlyAnchorTrajectory("sess");
+            tree.Recordings["rec-with-snap"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-with-snap",
+                }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_SnapshotSessionMismatch_FallsThroughToTrackSections()
+        {
+            // Snapshot present but for a different session id — it should
+            // not satisfy the predicate via the snapshot branch. Track
+            // sections then determine the result. Empty track sections →
+            // false; an Absolute section → true.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-mismatch",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-mismatch",
+                TreeId = "tree-1",
+                VesselName = "Mismatch",
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            rec.CapturePreReFlyAnchorTrajectory("sess-old");
+            tree.Recordings["rec-mismatch"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // No track sections + sessionId mismatch ⇒ false.
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-current",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-mismatch",
+                }));
+
+            // Add an Absolute track section ⇒ true.
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0, endUT = 5,
+            });
+            Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-current",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-mismatch",
+                }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_OrbitalCheckpointOnlySections_ReturnsFalse()
+        {
+            // OrbitalCheckpoint sections are rejected by
+            // TrySampleRecordedAbsoluteWorld, so the predicate must NOT
+            // accept a recording whose only sections are checkpoint —
+            // otherwise the gate would hold the ghost hidden every frame
+            // the offset query returns recorded-pos-unavailable.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-checkpoint-only",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-checkpoint-only",
+                TreeId = "tree-1",
+                VesselName = "Checkpoint Only",
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 0, endUT = 100,
+            });
+            tree.Recordings["rec-checkpoint-only"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-checkpoint-only",
+                }));
+        }
+
         [Fact]
         public void IsRecordingInReFlyTreeMarker_RecordingInDifferentTree_ReturnsFalse()
         {

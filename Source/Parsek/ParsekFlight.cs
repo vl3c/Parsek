@@ -17255,21 +17255,26 @@ namespace Parsek
                     "Re-Fly anchor activation gate raised: rec="
                     + ShortRecordingId(recordingId)
                     + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                    + " (offset not yet resolvable; ghost stays hidden until next positioning frame)",
+                    + " (offset not yet resolvable; ghost stays hidden until "
+                    + "the offset resolves or the active Re-Fly target's anchor data is gone)",
                     5.0);
             }
         }
 
         /// <summary>
         /// Returns true when the active Re-Fly target has trajectory data
-        /// the per-frame anchor model can sample — either a captured pre-
-        /// Re-Fly anchor snapshot (in-place path) or a populated live
-        /// trajectory (defensive: should not happen in non-in-place but
-        /// keeps the predicate self-consistent if a future session captures
-        /// snapshot during a non-in-place path). Pure read-only helper
-        /// used by the activation gate's safety net.
+        /// the per-frame anchor model can sample — a captured pre-Re-Fly
+        /// snapshot (in-place path) or at least one Absolute /
+        /// Relative-with-shadow track section. OrbitalCheckpoint-only
+        /// recordings deliberately return false because
+        /// <see cref="TrySampleRecordedAbsoluteWorld"/> rejects checkpoint
+        /// sections (no body-fixed lat/lon/alt frames to sample), so
+        /// gating on a checkpoint-only target would hold the ghost hidden
+        /// every frame the offset query returns
+        /// <c>recorded-pos-unavailable</c>. Pure read-only helper exposed
+        /// for unit-test coverage of the safety-net branch.
         /// </summary>
-        private static bool HasResolvableReFlyAnchorData(ReFlySessionMarker marker)
+        internal static bool HasResolvableReFlyAnchorData(ReFlySessionMarker marker)
         {
             if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
                 return false;
@@ -17279,7 +17284,15 @@ namespace Parsek
             if (!string.IsNullOrEmpty(marker.SessionId)
                 && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
                 return true;
-            return reFlyRec.TrackSections != null && reFlyRec.TrackSections.Count > 0;
+            if (reFlyRec.TrackSections == null || reFlyRec.TrackSections.Count == 0)
+                return false;
+            for (int i = 0; i < reFlyRec.TrackSections.Count; i++)
+            {
+                ReferenceFrame frame = reFlyRec.TrackSections[i].referenceFrame;
+                if (frame == ReferenceFrame.Absolute || frame == ReferenceFrame.Relative)
+                    return true;
+            }
+            return false;
         }
 
         private bool TryComputeReFlyRecordingAnchorOffset(
