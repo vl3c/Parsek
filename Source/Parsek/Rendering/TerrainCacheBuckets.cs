@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace Parsek.Rendering
@@ -77,6 +78,24 @@ namespace Parsek.Rendering
         private static int missCountSinceClear;
         private static bool capWarnEmitted;
 
+        // Per-miss timing (Stopwatch ticks → milliseconds). Tracked over the
+        // current scene so the frame-summary log can report not just hit/miss
+        // ratio but whether the actual misses are cheap (sub-ms PQS hits) or
+        // expensive (a session warming up, or a degenerate body without PQS).
+        // Hit-path lookups don't allocate — they don't measure timing.
+        private static double maxMissDurationMs;
+        private static double sumMissDurationMs;
+
+        /// <summary>
+        /// Slow-miss threshold in milliseconds. A single resolver call that
+        /// takes longer than this emits a rate-limited Warn so a stuck PQS
+        /// query (e.g. body without controller, scene transition mid-resolve)
+        /// surfaces in `KSP.log` without spamming on every cold-cache miss.
+        /// 5 ms is well above the typical PQS query (sub-ms) but well below
+        /// a single physics frame budget (16.7 ms @ 60 FPS).
+        /// </summary>
+        internal const double SlowMissThresholdMs = 5.0;
+
         /// <summary>
         /// Test seam — when set, replaces the production
         /// <c>body.TerrainAltitude(lat, lon, true)</c> call. Lets unit tests
@@ -100,6 +119,29 @@ namespace Parsek.Rendering
         }
 
         /// <summary>
+        /// Test seam — when set, overrides the Stopwatch-measured elapsed
+        /// time per resolver call. Lets unit tests exercise the slow-miss
+        /// Warn path and the max/avg accumulators without thread sleeps
+        /// (which are flaky on CI). Production leaves this null and uses
+        /// <see cref="Stopwatch.GetTimestamp"/> to measure each call.
+        /// </summary>
+        internal static double? MissDurationOverrideForTesting;
+
+        /// <summary>
+        /// Snapshot accessor for the largest single-miss duration observed
+        /// since the last <see cref="Clear"/> (in milliseconds). Diagnostic
+        /// only — production reads this via the frame-summary log.
+        /// </summary>
+        internal static double MaxMissDurationMsForTesting => maxMissDurationMs;
+
+        /// <summary>
+        /// Snapshot accessor for the sum of all miss durations since the
+        /// last <see cref="Clear"/>. Diagnostic only — divide by
+        /// <see cref="missCountSinceClear"/> for the average.
+        /// </summary>
+        internal static double SumMissDurationMsForTesting => sumMissDurationMs;
+
+        /// <summary>
         /// Reset all transient state. Used by the scene-transition hook in
         /// <c>ParsekFlight.OnSceneChangeRequested</c> and by tests.
         /// </summary>
@@ -110,6 +152,8 @@ namespace Parsek.Rendering
             hitCountSinceClear = 0;
             missCountSinceClear = 0;
             capWarnEmitted = false;
+            maxMissDurationMs = 0.0;
+            sumMissDurationMs = 0.0;
             if (!RecordingStore.SuppressLogging)
             {
                 ParsekLog.Verbose(Tag,
@@ -126,6 +170,7 @@ namespace Parsek.Rendering
         {
             Clear();
             TerrainResolverForTesting = null;
+            MissDurationOverrideForTesting = null;
             cap = MaxCachedBuckets;
         }
 
@@ -184,7 +229,25 @@ namespace Parsek.Rendering
             // otherwise. body.TerrainAltitude returns sea-level-corrected
             // height for ocean-bearing bodies (the `withOcean=true` arg
             // matches what the existing landed-ghost clamp uses).
+            //
+            // Stopwatch.GetTimestamp() is allocation-free and adds tens of
+            // nanoseconds — negligible relative to even a sub-ms PQS query.
+            // Test seam (MissDurationOverrideForTesting) bypasses the
+            // Stopwatch so unit tests can simulate slow misses without
+            // thread sleeps.
+            long missStartTicks = Stopwatch.GetTimestamp();
             height = ResolveTerrainHeight(body, bodyName, lat, lon);
+            double missDurationMs;
+            double? overrideMs = MissDurationOverrideForTesting;
+            if (overrideMs.HasValue)
+            {
+                missDurationMs = overrideMs.Value;
+            }
+            else
+            {
+                long elapsedTicks = Stopwatch.GetTimestamp() - missStartTicks;
+                missDurationMs = (elapsedTicks * 1000.0) / Stopwatch.Frequency;
+            }
 
             // A NaN height is a transient resolver miss (PQS not spun yet,
             // body without controller, or test seam simulating either). Do
@@ -208,11 +271,36 @@ namespace Parsek.Rendering
             }
 
             missCountSinceClear++;
+            // Track timing only for finite resolutions — a NaN miss is a
+            // resolver short-circuit (no PQS), not real PQS work, and would
+            // skew the avg/max towards zero.
+            if (!double.IsNaN(height))
+            {
+                if (missDurationMs > maxMissDurationMs) maxMissDurationMs = missDurationMs;
+                sumMissDurationMs += missDurationMs;
+
+                // Slow-miss Warn: a single resolver call past the threshold
+                // is worth surfacing (PQS warming up, or a degenerate body).
+                // Rate-limited so a sustained slow regime collapses to one
+                // line per the 5 s window — actionable without spam.
+                if (missDurationMs > SlowMissThresholdMs)
+                {
+                    ParsekLog.VerboseRateLimited(Tag, "terrain-resolver-slow",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "TerrainCacheBuckets slow miss: body={0} lat={1:F6} lon={2:F6} " +
+                            "durationMs={3:F2} (threshold={4:F2}ms) — PQS warmup " +
+                            "or degenerate body; sustained values indicate a real " +
+                            "perf problem worth investigating",
+                            bodyName, lat, lon, missDurationMs, SlowMissThresholdMs),
+                        5.0);
+                }
+            }
+
             ParsekLog.VerboseRateLimited(Tag, "terrain-cache-miss-detail",
                 string.Format(CultureInfo.InvariantCulture,
                     "TerrainCacheBuckets miss: body={0} lat={1:F6} lon={2:F6} " +
-                    "bucket=({3},{4}) height={5:F2}m cached={6}",
-                    bodyName, lat, lon, latIdx, lonIdx, height, Cache.Count),
+                    "bucket=({3},{4}) height={5:F2}m cached={6} durationMs={7:F2}",
+                    bodyName, lat, lon, latIdx, lonIdx, height, Cache.Count, missDurationMs),
                 5.0);
 
             EmitFrameSummary(bodyName);
@@ -248,11 +336,19 @@ namespace Parsek.Rendering
             // Counters are scene-local monotonics — they reset only on
             // Clear() / scene transition, so the summary line shows
             // accumulated cache pressure since the scene began.
+            // Avg miss duration is meaningful only when we've measured at
+            // least one finite-resolution miss; before that, max/sum are
+            // zero by construction and the avg row would print "0.00".
+            double avgMissMs = missCountSinceClear > 0
+                ? sumMissDurationMs / missCountSinceClear
+                : 0.0;
             ParsekLog.VerboseRateLimited(Tag, "frame-summary",
                 string.Format(CultureInfo.InvariantCulture,
-                    "frame summary cacheHits={0} cacheMisses={1} cached={2} body={3}",
+                    "frame summary cacheHits={0} cacheMisses={1} cached={2} body={3} " +
+                    "maxMissMs={4:F2} avgMissMs={5:F2}",
                     hitCountSinceClear, missCountSinceClear, Cache.Count,
-                    bodyName ?? "(null)"),
+                    bodyName ?? "(null)",
+                    maxMissDurationMs, avgMissMs),
                 2.0);
         }
 

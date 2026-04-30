@@ -339,5 +339,158 @@ namespace Parsek.Tests.Rendering
             TerrainCacheBuckets.ResetForTesting();
             Assert.Equal(TerrainCacheBuckets.MaxCachedBuckets, TerrainCacheBuckets.CapForTesting);
         }
+
+        // ----- resolver timing observability (review follow-up) -----
+
+        [Fact]
+        public void GetCachedSurfaceHeight_FirstMiss_TracksDuration_UpdatesMaxAndSum()
+        {
+            // Override Stopwatch so the test doesn't rely on real elapsed
+            // time (flaky on CI). 0.5 ms is below the slow-miss threshold.
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 0.5;
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            Assert.Equal(0.5, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+            Assert.Equal(0.5, TerrainCacheBuckets.SumMissDurationMsForTesting);
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_MultipleMisses_TracksMaxAndAccumulatesSum()
+        {
+            // Three misses with different simulated durations: max wins,
+            // sum accumulates. The avg embedded in frame-summary log is
+            // sum / missCount = 4.0 / 3 ≈ 1.33 ms.
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 0.5;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 2.5;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.6, 1.0);
+
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 1.0;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.7, 1.0);
+
+            Assert.Equal(2.5, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+            Assert.Equal(4.0, TerrainCacheBuckets.SumMissDurationMsForTesting);
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_SlowMiss_EmitsWarnLine()
+        {
+            // Simulate a 12 ms miss (above the 5 ms slow-miss threshold).
+            // Warn line is emitted via VerboseRateLimited so the test sink
+            // captures it.
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 12.0;
+
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            int slowMissLines = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[Pipeline-Terrain]") && line.Contains("slow miss"))
+                    slowMissLines++;
+            }
+            Assert.Equal(1, slowMissLines);
+
+            // Verify the threshold value is mentioned (so the operator can
+            // tell whether their threshold is the issue or the resolver is).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("slow miss")
+                && l.Contains("durationMs=12.00")
+                && l.Contains("threshold=5.00"));
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_FastMiss_DoesNotEmitSlowMissWarn()
+        {
+            // 1 ms miss is well below the 5 ms threshold — no slow-miss
+            // line. Counter still updates.
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 1.0;
+
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Pipeline-Terrain]") && l.Contains("slow miss"));
+            Assert.Equal(1.0, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_NaNResolution_DoesNotCountTowardsTimingMetrics()
+        {
+            // NaN means the resolver short-circuited (no PQS, body without
+            // controller). It's not real PQS work — counting it towards
+            // max/avg would skew the metrics towards zero.
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => double.NaN;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 8.0;
+
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            Assert.Equal(0.0, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+            Assert.Equal(0.0, TerrainCacheBuckets.SumMissDurationMsForTesting);
+            // No slow-miss warn either — the resolver didn't actually do work.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Pipeline-Terrain]") && l.Contains("slow miss"));
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_CacheHit_DoesNotMeasureTiming()
+        {
+            // First call is a miss (counted); second call is a hit (NOT
+            // counted — hits don't allocate a Stopwatch).
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 3.0;
+
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+            // Set a different override and re-query the SAME bucket — hit
+            // path must skip the timing logic entirely.
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 99.0;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            // Max stays at 3.0 — the second call's 99 ms override never
+            // updated the counter (because the hit path doesn't touch it).
+            Assert.Equal(3.0, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+            Assert.Equal(3.0, TerrainCacheBuckets.SumMissDurationMsForTesting);
+        }
+
+        [Fact]
+        public void Clear_ResetsTimingCounters()
+        {
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 7.5;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+            Assert.Equal(7.5, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+
+            TerrainCacheBuckets.Clear();
+
+            Assert.Equal(0.0, TerrainCacheBuckets.MaxMissDurationMsForTesting);
+            Assert.Equal(0.0, TerrainCacheBuckets.SumMissDurationMsForTesting);
+        }
+
+        [Fact]
+        public void GetCachedSurfaceHeight_FrameSummary_IncludesMaxAndAvgMissTiming()
+        {
+            // Frame-summary log line should embed max + avg miss durations
+            // alongside hit/miss counts. The summary is rate-limited at 2 s
+            // per shared key, so a single call always emits the first line.
+            // One miss at 2.5 ms ⇒ max=2.5, avg=2.5 (sum / count = 2.5/1).
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 100.0;
+            TerrainCacheBuckets.MissDurationOverrideForTesting = 2.5;
+            TerrainCacheBuckets.GetCachedSurfaceHeight(fakeKerbin, 0.5, 1.0);
+
+            // Look for a frame-summary line that mentions both max and avg
+            // (formatted F2). Confirms the new fields land in the summary
+            // line that operators read to evaluate cache effectiveness.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("frame summary")
+                && l.Contains("maxMissMs=2.50")
+                && l.Contains("avgMissMs=2.50"));
+        }
     }
 }
