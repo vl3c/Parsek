@@ -197,7 +197,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton cancelButton = new DialogGUIButton("Continue Playing", () =>
+            DialogGUIButton cancelButton = new DialogGUIButton("Continue Flying", () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -290,7 +290,7 @@ namespace Parsek
                 "You are re-flying an unfinished mission. What would you like to do?\n\n" +
                 retryLine +
                 discardLine +
-                "- Continue Playing: keep the current attempt; do nothing.";
+                "- Continue Flying: keep the current attempt; do nothing.";
         }
 
         private static bool IsMergeJournalActive()

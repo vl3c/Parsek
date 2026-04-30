@@ -121,7 +121,7 @@ namespace Parsek
         /// <summary>
         /// Display text for an Unfinished-Flight separation event:
         /// "Separation of Unfinished Flight: Booster Y" — the row keeps a
-        /// Play button so the player can re-fly the destroyed sibling
+        /// Fly button so the player can re-fly the destroyed sibling
         /// directly from the timeline. Once the player merges (or
         /// otherwise finalizes) the re-flight, the recording is no longer
         /// an Unfinished Flight and TimelineBuilder emits a plain

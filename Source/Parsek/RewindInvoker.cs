@@ -246,7 +246,7 @@ namespace Parsek
                     message,
                     title,
                     HighLogic.UISkin,
-                    new DialogGUIButton("Play", () =>
+                    new DialogGUIButton("Fly", () =>
                     {
                         ParsekLog.Info(UITag,
                             $"Invoked rec={capturedSelected?.OriginChildRecordingId ?? "<none>"} " +
