@@ -138,7 +138,11 @@ namespace Parsek.Tests
 
             Assert.True(result);
             Assert.Contains(logLines, l =>
-                l.Contains("active but vessel destroyed") && l.Contains("terminal"));
+                l.Contains("[TreeDestruction]")
+                && l.Contains("leaves=2")
+                && l.Contains("terminal=2")
+                && l.Contains("alive=0")
+                && l.Contains("True"));
         }
 
         [Fact]
@@ -225,7 +229,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoggingTest_EachLeafLogged()
+        public void LoggingTest_SummarizesLeavesOnce()
         {
             var recs = MakeDict(
                 MakeLeaf("a", "Rocket A", TerminalState.Destroyed),
@@ -234,15 +238,19 @@ namespace Parsek.Tests
 
             logLines.Clear();
 
-            RecordingTree.AreAllLeavesTerminal(recs, null, true);
+            bool result = RecordingTree.AreAllLeavesTerminal(recs, null, true);
 
-            // Leaf "a" (Destroyed) should be logged as dead
+            Assert.False(result);
+            Assert.True(logLines.Count <= 2, "AreAllLeavesTerminal should emit at most an entry and summary line.");
             Assert.Contains(logLines, l =>
-                l.Contains("[TreeDestruction]") && l.Contains("Rocket A") && l.Contains("dead"));
-
-            // Leaf "b" (Orbiting) should be logged as spawnable, NOT terminal
-            Assert.Contains(logLines, l =>
-                l.Contains("[TreeDestruction]") && l.Contains("Orbiter B") && l.Contains("spawnable"));
+                l.Contains("[TreeDestruction]")
+                && l.Contains("AreAllLeavesTerminal")
+                && l.Contains("leaves=2")
+                && l.Contains("terminal=1")
+                && l.Contains("alive=1")
+                && l.Contains("False"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Rocket A"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Orbiter B"));
         }
 
         [Fact]
@@ -256,7 +264,11 @@ namespace Parsek.Tests
 
             Assert.False(result);
             Assert.Contains(logLines, l =>
-                l.Contains("[TreeDestruction]") && l.Contains("active and alive"));
+                l.Contains("[TreeDestruction]")
+                && l.Contains("leaves=1")
+                && l.Contains("terminal=0")
+                && l.Contains("alive=1")
+                && l.Contains("False"));
         }
 
         [Fact]

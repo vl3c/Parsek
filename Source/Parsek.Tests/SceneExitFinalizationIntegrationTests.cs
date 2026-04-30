@@ -1073,6 +1073,10 @@ namespace Parsek.Tests
                 l.Contains("[Extrapolator]")
                 && l.Contains("skipping live-orbit fallback")
                 && l.Contains("MissingPatchBody"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]")
+                && l.Contains("patched-conic snapshot failed for 'scene-exit-missing-patch-body'")
+                && l.Contains("with MissingPatchBody"));
         }
 
         [Fact]
@@ -1211,14 +1215,14 @@ namespace Parsek.Tests
         /// WARNs were emitted in the 2026-04-25 marker-validator-fix playtest, one
         /// per upstream `[PatchedSnapshot] solver unavailable` hit. The same root
         /// cause (debris/EVA-kerbal/probe vessels with no patched-conic solver by
-        /// design) drives the floor on this paired warn. Per-(recordingId,
-        /// failureReason) rate-limiting collapses repeats within the 30-second
-        /// window into a single emission with `suppressed=N` suffix, while the
-        /// downstream NullSolver→live-orbit fallback continues to run because
-        /// only the LOG ROUTING changes.
+        /// design) is now a routine verbose path. Per-(recordingId, failureReason)
+        /// rate-limiting collapses repeats within the 30-second window into a
+        /// single emission with `suppressed=N` suffix, while the downstream
+        /// NullSolver→live-orbit fallback continues to run because only the LOG
+        /// ROUTING changes.
         /// </summary>
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WarnRateLimitedPerRecordingAndReason()
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_VerboseRateLimitedPerRecordingAndReason()
         {
             double clockSeconds = 0.0;
             ParsekLog.ClockOverrideForTesting = () => clockSeconds;
@@ -1276,7 +1280,12 @@ namespace Parsek.Tests
                 "[Parsek][WARN][Extrapolator]",
                 "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
                 "with NullSolver");
-            Assert.Equal(1, snapshotFailedWarnCount);
+            int snapshotFailedVerboseCount = CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
+                "with NullSolver");
+            Assert.Equal(0, snapshotFailedWarnCount);
+            Assert.Equal(1, snapshotFailedVerboseCount);
 
             // A different recording-id has its own key — its first hit must
             // emit immediately rather than being suppressed by the prior
@@ -1314,13 +1323,18 @@ namespace Parsek.Tests
                 "[Parsek][WARN][Extrapolator]",
                 "patched-conic snapshot failed for 'scene-exit-rate-limit-other-recording'",
                 "with NullSolver");
-            Assert.Equal(1, otherWarnCount);
+            int otherVerboseCount = CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-other-recording'",
+                "with NullSolver");
+            Assert.Equal(0, otherWarnCount);
+            Assert.Equal(1, otherVerboseCount);
         }
 
         /// <summary>
         /// Regression for PR #553 P2 review: the paired Extrapolator
-        /// `WarnRateLimited` call must use the documented 30-second window, not
-        /// the 5-second `WarnRateLimited` default. Walking the test clock past
+        /// rate-limited call must use the documented 30-second window, not
+        /// the 5-second default. Walking the test clock past
         /// 5 s but before 30 s and emitting another hit must NOT re-emit; the
         /// next emission only happens after the 30 s window closes.
         /// </summary>
@@ -1371,12 +1385,16 @@ namespace Parsek.Tests
                         startState, extrapolationBodies, warnOnSubSurfaceStart: false),
                 out IncompleteBallisticFinalizationResult _);
             Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-30s-window'",
+                "with NullSolver"));
+            Assert.Equal(0, CountLogLines(
                 "[Parsek][WARN][Extrapolator]",
                 "patched-conic snapshot failed for 'scene-exit-30s-window'",
                 "with NullSolver"));
 
             // Helper that fires another finalisation pass with the same
-            // synthetic state so each clock-tick can re-trigger the warn path.
+            // synthetic state so each clock-tick can re-trigger the log path.
             Action fireAgain = () =>
                 IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
                     rec, snapshot, bodies,
@@ -1402,7 +1420,7 @@ namespace Parsek.Tests
             clockSeconds += 10.0;
             fireAgain();
             Assert.Equal(1, CountLogLines(
-                "[Parsek][WARN][Extrapolator]",
+                "[Parsek][VERBOSE][Extrapolator]",
                 "patched-conic snapshot failed for 'scene-exit-30s-window'",
                 "with NullSolver"));
 
@@ -1410,7 +1428,7 @@ namespace Parsek.Tests
             clockSeconds += 15.0;
             fireAgain();
             Assert.Equal(1, CountLogLines(
-                "[Parsek][WARN][Extrapolator]",
+                "[Parsek][VERBOSE][Extrapolator]",
                 "patched-conic snapshot failed for 'scene-exit-30s-window'",
                 "with NullSolver"));
 
@@ -1418,7 +1436,7 @@ namespace Parsek.Tests
             clockSeconds += 6.0; // total 31 s since seed
             fireAgain();
             Assert.Contains(logLines, l =>
-                l.Contains("[Parsek][WARN][Extrapolator]")
+                l.Contains("[Parsek][VERBOSE][Extrapolator]")
                 && l.Contains("patched-conic snapshot failed for 'scene-exit-30s-window'")
                 && l.Contains("with NullSolver")
                 && l.Contains("suppressed=2"));
