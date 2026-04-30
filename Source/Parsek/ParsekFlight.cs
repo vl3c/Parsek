@@ -17961,7 +17961,7 @@ namespace Parsek
                 victimIsParentOfActiveReFly);
         }
 
-        bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+        internal bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
             TrackSection section,
@@ -17981,26 +17981,74 @@ namespace Parsek
             }
 
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null
-                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || !string.Equals(
+            IReadOnlyList<RecordingTree> searchTrees = null;
+            bool activeReFlyBypass = false;
+            if (marker != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && string.Equals(
                     marker.ActiveReFlyRecordingId,
                     marker.OriginChildRecordingId,
                     StringComparison.Ordinal))
             {
-                return false;
-            }
-
-            IReadOnlyList<RecordingTree> searchTrees =
-                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (!ShouldBypassLiveRelativeAnchorForActiveReFly(
+                searchTrees =
+                    GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                        RecordingStore.CommittedTrees,
+                        RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                activeReFlyBypass = ShouldBypassLiveRelativeAnchorForActiveReFly(
                     anchorVesselId,
                     trajectory.RecordingId,
                     marker,
-                    searchTrees))
+                    searchTrees);
+            }
+
+            bool liveAnchorAvailable = false;
+            Vector3d liveAnchorWorld = Vector3d.zero;
+            bool recordedAnchorAvailable = false;
+            Vector3d recordedAnchorWorld = Vector3d.zero;
+            if (!activeReFlyBypass)
+            {
+                Vessel liveAnchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+                if (liveAnchor != null)
+                {
+                    liveAnchorWorld = liveAnchor.GetWorldPos3D();
+                    liveAnchorAvailable = IsFiniteVector3d(liveAnchorWorld);
+                }
+
+                if (liveAnchorAvailable)
+                {
+                    if (searchTrees == null)
+                    {
+                        searchTrees =
+                            GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                                RecordingStore.CommittedTrees,
+                                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                    }
+
+                    if (TryResolveRecordedAnchorPoseWithCoverage(
+                            anchorVesselId,
+                            trajectory.RecordingId,
+                            targetUT,
+                            searchTrees,
+                            marker,
+                            bypassLiveAnchorForActiveReFly: false,
+                            requireCoverage: true,
+                            out RelativeAnchorPose recordedPose))
+                    {
+                        recordedAnchorWorld = recordedPose.worldPos;
+                        recordedAnchorAvailable = IsFiniteVector3d(recordedAnchorWorld);
+                    }
+                }
+            }
+
+            if (!ShouldUseAbsoluteShadowForRelativeSection(
+                    activeReFlyBypass,
+                    liveAnchorAvailable,
+                    liveAnchorWorld,
+                    recordedAnchorAvailable,
+                    recordedAnchorWorld,
+                    out string shadowReason,
+                    out double staleDeltaMeters))
             {
                 return false;
             }
@@ -18010,18 +18058,56 @@ namespace Parsek
                 section,
                 targetUT);
             string logKey = string.Concat(
+                shadowReason ?? "<none>", "|",
                 trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
                 "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
             if (loggedRelativeAbsoluteShadowStart.Add(logKey))
             {
+                var ic = CultureInfo.InvariantCulture;
+                string staleDetail = string.Equals(shadowReason, "stale-anchor", StringComparison.Ordinal)
+                    ? $" staleDelta={staleDeltaMeters.ToString("F0", ic)}m threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m"
+                    : string.Empty;
                 ParsekLog.Info("Playback",
                     $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
                     $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
                     $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
                     $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
-                    $"reason=active-refly-parent-chain");
+                    $"reason={shadowReason}{staleDetail}");
             }
             return true;
+        }
+
+        internal static bool ShouldUseAbsoluteShadowForRelativeSection(
+            bool activeReFlyBypass,
+            bool liveAnchorAvailable,
+            Vector3d liveAnchorWorld,
+            bool recordedAnchorAvailable,
+            Vector3d recordedAnchorWorld,
+            out string reason,
+            out double staleDeltaMeters)
+        {
+            reason = null;
+            staleDeltaMeters = double.NaN;
+            if (activeReFlyBypass)
+            {
+                reason = "active-refly-parent-chain";
+                return true;
+            }
+
+            if (!liveAnchorAvailable || !recordedAnchorAvailable)
+                return false;
+
+            if (RelativeAnchorResolution.IsStaleLiveAnchor(
+                    liveAnchorWorld,
+                    recordedAnchorWorld,
+                    StaleRelativeAnchorRejectMeters,
+                    out staleDeltaMeters))
+            {
+                reason = "stale-anchor";
+                return true;
+            }
+
+            return false;
         }
 
         // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
@@ -18131,9 +18217,29 @@ namespace Parsek
                 for (int i = 0; i < trajectory.TrackSections.Count; i++)
                 {
                     TrackSection section = trajectory.TrackSections[i];
-                    // Do not bridge through an intervening non-RELATIVE section:
-                    // that means the frame changed, so returning the original
-                    // under-sampled shadow list is safer than mixing anchors.
+                    if (section.referenceFrame == ReferenceFrame.Absolute
+                        && section.frames != null
+                        && section.frames.Count > 0)
+                    {
+                        if (section.startUT < relativeSection.endUT - AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds)
+                            continue;
+                        if (section.startUT > adjacentStartLimit)
+                            continue;
+
+                        TrajectoryPoint candidate = section.frames[0];
+                        if (candidate.ut <= lastShadowUT + 0.0001)
+                            continue;
+                        if (candidate.ut <= targetUT + 0.0001)
+                            continue;
+                        if (candidate.ut >= bestUT)
+                            continue;
+
+                        bridge = candidate;
+                        bestUT = candidate.ut;
+                        found = true;
+                        continue;
+                    }
+
                     if (section.referenceFrame != ReferenceFrame.Relative
                         || section.absoluteFrames == null
                         || section.absoluteFrames.Count == 0)

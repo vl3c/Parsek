@@ -13682,6 +13682,284 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        [InGameTest(Category = "Pipeline-Smoothing", Scene = GameScenes.FLIGHT,
+            Description = "Relative absolute shadow stale-anchor gate bridges into the next Absolute section")]
+        public IEnumerator Pipeline_Smoothing_RelativeShadow_StaleAnchorBridgesIntoAbsolute()
+        {
+            const string treeId = "in-game-pipeline-shadow-tree";
+            const string parentId = "in-game-pipeline-shadow-parent";
+            const string childId = "in-game-pipeline-shadow-child";
+            const double targetUT = 110.4;
+
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                InGameAssert.Skip("No ParsekFlight instance");
+                yield break;
+            }
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            if (scenario != null && scenario.ActiveReFlySessionMarker != null)
+            {
+                InGameAssert.Skip("Active Re-Fly marker is present; stale-anchor shadow gate test requires no marker");
+                yield break;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs an active vessel with a main body");
+                yield break;
+            }
+
+            uint anchorPid = activeVessel.persistentId;
+            CelestialBody body = activeVessel.mainBody;
+            string bodyName = body.name;
+            double liveLat = activeVessel.latitude;
+            double farLat = System.Math.Max(-80.0, System.Math.Min(80.0,
+                liveLat + (liveLat < 75.0 ? 5.0 : -5.0)));
+            double liveAlt = System.Math.Max(0.0, activeVessel.altitude);
+
+            var previousCommittedRecordings = RecordingStore.CommittedRecordings != null
+                ? new List<Recording>(RecordingStore.CommittedRecordings)
+                : new List<Recording>();
+            var previousCommittedTrees = RecordingStore.CommittedTrees != null
+                ? new List<RecordingTree>(RecordingStore.CommittedTrees)
+                : new List<RecordingTree>();
+
+            try
+            {
+                TrackSection relativeSection = new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Relative,
+                    source = TrackSectionSource.Active,
+                    startUT = 110.0,
+                    endUT = 110.5,
+                    anchorVesselId = anchorPid,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint
+                        {
+                            ut = 110.1,
+                            latitude = 0.0,
+                            longitude = 0.0,
+                            altitude = 0.0,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                        new TrajectoryPoint
+                        {
+                            ut = 110.2,
+                            latitude = 1.0,
+                            longitude = 0.0,
+                            altitude = 0.0,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                    },
+                    absoluteFrames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint
+                        {
+                            ut = 110.1,
+                            latitude = liveLat,
+                            longitude = activeVessel.longitude,
+                            altitude = liveAlt,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                        new TrajectoryPoint
+                        {
+                            ut = 110.2,
+                            latitude = liveLat + 0.0001,
+                            longitude = activeVessel.longitude,
+                            altitude = liveAlt + 5.0,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                    },
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = 10f,
+                };
+
+                var parent = new Recording
+                {
+                    RecordingId = parentId,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                    TreeId = treeId,
+                    VesselPersistentId = anchorPid + 1000u,
+                    VesselName = "Synthetic Shadow Parent",
+                };
+                parent.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    source = TrackSectionSource.Active,
+                    startUT = 100.0,
+                    endUT = 110.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint
+                        {
+                            ut = 100.0,
+                            latitude = liveLat,
+                            longitude = activeVessel.longitude,
+                            altitude = liveAlt,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                    },
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = 1f,
+                });
+                parent.TrackSections.Add(relativeSection);
+                parent.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    source = TrackSectionSource.Active,
+                    startUT = 110.5,
+                    endUT = 112.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint
+                        {
+                            ut = 110.6,
+                            latitude = liveLat + 0.0002,
+                            longitude = activeVessel.longitude,
+                            altitude = liveAlt + 10.0,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                        new TrajectoryPoint
+                        {
+                            ut = 112.0,
+                            latitude = liveLat + 0.0003,
+                            longitude = activeVessel.longitude,
+                            altitude = liveAlt + 15.0,
+                            rotation = Quaternion.identity,
+                            velocity = Vector3.zero,
+                            bodyName = bodyName,
+                        },
+                    },
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = 1f,
+                });
+                parent.Points.AddRange(parent.TrackSections[0].frames);
+                parent.Points.AddRange(relativeSection.frames);
+                parent.Points.AddRange(parent.TrackSections[2].frames);
+
+                var childFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 109.0,
+                        latitude = farLat,
+                        longitude = activeVessel.longitude,
+                        altitude = liveAlt,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                        bodyName = bodyName,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 112.0,
+                        latitude = farLat,
+                        longitude = activeVessel.longitude,
+                        altitude = liveAlt,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                        bodyName = bodyName,
+                    },
+                };
+                var child = new Recording
+                {
+                    RecordingId = childId,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                    TreeId = treeId,
+                    VesselPersistentId = anchorPid,
+                    VesselName = "Synthetic Shadow Child",
+                };
+                child.Points.AddRange(childFrames);
+                child.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    source = TrackSectionSource.Active,
+                    startUT = 109.0,
+                    endUT = 112.0,
+                    frames = childFrames,
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = 1f,
+                });
+
+                var tree = new RecordingTree
+                {
+                    Id = treeId,
+                    TreeName = "Synthetic Shadow Tree",
+                    RootRecordingId = parentId,
+                    ActiveRecordingId = childId,
+                    TreeFormatVersion = RecordingTree.CurrentTreeFormatVersion,
+                };
+                tree.AddOrReplaceRecording(parent);
+                tree.AddOrReplaceRecording(child);
+
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                RecordingStore.AddCommittedInternal(parent);
+                RecordingStore.AddCommittedInternal(child);
+                RecordingStore.AddCommittedTreeInternal(tree);
+
+                bool usedShadow = flight.TryUseAbsoluteShadowForActiveReFlyRelativeSection(
+                    0,
+                    parent,
+                    relativeSection,
+                    anchorPid,
+                    targetUT,
+                    out List<TrajectoryPoint> playbackFrames);
+
+                InGameAssert.IsTrue(usedShadow,
+                    "Stale live anchor should engage RELATIVE absolute shadow playback without an active marker");
+                InGameAssert.IsNotNull(playbackFrames,
+                    "Stale-anchor shadow path should return playback frames");
+                InGameAssert.AreEqual(3, playbackFrames.Count,
+                    "Forward bridge should append the next Absolute section's first sampled frame");
+                InGameAssert.ApproxEqual(110.6, playbackFrames[2].ut, 0.0001,
+                    "Forward bridge UT should be the next Absolute section's first sampled frame");
+
+                List<TrajectoryPoint> resolvedFrames =
+                    ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(parent, relativeSection, targetUT);
+                InGameAssert.AreEqual(3, resolvedFrames.Count,
+                    "ResolveAbsoluteShadowPlaybackFrames should append the Absolute-section bridge point");
+                InGameAssert.ApproxEqual(110.6, resolvedFrames[2].ut, 0.0001,
+                    "ResolveAbsoluteShadowPlaybackFrames bridge point should come from the Absolute section");
+
+                ParsekLog.Info("Pipeline-Smoothing",
+                    "Pipeline_Smoothing_RelativeShadow_StaleAnchorBridgesIntoAbsolute: "
+                    + "anchorPid=" + anchorPid
+                    + " targetUT=" + targetUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " frames=" + playbackFrames.Count);
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                for (int i = 0; i < previousCommittedRecordings.Count; i++)
+                    RecordingStore.AddCommittedInternal(previousCommittedRecordings[i]);
+                for (int i = 0; i < previousCommittedTrees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(previousCommittedTrees[i]);
+            }
+
+            yield return null;
+        }
+
         /// <summary>
         /// Phase 4 inertial-frame round-trip in-game test (design doc §6.2,
         /// §18 Phase 4 done-condition, §26.1 HR-3 / HR-9). Builds a synthetic

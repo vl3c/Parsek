@@ -367,6 +367,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AppendSectionStartSeamPoint_AbsoluteSection_CommitsUnflaggedFocusedVesselPointAtSectionStart()
+        {
+            recorder.StartNewTrackSection(
+                SegmentEnvironment.Atmospheric,
+                ReferenceFrame.Absolute,
+                210.0);
+
+            var focusedVesselPoint = new TrajectoryPoint
+            {
+                ut = 209.5,
+                latitude = -0.15303270832783158,
+                longitude = -50.753658351234641,
+                altitude = 59331.328092639218,
+                bodyName = "Kerbin",
+                flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+            };
+
+            recorder.AppendSectionStartSeamPointForTesting(
+                focusedVesselPoint,
+                "relative-to-absolute-test");
+            recorder.CloseCurrentTrackSection(220.0);
+
+            Assert.Single(recorder.Recording);
+            Assert.Single(recorder.TrackSections);
+            var section = recorder.TrackSections[0];
+            Assert.Single(section.frames);
+
+            TrajectoryPoint seam = section.frames[0];
+            Assert.Equal(section.startUT, seam.ut);
+            Assert.Equal(focusedVesselPoint.latitude, seam.latitude);
+            Assert.Equal(focusedVesselPoint.longitude, seam.longitude);
+            Assert.Equal(focusedVesselPoint.altitude, seam.altitude);
+            Assert.True(((TrajectoryPointFlags)seam.flags
+                & TrajectoryPointFlags.StructuralEventSnapshot) == 0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Smoothing]")
+                && l.Contains("section-start seam committed")
+                && l.Contains("relative-to-absolute-test"));
+        }
+
+        [Fact]
         public void RestoreTrackSectionAfterFalseAlarm_PreservesRelativeAnchorMetadata()
         {
             var lastPoint = new TrajectoryPoint
