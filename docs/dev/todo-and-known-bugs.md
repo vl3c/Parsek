@@ -4109,7 +4109,7 @@ flipped to assert `(pid, name)` tuples are captured.
 
 ---
 
-## 608. Crew-reservation orphan placement deferred for original-crew kerbals after Re-Fly merge
+## ~~608. Crew-reservation orphan placement deferred for original-crew kerbals after Re-Fly merge~~
 
 **Source:** `logs/2026-04-25_2334_refly-followup-test/KSP.log:13401-13404`
 and `Player.log:73024+`. After the in-place continuation Re-Fly
@@ -4139,40 +4139,33 @@ still assigned-but-no-vessels-references-them and flips them to
 
 (Same warn for Bill and Bob.)
 
-**Files to investigate:**
+**Resolution:** the orphan-placement deferral itself was the correct decision for
+that frame: the active post-Re-Fly vessel was the booster, not the capsule that
+owned the original crew seats, so the pass had no matching command pod to place
+Jeb / Bill / Bob into. The dangerous fallout from that expected deferral is fixed
+by the follow-up cascade:
 
-- `Source/Parsek/CrewReservationManager.cs` — orphan placement pass,
-  the `active-vessel-missing-snapshot-part` deferral path, and
-  whether end-of-recording capsule respawn (or the FLIGHT→TRACKSTATION
-  trip that follows merge) re-runs the placement against the right
-  vessel.
-- `Source/Parsek/KerbalsModule.cs` — replacement dispatch.
-- Cross-reference `#578` (recent crew-orphan-placement fix) — the
-  `active-vessel-missing-snapshot-part` reason was the diagnostic
-  that closure introduced. The deferral itself worked as intended in
-  this playtest (stand-ins kept in roster, skipped fallback), but the
-  player's expectation is that the original crew eventually get
-  re-placed once the capsule re-spawns at end-of-recording.
+- `#609` makes reserved+Missing original crew spawnable and rescues them before
+  `ProtoVessel.Load`, so the capsule recording is no longer permanently
+  abandoned after this deferral.
+- `#615` adds the pid-scoped rescue-completion marker so the rescued originals do
+  not churn their stand-ins back into the roster on later recalculation walks.
+- `#625` retains stand-ins already seated on a live vessel during FLIGHT OnLoad,
+  closing the adjacent zero-start-crew path.
 
-**Open questions:**
+**Closure notes:**
 
-1. Is this expected post-Re-Fly behaviour? The booster is the active
+1. This is expected post-Re-Fly behaviour. The booster is the active
    vessel during the re-fly continuation; the capsule has its own
    recording that materializes later. The original 3 crew are
    reservation-bound to the capsule's command-pod pid=10668187, but
    that pid is not in scene at orphan-placement time.
-2. Or is the orphan-placement deferral missing a path to re-run when
-   the capsule re-spawns at end-of-recording (or the player switches
-   to it)? `activeParts=13 freeSeatParts=0` suggests the booster's
-   13 parts genuinely have no command-pod free seats, so the pass
-   correctly defers. The question is whether there is a follow-up
-   trigger.
-3. Are the KSP-stock "set as missing" warns a downstream effect we
-   need to handle? If Parsek's crew-reservation reset path eventually
-   clears this state when the capsule re-spawns, the missing-flag
-   should be reversible. If it does not, the original crew remain
-   "missing" and are unrecoverable without manual save editing — a
-   silent data-loss bug.
+2. The end-of-recording capsule spawn path is the follow-up trigger that matters;
+   after `#609`, reserved+Missing originals are treated as recoverable and are
+   rescued into the spawned snapshot instead of blocking the spawn.
+3. The KSP-stock `Missing` state is now handled on the spawn path, and `#615`
+   keeps the roster stable after that rescue, so this entry no longer represents
+   an open data-loss bug.
 
 **Reproduction:** From the playtest, an in-place continuation Re-Fly
 where the active-on-load vessel is the booster (not the capsule
@@ -4180,14 +4173,16 @@ holding the original crew). Active recording ends with the booster's
 own destroyed terminal; the capsule's recording is still live in the
 tree.
 
-**Status:** Open — needs investigation. Not fixed in PR #(this).
+**Status:** CLOSED 2026-04-30. Closed by the `#609` / `#615` / `#625`
+follow-ups; no separate code change remains for the original `#608` deferral
+preamble.
 
 **Spawner-side downstream:** see `#609` for the related fix that
 prevents the deferred state from cascading into a permanent
 `Spawn ABANDONED — all crew dead/missing` for the capsule recording.
-The orphan-placement-deferred state itself is still as-designed; the
-follow-up only removes the spawn-time abandon trap that turned it
-into a hard data-loss bug.
+The orphan-placement-deferred state itself is as-designed; the follow-ups remove
+the spawn-time abandon trap and the subsequent roster churn that turned it into a
+hard data-loss bug.
 
 ---
 
