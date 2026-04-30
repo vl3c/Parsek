@@ -24,7 +24,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 Regression coverage: `Bug687Tests.cs` (xUnit pure pieces — `ShouldBlockSpawnForDeadCrew` decisions for the empty / mixed / all-StrictlyDead cases, `FormatSpawnableClassificationSummary` shape after rescue); in-game test `Bug687_UnreservedMissingCrewIsSpawnableAndRescued` in `InGameTests/RuntimeTests.cs` exercises the live-roster path (no reservation, RosterStatus=Missing, classification check, spawn-block check, rescue helper flips Missing→Available even without a reservation, `rescuedNames` stays empty for unreserved rescues, full rollback).
 
-**Status:** CLOSED 2026-05-01 (PR #(this)). Cross-reference `#608`/`#609` (the reserved-only fix this extends) and `#615` (the pid-scoped rescue-placed marker that still applies only to reserved rescues).
+**Status:** CLOSED 2026-05-01 (PR #687). Cross-reference `#608`/`#609` (the reserved-only fix this extends) and `#615` (the pid-scoped rescue-placed marker that still applies only to reserved rescues).
 
 ---
 

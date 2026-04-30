@@ -2093,10 +2093,10 @@ namespace Parsek
         /// </summary>
         internal enum SpawnableClassification
         {
-            Alive = 0,                    // Available / Assigned / Crew
-            ReservedMissingRescuable = 1, // Missing but reserved — will be rescued at spawn time
-            MissingNotReserved = 2,       // Missing, no reservation — rescued to Available before load (#687)
-            StrictlyDead = 3,             // Dead — counts toward block, never rescuable
+            Alive = 0,                    // Available / Assigned / Crew — does not block spawn
+            ReservedMissingRescuable = 1, // Missing but reserved — rescued at spawn time, does not block (#608/#609)
+            MissingNotReserved = 2,       // Missing, no reservation — rescued at spawn time, does not block (#687)
+            StrictlyDead = 3,             // Dead — permanent, blocks spawn, never rescuable (#170)
         }
 
         /// <summary>
