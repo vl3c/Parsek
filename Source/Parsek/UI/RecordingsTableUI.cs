@@ -373,7 +373,7 @@ namespace Parsek
             {
                 ReleaseInputLock();
                 // Do NOT clear the slot decision cache here. TimelineWindowUI's
-                // Fly button calls CanInvokeRewindPointSlot, and DrawIfOpen runs
+                // Play button calls CanInvokeRewindPointSlot, and DrawIfOpen runs
                 // every OnGUI pass — clearing per pass while Recordings is closed
                 // and Timeline is open re-spams slot-ok every frame. The cache is
                 // bounded by RP-slot count and is cleared on RP lifecycle events
@@ -2625,7 +2625,7 @@ namespace Parsek
                 return false;
             }
 
-            // Always "Fly" — matches the Timeline-window separation-row label
+            // Always "Play" — matches the Timeline-window separation-row label
             // (DrawTimelineFlyButton) so the same action carries the same
             // glyph in both surfaces. The action is qualitatively different
             // from the legacy Rewind / Forward buttons (rewind time and watch
@@ -2635,7 +2635,7 @@ namespace Parsek
             // merge dialog later). Past-vs-future relative to current UT is
             // irrelevant for the user-facing label. `now` is kept on the
             // signature for future per-row state if needed.
-            const string kReFlyLabel = "Fly";
+            const string kReFlyLabel = "Play";
             _ = now;
 
             if (route == UnfinishedFlightRewindRoute.MissingSlot)
@@ -2710,7 +2710,7 @@ namespace Parsek
             bool ignoredFlyClicked;
             bool ignoredSealClicked;
             DrawBodyCenteredTwoButtons(
-                new GUIContent("Fly", reason), false,
+                new GUIContent("Play", reason), false,
                 new GUIContent("Seal", reason), false,
                 ColW_Rewind, out ignoredFlyClicked, out ignoredSealClicked);
         }

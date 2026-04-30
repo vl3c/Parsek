@@ -937,7 +937,7 @@ namespace Parsek
                      && !string.IsNullOrEmpty(entry.RecordingId))
             {
                 // Separation row: tree-child split point. UF flavour gets a
-                // Fly button; the plain post-merge / non-UF flavour just
+                // Play button; the plain post-merge / non-UF flavour just
                 // gets GoTo. No Watch / Loop / R / FF — those are launch-
                 // playback affordances, not split affordances.
                 var rec = FindRecordingById(entry.RecordingId);
@@ -968,7 +968,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Draw the timeline-row "Fly" button for an Unfinished Flight
+        /// Draw the timeline-row "Play" button for an Unfinished Flight
         /// separation entry. Resolves the RP slot via the shared
         /// <see cref="RecordingsTableUI.ResolveUnfinishedFlightRewindRoute"/>
         /// so the timeline and the Recordings table dispatch through the
@@ -995,7 +995,7 @@ namespace Parsek
             {
                 GUI.enabled = false;
                 GUILayout.Button(
-                    new GUIContent("Fly", routeReason ?? "Re-Fly unavailable"),
+                    new GUIContent("Play", routeReason ?? "Re-Fly unavailable"),
                     GUILayout.Width(width));
                 GUI.enabled = true;
                 return;
@@ -1008,10 +1008,10 @@ namespace Parsek
             string tooltip = canInvoke
                 ? "Re-fly this unfinished flight from the separation moment"
                 : (reason ?? "Re-Fly unavailable");
-            if (GUILayout.Button(new GUIContent("Fly", tooltip), GUILayout.Width(width)))
+            if (GUILayout.Button(new GUIContent("Play", tooltip), GUILayout.Width(width)))
             {
                 ParsekLog.Info("UI",
-                    $"Timeline Fly button clicked: \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"Timeline Play button clicked: \"{rec.VesselName}\" id={rec.RecordingId} " +
                     $"rp={rp.RewindPointId ?? "<no-id>"} slot={slotListIndex}");
                 RewindInvoker.ShowDialog(rp, slotListIndex);
             }

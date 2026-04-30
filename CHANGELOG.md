@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- The Recordings table uses the original Actions column width again, with full-word `Rewind` and `Forward` action labels plus compact button padding so `Fly`/`Seal` and `Stash` still fit without widening the table.
+- The Recordings table uses the original Actions column width again, with full-word `Rewind` and `Forward` action labels plus compact button padding so `Play`/`Seal` and `Stash` still fit without widening the table.
 - Stock retractable ladders no longer render extended in the ghost when the recorded vessel had them stowed. Solar panels, gear, animation groups, animate-generic, and aero/control-surface deployables get the same first-spawn stow baseline.
 - Re-flying an upper stage no longer hides the previous lower stage (or any other side-off vessel from the original separation) while the re-fly is in progress. The session-suppressed subtree closure now only walks same-PID linear continuations of the recording being re-flown; side-off branches keep playing as ghosts and showing on the map view, and only get superseded when the new flight produces its own side-offs at a comparable staging event.
 - Re-fly chain extension now appends supersede relations from the slot's prior effective tip instead of repeatedly writing origin-rooted star relations. Fresh provisional re-flies now produce linear `{priorTip -> newRecording}` edges, so a second re-fly becomes the effective slot recording instead of being hidden behind the first relation's insertion-order win. Legacy star-shaped portions are tolerated and new appends extend from the dominant walked tip. If a restored origin still has the matching vessel PID but is no longer the slot's effective tip, invocation now uses the fresh-provisional path to avoid creating a supersede cycle.
@@ -25,8 +25,9 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
-- Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Fly` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
-- Stable terminal Rewind Point leaves that are still backed by an RP can now be Stashed from the Recordings table. Stashed slots appear under Unfinished Flights with the same `Fly` and `Seal` actions without changing the recording's merge state; the existing in-place re-fly commit policy still closes them.
+- Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Play` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
+- Stable terminal Rewind Point leaves that are still backed by an RP can now be Stashed from the Recordings table. Stashed slots appear under Unfinished Flights with the same `Play` and `Seal` actions without changing the recording's merge state; the existing in-place re-fly commit policy still closes them.
+- Unfinished Flights re-fly button is now labelled `Play` (was `Fly`) in the Recordings table, the Timeline window, and the re-fly confirmation dialog. The action is unchanged.
 - Settings Diagnostics now splits rewind-point disk usage into live crashed, stable, and sealed-pending RP counts so stable-leaf cleanup pressure is visible without reading the save file.
 
 ### Tests

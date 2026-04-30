@@ -111,7 +111,7 @@ namespace Parsek
                 "This action CANNOT BE UNDONE.\n\n" +
                 "After sealing:\n" +
                 "- This slot is closed permanently; the recording can never be re-flown from this Rewind Point.\n" +
-                "- The Fly button on this row disappears.\n" +
+                "- The Play button on this row disappears.\n" +
                 "- The rewind point quicksave may be deleted once every sibling slot is closed.\n" +
                 "- The recording itself is unchanged and remains in the timeline.\n\n" +
                 "If you might want to re-fly this later, click Cancel.";
