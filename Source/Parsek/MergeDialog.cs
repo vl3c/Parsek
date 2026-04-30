@@ -647,6 +647,17 @@ namespace Parsek
                     }
                     ClearStashedSlotForInPlaceCommit(provisional, scenario);
 
+                    // The in-place path bypasses MergeJournalOrchestrator.RunMerge,
+                    // so mirror its RP promotion step immediately before the
+                    // reaper. Do this after marker/state finalization succeeds:
+                    // the local marker still carries SessionId even though the
+                    // scenario marker was cleared above.
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: in-place continuation tagging " +
+                        $"session-provisional RPs for reap after marker clear " +
+                        $"sess={marker.SessionId ?? "<no-id>"}");
+                    MergeJournalOrchestrator.TagRpsForReap(marker, scenario);
+
                     // Reap the RP whose only slot is now Immutable (the
                     // recording we just flipped). The journaled merge runs
                     // RpReap as a checkpoint; the in-place continuation
