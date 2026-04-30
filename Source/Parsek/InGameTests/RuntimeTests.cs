@@ -13873,7 +13873,10 @@ namespace Parsek.InGameTests
         /// the runner) — instead it walks <c>GameEvents.onPartCouple</c>,
         /// <c>onPartUndock</c>, <c>onCrewOnEva</c>, and <c>onPartJointBreak</c> via
         /// reflection on each <c>EventData&lt;T&gt;.events</c> internal listener
-        /// list and asserts at least one delegate per event whose
+        /// list. The joint-break hook is recorder-scoped in production, so the test
+        /// installs and removes one transient <see cref="FlightRecorder"/> subscription
+        /// around the assertion to stay deterministic in an idle FLIGHT scene.
+        /// It then asserts at least one delegate per event whose
         /// <see cref="System.Reflection.MethodInfo.DeclaringType"/> resolves to
         /// <see cref="ParsekFlight"/> or <see cref="FlightRecorder"/>. A regression
         /// that drops one of the four <c>GameEvents.X.Add(...)</c> calls fails this
@@ -13888,10 +13891,27 @@ namespace Parsek.InGameTests
                 "GameEvents.onPartCouple must be non-null in flight scene");
 
             int totalAsserted = 0;
-            AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, ref totalAsserted);
-            AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, ref totalAsserted);
-            AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, ref totalAsserted);
-            AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, ref totalAsserted);
+            var transientRecorder = new FlightRecorder();
+            bool partEventsSubscribed = false;
+            try
+            {
+                InvokeFlightRecorderPartEventSubscriptionForTest(
+                    transientRecorder, "SubscribePartEvents");
+                partEventsSubscribed = true;
+
+                AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, ref totalAsserted);
+                AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, ref totalAsserted);
+                AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, ref totalAsserted);
+                AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, ref totalAsserted);
+            }
+            finally
+            {
+                if (partEventsSubscribed)
+                {
+                    InvokeFlightRecorderPartEventSubscriptionForTest(
+                        transientRecorder, "UnsubscribePartEvents");
+                }
+            }
 
             ParsekLog.Info("Pipeline-Smoothing",
                 "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
@@ -13951,6 +13971,20 @@ namespace Parsek.InGameTests
                 + "FlightRecorder or ParsekFlight (Phase 9 wiring contract). Found owner: "
                 + (foundOwnerType ?? "<none>"));
             if (found) totalAsserted++;
+        }
+
+        private static void InvokeFlightRecorderPartEventSubscriptionForTest(
+            FlightRecorder recorder, string methodName)
+        {
+            InGameAssert.IsNotNull(recorder,
+                "Transient FlightRecorder must exist for part-event subscription test");
+            MethodInfo method = typeof(FlightRecorder).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(method,
+                "FlightRecorder." + methodName + " must remain available for the "
+                + "Phase 9 GameEvents wiring test");
+            method.Invoke(recorder, null);
         }
 
         #endregion

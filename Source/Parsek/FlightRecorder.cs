@@ -6209,9 +6209,10 @@ namespace Parsek
         /// <summary>
         /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
         /// point per involved vessel that matches this recorder's
-        /// <see cref="RecordingVesselId"/>. The full FlightGlobals state is read once at the top
-        /// of the call, so multiple involved vessels (e.g. dock parent + child) sampled in the
-        /// same call share the same physics-state read — the §12 invariant.
+        /// <see cref="RecordingVesselId"/>. Callers pass one event UT captured from the live
+        /// structural event, so every snapshot emitted by this call shares the same physics-clock
+        /// timestamp. Position and velocity are sampled per matching vessel from the live state
+        /// when the handler runs.
         ///
         /// <para>No-op when the recorder is not currently recording (e.g. mid-stop), when the
         /// recording's format version pre-dates v10 (legacy recordings keep their interpolation
