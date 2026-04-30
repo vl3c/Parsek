@@ -262,6 +262,7 @@ namespace Parsek
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
+                ReFlyRevertButtonGate.Apply("RetryHandler:marker-cleared");
                 ParsekLog.Verbose(SessionTag,
                     $"RetryHandler: marker cleared for sess={oldSessionId} target={target}; re-invoking rewind");
             }
@@ -353,6 +354,7 @@ namespace Parsek
                     Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                     scenario.ActiveMergeJournal = null;
                     scenario.BumpSupersedeStateVersion();
+                    ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:rp-unresolvable");
                 }
 
                 PostScreenMessage("Discard Re-fly failed: rewind point missing");
@@ -395,6 +397,12 @@ namespace Parsek
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.ActiveMergeJournal = null;
                 scenario.BumpSupersedeStateVersion();
+                // Apply now so the failure paths in steps 8-9 (which may bail
+                // and leave the player in flight) do not strand a forced
+                // CanRevertToPostInit. The success path transitions out of
+                // flight where the next FlightDriver.Start will recompute,
+                // making the call a logged no-op there — cheap and consistent.
+                ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:marker-cleared");
             }
 
             // Step 7: defensively clean up the prior session's temp quicksave

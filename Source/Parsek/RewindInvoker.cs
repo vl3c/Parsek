@@ -914,6 +914,10 @@ namespace Parsek
                 CheckpointHookForTesting?.Invoke("CheckpointB:BeforeMarker");
                 scenario.ActiveReFlySessionMarker = marker;
                 scenario.BumpSupersedeStateVersion();
+                // Re-enable the Esc-menu Revert button (KSP grays it out
+                // because the loaded vessel is mid-flight, not PRELAUNCH;
+                // see ReFlyRevertButtonGate doc-comment).
+                ReFlyRevertButtonGate.Apply("AtomicMarkerWrite");
                 CheckpointHookForTesting?.Invoke("CheckpointB:AfterMarker");
             }
             catch
@@ -945,6 +949,7 @@ namespace Parsek
                     if (ParsekScenario.Instance != null)
                         ParsekScenario.Instance.ActiveReFlySessionMarker = null;
                     Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                    ReFlyRevertButtonGate.Apply("AtomicMarkerWrite:rollback");
                 }
                 catch { /* idempotent rollback; swallow secondary failure */ }
                 throw;

@@ -320,6 +320,11 @@ namespace Parsek
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
+            // Drop any forced CanRevertToPostInit override now that the
+            // session is committed. Normally this commit happens at scene
+            // exit (KSC), so it's a no-op there; defensive against any future
+            // call site that commits while still in flight.
+            ReFlyRevertButtonGate.Apply("SupersedeCommit:marker-cleared");
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");

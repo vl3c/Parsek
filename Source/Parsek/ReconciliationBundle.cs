@@ -208,6 +208,11 @@ namespace Parsek
 
                 scenario.ActiveReFlySessionMarker = bundle.ActiveReFlySessionMarker;
                 scenario.ActiveMergeJournal = bundle.ActiveMergeJournal;
+                // Re-fly Esc-menu button gate: this Restore can change the
+                // marker in either direction (success path before
+                // AtomicMarkerWrite — Apply re-fires there harmlessly;
+                // rollback path on a failed LoadGame — only reachable here).
+                ReFlyRevertButtonGate.Apply("ReconciliationBundle:Restore");
             }
 
             // CrewReservationManager.
