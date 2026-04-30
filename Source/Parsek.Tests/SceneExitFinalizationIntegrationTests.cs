@@ -545,6 +545,11 @@ namespace Parsek.Tests
                 ChildBranchPointId = null,
                 ExplicitEndUT = double.NaN
             };
+            // Bug 2 fix: trajectory must have >= 2 points so the inference is not
+            // skipped by HasOnlySubOrbitalFallbackEvidence. Pre-fix this test only
+            // had 1 point and relied on the (now-removed) implicit SubOrbital
+            // default for single high-altitude payloads.
+            rec.Points.Add(new TrajectoryPoint { ut = 90.0, altitude = 4000.0, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000.0, bodyName = "Kerbin" });
 
             RecordingFinalizationCache cache = MakeDestroyedCache(

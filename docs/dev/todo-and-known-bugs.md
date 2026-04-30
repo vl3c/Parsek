@@ -207,6 +207,55 @@ engine-true non-clobber + subscribe idempotence). Live in-game canary in
 live `FlightDriver` static and that `FlightDriver.CanRevert` is true while
 the marker is active.
 
+## ~~683. Probe terminal regresses Splashed → SubOrbital across split + trim + Re-Fly + second-finalize~~
+
+**Status:** ~~done~~ on `fix-uf-terminal-regression`.
+
+The 2026-04-30_2011 playtest splashed a probe-controlled booster ("Kerbal X
+Probe") in the ocean. First scene-exit finalize correctly stamped
+`terminal=Splashed maxDist=193658m points=693`. The merge committed the tree,
+then `RecordingOptimizer.SplitAtSection` split the recording at the
+Atmospheric→SurfaceMobile environment boundary, **moving** the Splashed terminal
+to the new second-half recording (`6e5dfd8f…`) and **nulling** the original
+half's `TerminalStateValue` (line 800 of `RecordingOptimizer.cs`). The original
+recording id (`a98613b5…`) survived as the chain interior. The user then issued
+a Re-Fly: the rewind-point quicksave loaded; the second-half (the chain
+successor that held the real terminal data) was stripped from the active tree;
+quickload-resume tree trim cropped the original recording's payload past
+`cutoffUT=150.30`, leaving exactly 1 surviving start-point at altitude=52571 m
+with high upward velocity. On the second scene exit the live vessel was no
+longer findable, the recording's `TerminalStateValue` was still null, and
+`InferTerminalStateFromTrajectory` defaulted to `SubOrbital` from that single
+high-altitude point. The recording ended up in STASH classified as
+`stableLeafUnconcluded slot=1 terminal=SubOrbital` instead of being a clean
+Splashed terminal that doesn't qualify for STASH at all.
+
+**Fix:** `ParsekFlight.HasOnlySubOrbitalFallbackEvidence(Recording, out reason)`
+helper added — returns true when the only outcome
+`InferTerminalStateFromTrajectory` can produce is the SubOrbital fallback
+default (i.e. fewer than 2 points AND no altitude<50m point AND no
+SurfaceMobile/Stationary terminal section AND no closed orbit segment).
+Both the leaf path (`FinalizeIndividualRecording`) and the active-non-leaf
+path (`EnsureActiveRecordingTerminalState`) now route through this helper as
+an additional clause alongside the existing `RestoredFromCommittedTreeThisFrame`
+gate, sharing the structured "skipping Landed/Splashed inference" log line.
+The helper is gated on the inference branch only (NOT on
+`ShouldPreserveRestoredSceneExitTerminalState`) so legitimate cache-fallback
+finalization paths still run for single-point payloads. Single-point genuine
+landings (altitude<50m), single-point landings with a SurfaceMobile last
+section, and single-point orbits with a closed orbit segment all still hit the
+inference and stamp the correct terminal — only the fabricated-SubOrbital
+fallback is suppressed.
+
+xUnit coverage in `Source/Parsek.Tests/Bug2ProbeTerminalRegressionTests.cs`:
+the user's exact regression shape plus its active-non-leaf mirror, the pure
+`HasOnlySubOrbitalFallbackEvidence` helper across the evidence combinations,
+and a full split → strip → trim → second-finalize round-trip pin. The pre-fix
+test `FinalizeIndividualRecording_CacheRejected_FallsBackToTrajectoryInference`
+in `SceneExitFinalizationIntegrationTests.cs` was relying on the (now-removed)
+implicit SubOrbital default for single high-altitude payloads; updated to use
+2 points so the inference still runs and stamps SubOrbital as before.
+
 ## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
 
 **Status:** Historical, deferred — not active correctness work.
