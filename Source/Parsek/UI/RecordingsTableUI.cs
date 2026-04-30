@@ -2733,7 +2733,7 @@ namespace Parsek
             var slot = rp.ChildSlots[slotListIndex];
             int slotId = slot != null ? slot.SlotIndex : slotListIndex;
             string tooltip =
-                "Stash this stable Rewind Point slot in Unfinished Flights so it can be re-flown later";
+                "Stash this stable Rewind Point slot in STASH so it can be re-flown later";
             if (DrawRewindColumnButton(new GUIContent("Stash", tooltip)))
             {
                 string rpKey = rp.RewindPointId ?? "<no-id>";

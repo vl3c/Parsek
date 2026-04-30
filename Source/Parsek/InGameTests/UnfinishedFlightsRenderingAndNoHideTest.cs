@@ -55,12 +55,12 @@ namespace Parsek.InGameTests
             // Design §7.30: the virtual group must not be hide-eligible.
             InGameAssert.IsFalse(
                 GroupHierarchyStore.CanHide(UnfinishedFlightsGroup.GroupName),
-                "CanHide(\"Unfinished Flights\") expected false");
+                $"CanHide(\"{UnfinishedFlightsGroup.GroupName}\") expected false");
 
             // Design §7.25: the virtual group must reject drop targets.
             InGameAssert.IsFalse(
                 GroupHierarchyStore.IsDropTargetAllowed(UnfinishedFlightsGroup.GroupName),
-                "IsDropTargetAllowed(\"Unfinished Flights\") expected false");
+                $"IsDropTargetAllowed(\"{UnfinishedFlightsGroup.GroupName}\") expected false");
 
             // Design §7.25 end-to-end: the GroupPickerUI predicate must reject
             // an Unfinished Flight recording for a regular user-group target.

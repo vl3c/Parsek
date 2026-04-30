@@ -133,8 +133,8 @@ namespace Parsek
                 // continuation path and just plain wrong about
                 // ghost-of-retired-attempt / kerbal-deaths-reversed).
                 message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this re-flight attempt permanently to the timeline. " +
-                          "This cannot be undone!</align>";
+                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
+                          "This cannot be undone.</align>";
             }
             else
             {
@@ -173,7 +173,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekMerge",
                     message,
-                    "Parsek - Merge to Timeline",
+                    "Confirm Merge to Timeline",
                     HighLogic.UISkin,
                     buttons
                 ),

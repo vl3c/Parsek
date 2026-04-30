@@ -24,7 +24,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekResourceBlock",
                     message,
-                    "Parsek - Action Blocked",
+                    "Action Blocked",
                     HighLogic.UISkin,
                     new[] { new DialogGUIButton("OK", () => { }) }
                 ),
