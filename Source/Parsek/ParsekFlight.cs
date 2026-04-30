@@ -1178,11 +1178,16 @@ namespace Parsek
                         Orbit orbit;
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
                         {
-                            Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
-                            // Re-Fly tree anchor lock — preserve the spawn-time
-                            // delta across the FloatingOrigin LateUpdate re-pos.
-                            pos += e.reFlyTreeOffset;
-                            e.ghost.transform.position = pos;
+                            // Keep the raw orbit position for rotation math
+                            // (orbital frame derives radialOut from
+                            // pos - orbitBody.position; if pos carries the
+                            // tree offset the radial vector is shifted and the
+                            // ghost's orbit-frame attitude rolls/pitches
+                            // incorrectly). The Re-Fly tree anchor lock is a
+                            // rigid render translation only — applied to
+                            // transform.position, not to rotation inputs.
+                            Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
+                            e.ghost.transform.position = rawOrbitPos + e.reFlyTreeOffset;
 
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
 
@@ -1221,7 +1226,10 @@ namespace Parsek
                                 // Orbital-frame-relative path
                                 if (e.orbitBody != null)
                                 {
-                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    // Use rawOrbitPos for radialOut so the
+                                    // tree offset doesn't alter orbital-frame
+                                    // attitude.
+                                    Vector3d radialOut = (rawOrbitPos - (Vector3d)e.orbitBody.position).normalized;
                                     Quaternion orbFrame;
                                     if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
                                         orbFrame = Quaternion.LookRotation(vel, Vector3.up);
@@ -1252,7 +1260,7 @@ namespace Parsek
                             e.latBefore, e.lonBefore, e.altBefore);
                         Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                             e.latAfter, e.lonAfter, e.altAfter);
-                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        Vector3d rawCheckpointPos = Vector3d.Lerp(posBefore, posAfter, e.t);
                         // §7.7 (and any §7.x anchor that lands on a
                         // Checkpoint section): re-apply the world-space ε
                         // here so the FloatingOrigin shift between Update
@@ -1264,12 +1272,13 @@ namespace Parsek
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
                                 out Vector3d cpLateEps))
                         {
-                            pos += cpLateEps;
+                            rawCheckpointPos += cpLateEps;
                         }
-                        // Re-Fly tree anchor lock — preserve the spawn-time
-                        // delta across the FloatingOrigin LateUpdate re-pos.
-                        pos += e.reFlyTreeOffset;
-                        e.ghost.transform.position = pos;
+                        // Re-Fly tree anchor lock — translate transform.position
+                        // only; rotation math below uses rawCheckpointPos so
+                        // the orbital-frame attitude isn't pushed by the tree
+                        // delta.
+                        e.ghost.transform.position = rawCheckpointPos + e.reFlyTreeOffset;
 
                         Orbit orbit;
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
@@ -1305,7 +1314,10 @@ namespace Parsek
                             {
                                 if (e.orbitBody != null)
                                 {
-                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    // Use rawCheckpointPos for radialOut so the
+                                    // tree offset doesn't alter orbital-frame
+                                    // attitude.
+                                    Vector3d radialOut = (rawCheckpointPos - (Vector3d)e.orbitBody.position).normalized;
                                     Quaternion orbFrame;
                                     if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
                                         orbFrame = Quaternion.LookRotation(vel, Vector3.up);
@@ -17527,11 +17539,15 @@ namespace Parsek
             // and stay on their original recorded path. LateUpdate
             // CheckpointPoint branch reads the same offset via
             // GhostPosEntry.reFlyTreeOffset.
+            //
+            // The translation is applied to transform.position only — rotation
+            // math (orbital-frame radialOut) uses the pre-tree-offset position
+            // so the spawn alignment doesn't push the ghost's orbital-frame
+            // attitude. ComputeOrbitalRotation receives interpolatedPos
+            // BEFORE the tree-offset add for that reason.
             Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
             bool hasCheckpointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
                 recordingId, playbackUT, out checkpointReFlyTreeOffset);
-            if (hasCheckpointReFlyTreeOffset)
-                interpolatedPos += checkpointReFlyTreeOffset;
 
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
@@ -17548,7 +17564,7 @@ namespace Parsek
                 hasOfr,
                 spinning);
 
-            ghost.transform.position = interpolatedPos;
+            ghost.transform.position = interpolatedPos + checkpointReFlyTreeOffset;
             ghost.transform.rotation = ghostRot;
 
             Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
