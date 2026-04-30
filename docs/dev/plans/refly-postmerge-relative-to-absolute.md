@@ -810,7 +810,7 @@ The relevant serializer code moved during the storage refactor:
 
 ### CHANGELOG / todo entries
 
-CHANGELOG entry for v0.8.4 (or next version):
+CHANGELOG entry for the next version:
 > Re-Fly merge now permanently promotes parent-chain upper-stage RELATIVE
 > trajectory sections to ABSOLUTE during the merge journal, eliminating
 > dead anchor metadata and reducing post-merge sidecar size for those
