@@ -60,7 +60,8 @@ namespace Parsek
         public const int RelativeAbsoluteShadowFormatVersion = 7;
         public const int BoundarySeamFlagFormatVersion = 8;
         public const int TerrainGroundClearanceFormatVersion = 9;
-        public const int CurrentRecordingFormatVersion = TerrainGroundClearanceFormatVersion;
+        public const int StructuralEventFlagFormatVersion = 10;
+        public const int CurrentRecordingFormatVersion = StructuralEventFlagFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -98,6 +99,14 @@ namespace Parsek
         //         rendered_altitude = current_terrain_height(lat, lon) + recordedGroundClearance.
         //     Mandatory binary bump because TrajectorySidecarBinary's per-point layout is positional;
         //     legacy v8 readers ignore the new doubles, new readers default-NaN on `v < 9`.
+        // v10: TrajectoryPoint.flags per-sample byte (Phase 9 of the ghost trajectory rendering
+        //     pipeline, design doc §12, §17.3.2, §18 Phase 9). Bit 0 = StructuralEventSnapshot:
+        //     the recorder appended this point at the exact UT of a dock / undock / EVA / joint-
+        //     break event so AnchorCandidateBuilder can prefer it over interpolated samples when
+        //     computing event ε. Default 0 for every regular per-tick sample. Mandatory binary
+        //     bump because the per-point layout is positional; legacy v9 readers stop short of
+        //     the new byte (their stream alignment ends at recordedGroundClearance), and new
+        //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {

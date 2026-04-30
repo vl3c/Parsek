@@ -842,6 +842,85 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void TryEvaluatePerSegmentWorldPositions_FlaggedLookupIsScopedToSectionFrames()
+        {
+            // Phase 9 review follow-up: the structural-event fast path must not scan
+            // flat Points globally. Adjacent sections can share a boundary UT, and a
+            // RELATIVE-frame flagged sample at that UT stores anchor-local metres in
+            // lat/lon/alt. If section 0 asks for an ABSOLUTE boundary sample, selecting
+            // section 1's flagged point would interpret those metres as degrees.
+            var absolutePoint = new TrajectoryPoint
+            {
+                ut = 50.0,
+                latitude = 10.0,
+                longitude = 20.0,
+                altitude = 30.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+            };
+            var relativeFlaggedPoint = new TrajectoryPoint
+            {
+                ut = 50.0,
+                latitude = 999.0,
+                longitude = 888.0,
+                altitude = 777.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot,
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-section-scoped-flagged-sample",
+                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+            };
+            rec.Points.Add(absolutePoint);
+            rec.Points.Add(relativeFlaggedPoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = 50.0,
+                frames = new List<TrajectoryPoint> { absolutePoint },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 50.0,
+                endUT = 100.0,
+                anchorVesselId = 123u,
+                frames = new List<TrajectoryPoint> { relativeFlaggedPoint },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+
+            Func<string, double, double, double, Vector3d> surfaceLookup =
+                (body, lat, lon, alt) => new Vector3d(lat, lon, alt);
+
+            bool ok = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rec, sectionIndex: 0, ut: 50.0,
+                surfaceLookup,
+                out Vector3d recordedWorld, out Vector3d smoothedWorld,
+                out bool splineHit, out string failureReason);
+
+            Assert.True(ok);
+            Assert.Null(failureReason);
+            Assert.False(splineHit);
+            Assert.Equal(10.0, recordedWorld.x, 6);
+            Assert.Equal(20.0, recordedWorld.y, 6);
+            Assert.Equal(30.0, recordedWorld.z, 6);
+            Assert.Equal(recordedWorld.x, smoothedWorld.x, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Smoothing]")
+                && l.Contains("sectionIndex=0")
+                && l.Contains("flagged=false")
+                && l.Contains("sampleUT=50"));
+        }
+
+        [Fact]
         public void TryEvaluatePerSegmentWorldPositions_InertialSpline_DispatchesThroughBodyResolver()
         {
             // Direct unit test of the inertial branch in

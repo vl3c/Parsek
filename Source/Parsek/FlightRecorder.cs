@@ -556,6 +556,21 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
             RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
 
+            // Phase 9 (design doc §12, §18 Phase 9): synthesize a structural-event
+            // snapshot for the recorded vessel at the exact joint-break UT so
+            // AnchorCandidateBuilder gets a physics-precision sample for the
+            // resulting BranchPointType.JointBreak ε. Both the joint host and the
+            // (pre-split) child still share v.persistentId == RecordingVesselId
+            // here; only the recording vessel matches and gets a snapshot.
+            // joint.Host.vessel and joint.Child.vessel typically reference the
+            // same Vessel pre-split, so we pass both — AppendStructuralEventSnapshot
+            // dedups by RecordingVesselId.
+            var jointBreakInvolved = new List<Vessel>(2);
+            if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
+            if (joint.Host?.vessel != null && (joint.Host.vessel != joint.Child.vessel))
+                jointBreakInvolved.Add(joint.Host.vessel);
+            AppendStructuralEventSnapshot(jointBreakUT, jointBreakInvolved, "JointBreak");
+
             // Signal potential vessel split for deferred check by ParsekFlight
             if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
                 PendingJointBreakUT = jointBreakUT;
@@ -6132,6 +6147,167 @@ namespace Parsek
 
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
             ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
+        }
+
+        /// <summary>
+        /// Phase 9 (design doc §12, §17.3.2, §18 Phase 9): builds a synthetic
+        /// <see cref="TrajectoryPoint"/> for <paramref name="v"/> at the exact
+        /// <paramref name="eventUT"/> of a structural event, with
+        /// <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/> set on the
+        /// returned <see cref="TrajectoryPoint.flags"/>. The point uses the vessel's
+        /// current physics state — KSP doesn't surface a sub-tick interpolation API
+        /// for <c>Vessel.latitude/longitude/altitude</c>, so this samples the live
+        /// state at the moment the event handler fires, which is the same instant
+        /// KSP's structural-event pipeline records as the event UT. Using one
+        /// helper for every event handler guarantees both vessels' snapshots come
+        /// from the same physics state read.
+        /// </summary>
+        /// <remarks>
+        /// Pure / static so xUnit can drive it directly with a fake vessel. The
+        /// caller (see <see cref="AppendStructuralEventSnapshot"/>) decides whether
+        /// to commit the point to a recording.
+        /// </remarks>
+        internal static TrajectoryPoint BuildStructuralEventSnapshot(
+            Vessel v, Vector3 velocity, double eventUT)
+        {
+            TrajectoryPoint pt = BuildTrajectoryPoint(v, velocity, eventUT);
+            return ApplyStructuralEventFlag(pt);
+        }
+
+        /// <summary>
+        /// Phase 9: pure flag-set helper. Returns a copy of <paramref name="pt"/>
+        /// with the <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>
+        /// bit OR'd into <see cref="TrajectoryPoint.flags"/>. Idempotent —
+        /// already-flagged points are returned unchanged. Tests use this seam
+        /// directly because the Vessel-driven overload requires a live KSP
+        /// runtime; this overload pins the bit-set semantics independently.
+        /// </summary>
+        internal static TrajectoryPoint ApplyStructuralEventFlag(TrajectoryPoint pt)
+        {
+            pt.flags = (byte)((TrajectoryPointFlags)pt.flags | TrajectoryPointFlags.StructuralEventSnapshot);
+            return pt;
+        }
+
+        /// <summary>
+        /// Phase 9 schema gate: returns true when the active recording's format version
+        /// permits writing <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
+        /// points. Legacy recordings (format &lt; v10) keep the interpolated event ε path
+        /// (design doc §15.17) — the writer would silently drop the byte but the in-memory
+        /// flag could still confuse the AnchorCandidateBuilder consumer until a save / load
+        /// round-trip clears it. Skipping the append at the recorder is cleaner.
+        ///
+        /// <para>Pure / static so xUnit can pin the gate semantics without a live KSP runtime
+        /// or an active <see cref="ActiveTree"/>; <see cref="AppendStructuralEventSnapshot"/>
+        /// resolves the active recording's format via
+        /// <see cref="ResolveActiveRecordingFormatVersion"/> and feeds it here.</para>
+        /// </summary>
+        internal static bool ShouldEmitStructuralEventSnapshot(int activeFormatVersion)
+        {
+            return activeFormatVersion >= RecordingStore.StructuralEventFlagFormatVersion;
+        }
+
+        /// <summary>
+        /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
+        /// point per involved vessel that matches this recorder's
+        /// <see cref="RecordingVesselId"/>. Callers pass one event UT captured from the live
+        /// structural event, so every snapshot emitted by this call shares the same physics-clock
+        /// timestamp. Position and velocity are sampled per matching vessel from the live state
+        /// when the handler runs.
+        ///
+        /// <para>No-op when the recorder is not currently recording (e.g. mid-stop), when the
+        /// recording's format version pre-dates v10 (legacy recordings keep their interpolation
+        /// path per §15.17), or when no involved vessel matches this recorder. Callers are
+        /// responsible for filtering "noise" structural events (e.g. non-structural joint
+        /// breaks, transient pid mismatches) before invoking the helper.</para>
+        ///
+        /// <para><b>"Every involved vessel" reduction:</b> the design doc §12 contract says the
+        /// recorder produces "a snapshot for every involved vessel". In Parsek's architecture,
+        /// each <see cref="FlightRecorder"/> tracks a single focused vessel
+        /// (<see cref="RecordingVesselId"/>); peer vessels in a dock / undock / EVA / joint-break
+        /// pair are owned by a different recorder (a <see cref="BackgroundRecorder"/> if they're
+        /// being proximity-recorded, or no recorder at all). "Every involved vessel" therefore
+        /// reduces to "this recorder's vessel" by construction — the dedup-by-RecordingVesselId
+        /// filter is the design, not a workaround. Peer coverage is a per-recorder concern: each
+        /// recorder satisfies §12 for its own focused vessel, and the BackgroundRecorder
+        /// integration for proximity-tracked peers is tracked under "Phase 9 follow-ups" in
+        /// <c>docs/dev/todo-and-known-bugs.md</c>.</para>
+        /// </summary>
+        internal void AppendStructuralEventSnapshot(
+            double eventUT, IEnumerable<Vessel> involved, string eventType)
+        {
+            if (!IsRecording)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot skipped: not recording (eventType={0} ut={1})",
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture)));
+                return;
+            }
+            if (involved == null)
+                return;
+
+            // Phase 9 schema gating: legacy recordings (format < v10) keep the
+            // interpolated event ε path (§15.17). Reading the active recording's
+            // format version mirrors how Phase 7 gates `recordedGroundClearance`.
+            int activeFormatVersion = ResolveActiveRecordingFormatVersion();
+            if (!ShouldEmitStructuralEventSnapshot(activeFormatVersion))
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot skipped: recording format v{0} < v{1} " +
+                        "(legacy interpolation path, §15.17) eventType={2} ut={3}",
+                        activeFormatVersion,
+                        RecordingStore.StructuralEventFlagFormatVersion,
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture)));
+                return;
+            }
+
+            int snapshotsAppended = 0;
+            int vesselsConsidered = 0;
+            foreach (Vessel v in involved)
+            {
+                vesselsConsidered++;
+                if (v == null) continue;
+                if (v.persistentId != RecordingVesselId) continue;
+
+                // Same physics state read as a regular tick sample. KSP's
+                // event-fire timing means the live state IS the event-UT state —
+                // there's no sub-tick interpolation API to bracket against.
+                Vector3 velocity = SampleCurrentVelocity(v);
+                TrajectoryPoint point = BuildStructuralEventSnapshot(v, velocity, eventUT);
+                TrajectoryPoint absolutePoint = point;
+                bool relativeApplied = ApplyRelativeOffset(ref point, v);
+
+                CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+                snapshotsAppended++;
+
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot UT={0} vesselId={1} eventType={2} flags={3} " +
+                        "lat={4} lon={5} alt={6} relativeApplied={7}",
+                        eventUT.ToString("F3", CultureInfo.InvariantCulture),
+                        v.persistentId,
+                        eventType ?? "<unknown>",
+                        point.flags,
+                        point.latitude.ToString("F4", CultureInfo.InvariantCulture),
+                        point.longitude.ToString("F4", CultureInfo.InvariantCulture),
+                        point.altitude.ToString("F1", CultureInfo.InvariantCulture),
+                        relativeApplied ? "true" : "false"));
+            }
+
+            if (vesselsConsidered > 0 && snapshotsAppended == 0)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "structural event snapshot: no involved vessel matched RecordingVesselId={0} " +
+                        "(eventType={1} ut={2} considered={3})",
+                        RecordingVesselId,
+                        eventType ?? "<unknown>",
+                        eventUT.ToString("F2", CultureInfo.InvariantCulture),
+                        vesselsConsidered));
+            }
         }
 
         /// <summary>

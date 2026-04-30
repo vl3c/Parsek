@@ -42,6 +42,15 @@ namespace Parsek
             {
                 ptNode.AddValue("clearance", pt.recordedGroundClearance.ToString("R", ic));
             }
+            // Phase 9: emit `flags` only when non-zero. The vast majority of
+            // points carry flags=0 (regular tick samples); only structural-
+            // event-aligned snapshots have a populated flag byte. Skipping
+            // zero values keeps debug mirrors terse and makes flagged points
+            // visible at a glance when scanning a `.prec.txt`.
+            if (pt.flags != 0)
+            {
+                ptNode.AddValue("flags", pt.flags.ToString(ic));
+            }
         }
 
         private static TrajectoryPoint DeserializePoint(ConfigNode ptNode, NumberStyles ns, CultureInfo ic)
@@ -95,6 +104,19 @@ namespace Parsek
                 if (double.TryParse(clearanceRaw, ns, ic, out clearance))
                 {
                     pt.recordedGroundClearance = clearance;
+                }
+            }
+
+            // Phase 9: parse `flags` if present. Absent ⇒ flags = 0 (legacy
+            // mirror or non-structural-event point) ⇒ AnchorCandidateBuilder
+            // falls through to interpolated event ε per design doc §15.17.
+            string flagsRaw = ptNode.GetValue("flags");
+            if (!string.IsNullOrEmpty(flagsRaw))
+            {
+                byte flags;
+                if (byte.TryParse(flagsRaw, ns, ic, out flags))
+                {
+                    pt.flags = flags;
                 }
             }
 
