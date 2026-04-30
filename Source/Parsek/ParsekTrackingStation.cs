@@ -694,7 +694,7 @@ namespace Parsek
                     GetInstanceID() + 553,
                     ghostActionsWindowRect,
                     id => DrawSelectedGhostActionsWindow(id, vessel, selection),
-                    "Parsek Ghost",
+                    "Parsek - Ghost Actions",
                     windowStyle,
                     GUILayout.Width(GhostActionsWindowWidth));
             }

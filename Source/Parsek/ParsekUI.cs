@@ -388,16 +388,6 @@ namespace Parsek
             }
 
             opaqueWindowStyle = BuildOpaqueWindowStyleFromSource(skin.window);
-
-            // Bigger title font + more breathing room above/below the title text so the
-            // title bar is not cramped. Applied here because every Parsek window routes
-            // through GetOpaqueWindowStyle() — one edit retitles them all.
-            int baseFontSize = skin.window.fontSize;
-            if (baseFontSize <= 0) baseFontSize = skin.label.fontSize;       // GUI.skin.window often reports 0
-            if (baseFontSize <= 0) baseFontSize = 12;                         // last-resort default
-            opaqueWindowStyle.fontSize = baseFontSize + 2;
-            var p = opaqueWindowStyle.padding;
-            opaqueWindowStyle.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
             opaqueWindowStyleScene = HighLogic.LoadedScene;
             hasOpaqueWindowStyleScene = true;
             return true;
@@ -436,6 +426,17 @@ namespace Parsek
             style.hover.background = MakeOpaqueCopy(sourceStyle.hover.background ?? normalSource);
             style.onHover.background = MakeOpaqueCopy(sourceStyle.onHover.background ?? normalSource);
             NormalizeOpaqueWindowTitleTextColors(style, sourceStyle);
+
+            // Bigger title font + more breathing room above/below the title text
+            // so the title bar is not cramped. Applied here so every caller
+            // (main UI, Test Runner, any future window using this builder) gets
+            // the same title bar without having to remember to re-tweak.
+            int baseFontSize = sourceStyle.fontSize;
+            if (baseFontSize <= 0) baseFontSize = 12;       // GUI.skin.window often reports 0
+            style.fontSize = baseFontSize + 2;
+            var p = style.padding;
+            style.padding = new RectOffset(p.left, p.right, p.top + 10, p.bottom + 4);
+
             return style;
         }
 
