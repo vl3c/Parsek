@@ -142,6 +142,156 @@ namespace Parsek.Tests.Rendering
             return _ => new RecordingTreeContext(tree, bp);
         }
 
+        private static OutlierFlags MakeOutlierFlags(int sectionIndex, params bool[] rejected)
+        {
+            int rejectedCount = 0;
+            for (int i = 0; i < rejected.Length; i++)
+            {
+                if (rejected[i]) rejectedCount++;
+            }
+
+            return new OutlierFlags
+            {
+                SectionIndex = sectionIndex,
+                ClassifierMask = rejectedCount > 0 ? (byte)1 : (byte)0,
+                PackedBitmap = OutlierFlags.BuildPackedBitmap(rejected),
+                RejectedCount = rejectedCount,
+                SampleCount = rejected.Length,
+            };
+        }
+
+        private static void ReplaceSecondPoint(Recording rec, double ut, double lat, double lon, double alt)
+        {
+            var cleanPoint = rec.Points[1];
+            cleanPoint.ut = ut;
+            cleanPoint.latitude = lat;
+            cleanPoint.longitude = lon;
+            cleanPoint.altitude = alt;
+            rec.Points[1] = cleanPoint;
+
+            TrackSection section = rec.TrackSections[0];
+            section.frames[1] = cleanPoint;
+            section.endUT = ut;
+            rec.TrackSections[0] = section;
+        }
+
+        [Fact]
+        public void TryFindFirstNonRejectedFrameAtOrAfter_SkipsRejectedBoundaryFrame()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 50.0, latitude = 9999.0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 51.0, latitude = 1.0, bodyName = "Kerbin" },
+            };
+            OutlierFlags flags = MakeOutlierFlags(0, true, false);
+
+            bool found = RenderSessionState.TryFindFirstNonRejectedFrameAtOrAfter(
+                frames, 50.0, flags,
+                out int selectedIndex, out TrajectoryPoint pt, out int rejectedSkipped);
+
+            Assert.True(found);
+            Assert.Equal(1, selectedIndex);
+            Assert.Equal(51.0, pt.ut);
+            Assert.Equal(1, rejectedSkipped);
+        }
+
+        [Fact]
+        public void TryFindFirstNonRejectedFrameAtOrAfter_DoesNotBacktrackBeforeBoundary()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 49.0, latitude = 1.0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 50.0, latitude = 9999.0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 51.0, latitude = 8888.0, bodyName = "Kerbin" },
+            };
+            OutlierFlags flags = MakeOutlierFlags(0, false, true, true);
+
+            bool found = RenderSessionState.TryFindFirstNonRejectedFrameAtOrAfter(
+                frames, 50.0, flags,
+                out int selectedIndex, out TrajectoryPoint pt, out int rejectedSkipped);
+
+            Assert.False(found);
+            Assert.Equal(-1, selectedIndex);
+            Assert.Equal(default(TrajectoryPoint), pt);
+            Assert.Equal(2, rejectedSkipped);
+        }
+
+        [Fact]
+        public void TryEvaluatePerSegmentWorldPositions_OutlierFlags_FailsWhenNoCleanAtOrAfterBoundary()
+        {
+            var rec = MakeRecording("outlier-no-clean-forward", "Kerbin", 0.0, 51.0, 50.0, (9999.0, 8888.0, 70.0));
+            ReplaceSecondPoint(rec, 51.0, 7777.0, 6666.0, 70.0);
+            rec.Points.Insert(0, new TrajectoryPoint
+            {
+                ut = 49.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 70.0,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            });
+            SectionAnnotationStore.PutOutlierFlags(
+                rec.RecordingId, 0, MakeOutlierFlags(0, true, true));
+
+            bool ok = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rec, 0, 50.0,
+                (body, lat, lon, alt) => new Vector3d(lat, lon, alt),
+                out Vector3d recordedWorld,
+                out Vector3d smoothedWorld,
+                out bool splineHit,
+                out string failureReason);
+
+            Assert.False(ok);
+            Assert.Equal("no-clean-sample", failureReason);
+            Assert.Equal(0.0, recordedWorld.x, 6);
+            Assert.Equal(0.0, recordedWorld.y, 6);
+            Assert.Equal(0.0, recordedWorld.z, 6);
+            Assert.Equal(0.0, smoothedWorld.x, 6);
+            Assert.Equal(0.0, smoothedWorld.y, 6);
+            Assert.Equal(0.0, smoothedWorld.z, 6);
+            Assert.False(splineHit);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Smoothing]")
+                && l.Contains("anchor sample skipped")
+                && l.Contains("reason=no-clean-sample"));
+        }
+
+        [Fact]
+        public void TryEvaluatePerSegmentWorldPositions_OutlierFlags_SkipsRejectedRawBoundarySample()
+        {
+            // The section's first at-or-after sample is a synthetic kraken
+            // position at the branch UT. Phase 8 outlier annotations reject it,
+            // so the §9.1 boundary evaluator must use the next clean section
+            // frame rather than the flat Recording.Points fallback.
+            var rec = MakeRecording("outlier-rec", "Kerbin", 0.0, 51.0, 50.0, (9999.0, 8888.0, 70.0));
+            ReplaceSecondPoint(rec, 51.0, 1.0, 2.0, 70.0);
+            SectionAnnotationStore.PutOutlierFlags(
+                rec.RecordingId, 0, MakeOutlierFlags(0, true, false));
+
+            bool ok = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rec, 0, 50.0,
+                (body, lat, lon, alt) => new Vector3d(lat, lon, alt),
+                out Vector3d recordedWorld,
+                out Vector3d smoothedWorld,
+                out bool splineHit,
+                out string failureReason);
+
+            Assert.True(ok, failureReason);
+            Assert.Equal(1.0, recordedWorld.x, 6);
+            Assert.Equal(2.0, recordedWorld.y, 6);
+            Assert.Equal(70.0, recordedWorld.z, 6);
+            Assert.False(splineHit);
+            Assert.Equal(recordedWorld.x, smoothedWorld.x, 6);
+            Assert.Equal(recordedWorld.y, smoothedWorld.y, 6);
+            Assert.Equal(recordedWorld.z, smoothedWorld.z, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Smoothing]")
+                && l.Contains("outlierAware=true")
+                && l.Contains("sampleIndex=1")
+                && l.Contains("rejectedSkipped=1"));
+        }
+
         // ----- 1. marker-null guard ----------------------------------------
 
         [Fact]
