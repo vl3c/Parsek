@@ -58,8 +58,8 @@ namespace Parsek
         /// <summary>
         /// True when the player explicitly stashed a default-excluded stable
         /// slot into Unfinished Flights. Stashed slots stay re-flyable until
-        /// the player Seals them; structural close-outs such as downstream
-        /// branch points and boarded EVAs still use the classifier's normal
+        /// the player Seals them; recovered, docked/merged, boarded, and
+        /// downstream-branch outcomes still use the classifier's normal
         /// closed-path rules.
         /// </summary>
         public bool Stashed;

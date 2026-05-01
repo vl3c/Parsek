@@ -146,6 +146,39 @@ namespace Parsek.Tests
                 && l.Contains("reason=alreadyUnfinishedFlight"));
         }
 
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void TryStash_WorldInteractingTerminal_ReturnsUnsafeTerminalWithoutVersionBump(
+            TerminalState terminal)
+        {
+            var rec = Rec("rec_unsafe", terminal);
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot> { Slot(0, "rec_unsafe") }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(rec, out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("unsafeTerminal:" + terminal, reason);
+            Assert.False(rp.ChildSlots[0].Stashed);
+            Assert.Null(rp.ChildSlots[0].StashedRealTime);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stash unavailable")
+                && l.Contains("reason=unsafeTerminal:" + terminal));
+        }
+
         [Fact]
         public void TryStash_AlreadyStashedSlot_ReturnsFalseWithoutVersionBump()
         {

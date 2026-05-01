@@ -196,7 +196,7 @@ namespace Parsek
                 return false;
             }
 
-            if (slot?.Stashed == true && StashedTerminalQualifies(chainTip, terminal.Value))
+            if (slot?.Stashed == true && StashedTerminalQualifies(terminal.Value))
             {
                 int stashedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
                 int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
@@ -351,9 +351,17 @@ namespace Parsek
 
             Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec);
             TerminalState? terminal = chainTip?.TerminalStateValue;
-            if (!terminal.HasValue || !StashedTerminalQualifies(chainTip, terminal.Value))
+            if (!terminal.HasValue)
             {
-                reason = defaultReason ?? "notStashable";
+                reason = "noTerminal";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            if (!StashedTerminalQualifies(terminal.Value))
+            {
+                reason = "unsafeTerminal:" + terminal.Value;
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -590,7 +598,9 @@ namespace Parsek
                 return false;
 
             Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
-            return terminalRec != null && terminalRec.TerminalStateValue.HasValue;
+            return terminalRec != null
+                && terminalRec.TerminalStateValue.HasValue
+                && StashedTerminalQualifies(terminalRec.TerminalStateValue.Value);
         }
 
         /// <summary>
@@ -613,14 +623,15 @@ namespace Parsek
                 && rp.ChildSlots[slotListIndex]?.Sealed == false;
         }
 
-        private static bool StashedTerminalQualifies(Recording chainTip, TerminalState terminal)
+        private static bool StashedTerminalQualifies(TerminalState terminal)
         {
-            if (terminal == TerminalState.Destroyed)
-                return false;
-            if (terminal == TerminalState.Boarded
-                && !string.IsNullOrEmpty(chainTip?.EvaCrewName))
-                return false;
-            return true;
+            // Manual Stash is intentionally narrower than "stable terminal":
+            // recovery, dock/merge, and board/absorb outcomes have already
+            // changed career state or another vessel and are not safe to re-fly.
+            return terminal == TerminalState.Landed
+                || terminal == TerminalState.Splashed
+                || terminal == TerminalState.Orbiting
+                || terminal == TerminalState.SubOrbital;
         }
 
         private static bool IsManualStashOverrideReason(string reason)

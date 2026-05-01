@@ -603,6 +603,37 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]") && l.Contains("reason=stableTerminal"));
         }
 
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void StashedWorldInteractingTerminal_NotMember(TerminalState terminal)
+        {
+            var rec = Rec("rec_unsafe", MergeState.Immutable, terminal,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = -1,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_unsafe", stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=stableTerminal")
+                && l.Contains("terminal=" + terminal));
+        }
+
         [Fact]
         public void SealedSlot_NotMember()
         {
