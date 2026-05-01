@@ -5157,13 +5157,15 @@ namespace Parsek
         internal static bool ApplyDestroyedFallback(
             bool wasDestroyed, Recording rec)
         {
+            if (rec == null) return false;
             if (!wasDestroyed) return false;
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;
             rec.TerminalStateValue = TerminalState.Destroyed;
             ParsekLog.Info("Flight",
-                $"Scene-exit fallback: vessel destroyed during recording — overriding TerminalState " +
+                $"Finalization override: active-recorder destruction override for " +
+                $"'{rec.RecordingId ?? "(null)"}' — overriding TerminalState " +
                 $"from {prev?.ToString() ?? "null"} to Destroyed");
             return true;
         }
@@ -10207,6 +10209,10 @@ namespace Parsek
         /// </summary>
         void FinalizeTreeRecordings(RecordingTree tree, double commitUT, bool isSceneExit)
         {
+            string activeRecordingId = tree?.ActiveRecordingId;
+            bool activeRecorderDestroyedDuringRecording =
+                recorder != null && recorder.VesselDestroyedDuringRecording;
+
             // 1. Stop and flush the active recorder
             if (recorder != null)
             {
@@ -10232,14 +10238,21 @@ namespace Parsek
                 tree,
                 commitUT,
                 isSceneExit,
-                rec => ResolveFinalizationCacheForRecording(tree, rec));
+                resolveFinalizationCache: rec => ResolveFinalizationCacheForRecording(tree, rec),
+                resolveDestroyedDuringRecording: rec =>
+                    activeRecorderDestroyedDuringRecording
+                    && !string.IsNullOrEmpty(activeRecordingId)
+                    && string.Equals(rec?.RecordingId, activeRecordingId, StringComparison.Ordinal));
         }
 
         internal static void FinalizeTreeRecordingsAfterFlush(
             RecordingTree tree,
             double commitUT,
             bool isSceneExit,
-            Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null)
+            Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null,
+            Func<Recording, bool> resolveDestroyedDuringRecording = null,
+            Func<uint, Vessel> findVesselByPid = null,
+            FinalizationLiveVesselAccess liveVesselAccess = null)
         {
             var sceneExitLifetimeExtendedIds = isSceneExit
                 ? new HashSet<string>(StringComparer.Ordinal)
@@ -10260,7 +10273,19 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
-                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache, tree)
+                bool vesselDestroyedDuringRecording =
+                    resolveDestroyedDuringRecording != null
+                    && resolveDestroyedDuringRecording(recording);
+
+                if (FinalizeIndividualRecording(
+                        recording,
+                        commitUT,
+                        isSceneExit,
+                        finalizationCache,
+                        tree,
+                        vesselDestroyedDuringRecording,
+                        findVesselByPid,
+                        liveVesselAccess)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(recording?.RecordingId))
                 {
@@ -10764,13 +10789,70 @@ namespace Parsek
                 "FinalizeTreeRecordings: re-snapshotted active effective leaf");
         }
 
+        internal sealed class FinalizationLiveVesselAccess
+        {
+            internal static readonly FinalizationLiveVesselAccess Default =
+                new FinalizationLiveVesselAccess();
+
+            private readonly Func<Vessel, bool> isFound;
+            private readonly Func<Vessel, TerminalState> determineTerminalState;
+            private readonly Action<Recording, Vessel> captureTerminalOrbit;
+            private readonly Action<Recording, Vessel> captureTerminalPosition;
+            private readonly Func<Vessel, ConfigNode> tryBackupSnapshot;
+            private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
+
+            internal FinalizationLiveVesselAccess(
+                Func<Vessel, bool> isFound = null,
+                Func<Vessel, TerminalState> determineTerminalState = null,
+                Action<Recording, Vessel> captureTerminalOrbit = null,
+                Action<Recording, Vessel> captureTerminalPosition = null,
+                Func<Vessel, ConfigNode> tryBackupSnapshot = null,
+                Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null)
+            {
+                this.isFound = isFound ?? (vessel => vessel != null);
+                this.determineTerminalState = determineTerminalState
+                    ?? (vessel => RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
+                this.captureTerminalOrbit = captureTerminalOrbit ?? ParsekFlight.CaptureTerminalOrbit;
+                this.captureTerminalPosition = captureTerminalPosition ?? ParsekFlight.CaptureTerminalPosition;
+                this.tryBackupSnapshot = tryBackupSnapshot ?? VesselSpawner.TryBackupSnapshot;
+                this.tryRefreshStableTerminalSnapshot =
+                    tryRefreshStableTerminalSnapshot ?? ParsekFlight.TryRefreshStableTerminalSnapshot;
+            }
+
+            internal bool IsFound(Vessel vessel) => isFound(vessel);
+
+            internal TerminalState DetermineTerminalState(Vessel vessel) =>
+                determineTerminalState(vessel);
+
+            internal void CaptureTerminalOrbit(Recording rec, Vessel vessel) =>
+                captureTerminalOrbit(rec, vessel);
+
+            internal void CaptureTerminalPosition(Recording rec, Vessel vessel) =>
+                captureTerminalPosition(rec, vessel);
+
+            internal ConfigNode TryBackupSnapshot(Vessel vessel) =>
+                tryBackupSnapshot(vessel);
+
+            internal bool TryRefreshStableTerminalSnapshot(
+                Recording rec,
+                Vessel vessel,
+                bool isSceneExit,
+                string logPrefix) =>
+                tryRefreshStableTerminalSnapshot(rec, vessel, isSceneExit, logPrefix);
+        }
+
         internal static bool FinalizeIndividualRecording(
             Recording rec,
             double commitUT,
             bool isSceneExit,
             RecordingFinalizationCache finalizationCache = null,
-            RecordingTree treeContext = null)
+            RecordingTree treeContext = null,
+            bool vesselDestroyedDuringRecording = false,
+            Func<uint, Vessel> findVesselByPid = null,
+            FinalizationLiveVesselAccess liveVesselAccess = null)
         {
+            var vesselAccess = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
+
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
             {
@@ -10801,16 +10883,20 @@ namespace Parsek
             // disappears from the Unfinished Flights list (#224 follow-up).
             bool isLeaf = rec.ChildBranchPointId == null
                 || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext);
+            Func<uint, Vessel> vesselFinder = findVesselByPid ?? FlightRecorder.FindVesselByPid;
             Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
-                ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                ? vesselFinder(rec.VesselPersistentId)
                 : null;
+            // Headless tests may pass uninitialized Vessel stubs; use the access seam
+            // so Unity's overloaded == does not collapse them to null.
+            bool finalizeVesselFound = vesselAccess.IsFound(finalizeVessel);
             string restoredSceneExitReason = null;
             bool preserveRestoredSceneExitTerminalState =
                 isLeaf
                 && ShouldPreserveRestoredSceneExitTerminalState(
                     rec,
                     isSceneExit,
-                    vesselMissing: finalizeVessel == null,
+                    vesselMissing: !finalizeVesselFound,
                     out restoredSceneExitReason);
             bool sceneExitLifetimeExtended = false;
             bool sceneExitSuppliedSnapshots = false;
@@ -10818,7 +10904,7 @@ namespace Parsek
             bool cacheFinalizationApplied = false;
             bool cacheSuppliedTerminalOrbit = false;
 
-            if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
+            if (isLeaf && rec.VesselPersistentId != 0 && !finalizeVesselFound)
                 ParsekLog.Verbose("Flight",
                     $"FinalizeIndividualRecording: vessel pid={rec.VesselPersistentId} not found " +
                     $"for '{rec.RecordingId}' (isSceneExit={isSceneExit}) — re-snapshot will be skipped");
@@ -10863,7 +10949,7 @@ namespace Parsek
                     rec,
                     finalizationCache,
                     "FinalizeIndividualRecordingRepair",
-                    allowStale: finalizeVessel == null,
+                    allowStale: !finalizeVesselFound,
                     out _,
                     allowAlreadyFinalizedRepair: true))
             {
@@ -10874,18 +10960,18 @@ namespace Parsek
             // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
-                if (finalizeVessel != null)
+                if (finalizeVesselFound)
                 {
                     if (isSceneExit)
                         rec.SceneExitSituation = (int)finalizeVessel.situation;
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
-                    CaptureTerminalOrbit(rec, finalizeVessel);
-                    CaptureTerminalPosition(rec, finalizeVessel);
+                    rec.TerminalStateValue = vesselAccess.DetermineTerminalState(finalizeVessel);
+                    vesselAccess.CaptureTerminalOrbit(rec, finalizeVessel);
+                    vesselAccess.CaptureTerminalPosition(rec, finalizeVessel);
 
                     // Re-snapshot live vessels for Commit Flight path (fresh state)
                     if (!isSceneExit)
                     {
-                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
+                        ConfigNode freshSnapshot = vesselAccess.TryBackupSnapshot(finalizeVessel);
                         if (freshSnapshot != null)
                         {
                             rec.VesselSnapshot = freshSnapshot;
@@ -10914,10 +11000,10 @@ namespace Parsek
                 else if (isSceneExit)
                 {
                     // Scene exit: vessel unloaded (alive) but not findable. Recordings
-                    // for truly destroyed vessels already have TerminalStateValue set by
-                    // DeferredDestructionCheck / ApplyDestroyedFallback before finalization.
-                    // Reaching here without a terminal state means the vessel was alive
-                    // when unloaded. Infer terminal state from the last trajectory point.
+                    // with a recorder-observed destruction event are overridden after this
+                    // terminal-assignment block. Reaching here without that flag means the
+                    // vessel was alive when unloaded. Infer terminal state from the last
+                    // trajectory point.
                     //
                     // PR #572 follow-up: skip the surface inference when the recording was
                     // just repaired from the committed tree this frame (the trajectory
@@ -10993,6 +11079,9 @@ namespace Parsek
                 }
             }
 
+            if (isLeaf && !preserveRestoredSceneExitTerminalState)
+                ApplyDestroyedFallback(vesselDestroyedDuringRecording, rec);
+
             // #289: Re-snapshot the vessel whenever the recording has reached a stable terminal
             // state (Landed/Splashed/Orbiting) AND the live vessel is still findable. Without
             // this, the snapshot's `sit` field stays stale from recording-start (FLYING/SUB_ORBITAL),
@@ -11008,11 +11097,15 @@ namespace Parsek
                 && !cacheFinalizationApplied
                 && isLeaf
                 && rec.TerminalStateValue.HasValue
-                && finalizeVessel != null)
+                && finalizeVesselFound)
             {
                 var ts = rec.TerminalStateValue.Value;
                 if (IsStableSpawnTerminal(ts))
-                    TryRefreshStableTerminalSnapshot(rec, finalizeVessel, isSceneExit, "FinalizeIndividualRecording");
+                    vesselAccess.TryRefreshStableTerminalSnapshot(
+                        rec,
+                        finalizeVessel,
+                        isSceneExit,
+                        "FinalizeIndividualRecording");
             }
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
@@ -11032,8 +11125,10 @@ namespace Parsek
                     preserveSceneExitTerminalOrbit
                     || preserveFinalizationCacheTerminalOrbit;
                 string bodyBeforeRefresh = rec.TerminalOrbitBody;
-                if (!sceneExitLifetimeExtended && !cacheFinalizationApplied && finalizeVessel != null)
-                    CaptureTerminalOrbit(rec, finalizeVessel);
+                if (!sceneExitLifetimeExtended
+                    && !cacheFinalizationApplied
+                    && finalizeVesselFound)
+                    vesselAccess.CaptureTerminalOrbit(rec, finalizeVessel);
                 else if (preserveFinalizerSuppliedTerminalOrbit)
                     ParsekLog.Verbose("Flight",
                         $"FinalizeIndividualRecording: preserving " +
@@ -11067,7 +11162,7 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
                             $"for '{rec.RecordingId}' via orbit-segment fallback " +
-                            $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVesselFound}, " +
                             $"previousBody={bodyBeforeFallback ?? "(empty)"})");
                     }
                 }
@@ -11076,7 +11171,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Flight",
                         $"FinalizeIndividualRecording: terminal orbit refresh declined for '{rec.RecordingId}' " +
-                        $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                        $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVesselFound}, " +
                         $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — TerminalOrbitBody remains empty");
                 }
             }
@@ -17354,7 +17449,7 @@ namespace Parsek
         /// Returns true when the active Re-Fly target has trajectory data
         /// the per-frame anchor model can sample at the current playback
         /// UT. The predicate must agree with
-        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on TWO axes:
+        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on THREE axes:
         /// <list type="bullet">
         ///   <item><description><b>Source selection.</b> When a captured
         ///   pre-Re-Fly snapshot exists for the active session, the offset
@@ -17367,6 +17462,16 @@ namespace Parsek
         ///   Falling through to live in the snapshot-unsampleable case
         ///   would land on the player's NEW flight data (post-trim
         ///   extension), producing a circular self-anchored result.</description></item>
+        ///   <item><description><b>Chain extension.</b> When the active
+        ///   recording is part of a chain (optimizer-split halves, etc.),
+        ///   the primary list only covers up to the split UT. The sampler
+        ///   appends chain successors' track sections — they're untouched
+        ///   by Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
+        ///   trim. The predicate must consult the same combined list so a
+        ///   ghost spawning at decouple UT (which falls in the successor's
+        ///   range) sees true here and gets a real offset, instead of the
+        ///   sampler clamping to the split UT and producing a stale
+        ///   anchor 1-2 km off.</description></item>
         ///   <item><description><b>Section-at-UT.</b> The sampler picks
         ///   the section that covers <paramref name="currentUT"/> (or
         ///   clamps to the nearest endpoint section), then accepts /
@@ -17402,6 +17507,21 @@ namespace Parsek
         /// No fall-through — the live recording's post-trim extension is
         /// the player's NEW flight data and anchoring to it would be
         /// circular. Returns null when either input is null.
+        ///
+        /// <para>When the active Re-Fly recording is part of a chain
+        /// (e.g. an optimizer-split atmospheric / exo pair), the primary
+        /// list (snapshot or live) only covers up to the split UT. Player
+        /// flight past that UT — for instance, watching a decouple that
+        /// happened in the original timeline AFTER the split — needs the
+        /// chain successors' track sections to keep the anchor offset
+        /// honest. Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
+        /// trim leaves chain successors untouched (only the active rec
+        /// gets trimmed past cutoff), so their <see cref="Recording.TrackSections"/>
+        /// still hold the original recorded path and are safe to read.
+        /// Successor sections are appended in <see cref="Recording.ChainIndex"/>
+        /// order; the appended list is fed to <see cref="TrySampleRecordedAbsoluteWorld"/>
+        /// which selects the section covering the current UT (or clamps
+        /// to the nearest endpoint section, same as the no-chain case).</para>
         /// </summary>
         private static List<TrackSection> SelectReFlyAnchorSampleSections(
             Recording reFlyRec, ReFlySessionMarker marker)
@@ -17409,9 +17529,170 @@ namespace Parsek
             if (reFlyRec == null || marker == null) return null;
             // HasPreReFlyAnchorTrajectory short-circuits on a null/empty
             // sessionId, so no extra string check is needed here.
-            if (reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
-                return reFlyRec.PreReFlyAnchorTrackSections;
-            return reFlyRec.TrackSections;
+            List<TrackSection> primary = reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
+                ? reFlyRec.PreReFlyAnchorTrackSections
+                : reFlyRec.TrackSections;
+
+            // No chain → primary is the whole story. Returns the field-
+            // resident list directly (no allocation).
+            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
+                return primary;
+
+            return AppendReFlyAnchorChainSuccessorSections(primary, reFlyRec, marker);
+        }
+
+        /// <summary>
+        /// Walks the recording store for chain successors of the active
+        /// Re-Fly recording (same <see cref="Recording.ChainId"/>, strictly
+        /// greater <see cref="Recording.ChainIndex"/>, with non-empty
+        /// <see cref="Recording.TrackSections"/>) and appends their
+        /// sections to <paramref name="primary"/>. When no successors
+        /// exist, returns <paramref name="primary"/> unchanged so the
+        /// no-chain hot path stays allocation-free. Successors are scoped
+        /// to the active Re-Fly tree (<see cref="ReFlySessionMarker.TreeId"/>)
+        /// — chain IDs are tree-local and a global walk could collide.
+        /// The match predicate also requires
+        /// <see cref="Recording.ChainBranch"/> equality with the active
+        /// recording. <c>ChainBranch == 0</c> is the primary chain path
+        /// while <c>ChainBranch &gt; 0</c> is a parallel ghost-only
+        /// continuation (e.g. dock / undock branch-1 recordings); same
+        /// <c>ChainId</c> + different <c>ChainBranch</c> represent
+        /// independent vessel paths and must not be appended together,
+        /// otherwise the sampler would interleave a parallel vessel's
+        /// trajectory into the active branch's anchor list. The same
+        /// <c>(TreeId, ChainId, ChainBranch)</c> triplet is used by
+        /// <c>EffectiveState.EnqueueChainSiblings</c> to scope the merge
+        /// closure walk; this helper mirrors that contract.
+        /// Exposed as <c>internal</c> for unit testing of the
+        /// optimizer-split anchor scenario.
+        /// </summary>
+        internal static List<TrackSection> AppendReFlyAnchorChainSuccessorSections(
+            List<TrackSection> primary, Recording reFlyRec, ReFlySessionMarker marker)
+        {
+            if (reFlyRec == null || marker == null) return primary;
+            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
+                return primary;
+
+            List<Recording> successors = null;
+            string chainId = reFlyRec.ChainId;
+            int activeIdx = reFlyRec.ChainIndex;
+            int activeBranch = reFlyRec.ChainBranch;
+            string treeId = marker.TreeId;
+
+            // Scope the walk to the active Re-Fly tree. A null/empty
+            // marker.TreeId is a malformed marker; falling through to
+            // every committed tree could pull successors from an
+            // unrelated tree that happens to share a ChainId GUID.
+            RecordingTree activeTree = ResolveTreeById(treeId);
+            if (activeTree?.Recordings != null)
+            {
+                CollectChainSuccessors(activeTree, chainId, activeIdx, activeBranch, ref successors);
+            }
+            // The pending tree is the resume-time tree before the
+            // committed-trees publish, so include it if it shares the
+            // marker's TreeId. After publish, CommittedTrees holds the
+            // canonical tree and PendingTree is null — no double-count.
+            if (RecordingStore.HasPendingTree)
+            {
+                RecordingTree pending = RecordingStore.PendingTree;
+                if (pending != null
+                    && pending.Recordings != null
+                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal)
+                    && !object.ReferenceEquals(pending, activeTree))
+                {
+                    CollectChainSuccessors(pending, chainId, activeIdx, activeBranch, ref successors);
+                }
+            }
+
+            if (successors == null || successors.Count == 0)
+                return primary;
+
+            // Sort by ChainIndex so the appended sections stay in UT
+            // order. TrackSection.startUT inside each recording is
+            // already monotonic, and chain segments are temporally
+            // contiguous (successor.startUT == predecessor.endUT for
+            // optimizer splits), so sorting by ChainIndex preserves the
+            // sorted-by-startUT contract that FindTrackSectionForUT
+            // relies on.
+            successors.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+
+            int totalSections = primary?.Count ?? 0;
+            for (int i = 0; i < successors.Count; i++)
+                totalSections += successors[i].TrackSections.Count;
+
+            List<TrackSection> combined = new List<TrackSection>(totalSections);
+            if (primary != null) combined.AddRange(primary);
+            for (int i = 0; i < successors.Count; i++)
+                combined.AddRange(successors[i].TrackSections);
+
+            // One-line audit per active session per ~5s so the chain
+            // extension is visible in KSP.log without spamming. Key on
+            // sessionId + active recording so a session with multiple
+            // chain pairs (rare) still logs each.
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "refly-anchor-chain-extend|"
+                    + (marker.SessionId ?? "<no-sess>")
+                    + "|" + (reFlyRec.RecordingId ?? "<no-rec>"),
+                "Re-Fly anchor chain extension active: rec="
+                    + ShortRecordingId(reFlyRec.RecordingId)
+                    + " chainId=" + ShortRecordingId(reFlyRec.ChainId)
+                    + " activeIdx=" + reFlyRec.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " activeBranch=" + reFlyRec.ChainBranch.ToString(CultureInfo.InvariantCulture)
+                    + " primarySecs=" + (primary?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+                    + " appendedSuccessors=" + successors.Count.ToString(CultureInfo.InvariantCulture)
+                    + " totalSecs=" + combined.Count.ToString(CultureInfo.InvariantCulture),
+                5.0);
+
+            return combined;
+        }
+
+        private static void CollectChainSuccessors(
+            RecordingTree tree, string chainId, int activeIdx, int activeBranch,
+            ref List<Recording> successors)
+        {
+            if (tree?.Recordings == null) return;
+            foreach (KeyValuePair<string, Recording> pair in tree.Recordings)
+            {
+                Recording rec = pair.Value;
+                if (rec == null) continue;
+                if (rec.ChainIndex <= activeIdx) continue;
+                if (rec.ChainBranch != activeBranch) continue;
+                if (!string.Equals(rec.ChainId, chainId, StringComparison.Ordinal))
+                    continue;
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                    continue;
+                if (successors == null) successors = new List<Recording>(2);
+                successors.Add(rec);
+            }
+        }
+
+        private static RecordingTree ResolveTreeById(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return null;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees != null)
+            {
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    RecordingTree tree = trees[i];
+                    if (tree != null
+                        && string.Equals(tree.Id, treeId, StringComparison.Ordinal))
+                    {
+                        return tree;
+                    }
+                }
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                RecordingTree pending = RecordingStore.PendingTree;
+                if (pending != null
+                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
+                {
+                    return pending;
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -17491,7 +17772,11 @@ namespace Parsek
             // (not via a synthetic Recording wrapper) — this is the per-
             // frame, per-ghost hot path. SelectReFlyAnchorSampleSections
             // is the single source of truth shared with the gate's
-            // resolvability predicate.
+            // resolvability predicate; when the active recording is part
+            // of a chain (e.g. optimizer-split halves), it appends chain
+            // successors so currentUTs past the active's last section
+            // resolve to the successor's recorded path instead of
+            // clamping to the split UT.
             List<TrackSection> sampleSections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
             if (!TrySampleRecordedAbsoluteWorld(sampleSections, currentUT, out Vector3d recordedPos)
                 || !IsFiniteVector3d(recordedPos))

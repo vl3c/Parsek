@@ -4116,6 +4116,116 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
+        [Fact]
+        public void Persistence_SurfaceAtmoSurfaceTouchdownGraze_SuppressesAndLogsSurfaceCounters()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var rec = MakePersistenceRecording("surface-touchdown-graze", 681.46,
+                    (SegmentEnvironment.SurfaceMobile, 1.78, "Kerbin", false),
+                    (SegmentEnvironment.Atmospheric, 10.48, "Kerbin", false),
+                    (SegmentEnvironment.Atmospheric, 2.08, "Kerbin", false),
+                    (SegmentEnvironment.SurfaceMobile, 4.30, "Kerbin", false),
+                    (SegmentEnvironment.SurfaceStationary, 7.56, "Kerbin", false));
+
+                Assert.True(RecordingOptimizer.IsSurfaceGrazePattern(
+                    rec, 1, out var forwardReason));
+                Assert.Equal(
+                    RecordingOptimizer.SplitBoundaryReason.SuppressedSurfaceGrazeForward,
+                    forwardReason);
+                Assert.True(RecordingOptimizer.IsSurfaceGrazePattern(
+                    rec, 3, out var backwardReason));
+                Assert.Equal(
+                    RecordingOptimizer.SplitBoundaryReason.SuppressedSurfaceGrazeBackward,
+                    backwardReason);
+
+                var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+
+                Assert.Empty(candidates);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Optimizer]") &&
+                    l.Contains("Split summary:") &&
+                    l.Contains("rec=surface-touchdown-graze") &&
+                    l.Contains("surfaceGrazeForward=1") &&
+                    l.Contains("surfaceGrazeBackward=1"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
+        public void Persistence_SurfaceAtmoSurface_LongAtmoRunStillSplits()
+        {
+            var rec = MakePersistenceRecording("surface-long-atmo-surface", 17000,
+                (SegmentEnvironment.SurfaceStationary, 30, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, RecordingOptimizer.BriefSectionMaxSeconds + 1.0, "Kerbin", false),
+                (SegmentEnvironment.SurfaceMobile, 60, "Kerbin", false));
+
+            Assert.False(RecordingOptimizer.IsSurfaceGrazePattern(rec, 1, out _));
+            Assert.False(RecordingOptimizer.IsSurfaceGrazePattern(rec, 2, out _));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void Persistence_SurfaceBodyChange_RemainsHardSplit()
+        {
+            var rec = MakePersistenceRecording("surface-body-change", 17000,
+                (SegmentEnvironment.SurfaceStationary, 600, "Kerbin", false),
+                (SegmentEnvironment.SurfaceMobile, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void Persistence_ReentryExoAtmoSurfaceEndingInSurface_StillSplits()
+        {
+            var rec = MakePersistenceRecording("reentry-exo-atmo-surface", 17000,
+                (SegmentEnvironment.ExoBallistic, 1800, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 80, "Kerbin", false),
+                (SegmentEnvironment.SurfaceMobile, 60, "Kerbin", false));
+
+            Assert.False(RecordingOptimizer.IsGrazePattern(rec, 1, out _));
+            Assert.False(RecordingOptimizer.IsSurfaceGrazePattern(rec, 2, out _));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        [Fact]
+        public void Persistence_SurfaceApproachSurfaceGraze_Suppresses()
+        {
+            var rec = MakePersistenceRecording("surface-approach-surface-graze", 17000,
+                (SegmentEnvironment.SurfaceStationary, 60, "Mun", false),
+                (SegmentEnvironment.Approach, 40, "Mun", false),
+                (SegmentEnvironment.SurfaceMobile, 60, "Mun", false));
+
+            Assert.True(RecordingOptimizer.IsSurfaceGrazePattern(
+                rec, 1, out var forwardReason));
+            Assert.Equal(
+                RecordingOptimizer.SplitBoundaryReason.SuppressedSurfaceGrazeForward,
+                forwardReason);
+            Assert.True(RecordingOptimizer.IsSurfaceGrazePattern(
+                rec, 2, out var backwardReason));
+            Assert.Equal(
+                RecordingOptimizer.SplitBoundaryReason.SuppressedSurfaceGrazeBackward,
+                backwardReason);
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
         // Test #14: End of recording — `Exo[1500], Atmo[40, EOR]`. Only 2 sections, recording
         // ends in Atmo. The forward walk reaches sections.Count without finding a different-class
         // bracket. Falls through to split (conservative §3.3 default).

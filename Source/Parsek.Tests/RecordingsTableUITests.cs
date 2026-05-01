@@ -245,6 +245,37 @@ namespace Parsek.Tests
             Assert.Equal(0, slotListIndex);
         }
 
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void TryResolveStashableUnfinishedFlightRewindPoint_WorldInteractingTerminalRejected(
+            TerminalState terminal)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_unsafe",
+                VesselName = "Unsafe Child",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = terminal,
+                ParentBranchPointId = "bp_stage"
+            };
+            InstallScenarioWithRp(new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp_stage",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_unsafe") }
+            });
+
+            bool resolved = RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
+                rec, out RewindPoint rp, out int slotListIndex, out string reason);
+
+            Assert.False(resolved);
+            Assert.Null(rp);
+            Assert.Equal(-1, slotListIndex);
+            Assert.Equal("unsafeTerminal:" + terminal, reason);
+        }
+
         [Fact]
         public void StashedLandedChildResolvesAsUnfinishedFlightAndNoLongerStashable()
         {

@@ -23,6 +23,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.ResetForTesting();
+            Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RewindPointReaper.ResetTestOverrides();
@@ -39,6 +40,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
             RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
+            Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
         }
@@ -144,6 +146,81 @@ namespace Parsek.Tests
                 && l.Contains("[UnfinishedFlights]")
                 && l.Contains("Stash unavailable")
                 && l.Contains("reason=alreadyUnfinishedFlight"));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void TryStash_WorldInteractingTerminal_ReturnsUnsafeTerminalWithoutVersionBump(
+            TerminalState terminal)
+        {
+            var rec = Rec("rec_unsafe", terminal);
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot> { Slot(0, "rec_unsafe") }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(rec, out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("unsafeTerminal:" + terminal, reason);
+            Assert.False(rp.ChildSlots[0].Stashed);
+            Assert.Null(rp.ChildSlots[0].StashedRealTime);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stash unavailable")
+                && l.Contains("reason=unsafeTerminal:" + terminal));
+        }
+
+        [Fact]
+        public void TryStash_RecordingScopedScienceAction_ReturnsRecordingActionWithoutVersionBump()
+        {
+            var landed = Rec("rec_landed", TerminalState.Landed);
+            RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_landed")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_landed",
+                UT = 12.0,
+                SubjectId = "crewReport@MunSrfLanded",
+                ScienceAwarded = 1.5f,
+            });
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("recordingAction:ScienceEarning:act_sci", reason);
+            Assert.False(rp.ChildSlots[1].Stashed);
+            Assert.Null(rp.ChildSlots[1].StashedRealTime);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stash unavailable")
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci"));
         }
 
         [Fact]

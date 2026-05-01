@@ -620,30 +620,17 @@ namespace Parsek
                     SupersedeCommit.FlipMergeStateAndClearTransient(
                         marker, provisional, scenario, preserveMarker: false);
 
-                    // Force MergeState to Immutable for the in-place
-                    // continuation path. The default flip in
-                    // FlipMergeStateAndClearTransient can pick
-                    // CommittedProvisional for an unfinished outcome so a
-                    // separate-recording journaled merge can offer "re-fly
-                    // again" against the same RP. That semantic does NOT
-                    // apply here: there IS no separate provisional, and a
-                    // second re-fly would just extend the SAME recording
-                    // in place again. Treat the merge dialog confirm as
-                    // the player's commitment to the timeline, regardless
-                    // of whether the re-flight survived. Otherwise the
-                    // unsealed recording keeps MergeState=CommittedProvisional,
-                    // RewindPointReaper.IsReapEligible refuses to reap it,
-                    // and the row stays in Unfinished Flights forever.
+                    // SupersedeCommit owns the safety decision. If it left the
+                    // recording CommittedProvisional, the slot is deliberately
+                    // still re-flyable (terminal failure, safe stashed stable
+                    // leaf, or safe non-focus orbit/suborbit leaf). If it closed
+                    // the slot, it already wrote Immutable and any needed seal.
                     if (provisional.MergeState != MergeState.Immutable)
                     {
-                        var priorState = provisional.MergeState;
-                        provisional.MergeState = MergeState.Immutable;
-                        scenario.BumpSupersedeStateVersion();
                         ParsekLog.Info("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation forced " +
-                            $"MergeState {priorState} → Immutable on {provisional.RecordingId} " +
-                            "(merge is the player's commitment; no separate provisional " +
-                            "exists to track a future re-fly)");
+                            $"TryCommitReFlySupersede: in-place continuation retained " +
+                            $"MergeState {provisional.MergeState} on {provisional.RecordingId} " +
+                            "(slot remains re-flyable)");
                     }
                     ClearStashedSlotForInPlaceCommit(provisional, scenario);
 
@@ -658,14 +645,10 @@ namespace Parsek
                         $"sess={marker.SessionId ?? "<no-id>"}");
                     MergeJournalOrchestrator.TagRpsForReap(marker, scenario);
 
-                    // Reap the RP whose only slot is now Immutable (the
-                    // recording we just flipped). The journaled merge runs
-                    // RpReap as a checkpoint; the in-place continuation
-                    // path skips the journal but the same housekeeping
-                    // applies — without it the RP lingers, the recording
-                    // keeps satisfying IsUnfinishedFlight (terminal=Destroyed
-                    // + matching RP slot), and the row stays duplicated in
-                    // the Unfinished Flights virtual group after merge.
+                    // Reap any RP whose slots are now closed. Safety-closed
+                    // in-place outcomes are Immutable and eligible here; open
+                    // safe stable or terminal-failure outcomes remain for
+                    // another retry.
                     int reapedCount;
                     try
                     {
@@ -755,6 +738,15 @@ namespace Parsek
         {
             if (provisional == null || object.ReferenceEquals(null, scenario))
                 return;
+
+            if (provisional.MergeState != MergeState.Immutable)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"TryCommitReFlySupersede: in-place continuation kept stashed " +
+                    $"slot rec={provisional.RecordingId ?? "<no-id>"} " +
+                    $"mergeState={provisional.MergeState} (slot remains re-flyable)");
+                return;
+            }
 
             RewindPoint rp;
             int slotListIndex;
