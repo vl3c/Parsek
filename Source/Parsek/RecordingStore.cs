@@ -92,9 +92,9 @@ namespace Parsek
         //     binary bump because TrajectorySidecarBinary.WriteTrackSections is positional; legacy v7
         //     readers see a default-false flag (`v < 8` skips the byte). See
         //     docs/dev/plans/optimizer-persistence-split.md §5.3.
-        // v9: TrajectoryPoint.recordedGroundClearance per-sample double for SurfaceMobile sections
+        // v9: TrajectoryPoint.recordedGroundClearance per-sample double for surface sections
         //     (Phase 7 of the ghost trajectory rendering pipeline, design doc §13). NaN sentinel
-        //     for legacy points and non-SurfaceMobile environments — playback falls through to the
+        //     for legacy points and non-surface environments — playback falls through to the
         //     altitude-only path. Render-time correction:
         //         rendered_altitude = current_terrain_height(lat, lon) + recordedGroundClearance.
         //     Mandatory binary bump because TrajectorySidecarBinary's per-point layout is positional;

@@ -272,6 +272,35 @@ namespace Parsek.Tests
             Assert.Contains("rp_1", deletedRpIds);
         }
 
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void Reap_StashedWorldInteractingImmutableSlot_CountsAsClosed(
+            TerminalState terminal)
+        {
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_unsafe", MergeState.Immutable, terminal,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a"),
+                Slot(1, "rec_unsafe", stashedSlot: true));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(1, reaped);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Contains("rp_1", deletedRpIds);
+        }
+
         [Fact]
         public void Reap_StashedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
         {

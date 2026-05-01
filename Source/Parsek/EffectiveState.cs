@@ -64,6 +64,8 @@ namespace Parsek
                 suppressionCacheRootOverride = null;
                 suppressionCache = null;
             }
+
+            SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
         }
 
         /// <summary>

@@ -214,12 +214,18 @@ namespace Parsek
         /// </summary>
         internal const double BriefSectionMaxSeconds = 120.0;
 
+        private const int AtmosphericSplitClass = 0;
+        private const int ExoSplitClass = 1;
+        private const int SurfaceSplitClass = 2;
+        private const int ApproachSplitClass = 3;
+
         /// <summary>
         /// Result of the optimizer's per-boundary classification, used for diagnostic logging.
         /// The accept reasons (BodyChange / SurfaceInvolved / ExoPropulsiveAtCrossing /
         /// PersistedPhaseChange) drive the Verbose accept log; the suppress reasons
-        /// (SuppressedGrazeForward / SuppressedGrazeBackward / SuppressedBoundarySeam) feed
-        /// the per-recording aggregate suppression-counter log. NotABoundary is the case
+        /// (SuppressedGrazeForward / SuppressedGrazeBackward / SuppressedSurfaceGrazeForward /
+        /// SuppressedSurfaceGrazeBackward / SuppressedBoundarySeam) feed the per-recording
+        /// aggregate suppression-counter log. NotABoundary is the case
         /// where env class is unchanged AND body is unchanged — not a decision to log.
         /// See docs/dev/plans/optimizer-persistence-split.md §8.
         /// </summary>
@@ -232,6 +238,8 @@ namespace Parsek
             PersistedPhaseChange,
             SuppressedGrazeForward,
             SuppressedGrazeBackward,
+            SuppressedSurfaceGrazeForward,
+            SuppressedSurfaceGrazeBackward,
             SuppressedBoundarySeam
         }
 
@@ -241,7 +249,8 @@ namespace Parsek
         ///   1. Seam short-circuit (hard "always wins" override — Producer-C boundary seam).
         ///   2. Not a boundary (env unchanged AND body unchanged) — caller skips.
         ///   3. Body change (#251) — always meaningful.
-        ///   4. Surface involved — gated upstream by Vessel.Situations + debounce.
+        ///   4. Surface involved — split unless the boundary is a brief Atmo/Approach run
+        ///      bracketed by Surface on both sides.
         ///   5. ExoPropulsive at the crossing — engine firing, direct gameplay event.
         ///   6. Persistence predicate (graze-pattern detection via collapse-walk).
         /// </summary>
@@ -285,12 +294,19 @@ namespace Parsek
                 return true;
             }
 
-            // Step 4: Surface (class 2) on either side — always meaningful (gated upstream
-            // by Vessel.Situations + EnvironmentDetector debounce).
+            // Step 4: Surface (class 2) on either side — meaningful unless the non-surface
+            // side is a brief Atmospheric/Approach run bracketed by Surface. Body changes
+            // remain a hard split above this branch.
             int prevClass = SplitEnvironmentClass(prev.environment);
             int nextClass = SplitEnvironmentClass(next.environment);
-            if (prevClass == 2 || nextClass == 2)
+            if (prevClass == SurfaceSplitClass || nextClass == SurfaceSplitClass)
             {
+                if (IsSurfaceGrazePattern(rec, s, out var surfaceGrazeDirection))
+                {
+                    reason = surfaceGrazeDirection;
+                    return false;
+                }
+
                 reason = SplitBoundaryReason.SurfaceInvolved;
                 return true;
             }
@@ -385,9 +401,74 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Surface-specific graze predicate: suppresses a brief Atmospheric/Approach run
+        /// bracketed by Surface on both sides. Deliberately does not suppress a brief
+        /// Surface run bracketed by Atmospheric/Approach; a first touchdown/bounce remains
+        /// a meaningful Surface boundary and the subsequent brief descent can be folded into it.
+        /// </summary>
+        internal static bool IsSurfaceGrazePattern(
+            Recording rec, int s, out SplitBoundaryReason direction)
+        {
+            var sections = rec.TrackSections;
+            var prev = sections[s - 1];
+            var next = sections[s];
+            int prevClass = SplitEnvironmentClass(prev.environment);
+            int nextClass = SplitEnvironmentClass(next.environment);
+
+            // (A) Forward surface bracket: Surface -> [brief Atmo/Approach run] -> Surface.
+            int nextRunEndIdx = s;
+            while (nextRunEndIdx + 1 < sections.Count
+                && SplitEnvironmentClass(sections[nextRunEndIdx + 1].environment) == nextClass)
+            {
+                nextRunEndIdx++;
+            }
+            double nextRunCumDur = sections[nextRunEndIdx].endUT - next.startUT;
+            int forwardBracketIdx = nextRunEndIdx + 1;
+            if (prevClass == SurfaceSplitClass
+                && IsSurfaceGrazeBriefClass(nextClass)
+                && nextRunCumDur < BriefSectionMaxSeconds
+                && forwardBracketIdx < sections.Count
+                && SplitEnvironmentClass(sections[forwardBracketIdx].environment)
+                    == SurfaceSplitClass)
+            {
+                direction = SplitBoundaryReason.SuppressedSurfaceGrazeForward;
+                return true;
+            }
+
+            // (B) Backward surface bracket: Surface -> [brief Atmo/Approach run] -> Surface.
+            int prevRunStartIdx = s - 1;
+            while (prevRunStartIdx - 1 >= 0
+                && SplitEnvironmentClass(sections[prevRunStartIdx - 1].environment) == prevClass)
+            {
+                prevRunStartIdx--;
+            }
+            double prevRunCumDur = prev.endUT - sections[prevRunStartIdx].startUT;
+            int backwardBracketIdx = prevRunStartIdx - 1;
+            if (nextClass == SurfaceSplitClass
+                && IsSurfaceGrazeBriefClass(prevClass)
+                && prevRunCumDur < BriefSectionMaxSeconds
+                && backwardBracketIdx >= 0
+                && SplitEnvironmentClass(sections[backwardBracketIdx].environment)
+                    == SurfaceSplitClass)
+            {
+                direction = SplitBoundaryReason.SuppressedSurfaceGrazeBackward;
+                return true;
+            }
+
+            direction = SplitBoundaryReason.PersistedPhaseChange; // unused on false return
+            return false;
+        }
+
+        private static bool IsSurfaceGrazeBriefClass(int splitClass)
+        {
+            return splitClass == AtmosphericSplitClass || splitClass == ApproachSplitClass;
+        }
+
+        /// <summary>
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers and applies
-        /// the §3 / §3.1 boundary predicate (seam short-circuit, body / Surface / ExoPropulsive
-        /// short-circuits, persistence predicate). Used by the optimizer split pass.
+        /// the §3 / §3.1 boundary predicate (seam short-circuit, body hard split,
+        /// Surface default split with surface-graze suppression, ExoPropulsive short-circuit,
+        /// persistence predicate). Used by the optimizer split pass.
         /// </summary>
         /// <remarks>
         /// Splits are driven by `rec.TrackSections` only — `rec.OrbitSegments` is never
@@ -415,6 +496,8 @@ namespace Parsek
                 int evaluatedBoundaries = 0;
                 int suppressedGrazeForward = 0;
                 int suppressedGrazeBackward = 0;
+                int suppressedSurfaceGrazeForward = 0;
+                int suppressedSurfaceGrazeBackward = 0;
                 int suppressedBoundarySeam = 0;
                 int splittableButRejected = 0;
 
@@ -460,6 +543,12 @@ namespace Parsek
                         case SplitBoundaryReason.SuppressedGrazeBackward:
                             suppressedGrazeBackward++;
                             break;
+                        case SplitBoundaryReason.SuppressedSurfaceGrazeForward:
+                            suppressedSurfaceGrazeForward++;
+                            break;
+                        case SplitBoundaryReason.SuppressedSurfaceGrazeBackward:
+                            suppressedSurfaceGrazeBackward++;
+                            break;
                         case SplitBoundaryReason.SuppressedBoundarySeam:
                             suppressedBoundarySeam++;
                             break;
@@ -473,6 +562,7 @@ namespace Parsek
                 // suppressed by the §3 predicate — calling the whole line "Split suppressed"
                 // would imply the predicate caused all of it.
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
+                    || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
                     || suppressedBoundarySeam > 0 || splittableButRejected > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
@@ -480,6 +570,8 @@ namespace Parsek
                         $"evaluated={evaluatedBoundaries} " +
                         $"grazeForward={suppressedGrazeForward} " +
                         $"grazeBackward={suppressedGrazeBackward} " +
+                        $"surfaceGrazeForward={suppressedSurfaceGrazeForward} " +
+                        $"surfaceGrazeBackward={suppressedSurfaceGrazeBackward} " +
                         $"seamSkipped={suppressedBoundarySeam} " +
                         $"splittableButRejected={splittableButRejected}");
                 }
@@ -667,7 +759,7 @@ namespace Parsek
                         science = before.science + (after.science - before.science) * tf,
                         reputation = before.reputation + (after.reputation - before.reputation) * tf,
                         // Phase 7: lerp clearance between adjacent points; if either
-                        // is NaN (legacy / non-SurfaceMobile) the result is NaN and
+                        // is NaN (legacy / non-surface) the result is NaN and
                         // playback falls through to the legacy altitude path.
                         recordedGroundClearance = before.recordedGroundClearance
                             + (after.recordedGroundClearance - before.recordedGroundClearance) * t
@@ -1120,12 +1212,12 @@ namespace Parsek
         {
             switch (env)
             {
-                case SegmentEnvironment.Atmospheric: return 0;
-                case SegmentEnvironment.ExoPropulsive: return 1;
-                case SegmentEnvironment.ExoBallistic: return 1;
-                case SegmentEnvironment.SurfaceMobile: return 2;
-                case SegmentEnvironment.SurfaceStationary: return 2;
-                case SegmentEnvironment.Approach: return 3;
+                case SegmentEnvironment.Atmospheric: return AtmosphericSplitClass;
+                case SegmentEnvironment.ExoPropulsive: return ExoSplitClass;
+                case SegmentEnvironment.ExoBallistic: return ExoSplitClass;
+                case SegmentEnvironment.SurfaceMobile: return SurfaceSplitClass;
+                case SegmentEnvironment.SurfaceStationary: return SurfaceSplitClass;
+                case SegmentEnvironment.Approach: return ApproachSplitClass;
                 default: return (int)env;
             }
         }

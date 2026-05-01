@@ -18,7 +18,7 @@ namespace Parsek.Tests.Rendering
     /// <list type="number">
     ///   <item>v9 round-trip preserves the clearance value (positive,
     ///       finite double).</item>
-    ///   <item>v9 round-trip preserves a NaN clearance for non-SurfaceMobile
+    ///   <item>v9 round-trip preserves a NaN clearance for non-surface
     ///       points (legacy sentinel within a v9 file).</item>
     ///   <item>A pre-v9 file (e.g. v8) loaded under the v9 reader fills
     ///       <c>recordedGroundClearance = NaN</c> AND keeps every other
@@ -61,7 +61,7 @@ namespace Parsek.Tests.Rendering
         // ----- v9 round-trip (finite clearance) -----
 
         [Fact]
-        public void V9RoundTrip_SurfaceMobilePoint_PreservesFiniteClearance()
+        public void V9RoundTrip_SurfacePoint_PreservesFiniteClearance()
         {
             const double t0 = 40000.0;
             const double clearance = 1.5; // 1.5 m above terrain — nominal rover.
@@ -141,7 +141,7 @@ namespace Parsek.Tests.Rendering
 
             Assert.Single(restored.Points);
             Assert.True(double.IsNaN(restored.Points[0].recordedGroundClearance),
-                "v9 round-trip must preserve NaN sentinel for non-SurfaceMobile points");
+                "v9 round-trip must preserve NaN sentinel for non-surface points");
         }
 
         // ----- v8 legacy load defaults to NaN, preserves positional layout -----

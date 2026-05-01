@@ -11,6 +11,7 @@ namespace Parsek
     internal static class UnfinishedFlightClassifier
     {
         private const string Tag = "UnfinishedFlights";
+        internal const string RecordingActionReasonPrefix = "recordingAction:";
 
         internal static bool Qualifies(
             Recording rec,
@@ -146,11 +147,11 @@ namespace Parsek
                 // real rewind route of its own. Crash/debris bookkeeping BPs do
                 // not suppress the older playable split.
                 return TerminalOutcomeQualifiesInternal(
-                    recId, chainTip, slot, rp, out reason, branchSide);
+                    rec, recId, chainTip, slot, rp, out reason, branchSide);
             }
 
             return TerminalOutcomeQualifiesInternal(
-                recId, chainTip, slot, rp, out reason, branchSide);
+                rec, recId, chainTip, slot, rp, out reason, branchSide);
         }
 
         internal static bool TerminalOutcomeQualifies(
@@ -160,10 +161,11 @@ namespace Parsek
         {
             string reason;
             return TerminalOutcomeQualifiesInternal(
-                chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
+                null, chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
         }
 
         private static bool TerminalOutcomeQualifiesInternal(
+            Recording rec,
             string recId,
             Recording chainTip,
             ChildSlot slot,
@@ -182,6 +184,10 @@ namespace Parsek
 
             if (terminal.Value == TerminalState.Destroyed)
             {
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
+                    return false;
+
                 reason = "crashed";
                 LogVerdict(true, recId, reason, WithBranchSide("terminal=Destroyed", branchSide));
                 return true;
@@ -191,9 +197,14 @@ namespace Parsek
             {
                 if (terminal.Value != TerminalState.Boarded)
                 {
+                    string detail = WithBranchSide(
+                        $"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide);
+                    if (TryRejectRecordingScopedWorldAction(
+                        rec, recId, out reason, detail))
+                        return false;
+
                     reason = "strandedEva";
-                    LogVerdict(true, recId, reason,
-                        WithBranchSide($"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide));
+                    LogVerdict(true, recId, reason, detail);
                     return true;
                 }
 
@@ -203,15 +214,19 @@ namespace Parsek
                 return false;
             }
 
-            if (slot?.Stashed == true && StashedTerminalQualifies(chainTip, terminal.Value))
+            if (slot?.Stashed == true && StashedTerminalQualifies(terminal.Value))
             {
                 int stashedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
                 int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
+                string detail = WithBranchSide(
+                    $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
+                    branchSide);
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, detail))
+                    return false;
+
                 reason = "stashedStableLeaf";
-                LogVerdict(true, recId, reason,
-                    WithBranchSide(
-                        $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
-                        branchSide));
+                LogVerdict(true, recId, reason, detail);
                 return true;
             }
 
@@ -259,11 +274,15 @@ namespace Parsek
             if (terminal.Value == TerminalState.Orbiting
                 || terminal.Value == TerminalState.SubOrbital)
             {
+                string detail = WithBranchSide(
+                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                    branchSide);
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, detail))
+                    return false;
+
                 reason = "stableLeafUnconcluded";
-                LogVerdict(true, recId, reason,
-                    WithBranchSide(
-                        $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
-                        branchSide));
+                LogVerdict(true, recId, reason, detail);
                 return true;
             }
 
@@ -273,6 +292,26 @@ namespace Parsek
                     $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
                     branchSide));
             return false;
+        }
+
+        private static bool TryRejectRecordingScopedWorldAction(
+            Recording rec,
+            string recId,
+            out string reason,
+            string detail)
+        {
+            reason = null;
+            if (rec == null)
+                return false;
+
+            string actionSummary;
+            if (!SupersedeCommit.TryFindRecordingScopedWorldAction(
+                    rec, out actionSummary))
+                return false;
+
+            reason = RecordingActionReasonPrefix + actionSummary;
+            LogVerdict(false, recId, reason, detail);
+            return true;
         }
 
         internal static bool TryResolveStashableRewindPointForRecording(
@@ -358,9 +397,26 @@ namespace Parsek
 
             Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec);
             TerminalState? terminal = chainTip?.TerminalStateValue;
-            if (!terminal.HasValue || !StashedTerminalQualifies(chainTip, terminal.Value))
+            if (!terminal.HasValue)
             {
-                reason = defaultReason ?? "notStashable";
+                reason = "noTerminal";
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            if (!StashedTerminalQualifies(terminal.Value))
+            {
+                reason = "unsafeTerminal:" + terminal.Value;
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            string actionSummary;
+            if (SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            {
+                reason = RecordingActionReasonPrefix + actionSummary;
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -650,7 +706,9 @@ namespace Parsek
                 return false;
 
             Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
-            return terminalRec != null && terminalRec.TerminalStateValue.HasValue;
+            return terminalRec != null
+                && terminalRec.TerminalStateValue.HasValue
+                && StashedTerminalQualifies(terminalRec.TerminalStateValue.Value);
         }
 
         /// <summary>
@@ -673,14 +731,15 @@ namespace Parsek
                 && rp.ChildSlots[slotListIndex]?.Sealed == false;
         }
 
-        private static bool StashedTerminalQualifies(Recording chainTip, TerminalState terminal)
+        private static bool StashedTerminalQualifies(TerminalState terminal)
         {
-            if (terminal == TerminalState.Destroyed)
-                return false;
-            if (terminal == TerminalState.Boarded
-                && !string.IsNullOrEmpty(chainTip?.EvaCrewName))
-                return false;
-            return true;
+            // Manual Stash is intentionally narrower than "stable terminal":
+            // recovery, dock/merge, and board/absorb outcomes have already
+            // changed career state or another vessel and are not safe to re-fly.
+            return terminal == TerminalState.Landed
+                || terminal == TerminalState.Splashed
+                || terminal == TerminalState.Orbiting
+                || terminal == TerminalState.SubOrbital;
         }
 
         private static bool IsManualStashOverrideReason(string reason)
