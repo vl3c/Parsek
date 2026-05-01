@@ -15,9 +15,9 @@ namespace Parsek.Tests
     /// <para>The previous codec wrote 15 fields per point (ut/lat/lon/alt/rot/
     /// body/vel/funds/science/rep) and the deserializer always defaulted
     /// clearance to NaN — so a debug-time round-trip silently stripped the
-    /// SurfaceMobile clearance. These tests pin the symmetric contract:
+    /// surface-section clearance. These tests pin the symmetric contract:
     /// finite clearance round-trips, NaN clearance is omitted from the
-    /// serialized form (keeps non-SurfaceMobile mirrors terse), legacy
+    /// serialized form (keeps non-surface mirrors terse), legacy
     /// readers without the field default to NaN.</para>
     /// </summary>
     [Collection("Sequential")]

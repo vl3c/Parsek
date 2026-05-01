@@ -15289,8 +15289,9 @@ namespace Parsek
             TrajectoryPoint positioned = point;
             if (traj != null)
             {
-                var term = traj.TerminalStateValue;
-                if (term == TerminalState.Landed || term == TerminalState.Splashed)
+                if (ShouldApplyImmediatePointSurfaceClearance(
+                        traj.TerminalStateValue,
+                        traj.SurfacePos.HasValue))
                 {
                     positioned = ApplyLandedGhostClearance(
                         point, index, traj.VesselName, traj.TerrainHeightAtEnd,
@@ -15460,13 +15461,32 @@ namespace Parsek
                 System.Math.Max(0.5, minClearanceMeters));
         }
 
-        internal static bool ShouldApplyImmediateSurfacePositionClearance(double recordedTerrainHeight)
+        internal static bool ShouldApplyImmediateSurfacePositionClearance(
+            TerminalState? terminalState,
+            double recordedTerrainHeight,
+            bool hasSurfacePosition)
         {
-            return !double.IsNaN(recordedTerrainHeight);
+            return ShouldApplyImmediatePointSurfaceClearance(terminalState, hasSurfacePosition)
+                || !double.IsNaN(recordedTerrainHeight);
+        }
+
+        internal static bool ShouldApplyImmediatePointSurfaceClearance(
+            TerminalState? terminalState,
+            bool hasSurfacePosition)
+        {
+            if (terminalState == TerminalState.Landed
+                || terminalState == TerminalState.Splashed)
+                return true;
+
+            // A Recovered recording can still be a surface terminal recording
+            // when Parsek captured the landed/splashed terminal pose before KSP
+            // removed the vessel. Treat only those recovered recordings as
+            // surface ghosts; orbit/flight recoveries do not get a terrain clamp.
+            return terminalState == TerminalState.Recovered && hasSurfacePosition;
         }
 
         /// <summary>
-        /// Position a Landed/Splashed ghost. The recorded altitude is the TRUTH —
+        /// Position a surface-terminal ghost. The recorded altitude is the TRUTH —
         /// the vessel was literally at that world-space position when the terminal
         /// state was determined. For vessels recorded on mesh objects (Island
         /// Airfield, launchpad, KSC buildings), the altitude encodes the airfield
@@ -15554,7 +15574,10 @@ namespace Parsek
             if (state?.ghost == null || traj?.SurfacePos == null) return;
 
             SurfacePosition positioned = traj.SurfacePos.Value;
-            if (ShouldApplyImmediateSurfacePositionClearance(traj.TerrainHeightAtEnd))
+            if (ShouldApplyImmediateSurfacePositionClearance(
+                    traj.TerminalStateValue,
+                    traj.TerrainHeightAtEnd,
+                    traj.SurfacePos.HasValue))
             {
                 var syntheticPoint = new TrajectoryPoint
                 {
@@ -15577,8 +15600,12 @@ namespace Parsek
 
             PositionGhostAtSurface(state.ghost, positioned, ShouldAutoActivateGhost(state),
                 traj?.RecordingId);
-            state.lastInterpolatedBodyName = positioned.body;
-            state.lastInterpolatedAltitude = positioned.altitude;
+            // Surface holds are stationary. Keep watch-mode diagnostics and
+            // downstream state consumers from inheriting stale in-flight velocity.
+            state.SetInterpolated(new InterpolationResult(
+                Vector3.zero,
+                positioned.body,
+                positioned.altitude));
             // Surface positioning has no playback UT of its own — the
             // landed/splashed ghost sits at a fixed surface point. Use the
             // current planetary UT so the gate evaluates the offset at
@@ -15708,8 +15735,8 @@ namespace Parsek
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
             // Phase 7 (design doc §13.1, §18 Phase 7): when both endpoints
-            // carry a recorded ground clearance (SurfaceMobile section in a
-            // v9+ recording), substitute the interpolated altitude with
+            // carry a recorded ground clearance (surface section in a v9+
+            // recording), substitute the interpolated altitude with
             // current_terrain + clearance so the rendered ghost stays at
             // constant clearance even when KSP regenerates terrain mesh
             // between sessions. NaN sentinel on either endpoint ⇒ silent
@@ -16712,9 +16739,9 @@ namespace Parsek
             }
 
             // Phase 7 (design doc §13.1, §18 Phase 7): apply continuous terrain
-            // correction when the recorded SurfaceMobile section captured a
+            // correction when the recorded surface section captured a
             // ground clearance. Effective altitude = current_terrain + clearance.
-            // NaN sentinel ⇒ legacy / non-SurfaceMobile point ⇒ fall through to
+            // NaN sentinel ⇒ legacy / non-surface point ⇒ fall through to
             // the recorded altitude (HR-9 silent fall-through). See
             // ResolvePhase7EffectiveAltitude for the per-frame cache lookup
             // and Pipeline-Terrain logging.
@@ -16723,7 +16750,7 @@ namespace Parsek
             // (RELATIVE-frame playback uses InterpolateAndPositionRelative,
             // OrbitalCheckpoint uses orbit-driven positioning) — so the
             // helper's referenceFrame argument is hard-coded Absolute. The
-            // helper still NaN-fall-throughs on legacy/non-SurfaceMobile
+            // helper still NaN-fall-throughs on legacy/non-surface
             // points; the explicit Absolute argument is the P2-1 safety
             // gate against any future caller routing a Relative point here.
             double effectiveAltitude = ResolvePhase7EffectiveAltitude(
@@ -16765,7 +16792,7 @@ namespace Parsek
         /// Phase 7 (design doc §13.1, §18 Phase 7) — pure helper: given a
         /// recorded altitude and a recordedGroundClearance, returns the
         /// altitude to render at. When clearance is NaN (legacy point or
-        /// non-SurfaceMobile environment), returns the recorded altitude
+        /// non-surface environment), returns the recorded altitude
         /// unchanged (HR-9 silent fall-through). When clearance is finite,
         /// looks up the current terrain height at lat/lon via
         /// <see cref="Parsek.Rendering.TerrainCacheBuckets"/> and returns

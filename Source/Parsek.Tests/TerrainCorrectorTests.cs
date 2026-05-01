@@ -218,15 +218,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldApplyImmediateSurfacePositionClearance_NaNTerrain_False()
+        public void ShouldApplyImmediateSurfacePositionClearance_NullTerminalNaNTerrain_False()
         {
-            Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(double.NaN));
+            Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(
+                null, double.NaN, hasSurfacePosition: true));
         }
 
         [Fact]
         public void ShouldApplyImmediateSurfacePositionClearance_CapturedTerrain_True()
         {
-            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(283.1));
+            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(
+                null, 283.1, hasSurfacePosition: false));
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_RecoveredSurfaceNaNTerrain_True()
+        {
+            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(
+                TerminalState.Recovered, double.NaN, hasSurfacePosition: true));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.Splashed)]
+        public void ShouldApplyImmediateSurfacePositionClearance_SurfaceTerminalNaNTerrain_True(
+            TerminalState terminalState)
+        {
+            Assert.True(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(
+                terminalState, double.NaN, hasSurfacePosition: true));
+        }
+
+        [Fact]
+        public void ShouldApplyImmediateSurfacePositionClearance_RecoveredWithoutSurfaceNaNTerrain_False()
+        {
+            Assert.False(ParsekFlight.ShouldApplyImmediateSurfacePositionClearance(
+                TerminalState.Recovered, double.NaN, hasSurfacePosition: false));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed, false, true)]
+        [InlineData(TerminalState.Splashed, false, true)]
+        [InlineData(TerminalState.Recovered, true, true)]
+        [InlineData(TerminalState.Recovered, false, false)]
+        [InlineData(TerminalState.Orbiting, true, false)]
+        [InlineData(TerminalState.Destroyed, true, false)]
+        public void ShouldApplyImmediatePointSurfaceClearance_SurfaceTerminalsOnly(
+            TerminalState terminalState,
+            bool hasSurfacePosition,
+            bool expected)
+        {
+            Assert.Equal(expected, ParsekFlight.ShouldApplyImmediatePointSurfaceClearance(
+                terminalState, hasSurfacePosition));
+        }
+
+        [Fact]
+        public void ShouldApplyImmediatePointSurfaceClearance_NullTerminal_False()
+        {
+            Assert.False(ParsekFlight.ShouldApplyImmediatePointSurfaceClearance(
+                null, hasSurfacePosition: true));
         }
 
         [Fact]
