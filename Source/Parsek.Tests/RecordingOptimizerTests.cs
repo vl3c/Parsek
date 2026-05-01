@@ -781,6 +781,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SplitAtSection_EngineThrottleWithoutPriorIgnite_SeedsRunningEngine()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 100u,
+                eventType = PartEventType.EngineThrottle,
+                partName = "liquidEngine",
+                value = 0.65f,
+                moduleIndex = 0
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal(PartEventType.EngineIgnited, seed.eventType);
+            Assert.Equal((uint)100, seed.partPersistentId);
+            Assert.Equal(0, seed.moduleIndex);
+            Assert.Equal(0.65f, seed.value);
+        }
+
+        [Fact]
         public void SplitAtSection_SeedsIdleEngineShutdownSentinelIntoSecondHalf()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
@@ -846,6 +871,37 @@ namespace Parsek.Tests
             Assert.Equal((uint)200, seed.partPersistentId);
             Assert.Equal(1, seed.moduleIndex);
             Assert.Equal(0.6f, seed.value);
+        }
+
+        [Fact]
+        public void SplitAtSection_InsertsPermanentSeedsBeforeTransientSeeds()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17005,
+                partPersistentId = 90u,
+                eventType = PartEventType.ShroudJettisoned,
+                partName = "fairingBase",
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 100u,
+                eventType = PartEventType.EngineIgnited,
+                partName = "liquidEngine",
+                value = 0.5f,
+                moduleIndex = 0
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(2, second.PartEvents.Count);
+            Assert.Equal(PartEventType.ShroudJettisoned, second.PartEvents[0].eventType);
+            Assert.Equal(PartEventType.EngineIgnited, second.PartEvents[1].eventType);
+            Assert.All(second.PartEvents, e => Assert.Equal(17030, e.ut));
         }
 
         [Fact]

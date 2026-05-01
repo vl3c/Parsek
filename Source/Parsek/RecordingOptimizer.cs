@@ -696,11 +696,14 @@ namespace Parsek
             // 3. Partition PartEvents by UT
             PartitionPartEvents(original.PartEvents, second.PartEvents, splitUT);
 
-            // 3b. Forward permanent visual state events as seeds in the second half.
+            // 3b. Seed visual state at the split boundary. Permanent one-way events
+            // come first, followed by transient engine/RCS state at the same UT.
             // Events like ShroudJettisoned/FairingJettisoned in the first half represent
             // state at the split point — the second half's ghost needs them to render correctly.
-            ForwardPermanentStateEvents(original.PartEvents, second.PartEvents, splitUT);
+            // ForwardPermanentStateEvents inserts at the front, so run it after
+            // transient insertion to preserve permanent -> transient seed order.
             InsertTransientStateSeeds(transientStateSeeds, second.PartEvents, splitUT);
+            ForwardPermanentStateEvents(original.PartEvents, second.PartEvents, splitUT);
 
             // 4. Partition SegmentEvents by UT
             PartitionSegmentEvents(original.SegmentEvents, second.SegmentEvents, splitUT);

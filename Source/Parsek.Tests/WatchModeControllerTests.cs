@@ -547,6 +547,29 @@ namespace Parsek.Tests
 
             Assert.Equal(WatchCameraMode.HorizonLocked, aboveAtmosphere);
             Assert.Equal(WatchCameraMode.Free, belowAtmosphere);
+
+            WatchCameraMode normalAutoMode = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000,
+                preserveMode: false);
+            Assert.Equal(WatchCameraMode.Free, normalAutoMode);
+        }
+
+        [Fact]
+        public void ShouldRunAutomaticWatchCameraModeSelection_SuppressedAfterChainTransfer()
+        {
+            Assert.True(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: false,
+                suppressAutoModeAfterChainTransfer: false));
+            Assert.False(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: true,
+                suppressAutoModeAfterChainTransfer: false));
+            Assert.False(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: false,
+                suppressAutoModeAfterChainTransfer: true));
         }
 
         [Fact]
