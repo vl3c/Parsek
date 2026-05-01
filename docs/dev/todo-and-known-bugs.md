@@ -658,8 +658,8 @@ Kerbal X bundles found a recorder-side gap for the opposite case: stock
 looked at UI event activity and bool fields. That meant an already-extended
 ladder at recording start could miss its seed event, then be forced stowed by
 the new first-spawn baseline and remain visually retracted. Fix: classify
-`StateName` before the bool-field fallback, while ignoring transient
-`Extending` / `Retracting` states.
+stable `StateName` values before event-activity and bool-field fallbacks,
+while treating transient `Extending` / `Retracting` states as unclassified.
 
 The bug lived in `GhostPlaybackLogic.PopulateGhostInfoDictionaries`
 (`GhostPlaybackLogic.cs:1062`): it built `state.deployableInfos` from the
@@ -696,6 +696,11 @@ ghost paths must not NRE the spawn baseline).
 Follow-up regression tests in `FlightRecorderExtractedTests.cs` pin
 `StateName = Extended` / `Retracted` classification and ensure transient
 ladder state names stay unclassified.
+
+Remaining integration-test gap: add an in-game Kerbal X ladder-state seed test
+with one extended and one retracted stock ladder, then start a recording and
+assert the extended ladder emits a start-time `DeployableExtended` seed while
+the retracted ladder does not.
 
 ## ~~632. Optimizer meaningful-action gate broke per-phase loop splits~~
 
