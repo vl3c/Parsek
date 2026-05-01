@@ -757,6 +757,7 @@ namespace Parsek.Tests
             Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("FindGroupLegacyRewindRecordingIndex(descendants, committed, now)", groupBlock);
             Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("Rewind to launch: {targetName}", groupBlock);
             Assert.DoesNotContain("canWatch", groupBlock);
             Assert.DoesNotContain("hasGhost", groupBlock);
             Assert.DoesNotContain("sameBody", groupBlock);
@@ -1173,6 +1174,59 @@ namespace Parsek.Tests
                 new HashSet<int> { 0, 1 }, committed, now: 500.0);
 
             Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void FindGroupLegacyRewindRecordingIndex_WhenMainIsEligible_ReturnsMain()
+        {
+            var mainOwner = MakeRec(100, 200, "Main rewind owner");
+            mainOwner.RewindSaveFileName = "parsek_rw_main";
+            var laterOwner = MakeRec(300, 400, "Later rewind owner");
+            laterOwner.RewindSaveFileName = "parsek_rw_later";
+            var committed = new List<Recording> { mainOwner, laterOwner };
+
+            int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed, now: 500.0);
+
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void FindGroupLegacyRewindRecordingIndex_AllDebrisGroupStillMirrorsRowLevelGate()
+        {
+            var debrisOwner = MakeRec(100, 200, "Debris owner");
+            debrisOwner.IsDebris = true;
+            debrisOwner.RewindSaveFileName = "parsek_rw_debris";
+            var committed = new List<Recording> { debrisOwner };
+
+            int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
+                new HashSet<int> { 0 }, committed, now: 500.0);
+
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void FindGroupLegacyRewindRecordingIndex_UnfinishedFlightOwnerIsSuppressed()
+        {
+            var unfinished = MakeRec(100, 200, "Unfinished flight");
+            unfinished.RecordingId = "rec_uf";
+            unfinished.RewindSaveFileName = "parsek_rw_uf";
+            unfinished.MergeState = MergeState.Immutable;
+            unfinished.TerminalStateValue = TerminalState.Destroyed;
+            unfinished.ParentBranchPointId = "bp_uf";
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_uf",
+                BranchPointId = "bp_uf",
+                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_uf") }
+            };
+            InstallScenarioWithRp(rp);
+            var committed = new List<Recording> { unfinished };
+
+            int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
+                new HashSet<int> { 0 }, committed, now: 500.0);
+
+            Assert.Equal(-1, result);
         }
 
         [Fact]

@@ -2077,14 +2077,13 @@ namespace Parsek
             }
 
             // Rewind / Forward button. Forward still targets the group's main
-            // recording because "next launch" is a group-level time affordance.
-            // Rewind targets the earliest descendant that would draw a row-level
-            // legacy R so parent folders surface the same action as their
-            // child mission group.
+            // recording because "next launch" is a single group-level time
+            // affordance. Rewind scans descendants because a parent folder is
+            // an escalation surface for any child launch rewind.
+            bool isRecording = parentUI.InFlightMode && flight.IsRecording;
             if (mainIdx >= 0 && now < committed[mainIdx].StartUT)
             {
                 var mainRec = committed[mainIdx];
-                bool isRecording = parentUI.InFlightMode && flight.IsRecording;
 
                 string ffReason;
                 bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
@@ -2103,11 +2102,13 @@ namespace Parsek
                 if (rewindIdx >= 0)
                 {
                     var rewindRec = committed[rewindIdx];
-                    bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     string rewindReason;
                     bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
-                    string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
+                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                        ? "this launch"
+                        : rewindRec.VesselName;
+                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
                     if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                     {
                         ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
