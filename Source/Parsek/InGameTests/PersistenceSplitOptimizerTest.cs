@@ -26,6 +26,16 @@ namespace Parsek.InGameTests
     /// goes straight into <see cref="RecordingStore"/>. SPACECENTER is the cheapest scene
     /// the in-game test runner can launch into, so it minimises the cost of the smoke
     /// run without losing coverage of the production wiring.</para>
+    ///
+    /// <para><b>Non-destructive contract.</b> The test runner shares static
+    /// <see cref="RecordingStore"/> state with the player's live save. This test wraps
+    /// its synthetic-recording mutation in <see cref="RecordingStoreTestSnapshot"/> so a
+    /// real career save's recordings survive the run. Older versions of this file used
+    /// <c>RecordingStore.ResetForTesting()</c>, which deleted the player's recordings
+    /// from memory; the resulting OnSave then wrote zero RECORDING_TREE nodes over the
+    /// .sfs while sidecars stayed on disk (production bug 2026-05-01). The current
+    /// guard in <c>RecordingStore.ResetForTesting()</c> hard-fails any future regression
+    /// of this pattern.</para>
     /// </summary>
     public class PersistenceSplitOptimizerTest
     {
@@ -34,7 +44,8 @@ namespace Parsek.InGameTests
         public void RealAscentReentry_ProducesPerPhaseChain_InGame()
         {
             RecordingStore.SuppressLogging = true;
-            RecordingStore.ResetForTesting();
+            var snapshot = RecordingStoreTestSnapshot.Capture();
+            int baselineCount = RecordingStore.CommittedRecordings.Count;
 
             try
             {
@@ -90,7 +101,10 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                RecordingStore.ResetForTesting();
+                snapshot.Restore();
+                InGameAssert.AreEqual(baselineCount, RecordingStore.CommittedRecordings.Count,
+                    "Snapshot/restore should reinstate the player's live committed-recording count " +
+                    "after the synthetic test recording is removed.");
             }
         }
 
@@ -99,7 +113,8 @@ namespace Parsek.InGameTests
         public void EccentricGrazing_StaysOneSegment_InGame()
         {
             RecordingStore.SuppressLogging = true;
-            RecordingStore.ResetForTesting();
+            var snapshot = RecordingStoreTestSnapshot.Capture();
+            int baselineCount = RecordingStore.CommittedRecordings.Count;
 
             try
             {
@@ -140,7 +155,10 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                RecordingStore.ResetForTesting();
+                snapshot.Restore();
+                InGameAssert.AreEqual(baselineCount, RecordingStore.CommittedRecordings.Count,
+                    "Snapshot/restore should reinstate the player's live committed-recording count " +
+                    "after the synthetic test recording is removed.");
             }
         }
 
