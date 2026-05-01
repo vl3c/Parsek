@@ -1256,6 +1256,119 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AppendReFlyAnchorChainSuccessorSections_DifferentChainBranch_NotAppended()
+        {
+            // Same ChainId but different ChainBranch represents a parallel
+            // ghost-only continuation (e.g. dock / undock branch-1
+            // recordings) — independent vessel paths. Appending a
+            // branch-1 recording's TrackSections into a branch-0 anchor
+            // sample list would interleave a parallel vessel's trajectory
+            // and produce Re-Fly offsets computed against the wrong
+            // vessel path (1-2km off in the typical dock/undock split).
+            // The same (TreeId, ChainId, ChainBranch) triplet scopes
+            // EffectiveState.EnqueueChainSiblings; this helper mirrors
+            // that contract.
+            var primary = new List<TrackSection> { MakeAbsoluteSectionWithFrame(0, 5) };
+
+            var active = new Recording
+            {
+                RecordingId = "active-branch0", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 0, ChainBranch = 0,
+            };
+            // Same-branch successor: SHOULD be appended.
+            var sameBranchSuccessor = new Recording
+            {
+                RecordingId = "succ-branch0", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 1, ChainBranch = 0,
+            };
+            sameBranchSuccessor.TrackSections.Add(MakeAbsoluteSectionWithFrame(5, 10));
+            // Parallel-branch recording with the same ChainId+ChainIndex
+            // shape — represents a docked/undocked parallel path. MUST
+            // NOT be appended. Use a distinct, far-away UT range so a
+            // bug that lets it through would be visible in the test.
+            var parallelBranch = new Recording
+            {
+                RecordingId = "parallel-branch1", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 1, ChainBranch = 1,
+            };
+            parallelBranch.TrackSections.Add(MakeAbsoluteSectionWithFrame(1000, 2000));
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-1", TreeName = "tree-1", RootRecordingId = "active-branch0",
+            };
+            tree.Recordings["active-branch0"] = active;
+            tree.Recordings["succ-branch0"] = sameBranchSuccessor;
+            tree.Recordings["parallel-branch1"] = parallelBranch;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess", TreeId = "tree-1", ActiveReFlyRecordingId = "active-branch0",
+            };
+
+            var combined = ParsekFlight.AppendReFlyAnchorChainSuccessorSections(
+                primary, active, marker);
+
+            // Only the same-branch successor's section appended; the
+            // parallel-branch [1000, 2000] section must not appear.
+            Assert.Equal(2, combined.Count);
+            Assert.Equal(0.0, combined[0].startUT);
+            Assert.Equal(5.0, combined[1].startUT);
+            Assert.DoesNotContain(combined, s => s.startUT >= 1000.0);
+        }
+
+        [Fact]
+        public void AppendReFlyAnchorChainSuccessorSections_ActiveIsBranch1_AppendsBranch1Successor()
+        {
+            // Symmetric coverage: when the active recording is itself on
+            // a parallel branch (ChainBranch=1), only branch-1
+            // successors must be appended; branch-0 successors with the
+            // same ChainId stay independent.
+            var primary = new List<TrackSection> { MakeAbsoluteSectionWithFrame(0, 5) };
+
+            var active = new Recording
+            {
+                RecordingId = "active-branch1", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 0, ChainBranch = 1,
+            };
+            var branch0Successor = new Recording
+            {
+                RecordingId = "succ-branch0", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 1, ChainBranch = 0,
+            };
+            branch0Successor.TrackSections.Add(MakeAbsoluteSectionWithFrame(1000, 2000));
+            var branch1Successor = new Recording
+            {
+                RecordingId = "succ-branch1", TreeId = "tree-1",
+                ChainId = "chain-shared", ChainIndex = 1, ChainBranch = 1,
+            };
+            branch1Successor.TrackSections.Add(MakeAbsoluteSectionWithFrame(5, 10));
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-1", TreeName = "tree-1", RootRecordingId = "active-branch1",
+            };
+            tree.Recordings["active-branch1"] = active;
+            tree.Recordings["succ-branch0"] = branch0Successor;
+            tree.Recordings["succ-branch1"] = branch1Successor;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess", TreeId = "tree-1", ActiveReFlyRecordingId = "active-branch1",
+            };
+
+            var combined = ParsekFlight.AppendReFlyAnchorChainSuccessorSections(
+                primary, active, marker);
+
+            Assert.Equal(2, combined.Count);
+            Assert.Equal(0.0, combined[0].startUT);
+            Assert.Equal(5.0, combined[1].startUT);
+            Assert.DoesNotContain(combined, s => s.startUT >= 1000.0);
+        }
+
+        [Fact]
         public void AppendReFlyAnchorChainSuccessorSections_PredecessorIgnored()
         {
             // Only ChainIndex strictly greater than active is a successor;

@@ -17524,6 +17524,18 @@ namespace Parsek
         /// no-chain hot path stays allocation-free. Successors are scoped
         /// to the active Re-Fly tree (<see cref="ReFlySessionMarker.TreeId"/>)
         /// — chain IDs are tree-local and a global walk could collide.
+        /// The match predicate also requires
+        /// <see cref="Recording.ChainBranch"/> equality with the active
+        /// recording. <c>ChainBranch == 0</c> is the primary chain path
+        /// while <c>ChainBranch &gt; 0</c> is a parallel ghost-only
+        /// continuation (e.g. dock / undock branch-1 recordings); same
+        /// <c>ChainId</c> + different <c>ChainBranch</c> represent
+        /// independent vessel paths and must not be appended together,
+        /// otherwise the sampler would interleave a parallel vessel's
+        /// trajectory into the active branch's anchor list. The same
+        /// <c>(TreeId, ChainId, ChainBranch)</c> triplet is used by
+        /// <c>EffectiveState.EnqueueChainSiblings</c> to scope the merge
+        /// closure walk; this helper mirrors that contract.
         /// Exposed as <c>internal</c> for unit testing of the
         /// optimizer-split anchor scenario.
         /// </summary>
@@ -17537,6 +17549,7 @@ namespace Parsek
             List<Recording> successors = null;
             string chainId = reFlyRec.ChainId;
             int activeIdx = reFlyRec.ChainIndex;
+            int activeBranch = reFlyRec.ChainBranch;
             string treeId = marker.TreeId;
 
             // Scope the walk to the active Re-Fly tree. A null/empty
@@ -17546,7 +17559,7 @@ namespace Parsek
             RecordingTree activeTree = ResolveTreeById(treeId);
             if (activeTree?.Recordings != null)
             {
-                CollectChainSuccessors(activeTree, chainId, activeIdx, ref successors);
+                CollectChainSuccessors(activeTree, chainId, activeIdx, activeBranch, ref successors);
             }
             // The pending tree is the resume-time tree before the
             // committed-trees publish, so include it if it shares the
@@ -17560,7 +17573,7 @@ namespace Parsek
                     && string.Equals(pending.Id, treeId, StringComparison.Ordinal)
                     && !object.ReferenceEquals(pending, activeTree))
                 {
-                    CollectChainSuccessors(pending, chainId, activeIdx, ref successors);
+                    CollectChainSuccessors(pending, chainId, activeIdx, activeBranch, ref successors);
                 }
             }
 
@@ -17598,6 +17611,7 @@ namespace Parsek
                     + ShortRecordingId(reFlyRec.RecordingId)
                     + " chainId=" + ShortRecordingId(reFlyRec.ChainId)
                     + " activeIdx=" + reFlyRec.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " activeBranch=" + reFlyRec.ChainBranch.ToString(CultureInfo.InvariantCulture)
                     + " primarySecs=" + (primary?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
                     + " appendedSuccessors=" + successors.Count.ToString(CultureInfo.InvariantCulture)
                     + " totalSecs=" + combined.Count.ToString(CultureInfo.InvariantCulture),
@@ -17607,7 +17621,7 @@ namespace Parsek
         }
 
         private static void CollectChainSuccessors(
-            RecordingTree tree, string chainId, int activeIdx,
+            RecordingTree tree, string chainId, int activeIdx, int activeBranch,
             ref List<Recording> successors)
         {
             if (tree?.Recordings == null) return;
@@ -17616,6 +17630,7 @@ namespace Parsek
                 Recording rec = pair.Value;
                 if (rec == null) continue;
                 if (rec.ChainIndex <= activeIdx) continue;
+                if (rec.ChainBranch != activeBranch) continue;
                 if (!string.Equals(rec.ChainId, chainId, StringComparison.Ordinal))
                     continue;
                 if (rec.TrackSections == null || rec.TrackSections.Count == 0)
