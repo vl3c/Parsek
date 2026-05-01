@@ -457,8 +457,17 @@ namespace Parsek
 
             if (logFallback)
             {
-                ParsekLog.Error(Tag,
-                    slotLookupFailure + "; falling back to v0.9 terminalKind classifier");
+                if (IsInPlaceContinuation(marker, provisional))
+                {
+                    ParsekLog.Verbose(Tag,
+                        slotLookupFailure +
+                        "; in-place continuation: using v0.9 terminalKind classifier");
+                }
+                else
+                {
+                    ParsekLog.Error(Tag,
+                        slotLookupFailure + "; falling back to v0.9 terminalKind classifier");
+                }
             }
 
             return result;

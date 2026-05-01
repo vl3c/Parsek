@@ -424,6 +424,80 @@ namespace Parsek.Tests
             Assert.False(ok);
         }
 
+        [Fact]
+        public void TryClassifyRetractableLadderStateName_Extended_IsDeployed()
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                "Extended", out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.True(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Fact]
+        public void TryClassifyRetractableLadderStateName_Retracted_IsRetracted()
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                " retracted ", out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.False(isDeployed);
+            Assert.True(isRetracted);
+        }
+
+        [Theory]
+        [InlineData("Deployed", true, false)]
+        [InlineData("Stowed", false, true)]
+        public void TryClassifyRetractableLadderStateName_ModdedSynonyms_Classifies(
+            string stateName, bool expectedDeployed, bool expectedRetracted)
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                stateName, out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.Equal(expectedDeployed, isDeployed);
+            Assert.Equal(expectedRetracted, isRetracted);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Extending")]
+        [InlineData("Retracting")]
+        [InlineData("Broken")]
+        public void TryClassifyRetractableLadderStateName_TransientOrUnknown_ReturnsFalse(
+            string stateName)
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                stateName, out bool isDeployed, out bool isRetracted);
+
+            Assert.False(ok);
+            Assert.False(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Theory]
+        [InlineData("Extending")]
+        [InlineData(" retracting ")]
+        public void IsRetractableLadderTransientStateName_Transient_ReturnsTrue(
+            string stateName)
+        {
+            Assert.True(FlightRecorder.IsRetractableLadderTransientStateName(stateName));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Extended")]
+        [InlineData("Retracted")]
+        [InlineData("Broken")]
+        public void IsRetractableLadderTransientStateName_StableOrUnknown_ReturnsFalse(
+            string stateName)
+        {
+            Assert.False(FlightRecorder.IsRetractableLadderTransientStateName(stateName));
+        }
+
         #endregion
 
         #region ShouldSkipOrbitSegmentForAtmosphere

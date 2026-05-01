@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done — v0.9.1 orphan-cleanup safety guard
+
+- ~~`RecordingStore.CleanOrphanFiles` unconditionally deletes every sidecar file whose recording ID is not in the in-memory known-IDs set, with no protection for the "load lost its tree state" case.~~ Source: `Kerbal Space Program/KSP.log` from save `s19` showed `Save folder changed to 's19' — resetting session state` at 10:13:42 followed by `OnLoad initial: cleared CommittedTrees, loading 0 tree(s)` and then `CleanOrphanFiles: scanning 84 file(s) against 0 known recording ID(s)` deleting 84 sidecars across 12 recordings. The save's `quicksave.sfs` (last saved 09:31, before the bad session) still contained all 12 `RECORDING_TREE` blocks with the same IDs that just got physically deleted, but the trajectory/craft sidecars were unrecoverable. Some earlier session had loaded `persistent.sfs` (presumably with the trees), dropped the in-memory trees, and saved 0 trees back — leaving the sidecars stranded. The next load then deleted them, turning a recoverable accident (restore `RECORDING_TREE` blocks from `quicksave.sfs`) into permanent bulk-data loss.
+
+**Fix:** add a safety guard pair (`Source/Parsek/RecordingStore.cs`, `Source/Parsek/ParsekScenario.cs`):
+
+- `RecordingStore.ResolveRecordingsDirectoryForCurrentSave()` (new internal helper, extracted from the inline path resolution in `CleanOrphanFiles`) returns the active save's `Parsek/Recordings/` directory or null. `CollectSidecarIdsOnDisk()` (new internal helper) scans that directory and returns the set of distinct recording IDs whose sidecar files are present, excluding transient (`.tmp`, `.stage.`, `.bak.`) and legacy (`.pcrf`) artifacts.
+- `CleanOrphanFiles` now refuses to delete when `knownIds.Count == 0` AND the disk has at least one sidecar-shaped recording ID. The refusal logs a `[RecordingStore] WARN CleanOrphanFiles: REFUSING to delete — scenario reports 0 known recording IDs but disk has N sidecar-shaped recording ID(s) (M file(s) total). This usually means the scenario load lost its tree state. Sidecars preserved...` line and returns early. Transient/legacy artifacts cleanup still runs in the absence of any live sidecar IDs (the refusal path only activates when something recoverable is on disk).
+- `ParsekScenario.SaveTreeRecordings` (made `internal static` for test seam) now post-counts `node.GetNodes("RECORDING_TREE").Length` after `SaveActiveTreeIfAny`, and if that count is zero AND `RecordingStore.CollectSidecarIdsOnDisk()` returns a non-empty set, emits a `[Scenario] WARN OnSave: writing 0 RECORDING_TREE nodes but disk has N stranded sidecar recording ID(s)...` line. Diagnostic-only — the save still proceeds (KSP scenario contracts make refusing fragile), but the warn surfaces the originating state-management bug for log-watchers and pairs with the cleanup guard's preservation behavior on the next load.
+
+Regression coverage: `OrphanCleanupSafetyGuardTests.cs` (10 xUnit) — `CleanOrphanFiles_RefusesDeletion_WhenKnownIdsEmptyButDiskHasSidecarIds` reproduces the exact 84-file fault pattern; `CleanOrphanFiles_StillCleansTransientArtifacts_WhenKnownIdsEmpty`, `CleanOrphanFiles_NormalDeletion_WhenKnownIdsNonEmpty`, `CleanOrphanFiles_EmptyDirectory_DoesNotWarn` cover the false-positive guard; `CollectSidecarIdsOnDisk_*` (3 tests) pin the helper's distinct-ID + transient/legacy exclusion + missing-directory contract; `SaveTreeRecordings_WarnsWhenWritingZeroTrees_OverStrandedSidecars`, `SaveTreeRecordings_DoesNotWarn_WhenDiskIsAlsoEmpty`, `SaveTreeRecordings_DoesNotWarn_WhenWritingAtLeastOneTree` cover the OnSave diagnostic.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
+## Done — v0.9.1 unreserved-Missing crew spawn-block
+
+- ~~Spawner abandons end-of-recording real-vessel spawn when the snapshot's originals are merely Missing in the roster and no reservation maps them.~~ Source: `logs/2026-05-01_0058_spawn-investigation/KSP.log`. Recording #9 "Kerbal X" (id `f13451ce2d3143e3abcf36eb3bf53c18` in s19) had been KSC-spawned with snapshot crew already swapped to active stand-ins (Erburry/Dongar/Mertop), then a plain Rewind to recording #0 "Kerbal X" stripped the spawned vessel and the rewind quicksave loaded with `[CrewReservation] Loaded 0 crew replacements`. At UT 131.6 the playback completed and the policy fired `needsSpawn=True`, but `[Spawner] ShouldBlockSpawnForDeadCrew: 3/3 crew dead — blocking spawn` followed by `[Spawner] Spawn ABANDONED for #9 (Kerbal X): no spawnable crew — total=3 strictlyDead=0 missingNotReserved=3 reservedMissing=0 alive=0 [Jebediah Kerman: MissingNotReserved, Bill Kerman: MissingNotReserved, Bob Kerman: MissingNotReserved]` permanently locked the recording (`VesselSpawned=true SpawnAbandoned=true`). The originals are alive — Missing is transient and KSP's natural respawn timer would have rescued them — but the block fired before the timer ran. Pre-fix `BuildDeadCrewSet` added `IsCrewDeadInRoster(name) && !reserved.ContainsKey(name)` to the dead set; #608/#609 carved out only Reserved+Missing because the post-Re-Fly scenario always has reservations, but a plain Rewind loses scenario-side reservation state and lands in MissingNotReserved.
+
+**Fix:** extend the #608/#609 carve-out to cover unreserved Missing crew too (`Source/Parsek/VesselSpawner.cs`):
+
+- `BuildDeadCrewSet` only adds StrictlyDead now. Missing crew never go into the dead set, regardless of reservation.
+- `RescueReservedMissingCrewInSnapshot` now flips ALL Missing snapshot crew → Available before `ProtoVessel.Load`. The `rescuedNames` collector still receives only RESERVED rescues — the pid-scoped rescue-placed marker (#615 P1 fourth pass) suppresses ApplyToRoster stand-in re-creation and only matters when a reservation is in flight; unreserved rescues have no stand-in lifecycle to suppress.
+- `ShouldBlockSpawnForDeadCrewInSnapshot` carve-out Verbose log now fires for either `ReservedMissingRescuable` OR `MissingNotReserved` rescues. The `Spawn-block carve-out applied (#608/#609/#687)` line (renamed from `(#608/#609)`) makes the recovery visible in playtest logs.
+- `RemoveDeadCrewFromSnapshot` is unchanged — by the time it runs in the spawn pipeline, the rescue helper has flipped Missing → Available, so the existing keep/remove decision keeps them.
+
+Regression coverage: `Bug687Tests.cs` (xUnit pure pieces — `ShouldBlockSpawnForDeadCrew` decisions for the empty / mixed / all-StrictlyDead cases, `FormatSpawnableClassificationSummary` shape after rescue); in-game test `Bug687_UnreservedMissingCrewIsSpawnableAndRescued` in `InGameTests/RuntimeTests.cs` exercises the live-roster path (no reservation, RosterStatus=Missing, classification check, spawn-block check, rescue helper flips Missing→Available even without a reservation, `rescuedNames` stays empty for unreserved rescues, full rollback).
+
+**Status:** CLOSED 2026-05-01 (PR #687). Cross-reference `#608`/`#609` (the reserved-only fix this extends) and `#615` (the pid-scoped rescue-placed marker that still applies only to reserved rescues).
+
+---
+
+## Done - v0.9.1 UF stash/seal fixes
+
+- ~~Sealing a stashed Unfinished Flight could delete the rewind-point quicksave before the sealed slot reached `persistent.sfs`, leaving a ghost STASH row with disabled Fly after Rewind-to-Launch or quickload.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` (`09:31:59.815` Seal click through `09:32:35.380` disabled Re-Fly). Fix: Seal now forces a persistent save after setting `slot.Sealed=true` and before RP reaping, defers RP file deletion if that save fails, and load-time sweep seals/reaps persistent RPs whose quicksave file is already missing so older inconsistent saves converge. The sweep skips the active Re-Fly marker's RP and session-provisional RPs, and reports only missing-file RPs it actually cleaned.
+- ~~`UnfinishedFlightClassifier.HasStashedResolvedSlot` treated sealed stashed slots as open stash slots, relying on downstream `TryQualify(considerSealed: true)` callers to reject them later.~~ Source: hardening follow-up from `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` after the seal/load inconsistency exposed a sealed-vs-stashed boundary. Fix: the helper now treats `Stashed && Sealed` as closed, matching the RP reaper rule that sealed wins.
+- ~~A stable leaf that was both stashable and the legacy Rewind-to-Launch owner rendered only `Stash`, hiding the launch rewind action on the same row.~~ Source: reproduction described from the STASH playtest path in `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log`; focus-slot stable Landed rows can own both affordances. Fix: the recordings table now uses separate Rewind and Re-Fly columns and grows the collapsed/Info-expanded default widths for the added column. Rewind/Forward remains in the Rewind column; stable-row `Stash | Seal` lives under Re-Fly, explicitly allowing the player to stash the slot for later or permanently close it in one confirmed Seal action without hiding launch rewind.
+- ~~In-place continuation Re-Fly merge emitted `[ERROR][Supersede] Site B-1 slot lookup failed` even though `provisional == origin == supersedeTarget` and the v0.9 terminalKind fallback produced the intended merge state.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log:15529`. Fix: the in-place continuation case keeps the fallback path but logs it at VERBOSE with an explicit reason; non-in-place slot-aware classification failures still error or abort as before.
+- ~~In-place continuation marker rebuild logged `[WARN][Pipeline-Anchor] orphan-marker-no-parent-branchpoint` twice and ran a no-op clear even though launch-root in-place continuations intentionally have no parent BranchPoint.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log:13153` and `:14478`. Fix: marker rebuild now detects `OriginChildRecordingId == ActiveReFlyRecordingId`, installs an empty session anchor map, and logs the intentional null parent BP at VERBOSE instead of WARN.
+
 ## Done - v0.9.1 in-place Re-Fly STASH cleanup
 
 - ~~In-place continuation Re-Fly of a Destroyed recording leaves the committed origin in STASH when the re-flight crashes again and a surviving piece lands.~~ Source: `logs/2026-04-30_2306_post-679-680-681-merge/`; origin `d5871b0dc3354e7094aa145ce1f0ac7a`, survivor `9078c3dcde9045cb8939d889aeeb8552`, session `sess_a72d601737884d33a309860260fba6ea`, surviving RP `rp_049304412955410185359b9ee1bf010d`. Diagnosis: the in-place merge path cleared the Re-Fly marker before running RP cleanup and skipped the session-RP promotion step used by the journaled merge path, so the session-provisional RP stayed unreapable and kept slot 0 mapped to the Destroyed origin. Fix: `MergeDialog.TryCommitReFlySupersede` now promotes session-created RPs after marker/state finalization succeeds and immediately before cleanup, using the local marker's session id, then the existing reaper removes any RP whose slots resolve to closed recordings; `SupersedeCommitTests.TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap` pins the RP promotion ordering, reaping, STASH-membership drop, and log evidence. The different-PID survivor still follows the existing side-off closure gate; supersede-row policy for session-created side-offs remains a separate follow-up.
@@ -622,15 +663,25 @@ Phase 8 PR #644 was rebased onto Phase 5 tip `83bef832` so the branch now carrie
 
 ## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
 
-**Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.
+**Status:** ~~done~~ — initial stow-baseline fix landed on
+`claude/fix-ladder-state-bug-2cQL1`; follow-up fix now covers
+`RetractableLadder.StateName` seeding for ladders that start extended.
 
 Stock retractable ladders showed up extended in the ghost snapshot even when
-the recording started with them stowed. The recorder side was correct:
-`PartStateSeeder.SeedLadders` only seeds deployed ladders into the
-`deployedLadders` set, so a stowed ladder produces no `DeployableExtended`
-seed event at recording start, and per-frame transitions during the recording
-correctly emit `DeployableExtended` / `DeployableRetracted` events from
-`FlightRecorder.CheckLadderState`. The toggle-action recording works.
+the recording started with them stowed. For default-stowed recordings,
+`PartStateSeeder.SeedLadders` intentionally emits no `DeployableExtended`
+seed event at recording start, so the first-spawn ghost path needs to apply a
+stowed visual baseline.
+
+Follow-up investigation against `logs/2026-04-08_mun-mission` and the recent
+Kerbal X bundles found a recorder-side gap for the opposite case: stock
+`RetractableLadder` exposes stable state as `StateName = Extended` /
+`Retracted`, but `FlightRecorder.TryClassifyRetractableLadderState` only
+looked at UI event activity and bool fields. That meant an already-extended
+ladder at recording start could miss its seed event, then be forced stowed by
+the new first-spawn baseline and remain visually retracted. Fix: classify
+stable `StateName` values before event-activity and bool-field fallbacks,
+while treating transient `Extending` / `Retracting` states as unclassified.
 
 The bug lived in `GhostPlaybackLogic.PopulateGhostInfoDictionaries`
 (`GhostPlaybackLogic.cs:1062`): it built `state.deployableInfos` from the
@@ -663,6 +714,15 @@ when `deployableInfos` is null or empty (no log noise); (c) the dict is
 keyed by `partPersistentId` so seed events can find the matching info; (d)
 defensive null-transform handling in `ApplyDeployableState` (unresolved
 ghost paths must not NRE the spawn baseline).
+
+Follow-up regression tests in `FlightRecorderExtractedTests.cs` pin
+`StateName = Extended` / `Retracted` classification and ensure transient
+ladder state names stay unclassified.
+
+Remaining integration-test gap: add an in-game Kerbal X ladder-state seed test
+with one extended and one retracted stock ladder, then start a recording and
+assert the extended ladder emits a start-time `DeployableExtended` seed while
+the retracted ladder does not.
 
 ## ~~632. Optimizer meaningful-action gate broke per-phase loop splits~~
 

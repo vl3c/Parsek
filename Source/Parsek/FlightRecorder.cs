@@ -1239,6 +1239,43 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryClassifyRetractableLadderStateName(
+            string stateName, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (string.IsNullOrWhiteSpace(stateName))
+                return false;
+
+            string normalized = stateName.Trim();
+            // Stock uses Extended/Retracted; Deployed/Stowed covers modded ladder variants.
+            if (string.Equals(normalized, "Extended", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Deployed", StringComparison.OrdinalIgnoreCase))
+            {
+                isDeployed = true;
+                return true;
+            }
+
+            if (string.Equals(normalized, "Retracted", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Stowed", StringComparison.OrdinalIgnoreCase))
+            {
+                isRetracted = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool IsRetractableLadderTransientStateName(string stateName)
+        {
+            if (string.IsNullOrWhiteSpace(stateName))
+                return false;
+
+            string normalized = stateName.Trim();
+            return string.Equals(normalized, "Extending", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Retracting", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static bool TryClassifyRetractableLadderState(
             PartModule ladderModule, out bool isDeployed, out bool isRetracted)
         {
@@ -1246,12 +1283,23 @@ namespace Parsek
             isRetracted = false;
             if (ladderModule == null) return false;
 
+            string stateName;
+            if (TryGetModuleStringField(ladderModule, "StateName", out stateName))
+            {
+                if (TryClassifyRetractableLadderStateName(
+                    stateName, out isDeployed, out isRetracted))
+                    return true;
+
+                if (IsRetractableLadderTransientStateName(stateName))
+                    return false;
+            }
+
             bool sawExtendEvent = false;
             bool sawRetractEvent = false;
             bool canExtend = false;
             bool canRetract = false;
 
-            // Prefer event activity, which directly reflects action availability.
+            // Fallback to event activity, which reflects action availability when StateName is absent.
             if (ladderModule.Events != null)
             {
                 for (int i = 0; i < ladderModule.Events.Count; i++)
@@ -1774,6 +1822,33 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool TryGetModuleStringField(PartModule module, string fieldName, out string value)
+        {
+            value = null;
+            if (module == null || module.Fields == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            try
+            {
+                BaseField field = module.Fields[fieldName];
+                if (field == null)
+                    return false;
+
+                object raw = field.GetValue(module);
+                if (raw == null)
+                    return false;
+
+                value = raw.ToString();
+                return !string.IsNullOrWhiteSpace(value);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", $"string-field-{fieldName}",
+                    $"TryGetModuleStringField exception for '{fieldName}' on {module.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         internal static void ClassifyGearState(string stateString, out bool isDeployed, out bool isRetracted)
