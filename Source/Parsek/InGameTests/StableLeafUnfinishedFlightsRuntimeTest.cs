@@ -57,6 +57,7 @@ namespace Parsek.InGameTests
             debris.IsDebris = true;
             var landed = NewRecording(treeId, bpId, "landed_" + suffix,
                 "StableLeaf IGT Landed Probe", MergeState.Immutable, TerminalState.Landed);
+            landed.RewindSaveFileName = "stableleaf_igt_rw_" + suffix;
 
             var branchPoint = new BranchPoint
             {
@@ -145,6 +146,13 @@ namespace Parsek.InGameTests
                     RecordingsTableUI.TryResolveStashableUnfinishedFlightRewindPoint(
                         landed, out resolvedRp, out resolvedSlot),
                     "Landed default-excluded slot should expose a Stash route while the RP exists");
+                InGameAssert.IsTrue(
+                    RecordingsTableUI.ShouldShowLegacyRewindButton(landed, now: 200.0),
+                    "Focus-slot stable Landed owner should keep Rewind-to-Launch in the Rewind column");
+                InGameAssert.AreEqual(
+                    RecordingsTableUI.ReFlyColumnAction.StashSeal,
+                    RecordingsTableUI.ResolveReFlyColumnAction(landed),
+                    "Focus-slot stable Landed owner should expose Stash and Seal in the Re-Fly column");
                 InGameAssert.AreEqual(rp, resolvedRp,
                     "Stash route should resolve the synthetic Rewind Point");
                 InGameAssert.AreEqual(5, resolvedSlot,
@@ -174,6 +182,7 @@ namespace Parsek.InGameTests
 
                 UnfinishedFlightSealHandler.UtcNowForTesting =
                     () => new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                UnfinishedFlightSealHandler.SavePersistentForTesting = () => true;
 
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(orbiting, out reason),
                     "Sealing the orbiting member should succeed");
