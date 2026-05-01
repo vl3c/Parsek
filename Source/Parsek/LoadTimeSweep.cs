@@ -83,6 +83,12 @@ namespace Parsek
                 // so the gate's forcedFlag tracking stays consistent if
                 // OnLoad fires inside an already-loaded flight scene.
                 ReFlyRevertButtonGate.Apply("LoadTimeSweep:invalid-marker");
+                // #688 follow-up: snapshots tagged with the cleared session
+                // id are picked up by SweepOrphanPreReFlyAnchorSnapshots at
+                // the end of this same Sweep pass — no targeted clear here
+                // (it would double-log the same recording). The orphan
+                // sweep treats any snapshot whose sessionId differs from
+                // the live marker (now null) as orphan and clears it.
             }
             else if (markerValid)
             {
@@ -234,6 +240,20 @@ namespace Parsek
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
 
             // ----------------------------------------------------------------
+            // Step 8.6 (#688 follow-up): defensive backstop for orphan
+            // pre-Re-Fly anchor snapshots. The expected lifecycle clears
+            // each snapshot when its session ends (merge / retry / discard
+            // / invalid-marker branch above). This sweep catches any
+            // snapshot whose session id no longer matches the live marker
+            // — e.g. a future code path that clears the marker without
+            // calling SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession,
+            // or a save that interleaved a marker clear with a snapshot
+            // leftover. Keeps the persisted PRE_REFLY_ANCHOR ConfigNode
+            // bounded to active sessions only.
+            // ----------------------------------------------------------------
+            int orphanSnapshotsCleared = SweepOrphanPreReFlyAnchorSnapshots(scenario);
+
+            // ----------------------------------------------------------------
             // Step 9 (§6.9 step 10): summary log (§10.7).
             // ----------------------------------------------------------------
             ParsekLog.Info(SweepTag,
@@ -246,7 +266,8 @@ namespace Parsek
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
-                $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)}");
+                $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)} " +
+                $"orphanReFlyAnchors={orphanSnapshotsCleared.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
             // Step 10 (§6.9 step 11): bump state versions once so every
@@ -366,6 +387,48 @@ namespace Parsek
             public string BranchPointId { get; }
             public int SlotCount { get; }
             public string AbsolutePath { get; }
+        }
+
+        /// <summary>
+        /// Defensive #688 backstop: clears any pre-Re-Fly anchor snapshot
+        /// whose <see cref="Recording.PreReFlyAnchorSessionId"/> doesn't
+        /// match the live <see cref="ParsekScenario.ActiveReFlySessionMarker"/>'s
+        /// session id. The expected lifecycle clears snapshots through the
+        /// session-end paths
+        /// (<see cref="SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession"/>);
+        /// any leftover here means a session-end path missed the clear or
+        /// a save interleaved a marker mutation with a snapshot leftover.
+        /// Returns the number of snapshots cleared.
+        /// </summary>
+        private static int SweepOrphanPreReFlyAnchorSnapshots(ParsekScenario scenario)
+        {
+            string liveSessionId = scenario?.ActiveReFlySessionMarker?.SessionId;
+            int cleared = 0;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return 0;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)) continue;
+                if (!string.IsNullOrEmpty(liveSessionId)
+                    && string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal))
+                    continue;
+                // Per CLAUDE.md batch counting convention: per-item events at
+                // Verbose, single Warn summary after the loop when cleared > 0.
+                ParsekLog.Verbose(SessionTag,
+                    $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
+                    $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) — clearing");
+                rec.ClearPreReFlyAnchorTrajectory();
+                cleared++;
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Warn(SessionTag,
+                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly anchor " +
+                    $"snapshot(s) at load time (live sess={liveSessionId ?? "<none>"})");
+            }
+            return cleared;
         }
 
         // ------------------------------------------------------------------

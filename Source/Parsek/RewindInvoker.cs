@@ -938,6 +938,9 @@ namespace Parsek
                     originChild.PreReFlyAnchorPoints = priorPreReFlyAnchorPoints;
                     originChild.PreReFlyAnchorOrbitSegments = priorPreReFlyAnchorOrbitSegments;
                     originChild.PreReFlyAnchorTrackSections = priorPreReFlyAnchorTrackSections;
+                    ParsekLog.Verbose(InvokeTag,
+                        $"AtomicMarkerWrite rollback: restored prior pre-Re-Fly anchor snapshot on " +
+                        $"origin={originChild.RecordingId ?? "<no-id>"} priorSess={priorPreReFlyAnchorSessionId ?? "<none>"}");
                 }
                 if (taggedOriginForInPlace && originChild != null)
                 {

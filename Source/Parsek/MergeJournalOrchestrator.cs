@@ -242,6 +242,13 @@ namespace Parsek
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:marker-cleared");
+            // #688 follow-up: drop the captured pre-Re-Fly anchor trajectory
+            // snapshot now that the journaled merge has reached marker-clear.
+            // SupersedeCommit's synchronous path already does this; mirror it
+            // here so the journaled commit (which goes through the
+            // decomposed FlipMergeStateAndClearTransient with
+            // preserveMarker=true) still drops the snapshot.
+            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
             ParsekLog.Info("ReFlySession",
                 $"End reason=merged sess={sessionId} provisional={provisionalId}");
             AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
@@ -345,6 +352,10 @@ namespace Parsek
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:rollback");
+            // #688 follow-up: drop the captured pre-Re-Fly anchor trajectory
+            // snapshot — rollback aborts the session without committing, so
+            // the snapshot has no consumer left.
+            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 
             DurableSave("rollback", persistSynchronously: false);
 
@@ -384,6 +395,10 @@ namespace Parsek
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 ReFlyRevertButtonGate.Apply("MergeJournal:complete-marker-cleared");
+                // #688 follow-up: mirror the synchronous-merge cleanup so
+                // the crash-resumed completion drops the snapshot at the
+                // same logical step (marker clear after RpReap).
+                SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
                 AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
                 stepsDriven++;
             }

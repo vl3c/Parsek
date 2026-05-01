@@ -454,10 +454,11 @@ namespace Parsek
             public string coBubblePrimaryRecordingId;
             public double coBubblePointUT;
 
-            // Re-Fly tree anchor lock world-space delta. Captured at the
-            // Update positioning frame (constant per session per tree) and
-            // re-applied here in LateUpdate so the FloatingOrigin recomputed
-            // worldPos preserves the spawn-time alignment.
+            // Re-Fly tree anchor offset — `live_active_world(now) -
+            // recorded_active_world(currentUT)` evaluated this Update
+            // frame and re-applied here in LateUpdate so the
+            // FloatingOrigin-recomputed worldPos preserves the same
+            // anchored alignment. Recomputed every frame; not constant.
             public Vector3d reFlyTreeOffset;
         }
 
@@ -1156,8 +1157,8 @@ namespace Parsek
                         {
                             pos += lateEps;
                         }
-                        // Re-Fly tree anchor lock — preserve the spawn-time
-                        // delta across the FloatingOrigin LateUpdate re-pos.
+                        // Re-Fly tree anchor lock — preserve this frame's
+                        // anchor offset across the FloatingOrigin LateUpdate re-pos.
                         pos += e.reFlyTreeOffset;
                         e.ghost.transform.position = pos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
@@ -1347,8 +1348,8 @@ namespace Parsek
                         if (e.bodyBefore == null) break;
                         Vector3d surfacePos = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
-                        // Re-Fly tree anchor lock — preserve the spawn-time
-                        // delta across the FloatingOrigin LateUpdate re-pos.
+                        // Re-Fly tree anchor lock — preserve this frame's
+                        // anchor offset across the FloatingOrigin LateUpdate re-pos.
                         surfacePos += e.reFlyTreeOffset;
                         e.ghost.transform.position = surfacePos;
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.surfaceRot;
@@ -14920,10 +14921,26 @@ namespace Parsek
         /// "first-visible-frame shows stale initial pose" regression that #258
         /// fixed. <c>ShouldAutoActivateGhost</c> is the canonical source for the
         /// value.
+        ///
+        /// <para>
+        /// The host-scene activation gate
+        /// (<see cref="GhostPlaybackState.externalActivationDeferred"/>,
+        /// #688 follow-up) is also honoured here so positioner paths that
+        /// reactivate a previously-hidden ghost (e.g. zone re-entry after
+        /// distance-LOD hide) cannot bypass the gate and SetActive(true)
+        /// on a ghost whose Re-Fly anchor offset has not yet resolved.
+        /// The gate's value is set by the END of the previous frame's
+        /// <c>RefreshReFlyAnchorActivationGate</c> call, so the predicate
+        /// reads at most one-frame-stale gate state — acceptable because
+        /// the gate is monotone-like at session boundaries.
+        /// </para>
         /// </summary>
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
-            return state == null || !state.deferVisibilityUntilPlaybackSync;
+            if (state == null) return true;
+            if (state.deferVisibilityUntilPlaybackSync) return false;
+            if (state.externalActivationDeferred) return false;
+            return true;
         }
 
         /// <summary>
@@ -15046,6 +15063,7 @@ namespace Parsek
             {
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = playbackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15072,6 +15090,7 @@ namespace Parsek
                     sectionIndex: splineSectionIdx);
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15085,6 +15104,7 @@ namespace Parsek
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
@@ -15111,7 +15131,8 @@ namespace Parsek
                 // InterpolateAndPosition can apply the Re-Fly tree anchor
                 // offset on the absolute-shadow path. Without these, the
                 // shadow renders at the original recorded world position
-                // instead of the spawn-aligned position.
+                // instead of the anchored position relative to the live
+                // active vessel.
                 InterpolateAndPosition(state.ghost, absoluteFrames, null,
                     ref absolutePlaybackIdx, ut, index * 10000, out absoluteInterpResult,
                     allowActivation: ShouldAutoActivateGhost(state),
@@ -15120,6 +15141,7 @@ namespace Parsek
                     sectionIndex: sectionIdx);
                 state.SetInterpolated(absoluteInterpResult);
                 state.playbackIndex = absolutePlaybackIdx;
+                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -15150,6 +15172,7 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -15192,6 +15215,7 @@ namespace Parsek
                 positioned.velocity,
                 positioned.bodyName,
                 positioned.altitude));
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, positioned.ut);
         }
 
         bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
@@ -15460,6 +15484,11 @@ namespace Parsek
                 traj?.RecordingId);
             state.lastInterpolatedBodyName = positioned.body;
             state.lastInterpolatedAltitude = positioned.altitude;
+            // Surface positioning has no playback UT of its own — the
+            // landed/splashed ghost sits at a fixed surface point. Use the
+            // current planetary UT so the gate evaluates the offset at
+            // "now," matching what PositionGhostAtSurface did internally.
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, Planetarium.GetUniversalTime());
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -15478,6 +15507,7 @@ namespace Parsek
 
                 PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000, traj.RecordingId);
             }
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
@@ -15505,6 +15535,7 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
@@ -15701,17 +15732,17 @@ namespace Parsek
             }
 
             // Re-Fly tree anchor lock: when the ghost belongs to the active
-            // Re-Fly tree, translate by the spawn-time delta so the recorded
-            // trajectory aligns with the live player at session start and the
-            // ghost continues along its own original path independent of
-            // the player's later movement. Frozen for the session. Applied
-            // AFTER the Phase 5 co-bubble override so the override does not
-            // discard the offset — the engine reads ghost.transform
-            // immediately after positioning for ApplyFrameVisuals,
-            // TrackGhostAppearance, explosion anchors, and distance
-            // diagnostics; without this ordering co-bubble frames would use
-            // the unanchored position during Update and only re-apply the
-            // offset in LateUpdate.
+            // Re-Fly tree, translate by the per-frame offset
+            // `live_active_world(now) - recorded_active_world(targetUT)` so
+            // each ghost sits at its recorded relative offset from where
+            // the live vessel actually is. Recomputed every frame, not
+            // frozen. Applied AFTER the Phase 5 co-bubble override so the
+            // override does not discard the offset — the engine reads
+            // ghost.transform immediately after positioning for
+            // ApplyFrameVisuals, TrackGhostAppearance, explosion anchors,
+            // and distance diagnostics; without this ordering co-bubble
+            // frames would use the unanchored position during Update and
+            // only re-apply the offset in LateUpdate.
             Vector3d reFlyTreeOffset = Vector3d.zero;
             bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
                 recordingId, targetUT, out reFlyTreeOffset);
@@ -16610,11 +16641,11 @@ namespace Parsek
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
 
             // Re-Fly tree anchor lock: when this ghost belongs to the active
-            // Re-Fly tree, translate by the spawn-time delta so single-point
-            // ghosts in the tree align to the live player at session start
-            // and stay on their original recorded path independent of player
-            // movement. The same offset feeds the LateUpdate SinglePoint
-            // branch via GhostPosEntry.reFlyTreeOffset so FloatingOrigin
+            // Re-Fly tree, translate by the per-frame offset so single-point
+            // ghosts sit at their recorded relative offset from where the
+            // live vessel actually is. The same offset feeds the LateUpdate
+            // SinglePoint branch via GhostPosEntry.reFlyTreeOffset so
+            // FloatingOrigin
             // re-pos preserves the alignment.
             Vector3d singlePointReFlyTreeOffset = Vector3d.zero;
             if (!string.IsNullOrEmpty(recordingId))
@@ -16759,11 +16790,11 @@ namespace Parsek
             }
 
             // Re-Fly tree anchor lock: orbit-driven ghosts in the active
-            // Re-Fly tree are translated by the spawn-time delta so they
-            // align to the live player at session start and continue along
-            // their own original orbital geometry instead of the tree-shared
-            // recording-time world frame. LateUpdate Orbit branch reads the
-            // same offset via GhostPosEntry.reFlyTreeOffset.
+            // Re-Fly tree are translated by the per-frame offset so they
+            // sit at their recorded relative offset from where the live
+            // vessel actually is, instead of the tree-shared recording-time
+            // world frame. LateUpdate Orbit branch reads the same offset
+            // via GhostPosEntry.reFlyTreeOffset.
             Vector3d orbitReFlyTreeOffset = Vector3d.zero;
             if (!string.IsNullOrEmpty(recordingId))
                 TryGetReFlyTreeAnchorOffset(recordingId, ut, out orbitReFlyTreeOffset);
@@ -16915,7 +16946,7 @@ namespace Parsek
                 return;
             }
             // Re-Fly tree anchor lock: translate landed/splashed ghosts in
-            // the active Re-Fly tree by the spawn-time delta. Surface mode
+            // the active Re-Fly tree by the per-frame offset. Surface mode
             // shares the offset with PositionGhostAt — same intent, different
             // entry mode. LateUpdate Surface branch reads the same
             // GhostPosEntry.reFlyTreeOffset.
@@ -16960,39 +16991,100 @@ namespace Parsek
         private readonly HashSet<string> unknownFrameTagWarned =
             new HashSet<string>(StringComparer.Ordinal);
 
-        // ===== Re-Fly tree anchor lock =====
+        // ===== Re-Fly recording anchor =====
         //
-        // Translates ghost positions in the active Re-Fly tree by a constant
-        // world-space delta = live_active_vessel_pos - recorded_active_recording_pos
-        // sampled at the first ghost render frame. Frozen for the session so
-        // every subsequent ghost frame in the tree is rendered using the
-        // RECORDED trajectory translated by the spawn-time delta — the ghost
-        // appears at the correct relative offset to the live player at spawn,
-        // and continues along its own original recorded path independent of
-        // the player's later movement (the user's "as if relative at spawn,
-        // then keep going in original trajectory" expectation).
+        // During an active Re-Fly, the active recording (the one being re-flown)
+        // ACTS AS THE ANCHOR for every other ghost in the same RecordingTree.
+        // Each ghost's rendered position is its position in the recording
+        // RELATIVE to the active recording's recorded position at the same UT,
+        // applied at render time to wherever the live (real) vessel currently
+        // is in the world:
         //
-        // Stored per-tree so a multi-recording tree shares one delta. Keyed on
-        // (treeId, sessionId) — a new Re-Fly session on the same tree
-        // recomputes. Cleared on session end.
-        private struct ReFlyTreeAnchor
-        {
-            public Vector3d Delta;
-            public double SpawnUT;
-            public string SessionId;
-        }
-        private readonly Dictionary<string /* treeId */, ReFlyTreeAnchor> reFlyTreeAnchors =
-            new Dictionary<string, ReFlyTreeAnchor>(StringComparer.Ordinal);
-        private readonly HashSet<string> loggedReFlyTreeAnchorKeys =
-            new HashSet<string>(StringComparer.Ordinal);
+        //     ghost_world(t) = recorded_ghost_world(t) - recorded_active_world(t)
+        //                    + live_active_vessel_world(now)
+        //
+        // Equivalently the per-frame world-space delta the renderer adds is:
+        //
+        //     delta(t) = live_active_vessel_world(now)
+        //              - recorded_active_world(t)
+        //
+        // This is computed PER FRAME (no caching) because both the live
+        // vessel position and the recorded active position evolve every
+        // frame as the player flies and the playback UT advances. The
+        // recorded sample is taken from the active recording's frozen
+        // pre-Re-Fly anchor trajectory snapshot (the live recording has
+        // been trimmed past cutoffUT and can't cover post-spawn UTs).
+        //
+        // Net effect: each ghost stays at its recorded relative position
+        // to the now-real vessel — exactly what the player would have seen
+        // alongside their original ghost, just placed where the live
+        // vessel actually ended up after re-fly physics divergence. No
+        // absolute world frame from the recording is preserved; the
+        // recording's role is purely to define inter-vessel relative
+        // geometry.
+        // Once-per-session "engaged" log dedup. Replaced an earlier
+        // HashSet-of-keys with two scalar fields because exactly one
+        // (treeId, sessionId) combo is active at a time and we never need
+        // to remember more than one. Cleared opportunistically when the
+        // marker changes.
+        private string lastLoggedReFlyTreeId;
+        private string lastLoggedReFlySessionId;
+
+        // Per-call memo for TryGetReFlyTreeAnchorOffset. Deduplicates the
+        // common per-ghost-per-frame call sequence:
+        //   inner positioner method                  → TryGet (compute)
+        //   ResolvePlaybackDistanceFromReferencePosition → TryGet (same args)
+        //   RefreshReFlyAnchorActivationGate         → TryGet (same args)
+        // All three calls receive the same (recordingId, currentUT) within
+        // a single IGhostPositioner outer-method invocation. Without this
+        // memo, each ghost in active Re-Fly pays 3× the tree walks +
+        // section samples + live anchor lookup. Single-threaded engine
+        // dispatch means we don't need any locking. Memo keys include
+        // Time.frameCount so a paused-game stale livePos can't leak the
+        // previous frame's answer into a current frame where the live
+        // active vessel has been physics-stepped since.
+        private string memoReFlyOffsetRecordingId;
+        private double memoReFlyOffsetUT = double.NaN;
+        private int memoReFlyOffsetFrame = -1;
+        private Vector3d memoReFlyOffsetDelta;
+        private bool memoReFlyOffsetSuccess;
 
         /// <summary>
-        /// Returns the spawn-time world-space delta to apply to a ghost's
+        /// Returns the per-frame world-space delta to apply to a ghost's
         /// rendered position when the ghost belongs to a tree whose Re-Fly
-        /// session is active. Computes the delta lazily on first call per
-        /// tree+session and freezes it for the rest of the session.
+        /// session is active. Recomputed every call as
+        /// <c>live_active_vessel_world(now) - recorded_active_world(currentUT)</c>
+        /// so each ghost sits at the recorded relative offset from where
+        /// the live vessel actually is, not where the recording said it
+        /// was.
         /// </summary>
         internal bool TryGetReFlyTreeAnchorOffset(
+            string recordingId, double currentUT, out Vector3d delta)
+        {
+            // Hot-path memo: same (frame, recordingId, currentUT) hit by
+            // inner positioner + distance resolver + gate refresh within a
+            // single outer IGhostPositioner call all return the same answer.
+            int frame = Time.frameCount;
+            if (memoReFlyOffsetFrame == frame
+                && memoReFlyOffsetRecordingId != null
+                && string.Equals(memoReFlyOffsetRecordingId, recordingId, StringComparison.Ordinal)
+                && memoReFlyOffsetUT == currentUT)
+            {
+                delta = memoReFlyOffsetDelta;
+                return memoReFlyOffsetSuccess;
+            }
+
+            bool success = TryGetReFlyTreeAnchorOffsetUncached(
+                recordingId, currentUT, out delta);
+            memoReFlyOffsetFrame = frame;
+            memoReFlyOffsetRecordingId = recordingId;
+            memoReFlyOffsetUT = currentUT;
+            memoReFlyOffsetDelta = delta;
+            memoReFlyOffsetSuccess = success;
+            return success;
+        }
+
+        private bool TryGetReFlyTreeAnchorOffsetUncached(
             string recordingId, double currentUT, out Vector3d delta)
         {
             delta = Vector3d.zero;
@@ -17004,8 +17096,6 @@ namespace Parsek
                 || string.IsNullOrEmpty(marker.TreeId)
                 || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
             {
-                if (reFlyTreeAnchors.Count > 0)
-                    ClearReFlyTreeAnchorOffsets("marker-cleared-on-lookup");
                 return false;
             }
 
@@ -17016,20 +17106,13 @@ namespace Parsek
                 return false;
             }
 
-            if (reFlyTreeAnchors.TryGetValue(recTreeId, out ReFlyTreeAnchor entry)
-                && string.Equals(entry.SessionId, marker.SessionId, StringComparison.Ordinal))
-            {
-                delta = entry.Delta;
-                return IsFiniteVector3d(delta);
-            }
-
-            if (!TryComputeReFlyTreeAnchorOffsetFromMarker(
+            if (!TryComputeReFlyRecordingAnchorOffset(
                     marker, currentUT, out Vector3d computed, out string reason))
             {
                 ParsekLog.VerboseRateLimited(
                     "Playback",
-                    "refly-tree-anchor-skip|" + recTreeId + "|" + marker.SessionId,
-                    "Re-Fly tree anchor lock skipped: tree="
+                    "refly-recording-anchor-skip|" + recTreeId + "|" + marker.SessionId,
+                    "Re-Fly recording anchor skipped: tree="
                     + ShortRecordingId(recTreeId)
                     + " sess=" + ShortRecordingId(marker.SessionId)
                     + " reason=" + (reason ?? "<unknown>"),
@@ -17037,35 +17120,309 @@ namespace Parsek
                 return false;
             }
 
-            entry = new ReFlyTreeAnchor
+            if (!string.Equals(lastLoggedReFlyTreeId, recTreeId, StringComparison.Ordinal)
+                || !string.Equals(lastLoggedReFlySessionId, marker.SessionId, StringComparison.Ordinal))
             {
-                Delta = computed,
-                SpawnUT = currentUT,
-                SessionId = marker.SessionId,
-            };
-            reFlyTreeAnchors[recTreeId] = entry;
-
-            string logKey = recTreeId + "|" + marker.SessionId;
-            if (loggedReFlyTreeAnchorKeys.Add(logKey))
-            {
-                var ic = CultureInfo.InvariantCulture;
+                lastLoggedReFlyTreeId = recTreeId;
+                lastLoggedReFlySessionId = marker.SessionId;
                 ParsekLog.Info(
                     "Playback",
-                    "Re-Fly tree anchor lock: tree=" + ShortRecordingId(recTreeId)
+                    "Re-Fly recording anchor engaged (per-frame): tree="
+                    + ShortRecordingId(recTreeId)
                     + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " delta=("
-                    + computed.x.ToString("F2", ic) + ","
-                    + computed.y.ToString("F2", ic) + ","
-                    + computed.z.ToString("F2", ic) + ")"
-                    + " |delta|=" + computed.magnitude.ToString("F2", ic) + "m"
-                    + " spawnUT=" + currentUT.ToString("F2", ic)
-                    + " reason=" + reason);
+                    + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                    + " contract=ghost_world(t)=recorded_relative_offset(t)+live_active_world(now)");
             }
             delta = computed;
             return true;
         }
 
-        private bool TryComputeReFlyTreeAnchorOffsetFromMarker(
+        /// <summary>
+        /// Pure tree-membership predicate for the activation gate and
+        /// related read sites. Takes the marker explicitly so unit tests
+        /// can drive it without a live <see cref="ParsekScenario.Instance"/>.
+        /// </summary>
+        internal static bool IsRecordingInReFlyTreeMarker(
+            string recordingId, ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            if (marker == null || string.IsNullOrEmpty(marker.TreeId))
+                return false;
+            string recTreeId = ResolveTreeIdForRecording(recordingId);
+            return !string.IsNullOrEmpty(recTreeId)
+                && string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure decision helper for the spawn-frame activation gate (#688
+        /// follow-up). Returns the decision (raise / lower / lower-with-no-
+        /// op) given the inputs as parameters. Extracted so xUnit can drive
+        /// the gate logic without needing a MonoBehaviour-instantiated
+        /// <see cref="ParsekFlight"/> or a live KSP runtime.
+        ///
+        /// <para>
+        /// Callers compute <paramref name="offsetApplied"/> and
+        /// <paramref name="hasResolvableAnchorData"/> ahead of time. The
+        /// decision rule:
+        /// <list type="bullet">
+        ///   <item><description>Active ghost or no marker or out-of-tree → lower the gate.</description></item>
+        ///   <item><description>No resolvable anchor data → lower the gate (safety net for non-in-place Re-Fly).</description></item>
+        ///   <item><description>Offset applied → lower the gate.</description></item>
+        ///   <item><description>Inactive ghost in the active tree, anchor data exists, offset miss → raise the gate.</description></item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        internal static bool ShouldRaiseExternalActivationGate(
+            bool ghostActive,
+            string recordingId,
+            ReFlySessionMarker marker,
+            bool hasResolvableAnchorData,
+            bool offsetApplied)
+        {
+            // Test-friendly entry point that resolves `inTree` from
+            // (recordingId, marker) and forwards to the production
+            // helper used by RefreshReFlyAnchorActivationGate.
+            return ShouldRaiseExternalActivationGateGivenInputs(
+                ghostActive,
+                inTree: IsRecordingInReFlyTreeMarker(recordingId, marker),
+                hasResolvableAnchorData,
+                offsetApplied);
+        }
+
+        /// <summary>
+        /// Updates <see cref="GhostPlaybackState.externalActivationDeferred"/>
+        /// for a freshly-positioned ghost. While the ghost is inactive AND
+        /// belongs to the active Re-Fly tree AND the active Re-Fly target
+        /// has resolvable anchor data, the gate stays raised whenever the
+        /// per-frame anchor offset cannot be resolved at
+        /// <paramref name="currentUT"/> (e.g. live anchor not yet finite,
+        /// recorded snapshot still loading). The gate is re-evaluated
+        /// against the live <c>state.ghost.activeSelf</c> on every call,
+        /// so a ghost that gets de-activated by zone hide / warp / part
+        /// destruction and later re-activates can have the gate raised
+        /// again on the re-activation pass — that's the intended
+        /// behaviour: re-spawn re-runs the safety check. A transient
+        /// mid-playback miss while the ghost is already active does NOT
+        /// flicker it back to invisible because the active branch
+        /// short-circuits before any gate-raise path can fire.
+        ///
+        /// <para>
+        /// The "resolvable anchor data" precondition is the safety net that
+        /// keeps the gate from holding ghosts permanently invisible in the
+        /// non-in-place Re-Fly continuation path: that path creates a fresh
+        /// empty provisional and never captures a pre-Re-Fly snapshot
+        /// against it, so <see cref="TryGetReFlyTreeAnchorOffset"/> would
+        /// return false forever and the gate would never clear. When no
+        /// anchor data is reachable the gate is unconditionally lowered so
+        /// the engine activates the ghost at its unanchored recorded
+        /// position — the same behaviour as before the gate existed.
+        /// </para>
+        ///
+        /// <para>
+        /// Cheap to call per-frame: only does work for ghosts that are
+        /// inactive AND in the active Re-Fly tree. Each branch short-
+        /// circuits before the per-call <see cref="TryGetReFlyTreeAnchorOffset"/>
+        /// invocation, so the no-Re-Fly common case is a single dict
+        /// lookup + early return.
+        /// </para>
+        /// </summary>
+        internal void RefreshReFlyAnchorActivationGate(
+            string recordingId, GhostPlaybackState state, double currentUT)
+        {
+            if (state?.ghost == null)
+                return;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // Compute each input ONCE — the previous code re-derived
+            // `inTree` two more times (in ShouldRaiseExternalActivationGate
+            // and ResolveLowerReason), each one being an O(tree-count)
+            // committed-tree walk. Pass the result through.
+            bool ghostActive = state.ghost.activeSelf;
+            bool inTree = !ghostActive && IsRecordingInReFlyTreeMarker(recordingId, marker);
+            bool hasResolvableAnchorData = inTree
+                && HasResolvableReFlyAnchorData(marker, currentUT);
+            bool offsetApplied = false;
+            if (hasResolvableAnchorData)
+            {
+                offsetApplied = TryGetReFlyTreeAnchorOffset(
+                    recordingId, currentUT, out Vector3d _);
+            }
+            bool raise = ShouldRaiseExternalActivationGateGivenInputs(
+                ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
+
+            if (raise)
+            {
+                RaiseExternalActivationGate(state, recordingId, currentUT);
+            }
+            else
+            {
+                string reason = ResolveLowerReason(
+                    ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
+                LowerExternalActivationGate(state, recordingId, reason);
+            }
+        }
+
+        // Internal helper that takes the precomputed `inTree` flag, used by
+        // RefreshReFlyAnchorActivationGate to avoid the second tree walk
+        // through ShouldRaiseExternalActivationGate's IsRecordingInReFlyTreeMarker
+        // call. Public entry point ShouldRaiseExternalActivationGate (below)
+        // forwards to this helper.
+        private static bool ShouldRaiseExternalActivationGateGivenInputs(
+            bool ghostActive, bool inTree,
+            bool hasResolvableAnchorData, bool offsetApplied)
+        {
+            if (ghostActive) return false;
+            if (!inTree) return false;
+            if (!hasResolvableAnchorData) return false;
+            return !offsetApplied;
+        }
+
+        private static string ResolveLowerReason(
+            bool ghostActive, bool inTree,
+            bool hasResolvableAnchorData, bool offsetApplied)
+        {
+            if (ghostActive) return "ghost-active";
+            if (!inTree) return "out-of-tree";
+            if (!hasResolvableAnchorData) return "no-anchor-data";
+            if (offsetApplied) return "offset-resolved";
+            return "<unreachable>";
+        }
+
+        private static void LowerExternalActivationGate(
+            GhostPlaybackState state, string recordingId, string reason)
+        {
+            if (state == null) return;
+            bool wasRaised = state.externalActivationDeferred;
+            state.externalActivationDeferred = false;
+            if (wasRaised)
+            {
+                ParsekLog.Verbose("Playback",
+                    "Re-Fly anchor activation gate lowered: rec="
+                    + ShortRecordingId(recordingId)
+                    + " reason=" + (reason ?? "<none>"));
+            }
+        }
+
+        private static void RaiseExternalActivationGate(
+            GhostPlaybackState state, string recordingId, double currentUT)
+        {
+            if (state == null) return;
+            bool wasRaised = state.externalActivationDeferred;
+            state.externalActivationDeferred = true;
+            if (!wasRaised)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    "refly-gate-raise|" + (recordingId ?? "<no-rec>"),
+                    "Re-Fly anchor activation gate raised: rec="
+                    + ShortRecordingId(recordingId)
+                    + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " (offset not yet resolvable; ghost stays hidden until "
+                    + "the offset resolves or the active Re-Fly target's anchor data is gone)",
+                    5.0);
+            }
+        }
+
+        /// <summary>
+        /// Returns true when the active Re-Fly target has trajectory data
+        /// the per-frame anchor model can sample at the current playback
+        /// UT. The predicate must agree with
+        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on TWO axes:
+        /// <list type="bullet">
+        ///   <item><description><b>Source selection.</b> When a captured
+        ///   pre-Re-Fly snapshot exists for the active session, the offset
+        ///   sampler uses the snapshot's <see cref="Recording.PreReFlyAnchorTrackSections"/>
+        ///   exclusively — it does NOT fall through to live track sections
+        ///   if the snapshot is unsampleable. The gate predicate must
+        ///   match: when a snapshot exists for the session, only the
+        ///   snapshot is consulted; when no snapshot exists, only the
+        ///   live recording's <see cref="Recording.TrackSections"/> are.
+        ///   Falling through to live in the snapshot-unsampleable case
+        ///   would land on the player's NEW flight data (post-trim
+        ///   extension), producing a circular self-anchored result.</description></item>
+        ///   <item><description><b>Section-at-UT.</b> The sampler picks
+        ///   the section that covers <paramref name="currentUT"/> (or
+        ///   clamps to the nearest endpoint section), then accepts /
+        ///   rejects that single section. The gate predicate must
+        ///   evaluate sampleability against the SAME section the sampler
+        ///   would choose — a recording with an early sampleable Absolute
+        ///   section followed by a later OrbitalCheckpoint section
+        ///   reports false during the checkpoint window even though the
+        ///   list as a whole has sampleable data elsewhere.</description></item>
+        /// </list>
+        /// </summary>
+        internal static bool HasResolvableReFlyAnchorData(
+            ReFlySessionMarker marker, double currentUT)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
+            if (reFlyRec == null)
+                return false;
+            return HasSampleableTrackSectionAtUT(
+                SelectReFlyAnchorSampleSections(reFlyRec, marker), currentUT);
+        }
+
+        /// <summary>
+        /// Single source of truth for which track-section list the per-
+        /// frame anchor sampler reads from. Both
+        /// <see cref="HasResolvableReFlyAnchorData"/> and
+        /// <see cref="TryComputeReFlyRecordingAnchorOffset"/> route
+        /// through this helper so the predicate-sampler contract cannot
+        /// drift apart again. When a captured pre-Re-Fly snapshot exists
+        /// for the active session the snapshot's track sections are
+        /// returned; otherwise the live recording's track sections are.
+        /// No fall-through — the live recording's post-trim extension is
+        /// the player's NEW flight data and anchoring to it would be
+        /// circular. Returns null when either input is null.
+        /// </summary>
+        private static List<TrackSection> SelectReFlyAnchorSampleSections(
+            Recording reFlyRec, ReFlySessionMarker marker)
+        {
+            if (reFlyRec == null || marker == null) return null;
+            // HasPreReFlyAnchorTrajectory short-circuits on a null/empty
+            // sessionId, so no extra string check is needed here.
+            if (reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                return reFlyRec.PreReFlyAnchorTrackSections;
+            return reFlyRec.TrackSections;
+        }
+
+        /// <summary>
+        /// Mirrors <see cref="TrySampleRecordedAbsoluteWorld"/>'s
+        /// section-selection-then-acceptance rule: picks the section that
+        /// covers <paramref name="ut"/> (clamping to the nearest endpoint
+        /// section when <paramref name="ut"/> is outside any section,
+        /// matching the sampler's clamp behaviour), then returns true iff
+        /// that single section is sampleable (Absolute with non-empty
+        /// <see cref="TrackSection.frames"/>, or Relative with non-empty
+        /// <see cref="TrackSection.absoluteFrames"/> v7 shadow). A list
+        /// containing sampleable sections elsewhere does not satisfy the
+        /// predicate when the section selected for the current UT is
+        /// unsampleable.
+        /// </summary>
+        internal static bool HasSampleableTrackSectionAtUT(
+            List<TrackSection> sections, double ut)
+        {
+            if (sections == null || sections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (sectionIdx < 0)
+            {
+                // Mirror TrySampleRecordedAbsoluteWorld's clamp: UT
+                // outside any section falls back to the nearest endpoint.
+                sectionIdx = ut < sections[0].startUT ? 0 : sections.Count - 1;
+            }
+            TrackSection s = sections[sectionIdx];
+            if (s.referenceFrame == ReferenceFrame.Absolute
+                && s.frames != null && s.frames.Count > 0)
+                return true;
+            if (s.referenceFrame == ReferenceFrame.Relative
+                && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
+                return true;
+            return false;
+        }
+
+        private bool TryComputeReFlyRecordingAnchorOffset(
             ReFlySessionMarker marker, double currentUT,
             out Vector3d delta, out string reason)
         {
@@ -17099,7 +17456,17 @@ namespace Parsek
                 return false;
             }
 
-            if (!TrySampleRecordedAbsoluteWorld(reFlyRec, currentUT, out Vector3d recordedPos)
+            // Prefer the frozen pre-Re-Fly anchor trajectory snapshot —
+            // the live recording has been trimmed past cutoffUT and can't
+            // sample post-spawn UTs. The frozen snapshot is captured by
+            // RewindInvoker.CapturePreReFlyAnchorTrajectory before trim.
+            // Sample directly from the field-resident track-section list
+            // (not via a synthetic Recording wrapper) — this is the per-
+            // frame, per-ghost hot path. SelectReFlyAnchorSampleSections
+            // is the single source of truth shared with the gate's
+            // resolvability predicate.
+            List<TrackSection> sampleSections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
+            if (!TrySampleRecordedAbsoluteWorld(sampleSections, currentUT, out Vector3d recordedPos)
                 || !IsFiniteVector3d(recordedPos))
             {
                 reason = "recorded-pos-unavailable";
@@ -17128,20 +17495,36 @@ namespace Parsek
             Recording rec, double ut, out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            if (rec == null || rec.TrackSections == null || rec.TrackSections.Count == 0)
+            if (rec == null) return false;
+            return TrySampleRecordedAbsoluteWorld(rec.TrackSections, ut, out worldPos);
+        }
+
+        /// <summary>
+        /// Allocation-free overload of
+        /// <see cref="TrySampleRecordedAbsoluteWorld(Recording, double, out Vector3d)"/>
+        /// that takes the section list directly. The per-frame Re-Fly
+        /// anchor offset path uses this so it doesn't have to materialize
+        /// a synthetic <see cref="Recording"/> wrapping the captured
+        /// pre-Re-Fly snapshot just to read its track sections.
+        /// </summary>
+        internal static bool TrySampleRecordedAbsoluteWorld(
+            List<TrackSection> sections, double ut, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (sections == null || sections.Count == 0)
                 return false;
 
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, ut);
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
             if (sectionIdx < 0)
             {
                 // UT outside any section — try clamping to nearest endpoint
-                if (ut < rec.TrackSections[0].startUT)
+                if (ut < sections[0].startUT)
                     sectionIdx = 0;
                 else
-                    sectionIdx = rec.TrackSections.Count - 1;
+                    sectionIdx = sections.Count - 1;
             }
 
-            TrackSection section = rec.TrackSections[sectionIdx];
+            TrackSection section = sections[sectionIdx];
             List<TrajectoryPoint> frames;
             if (section.referenceFrame == ReferenceFrame.Absolute
                 && section.frames != null && section.frames.Count > 0)
@@ -17253,23 +17636,6 @@ namespace Parsek
             return null;
         }
 
-        internal void ClearReFlyTreeAnchorOffsets(string reason)
-        {
-            if (reFlyTreeAnchors.Count == 0 && loggedReFlyTreeAnchorKeys.Count == 0)
-                return;
-            int cleared = reFlyTreeAnchors.Count;
-            reFlyTreeAnchors.Clear();
-            loggedReFlyTreeAnchorKeys.Clear();
-            if (cleared > 0)
-            {
-                ParsekLog.Info(
-                    "Playback",
-                    "Re-Fly tree anchor offsets cleared: count="
-                    + cleared.ToString(CultureInfo.InvariantCulture)
-                    + " reason=" + (reason ?? "<none>"));
-            }
-        }
-
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
             Vector3d? cameraWorldPosition,
@@ -17358,11 +17724,11 @@ namespace Parsek
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
                 // Re-Fly tree anchor lock: classify zone hiding / LOD / watch
-                // cutoff against the SAME spawn-aligned position the renderer
+                // cutoff against the SAME anchored position the renderer
                 // will use, not the raw recorded position. Without this, the
                 // distance gate would hide / downscale the very ghost the
                 // anchor lock is trying to keep visible at the live player's
-                // spawn location. Cheap O(1) dict lookup per ghost per frame.
+                // current location.
                 if (traj != null
                     && TryGetReFlyTreeAnchorOffset(traj.RecordingId, playbackUT, out Vector3d treeDelta))
                 {
@@ -17534,15 +17900,14 @@ namespace Parsek
                 interpolatedPos += anchorEps;
 
             // Re-Fly tree anchor lock: translate Checkpoint section playback
-            // by the spawn-time delta so checkpoint-driven ghosts in the
-            // active Re-Fly tree align to the live player at session start
-            // and stay on their original recorded path. LateUpdate
-            // CheckpointPoint branch reads the same offset via
-            // GhostPosEntry.reFlyTreeOffset.
+            // by the per-frame offset so checkpoint-driven ghosts in the
+            // active Re-Fly tree sit at their recorded relative offset from
+            // where the live vessel actually is. LateUpdate CheckpointPoint
+            // branch reads the same offset via GhostPosEntry.reFlyTreeOffset.
             //
             // The translation is applied to transform.position only — rotation
             // math (orbital-frame radialOut) uses the pre-tree-offset position
-            // so the spawn alignment doesn't push the ghost's orbital-frame
+            // so the anchor offset doesn't push the ghost's orbital-frame
             // attitude. ComputeOrbitalRotation receives interpolatedPos
             // BEFORE the tree-offset add for that reason.
             Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
@@ -18575,7 +18940,25 @@ namespace Parsek
             if (liveAnchorWithinActiveFastPath)
                 return false;
 
-            if (!liveAnchorAvailable || !recordedAnchorAvailable)
+            // #688 follow-up: when the live anchor vessel doesn't exist
+            // (typical of regular Watch playback where the recording's
+            // original anchor vessel is gone — recovered, unloaded, or
+            // never existed in the current playback session), the shadow
+            // is the only world-position truth available for the Relative
+            // section. Without this branch, the legacy live-anchor relative
+            // path logs `relative-anchor-unresolved` and leaves the focused
+            // ghost briefly mispositioned at stage-separation moments,
+            // where the recorded anchor (the just-decoupled booster) only
+            // ever existed during the original recording. Caller already
+            // gated on `section.absoluteFrames` being non-empty, so the
+            // shadow data is guaranteed available when this branch fires.
+            if (!liveAnchorAvailable)
+            {
+                reason = "no-live-anchor";
+                return true;
+            }
+
+            if (!recordedAnchorAvailable)
                 return false;
 
             if (RelativeAnchorResolution.IsStaleLiveAnchor(
@@ -19603,15 +19986,15 @@ namespace Parsek
                 // Re-Fly tree anchor lock: when this ghost belongs to the
                 // active Re-Fly tree and the relative anchor resolved to the
                 // live player vessel (the common live-anchor path), translate
-                // by the spawn-time delta so the ghost lands at the correct
-                // relative offset to the live player at session start. NOTE:
-                // this is a partial fix for relative sections — the ghost
-                // still moves WITH the live anchor each frame because we have
-                // not replaced anchorPose itself. Full decoupling for the
-                // brief relative-anchor window after a structural event is
-                // tracked as a follow-up; absolute sections (the bulk of
-                // playback) are fully decoupled by the same delta applied
-                // upstream in InterpolateAndPosition.
+                // by the per-frame offset so the ghost lands at its recorded
+                // relative offset from where the live vessel actually is.
+                // NOTE: this is a partial fix for relative sections — the
+                // ghost still moves WITH the live anchor each frame because
+                // we have not replaced anchorPose itself. Brief
+                // relative-anchor windows that need a v7 absolute-shadow
+                // fall-back (anchor unresolved / drifted / active-Re-Fly
+                // bypass) route through TryUseAbsoluteShadowForActiveReFlyRelativeSection
+                // upstream in InterpolateAndPositionRelative.
                 if (TryGetReFlyTreeAnchorOffset(recordingId, targetUT, out Vector3d reFlyTreeOffset))
                     ghostPos += reFlyTreeOffset;
 
@@ -19716,7 +20099,7 @@ namespace Parsek
 
                 // Re-Fly tree anchor lock: before-first-frame and zero-duration
                 // edge cases route here (single-point relative fallback). Apply
-                // the same spawn-time delta as the regular relative path so
+                // the same per-frame offset as the regular relative path so
                 // these frames don't bypass coverage and LateUpdate's Relative
                 // branch preserves the anchored pose via reFlyTreeOffset.
                 Vector3d relReFlyTreeOffset = Vector3d.zero;

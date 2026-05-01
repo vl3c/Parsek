@@ -653,6 +653,27 @@ namespace Parsek
             clone.SpawnSuppressedByRewindReason = source.SpawnSuppressedByRewindReason;
             clone.SpawnSuppressedByRewindUT = source.SpawnSuppressedByRewindUT;
 
+            // #688 follow-up: preserve the captured pre-Re-Fly anchor
+            // trajectory snapshot. Repair / splice paths that DeepClone a
+            // recording (e.g. the active-tree refresh in ParsekScenario)
+            // would otherwise silently drop the snapshot, breaking the
+            // per-frame anchor for every other ghost in the active Re-Fly
+            // tree. The lists are cloned to keep the clone independent of
+            // the source. ApplyPersistenceArtifactsFrom intentionally does
+            // NOT copy these (they're [NonSerialized] live-session state),
+            // so the explicit copy here is the only way the snapshot
+            // survives a clone.
+            clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
+            clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
+                ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
+                : null;
+            clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
+                ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
+                : null;
+            clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
+                ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
+                : null;
+
             return clone;
         }
 
@@ -681,6 +702,37 @@ namespace Parsek
                 || (PreReFlyAnchorOrbitSegments != null && PreReFlyAnchorOrbitSegments.Count > 0);
         }
 
+        /// <summary>
+        /// Clears the captured pre-Re-Fly anchor trajectory snapshot so the
+        /// transient bulk lists do not linger past the session that captured
+        /// them. Called from <see cref="SupersedeCommit"/> after the merge
+        /// commit transitions the recording to its final committed state,
+        /// from the rewind-rollback path on a failed session, and from
+        /// <see cref="ParsekScenario"/> revert-on-load. Safe to call when no
+        /// snapshot is present (idempotent no-op).
+        /// </summary>
+        internal void ClearPreReFlyAnchorTrajectory()
+        {
+            PreReFlyAnchorSessionId = null;
+            PreReFlyAnchorPoints = null;
+            PreReFlyAnchorOrbitSegments = null;
+            PreReFlyAnchorTrackSections = null;
+        }
+
+        /// <summary>
+        /// Builds a synthetic <see cref="Recording"/> populated with the
+        /// captured snapshot's trajectory data (Points / OrbitSegments /
+        /// TrackSections) plus a minimal identity (recording id, vessel
+        /// name, tree / chain refs) so callers can drive the existing
+        /// trajectory codecs against the snapshot without leaking the
+        /// original recording's mutable post-trim live data.
+        /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
+        /// <see cref="SegmentEvents"/> are intentionally left at their
+        /// default-empty initialisers — only position-history data matters
+        /// for the per-frame anchor sample, and emitting events from the
+        /// snapshot would re-fire structural events at every save. Returns
+        /// null when no snapshot is captured for <paramref name="sessionId"/>.
+        /// </summary>
         internal Recording BuildPreReFlyAnchorTrajectoryRecording(string sessionId)
         {
             if (!HasPreReFlyAnchorTrajectory(sessionId))

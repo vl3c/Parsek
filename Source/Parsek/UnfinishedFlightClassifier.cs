@@ -66,7 +66,12 @@ namespace Parsek
 
             string parentBpId = rec.ParentBranchPointId;
             string childBpId = rec.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBpId) && string.IsNullOrEmpty(childBpId))
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                GetScenarioSupersedes(ParsekScenario.Instance);
+            bool matchesByOrigin = SlotMatchesRecordingOrigin(rec, slot, rp, supersedes);
+            if (string.IsNullOrEmpty(parentBpId)
+                && string.IsNullOrEmpty(childBpId)
+                && !matchesByOrigin)
             {
                 reason = "noParentBp";
                 LogVerdict(false, recId, reason, null);
@@ -77,7 +82,7 @@ namespace Parsek
                 && string.Equals(rp.BranchPointId, parentBpId, StringComparison.Ordinal);
             bool matchesChild = !string.IsNullOrEmpty(childBpId)
                 && string.Equals(rp.BranchPointId, childBpId, StringComparison.Ordinal);
-            if (!matchesParent && !matchesChild)
+            if (!matchesParent && !matchesChild && !matchesByOrigin)
             {
                 reason = "branchMismatch";
                 LogVerdict(false, recId, reason,
@@ -85,7 +90,9 @@ namespace Parsek
                 return false;
             }
 
-            string branchSide = matchesChild && !matchesParent
+            string branchSide = matchesByOrigin && !matchesParent && !matchesChild
+                ? "origin-only"
+                : matchesChild && !matchesParent
                 ? "active-parent-child"
                 : "child";
 
@@ -406,11 +413,9 @@ namespace Parsek
 
             string parentBp = rec.ParentBranchPointId;
             string childBp = rec.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
-            {
-                rejectReason = "noParentBp";
-                return false;
-            }
+            bool hasBranchLink =
+                !string.IsNullOrEmpty(parentBp)
+                || !string.IsNullOrEmpty(childBp);
 
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
@@ -450,6 +455,23 @@ namespace Parsek
                 return true;
             }
 
+            if (rec.MergeState != MergeState.NotCommitted
+                && TryResolveRewindPointByOriginSlot(
+                    rec,
+                    scenario.RewindPoints,
+                    supersedes,
+                    out rp,
+                    out slotListIndex))
+            {
+                return true;
+            }
+
+            if (!hasBranchLink)
+            {
+                rejectReason = "noParentBp";
+                return false;
+            }
+
             rejectReason = matchedRp ? "noMatchingRpSlot" : "noMatchingRP";
             if (matchedRp)
             {
@@ -462,6 +484,42 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        internal static bool TryResolveRewindPointByOriginSlot(
+            Recording rec,
+            IReadOnlyList<RewindPoint> rewindPoints,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (rewindPoints == null)
+                return false;
+
+            double bestUt = double.NegativeInfinity;
+            for (int i = 0; i < rewindPoints.Count; i++)
+            {
+                var candidate = rewindPoints[i];
+                if (candidate == null) continue;
+                int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                    candidate, rec, supersedes);
+                if (resolved < 0)
+                    continue;
+
+                double candidateUt = candidate.UT;
+                if (rp != null && candidateUt < bestUt)
+                    continue;
+
+                rp = candidate;
+                slotListIndex = resolved;
+                bestUt = candidateUt;
+            }
+
+            return rp != null;
         }
 
         private static bool TryResolveRewindPointForBranch(
@@ -546,8 +604,10 @@ namespace Parsek
             if (rec.MergeState != MergeState.Immutable
                 && rec.MergeState != MergeState.CommittedProvisional)
                 return false;
-            if (string.IsNullOrEmpty(rec.ParentBranchPointId)
-                && string.IsNullOrEmpty(rec.ChildBranchPointId))
+            bool hasBranchLink =
+                !string.IsNullOrEmpty(rec.ParentBranchPointId)
+                || !string.IsNullOrEmpty(rec.ChildBranchPointId);
+            if (!hasBranchLink && !HasOriginSlotMatchForRecording(rec))
                 return false;
 
             Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec, treeContext);
@@ -670,6 +730,54 @@ namespace Parsek
             if (string.IsNullOrEmpty(branchSide)) return details;
             if (string.IsNullOrEmpty(details)) return $"side={branchSide}";
             return details + $" side={branchSide}";
+        }
+
+        private static bool HasOriginSlotMatchForRecording(Recording rec)
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return false;
+
+            RewindPoint rp;
+            int slotListIndex;
+            return TryResolveRewindPointByOriginSlot(
+                rec,
+                scenario.RewindPoints,
+                GetScenarioSupersedes(scenario),
+                out rp,
+                out slotListIndex);
+        }
+
+        private static bool SlotMatchesRecordingOrigin(
+            Recording rec,
+            ChildSlot slot,
+            RewindPoint rp,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            int slotListIndex = ResolveSlotListIndexByReference(rp, slot);
+            if (slotListIndex < 0)
+                return false;
+
+            if (EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                    rp, rec, supersedes) == slotListIndex)
+                return true;
+
+            string supersedeTarget = rec?.SupersedeTargetId;
+            if (string.IsNullOrEmpty(supersedeTarget))
+                return false;
+
+            var targetRec = new Recording { RecordingId = supersedeTarget };
+            return EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                rp, targetRec, supersedes) == slotListIndex;
+        }
+
+        private static IReadOnlyList<RecordingSupersedeRelation> GetScenarioSupersedes(
+            ParsekScenario scenario)
+        {
+            return !object.ReferenceEquals(null, scenario)
+                && scenario.RecordingSupersedes != null
+                ? scenario.RecordingSupersedes
+                : (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
         }
 
         private static void LogVerdict(bool qualifies, string recId, string reason, string details)

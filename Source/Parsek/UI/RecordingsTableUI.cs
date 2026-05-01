@@ -2648,7 +2648,7 @@ namespace Parsek
             }
 
             // Always "Fly" — matches the Timeline-window separation-row label
-            // (DrawTimelineFlyButton) so the same action carries the same
+            // (DrawTimelineFlySealButtons) so the same action carries the same
             // glyph in both surfaces. The action is qualitatively different
             // from the legacy Rewind / Forward buttons (rewind time and watch
             // playback): clicking this loads a Rewind Point quicksave,
@@ -2826,7 +2826,7 @@ namespace Parsek
             }
         }
 
-        private static void HandleSealUnfinishedFlightClick(
+        internal static void HandleSealUnfinishedFlightClick(
             Recording rec, RewindPoint rp, int slotListIndex)
         {
             var slot = rp?.ChildSlots != null

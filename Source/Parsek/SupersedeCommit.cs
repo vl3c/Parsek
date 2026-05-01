@@ -329,8 +329,46 @@ namespace Parsek
             // call site that commits while still in flight.
             ReFlyRevertButtonGate.Apply("SupersedeCommit:marker-cleared");
 
+            // #688 follow-up: drop any captured pre-Re-Fly anchor trajectory
+            // snapshot now that the session is committed. The snapshot was
+            // only needed to feed the per-frame anchor offset while the live
+            // recording was being trimmed/extended; post-merge the recording's
+            // own data is final and the snapshot would otherwise linger in
+            // memory and in the .sfs as dead weight (the codec writes a
+            // full PRE_REFLY_ANCHOR node whenever HasPreReFlyAnchorTrajectory
+            // returns true). Idempotent — clears all recordings tagged with
+            // this session id, even though under the in-place contract only
+            // one recording carries a snapshot per session.
+            ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        internal static int ClearPreReFlyAnchorSnapshotsForSession(string sessionId)
+        {
+            if (string.IsNullOrEmpty(sessionId)) return 0;
+            int cleared = 0;
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null) continue;
+                    if (!string.Equals(
+                            rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal))
+                        continue;
+                    rec.ClearPreReFlyAnchorTrajectory();
+                    cleared++;
+                }
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Cleared {cleared} pre-Re-Fly anchor snapshot(s) for sess={sessionId}");
+            }
+            return cleared;
         }
 
         /// <summary>
@@ -757,11 +795,9 @@ namespace Parsek
 
             string parentBp = provisional.ParentBranchPointId;
             string childBp = provisional.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
-            {
-                rejectReason = "noParentBp";
-                return false;
-            }
+            bool hasBranchLink =
+                !string.IsNullOrEmpty(parentBp)
+                || !string.IsNullOrEmpty(childBp);
 
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
             {
@@ -796,8 +832,70 @@ namespace Parsek
                 return true;
             }
 
+            if (!IsInPlaceContinuation(marker, provisional)
+                && TryResolveSlotByOriginTarget(
+                    marker,
+                    targetRec,
+                    scenario,
+                    supersedes,
+                    out rp,
+                    out slotListIndex))
+            {
+                return true;
+            }
+
+            if (!hasBranchLink)
+            {
+                rejectReason = "noParentBp";
+                return false;
+            }
+
             rejectReason = matchedRp ? "noMatchingMarkerTargetSlot" : "noMatchingRP";
             return false;
+        }
+
+        private static bool TryResolveSlotByOriginTarget(
+            ReFlySessionMarker marker,
+            Recording targetRec,
+            ParsekScenario scenario,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (targetRec == null
+                || object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null)
+                return false;
+
+            string markerRpId = marker?.RewindPointId;
+            if (!string.IsNullOrEmpty(markerRpId))
+            {
+                for (int i = 0; i < scenario.RewindPoints.Count; i++)
+                {
+                    var candidate = scenario.RewindPoints[i];
+                    if (candidate == null) continue;
+                    if (!string.Equals(candidate.RewindPointId, markerRpId, StringComparison.Ordinal))
+                        continue;
+
+                    int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                        candidate, targetRec, supersedes);
+                    if (resolved < 0)
+                        return false;
+
+                    rp = candidate;
+                    slotListIndex = resolved;
+                    return true;
+                }
+            }
+
+            return UnfinishedFlightClassifier.TryResolveRewindPointByOriginSlot(
+                targetRec,
+                scenario.RewindPoints,
+                supersedes,
+                out rp,
+                out slotListIndex);
         }
 
         private static bool RequiresSlotAwareMergeClassification(Recording rec)

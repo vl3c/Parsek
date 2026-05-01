@@ -505,6 +505,107 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_ProducesCommittedProvisional()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("slot=1")
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("autoSeal=False"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_provisional")
+                && l.Contains("reason=stableLeafUnconcluded")
+                && l.Contains("side=origin-only"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_origin",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_origin",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("slot=1")
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
+        }
+
+        [Fact]
         public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTargetAndKeepsOpen()
         {
             const string bpId = "bp_stage";
