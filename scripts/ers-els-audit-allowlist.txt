@@ -16,6 +16,13 @@ Source/Parsek/ParsekScenario.cs
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
 Source/Parsek/GameActions/LedgerLoadMigration.cs
+# LedgerRolloutAdoption is the rollout-adoption + revert double-rollout dedup
+# helper extracted from LedgerOrchestrator. Reads Ledger.Actions to find
+# unadopted rollout candidates and to gate near-duplicate writes against the
+# in-memory list (#710 / #445). Same trust scope as LedgerOrchestrator —
+# documented at the call sites with [ERS-exempt] rationale (rollout context
+# is a physical pid+site identity correlation, not a recording-id walk).
+Source/Parsek/GameActions/LedgerRolloutAdoption.cs
 Source/Parsek/KerbalsModule.cs
 
 # --- Internal game-state-event suppression check ---
