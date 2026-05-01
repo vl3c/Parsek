@@ -36,6 +36,22 @@ namespace Parsek.InGameTests
     /// .sfs while sidecars stayed on disk (production bug 2026-05-01). The current
     /// guard in <c>RecordingStore.ResetForTesting()</c> hard-fails any future regression
     /// of this pattern.</para>
+    ///
+    /// <para><b>Live-data skip.</b> <see cref="RecordingStore.RunOptimizationPass"/>
+    /// walks the GLOBAL <c>committedRecordings</c> list — every player recording plus the
+    /// synthetic one this fixture injects. The split / merge / boring-tail-trim passes
+    /// mutate <c>Recording</c> instances in place (<c>ChainId</c>,
+    /// <c>SegmentBodyName</c>, <c>FilesDirty</c>), update <c>committedTrees</c>'
+    /// BackgroundMap and BranchPoint linkage, and fan out to disk via
+    /// <c>FlushDirtyFiles</c> + <c>DeleteRecordingFiles</c> for any recording the
+    /// optimizer touches. <see cref="RecordingStoreTestSnapshot"/> can only undo list
+    /// membership and ordering — it cannot roll back per-instance field mutations on
+    /// shared <c>Recording</c> references, and it cannot undo sidecar writes / deletes.
+    /// So if a player's save already holds committed recordings, both methods refuse to
+    /// run rather than risk corrupting them. The <c>RecordingOptimizerTests</c> xUnit
+    /// suite covers the predicate exhaustively in isolation; the in-game smoke variant
+    /// only adds value on a fresh save where the global pass is safely a no-op outside
+    /// the synthetic fixture.</para>
     /// </summary>
     public class PersistenceSplitOptimizerTest
     {
@@ -46,6 +62,20 @@ namespace Parsek.InGameTests
             RecordingStore.SuppressLogging = true;
             var snapshot = RecordingStoreTestSnapshot.Capture();
             int baselineCount = RecordingStore.CommittedRecordings.Count;
+            // RunOptimizationPass walks the global committedRecordings list and mutates
+            // Recording instances + sidecar files in place. Snapshot/restore is
+            // reference-shallow and disk-blind, so it cannot undo those side effects on
+            // the player's live recordings. Refuse to run when the store is non-empty;
+            // RecordingOptimizerTests covers the predicate in xUnit. Run from a fresh save
+            // (no committed recordings) to exercise the in-game path.
+            if (baselineCount > 0)
+            {
+                InGameAssert.Skip(
+                    $"Skipped: {baselineCount} live committed recording(s) present. " +
+                    "RunOptimizationPass would mutate them in place and snapshot/restore " +
+                    "cannot undo per-instance field mutations or sidecar disk I/O. Run " +
+                    "from a fresh save, or rely on RecordingOptimizerTests xUnit coverage.");
+            }
 
             try
             {
@@ -115,6 +145,17 @@ namespace Parsek.InGameTests
             RecordingStore.SuppressLogging = true;
             var snapshot = RecordingStoreTestSnapshot.Capture();
             int baselineCount = RecordingStore.CommittedRecordings.Count;
+            // See RealAscentReentry_ProducesPerPhaseChain_InGame above and the class-level
+            // <b>Live-data skip</b> doc — RunOptimizationPass cannot be safely run over
+            // live recordings, and snapshot/restore cannot undo the in-place mutation.
+            if (baselineCount > 0)
+            {
+                InGameAssert.Skip(
+                    $"Skipped: {baselineCount} live committed recording(s) present. " +
+                    "RunOptimizationPass would mutate them in place and snapshot/restore " +
+                    "cannot undo per-instance field mutations or sidecar disk I/O. Run " +
+                    "from a fresh save, or rely on RecordingOptimizerTests xUnit coverage.");
+            }
 
             try
             {

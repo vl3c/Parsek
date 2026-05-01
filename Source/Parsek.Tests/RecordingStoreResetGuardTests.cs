@@ -112,6 +112,11 @@ namespace Parsek.Tests
 
             Assert.Contains("hasPendingTree=True", ex.Message);
             Assert.True(RecordingStore.HasPendingTree);
+
+            // Parity with the committed-recordings sibling test: the throw must reach
+            // KSP.log so the failure is visible in production diagnostics.
+            Assert.Contains(logLines,
+                l => l.Contains("[ERROR][RecordingStore]") && l.Contains("ResetForTesting blocked"));
         }
 
         [Fact]

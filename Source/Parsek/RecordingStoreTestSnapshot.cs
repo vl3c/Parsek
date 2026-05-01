@@ -21,13 +21,41 @@ namespace Parsek
     /// recordings get removed; everything the player had before the test is reinstated
     /// in-place.</para>
     ///
-    /// <para><b>Scope.</b> Captures <c>committedRecordings</c>, <c>committedTrees</c>,
-    /// <c>pendingTree</c>/<c>pendingTreeState</c>, and the
-    /// <see cref="RecordingGroupStore"/> auto-assigned-standalone-group dict — i.e. the
-    /// recording-store fields <see cref="RecordingStore.ResetForTesting"/> mutates.
-    /// Sidecar files on disk are not snapshotted; tests that produce sidecars must
-    /// clean those up themselves (the production bug only mishandled in-memory state).
-    /// </para>
+    /// <para><b>Scope — what IS captured.</b> Exactly five pieces of in-memory state:
+    /// <list type="bullet">
+    ///   <item><description><c>committedRecordings</c> — list contents and ordering, reference-shallow.</description></item>
+    ///   <item><description><c>committedTrees</c> — list contents and ordering, reference-shallow.</description></item>
+    ///   <item><description><c>pendingTree</c> — the slot reference, reference-shallow.</description></item>
+    ///   <item><description><c>pendingTreeState</c> — the enum value.</description></item>
+    ///   <item><description><c>RecordingGroupStore.AutoAssignedStandaloneGroups</c> — dict copy.</description></item>
+    /// </list></para>
+    ///
+    /// <para><b>Scope — what is NOT captured.</b> <see cref="RecordingStore.ResetForTesting"/>
+    /// also clears a number of unrelated subsystems that this snapshot does not touch:
+    /// <c>SceneEntryActiveVesselPid</c>, the rewind-replay-target scope, <c>RewindContext</c>
+    /// state, <c>RewindUTAdjustmentPending</c>, <c>GameStateRecorder.PendingScienceSubjects</c>,
+    /// <c>PendingCleanupPids</c> / <c>PendingCleanupNames</c>, <c>PendingStashedThisTransition</c>,
+    /// and the legacy-merge-state-migration emit-once flag. This snapshot is intended for
+    /// SPACECENTER-scene synthetic-fixture tests that only mutate the recording-store
+    /// in-memory lists; rewind / cleanup / scene-entry state is out of scope. Callers that
+    /// run inside FLIGHT or that touch any of the above must not rely on this snapshot for
+    /// rollback.</para>
+    ///
+    /// <para><b>Reference-shallow.</b> Every captured collection is a copy of the list
+    /// header, not a deep clone of the underlying <c>Recording</c> / <c>RecordingTree</c>
+    /// instances. <see cref="Restore"/> only reinstates list membership and ordering — it
+    /// CANNOT undo per-instance field mutations on shared <c>Recording</c> /
+    /// <c>RecordingTree</c> references. Tests that hand a captured-then-shared instance to
+    /// production code which mutates fields in place (e.g. <c>RunOptimizationPass</c> sets
+    /// <c>ChainId</c>, <c>SegmentBodyName</c>, <c>FilesDirty</c>) will see those mutations
+    /// survive Restore. This is why <see cref="Parsek.InGameTests.PersistenceSplitOptimizerTest"/>
+    /// no longer runs the global optimizer pass over live recordings — Restore cannot roll
+    /// back the in-place mutation, nor can it undo the sidecar file writes / deletes the
+    /// optimizer triggers.</para>
+    ///
+    /// <para><b>Disk.</b> Sidecar files on disk are not snapshotted; tests that produce
+    /// sidecars must clean those up themselves (the production bug only mishandled
+    /// in-memory state).</para>
     /// </summary>
     internal sealed class RecordingStoreTestSnapshot
     {
