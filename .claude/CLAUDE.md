@@ -148,7 +148,7 @@ Key source files and what they do - read the relevant one before modifying:
 
 **HARD RULE — never edit or commit inside `Parsek/` (the main checkout) without explicit per-session approval.** This applies to every change that will produce a commit — code, tests, CHANGELOG trims, todo edits, doc tweaks, anything. "It's just a one-line fix" is not an exception. Recovery if I slip: stash any unrelated WIP, `git worktree add` a new worktree at the tip containing the direct-edit commit, `git reset --hard` `Parsek/` back to the pre-direct-edit tip, `git merge --no-ff` the rescue branch back in, `git stash pop`. Never leave a direct-edit commit standing on `main` or a shared branch.
 
-**HARD RULE - new feature and bugfix work starts in my own separate sibling worktree.** Do not edit or commit in another person's or another task's `Parsek-<branch>/` worktree unless the user specifically asks me to work in that exact worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse an existing worktree only when it is mine and already dedicated to the same line of work.
+**HARD RULE - every change that will produce a commit starts in my own dedicated sibling worktree.** Do not edit or commit in another task's `Parsek-<branch>/` worktree unless the user specifically asks me to work in that exact worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse a worktree only when it is mine and already dedicated to the same line of work — within one line of work, keep editing, committing, and pushing inside the same worktree. Spinning up a fresh worktree per change is unnecessary ceremony.
 
 For manual worktrees (when not using `isolation=worktree`), create as sibling folders:
 ```bash
@@ -235,7 +235,7 @@ Do one full review at the end of a task/worktree before creating or finalizing t
 
 When a reviewer flags fixes on an open PR, re-review only the follow-up changes and any directly affected code paths. Do not restart a full-PR review from scratch on every follow-up unless the new changes actually broaden the risk surface.
 
-Do not re-review excessively. Re-review is for risky code changes: shared behavior, serialization/schema, runtime-only paths, broad refactors, concurrency/lifecycle changes, or fixes that change the PR's behavioral contract. Docs-only edits, small copy/typo fixes, test-only clarifications, and other low-risk follow-ups do not need another review pass; self-review them and report the validation performed.
+Do not re-review excessively. Re-review is for risky code changes: shared behavior, serialization/schema, runtime-only paths, broad refactors, concurrency/lifecycle changes, or fixes that change the PR's behavioral contract. Docs-only edits, small copy/typo fixes, and test-only clarifications do not need another review pass; self-review them and report the validation performed.
 
 ## Workflow
 
