@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.Serialization;
 using Xunit;
 
@@ -221,7 +222,8 @@ namespace Parsek.Tests
                 isSceneExit: false,
                 resolveFinalizationCache: null,
                 resolveDestroyedDuringRecording: r => r != null && r.RecordingId == rec.RecordingId,
-                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveFlyingVessel : null);
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveFlyingVessel : null,
+                liveVesselAccess: TestLiveVesselAccess);
 
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Contains(logLines, l =>
@@ -253,12 +255,21 @@ namespace Parsek.Tests
                 finalizationCache: null,
                 treeContext: null,
                 vesselDestroyedDuringRecording: false,
-                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveVessel : null);
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveVessel : null,
+                liveVesselAccess: TestLiveVesselAccess);
 
             Assert.Equal(expected, rec.TerminalStateValue);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("active-recorder destruction override") &&
                 l.Contains("stable-live"));
+        }
+
+        [Fact]
+        public void FinalizationLiveVesselAccess_DefaultDelegatesBindOuterLiveVesselMethods()
+        {
+            AssertDefaultDelegate("captureTerminalOrbit", typeof(ParsekFlight), "CaptureTerminalOrbit");
+            AssertDefaultDelegate("captureTerminalPosition", typeof(ParsekFlight), "CaptureTerminalPosition");
+            AssertDefaultDelegate("tryRefreshStableTerminalSnapshot", typeof(ParsekFlight), "TryRefreshStableTerminalSnapshot");
         }
 
         [Fact]
@@ -558,6 +569,32 @@ namespace Parsek.Tests
             vessel.persistentId = persistentId;
             vessel.situation = situation;
             return vessel;
+        }
+
+        private static ParsekFlight.FinalizationLiveVesselAccess TestLiveVesselAccess =>
+            new ParsekFlight.FinalizationLiveVesselAccess(
+                isFound: vessel => !ReferenceEquals(vessel, null),
+                determineTerminalState: vessel =>
+                    RecordingTree.DetermineTerminalState((int)vessel.situation),
+                captureTerminalOrbit: (rec, vessel) => { },
+                captureTerminalPosition: (rec, vessel) => { },
+                tryBackupSnapshot: vessel => null,
+                tryRefreshStableTerminalSnapshot: (rec, vessel, isSceneExit, logPrefix) => false);
+
+        private static void AssertDefaultDelegate(
+            string fieldName,
+            Type declaringType,
+            string methodName)
+        {
+            var field = typeof(ParsekFlight.FinalizationLiveVesselAccess).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+
+            var del = Assert.IsAssignableFrom<Delegate>(
+                field.GetValue(ParsekFlight.FinalizationLiveVesselAccess.Default));
+            Assert.Equal(declaringType, del.Method.DeclaringType);
+            Assert.Equal(methodName, del.Method.Name);
         }
     }
 }
