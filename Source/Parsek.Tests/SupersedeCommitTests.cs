@@ -772,6 +772,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EffectiveStateResetCachesForTesting_ClearsWorldActionSafetyCache()
+        {
+            var rec = Rec("rec_cache_reset", "tree_1");
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_cache_reset",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_cache_reset",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            string summary;
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache_reset", summary);
+
+            int versionBeforeTruncate = Ledger.StateVersion;
+            Ledger.TruncateActionsForTesting(0);
+            Assert.Equal(versionBeforeTruncate, Ledger.StateVersion);
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache_reset", summary);
+
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+        }
+
+        [Fact]
         public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceAction_AutoSeals()
         {
             const string bpId = "bp_stage";

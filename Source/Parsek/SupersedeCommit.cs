@@ -711,6 +711,18 @@ namespace Parsek
             }
         }
 
+        internal static void ResetWorldActionSafetyCacheForTesting()
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                worldActionSafetyCache.Clear();
+                worldActionSafetyCacheScenarioIdentity = null;
+                worldActionSafetyCacheLedgerVersion = int.MinValue;
+                worldActionSafetyCacheStoreVersion = int.MinValue;
+                worldActionSafetyCacheSupersedeVersion = int.MinValue;
+            }
+        }
+
         private static void EnsureWorldActionSafetyCacheCurrent(
             ParsekScenario scenario)
         {
