@@ -1102,6 +1102,21 @@ namespace Parsek
                     reason: "playback", requestedPlaybackUT: ctx.currentUT);
             }
 
+            // Targeted post-separation observability: emits one
+            // [PlaybackTrace] line per frame for ghosts whose trajectory
+            // has a structural-event flag within the past 5 seconds, so
+            // we can correlate the rendered ghost world position with the
+            // active TrackSection during the visually critical separation
+            // window. No-op outside the gate window. The retired branch
+            // skips the trace because its (0,0,0) transform would pollute
+            // the delta computation; the next non-retired frame establishes
+            // a fresh cursor.
+            if (!retired)
+            {
+                PlaybackTrace.MaybeEmitFrame(
+                    traj, i, ctx.currentUT, state.ghost.transform.position);
+            }
+
             // Run early-destroyed-debris completion for its side effects (event
             // emission, explosion FX). The helper's return value doesn't gate
             // the outer result: the ghost has already been rendered above this
@@ -4938,6 +4953,11 @@ namespace Parsek
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
 
+            // Drop cached structural-event UT lists and per-ghost trace
+            // cursors so a re-spawned ghost computes its first delta
+            // against its current frame, not against a stale pose from
+            // the prior session.
+            PlaybackTrace.Reset();
         }
 
         /// <summary>
