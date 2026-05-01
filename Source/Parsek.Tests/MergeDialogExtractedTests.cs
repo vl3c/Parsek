@@ -15,6 +15,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            ParsekScenario.MergeDialogPending = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -23,7 +24,25 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            ParsekScenario.MergeDialogPending = false;
             RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void ClearPendingFlag_ClearsDeferredFlagAndLogsReason()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekScenario.MergeDialogPending = true;
+
+            MergeDialog.ClearPendingFlag("xunit cleanup");
+
+            Assert.False(ParsekScenario.MergeDialogPending);
+            Assert.Contains(logLines, line =>
+                line.Contains("[MergeDialog]")
+                && line.Contains("Cleared pending flag and input lock")
+                && line.Contains("reason='xunit cleanup'")
+                && line.Contains("wasPending=True"));
         }
 
         #region ComputeTreeDurationRange
