@@ -399,7 +399,7 @@ namespace Parsek.Tests
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
             Assert.False(recording.Enabled);
-            Assert.Contains("no direct committed recording", recording.Reason);
+            Assert.Contains("No direct recording row", recording.Reason);
             Assert.False(materialize.Enabled);
             Assert.Contains("No committed recording", materialize.Reason);
         }

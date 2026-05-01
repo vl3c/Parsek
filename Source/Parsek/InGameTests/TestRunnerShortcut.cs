@@ -28,7 +28,6 @@ namespace Parsek.InGameTests
         private GUIStyle opaqueStyle;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
         private GameScenes opaqueStyleScene;
         private bool hasOpaqueStyleScene;
 
@@ -171,7 +170,6 @@ namespace Parsek.InGameTests
             ClearOpaqueStyle();
             zeroHeightLabelStyle = null;
             wrappedErrorLabelStyle = null;
-            wrappedTooltipStyle = null;
         }
 
         internal bool TryEnsureOpaqueStyleForTesting(GUISkin skin)
@@ -287,9 +285,9 @@ namespace Parsek.InGameTests
 
             GUILayout.BeginHorizontal();
             GUI.enabled = !running;
-            if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
+            if (GUILayout.Button(new GUIContent("Run All", "Run all batch-safe tests."))) { runner.ResetResults(); runner.RunAll(); }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Run batch-safe tests plus isolated FLIGHT tests.")))
             {
                 runner.ResetResults();
                 runner.RunAllIncludingFlightRestore();
@@ -299,12 +297,12 @@ namespace Parsek.InGameTests
             // report on the next run. The implicit pre-run ResetResults (above)
             // preserves per-scene history so KSC→Flight accumulation works.
             if (GUILayout.Button(new GUIContent("Reset",
-                "Clears the table AND per-scene history used by the auto-exported results file.")))
+                "Clear results and scene history.")))
             {
                 runner.ClearAllSceneHistory();
             }
             GUI.enabled = running;
-            if (GUILayout.Button("Cancel")) { runner.Cancel(); }
+            if (GUILayout.Button(new GUIContent("Cancel", "Stop the current test run."))) { runner.Cancel(); }
             GUI.enabled = true;
             GUILayout.EndHorizontal();
 
@@ -345,13 +343,13 @@ namespace Parsek.InGameTests
                     else expandedCategories.Add(cat);
                 }
                 GUI.enabled = !running;
-                if (GUILayout.Button("Run", GUILayout.Width(40)))
+                if (GUILayout.Button(new GUIContent("Run", "Run this category."), GUILayout.Width(40)))
                 {
                     runner.ResetCategory(cat);
                     runner.RunCategory(cat);
                 }
                 if (GUILayout.Button(new GUIContent("Run+",
-                    "Runs this category plus any [isolated] FLIGHT tests by restoring a temporary baseline between destructive tests."),
+                    "Run this category plus isolated FLIGHT tests."),
                     GUILayout.Width(44)))
                 {
                     runner.ResetCategory(cat);
@@ -412,21 +410,15 @@ namespace Parsek.InGameTests
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent("Export Results",
-                "Auto-exported after every Run All / Run Category / row-play — click to re-write now.")))
+                "Write the current results file now.")))
                 runner.ExportResultsFile();
-            if (GUILayout.Button("Close")) showWindow = false;
+            if (GUILayout.Button(new GUIContent("Close", "Close this window."))) showWindow = false;
             GUILayout.EndHorizontal();
             GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
                 GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
-            // Always render tooltip label — conditional rendering causes
-            // Layout/Repaint control count mismatch (IMGUI exception).
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            Parsek.TooltipBubble.DrawForWindow("GlobalTestRunner", windowRect);
 
             GUI.DragWindow();
         }
@@ -469,15 +461,6 @@ namespace Parsek.InGameTests
                     wordWrap = true
                 };
                 wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
-                {
-                    wordWrap = true
-                };
-                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 

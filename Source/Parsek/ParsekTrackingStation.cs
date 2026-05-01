@@ -454,7 +454,7 @@ namespace Parsek
                 state.ShowGhosts,
                 new GUIContent(
                     " Show ghosts in Tracking Station",
-                    "Show or hide Parsek ghost vessels and markers in the Tracking Station"));
+                    "Show or hide ghost vessels and markers."));
             if (showGhosts != state.ShowGhosts)
                 SetShowGhostsFromControlSurface(showGhosts);
 
@@ -480,6 +480,7 @@ namespace Parsek
             }
 
             GUILayout.EndVertical();
+            TooltipBubble.DrawForWindow("TrackingStationMain", windowRect);
             GUI.DragWindow();
         }
 
@@ -763,6 +764,7 @@ namespace Parsek
                 GhostTrackingStationSelection.ClearSelectedGhost("ghost action panel closed");
 
             GUILayout.EndVertical();
+            TooltipBubble.DrawForWindow("TrackingStationGhostActions", ghostActionsWindowRect);
             GUI.DragWindow();
         }
 

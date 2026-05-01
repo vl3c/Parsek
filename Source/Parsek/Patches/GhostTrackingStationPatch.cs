@@ -105,8 +105,8 @@ namespace Parsek.Patches
                     TrackingStationGhostActionSafety.SafeOnGhost,
                     context.HasGhostVessel && context.CanFocus,
                     context.HasGhostVessel && context.CanFocus
-                        ? "Center the Tracking Station camera on this ghost."
-                        : "Tracking Station camera or ghost map object is not ready."),
+                        ? "Center the camera on this ghost."
+                        : "Camera or ghost map object is not ready."),
 
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.SetTarget,
@@ -115,7 +115,7 @@ namespace Parsek.Patches
                     context.HasGhostVessel && context.CanSetTarget,
                     context.HasGhostVessel && context.CanSetTarget
                         ? "Set this ghost as the navigation target."
-                        : "Targeting is not available in the current Tracking Station state."),
+                        : "Targeting is unavailable right now."),
 
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.ShowRecording,
@@ -123,8 +123,8 @@ namespace Parsek.Patches
                     TrackingStationGhostActionSafety.SafeOnGhost,
                     hasRecording,
                     hasRecording
-                        ? "Open the owning recording details."
-                        : "This chain ghost has no direct committed recording row."),
+                        ? "Open this ghost's recording details."
+                        : "No direct recording row for this chain ghost."),
 
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.Materialize,
@@ -140,26 +140,26 @@ namespace Parsek.Patches
             bool hasRecording)
         {
             if (!hasRecording)
-                return "No committed recording is attached to this ghost.";
+                return "No committed recording is attached.";
             if (context.AlreadyMaterialized)
-                return "The owning recording is already materialized.";
+                return "This recording is already materialized.";
             if (context.MaterializeEligible)
-                return "Spawn the recorded vessel at its resolved Tracking Station endpoint.";
+                return "Spawn the vessel at its recorded endpoint.";
 
             switch (context.MaterializeReason)
             {
                 case GhostMapPresence.TrackingStationSpawnSkipBeforeEnd:
-                    return "Recording has not reached its endpoint yet.";
+                    return "Recording has not reached its endpoint.";
                 case GhostMapPresence.TrackingStationSpawnSkipRewindPending:
-                    return "Waiting for the pending rewind UT adjustment.";
+                    return "Waiting for pending rewind time adjustment.";
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink:
-                    return "Intermediate chain segments materialize through their chain tip.";
+                    return "Materialize from the chain tip instead.";
                 case GhostMapPresence.TrackingStationSpawnSkipTerminatedGhostChain:
                     return "Terminated ghost chains do not materialize.";
                 case null:
                 case "":
-                    return "Recording is not eligible to materialize yet.";
+                    return "Recording is not eligible yet.";
                 default:
                     return "Materialize blocked: " + context.MaterializeReason;
             }

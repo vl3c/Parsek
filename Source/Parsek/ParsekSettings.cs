@@ -30,27 +30,27 @@ namespace Parsek
         public override bool HasPresets => false;
 
         [GameParameters.CustomParameterUI("Auto-record on launch",
-            toolTip = "Automatically start recording when a vessel leaves the pad or runway")]
+            toolTip = "Record launches automatically.")]
         public bool autoRecordOnLaunch = true;
 
         [GameParameters.CustomParameterUI("Auto-record on EVA",
-            toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
+            toolTip = "Record pad EVAs automatically.")]
         public bool autoRecordOnEva = true;
 
         [GameParameters.CustomParameterUI("Auto-record on first modification after switch",
-            toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
+            toolTip = "After switching vessels, record the first meaningful change.")]
         public bool autoRecordOnFirstModificationAfterSwitch = true;
 
         [GameParameters.CustomParameterUI("Auto-merge recordings",
-            toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
+            toolTip = "Off: ask before adding each recording to the timeline.")]
         public bool autoMerge = false;
 
         [GameParameters.CustomParameterUI("Verbose logging",
-            toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
+            toolTip = "Write detailed diagnostics to KSP.log.")]
         public bool verboseLogging = true;
 
         [GameParameters.CustomParameterUI("Readable sidecar mirrors",
-            toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
+            toolTip = "Write readable .txt mirrors beside binary sidecars.")]
         public bool writeReadableSidecarMirrors = true;
 
         /// <summary>
@@ -59,7 +59,7 @@ namespace Parsek
         /// Toggles are picked up live via force-tick in <c>ParsekTrackingStation.Update</c>.
         /// </summary>
         [GameParameters.CustomParameterUI("Show ghosts in Tracking Station",
-            toolTip = "When off, Parsek ghosts are hidden from the tracking station vessel list and map view")]
+            toolTip = "Show ghost vessels and map markers in Tracking Station.")]
         public bool showGhostsInTrackingStation = true;
 
         /// <summary>
@@ -278,9 +278,9 @@ namespace Parsek
 
         internal static string DensityTooltip(SamplingDensity level) =>
             level == SamplingDensity.Low
-                ? "Fewer samples \u2014 smaller files, less CPU. Trajectories may look angular during sharp maneuvers."
+                ? "Small files, lower CPU; sharp turns may look angular."
             : level == SamplingDensity.High
-                ? "Dense sampling \u2014 smooth curves for cinematic recordings. Larger files."
+                ? "Smoothest curves; larger files."
             : "Balanced sampling for most flights.";
 
         internal static string DensitySummary(SamplingDensity level)
@@ -304,7 +304,7 @@ namespace Parsek
 
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,
             stepCount = 20, displayFormat = "P0",
-            toolTip = "Volume multiplier for ghost vessel audio (engines, decouplers, explosions). 0 = muted.")]
+            toolTip = "Volume for ghost engines, RCS, and events.")]
         public float ghostAudioVolume = 0.7f;
 
         public LoopTimeUnit AutoLoopDisplayUnit

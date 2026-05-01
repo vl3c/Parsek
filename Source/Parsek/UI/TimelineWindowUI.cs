@@ -394,6 +394,7 @@ namespace Parsek
 
             ParsekUI.DrawResizeHandle(timelineWindowRect, ref isResizingTimelineWindow,
                 "Timeline window");
+            TooltipBubble.DrawForWindow("Timeline", timelineWindowRect);
 
             GUI.DragWindow();
         }
@@ -869,7 +870,7 @@ namespace Parsek
                         string ffReason;
                         bool canFF = CanFastForwardNow(rec, out ffReason);
                         GUI.enabled = canFF;
-                        if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
+                        if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to launch." : ffReason),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.FastForward))))
                         {
                             ParsekLog.Info("UI",
@@ -884,7 +885,7 @@ namespace Parsek
                         string rewindReason;
                         bool canRewind = CanRewindWithResolvedSaveState(rec, out rewindReason);
                         GUI.enabled = canRewind;
-                        if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
+                        if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to launch." : rewindReason),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind))))
                         {
                             ParsekLog.Info("UI",
@@ -905,7 +906,7 @@ namespace Parsek
                     bool isUnfinishedFlight = EffectiveState.IsUnfinishedFlight(rec);
                     if (ShouldShowLoopToggle(rec, isFuture, isUnfinishedFlight))
                     {
-                        string lTooltip = rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)";
+                        string lTooltip = rec.LoopPlayback ? "Disable looping." : "Enable looping with saved interval.";
                         bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
                             toggleButtonStyle, GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Loop)));
                         if (newLoop != rec.LoopPlayback)
@@ -921,7 +922,7 @@ namespace Parsek
 
                     // GoTo button — always last, right-aligned
                     if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            new GUIContent("GoTo", "Show in Recordings."),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;
@@ -951,7 +952,7 @@ namespace Parsek
                     }
 
                     if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            new GUIContent("GoTo", "Show in Recordings."),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;
@@ -995,7 +996,7 @@ namespace Parsek
             {
                 GUI.enabled = false;
                 GUILayout.Button(
-                    new GUIContent("Fly", routeReason ?? "Re-Fly unavailable"),
+                    new GUIContent("Fly", routeReason ?? "Re-fly unavailable."),
                     GUILayout.Width(width));
                 GUI.enabled = true;
                 return;
@@ -1006,8 +1007,8 @@ namespace Parsek
                 rp, slotListIndex, out reason);
             GUI.enabled = canInvoke;
             string tooltip = canInvoke
-                ? "Re-fly this unfinished flight from the separation moment"
-                : (reason ?? "Re-Fly unavailable");
+                ? "Re-fly from the separation moment."
+                : (reason ?? "Re-fly unavailable.");
             if (GUILayout.Button(new GUIContent("Fly", tooltip), GUILayout.Width(width)))
             {
                 ParsekLog.Info("UI",

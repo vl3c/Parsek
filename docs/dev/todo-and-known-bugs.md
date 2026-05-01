@@ -11,6 +11,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 delayed tooltip bubbles
+
+- ~~Hover helper text was rendered in bottom-of-window footer rows, but cramped windows left only a dark horizontal strip and the messages were easy to miss.~~ Source: UI playtest report on 2026-05-01. Fix: Parsek windows now use a shared delayed tooltip bubble that appears after 1 second of stable hover near the hovered control, clamped inside the window. The footer rows were removed from Recordings, Timeline, Settings, Spawn Control, Tracking Station, and both Test Runner surfaces, and the player-facing tooltip copy was shortened.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done — v0.9.1 orphan-cleanup safety guard
 
 - ~~`RecordingStore.CleanOrphanFiles` unconditionally deletes every sidecar file whose recording ID is not in the in-memory known-IDs set, with no protection for the "load lost its tree state" case.~~ Source: `Kerbal Space Program/KSP.log` from save `s19` showed `Save folder changed to 's19' — resetting session state` at 10:13:42 followed by `OnLoad initial: cleared CommittedTrees, loading 0 tree(s)` and then `CleanOrphanFiles: scanning 84 file(s) against 0 known recording ID(s)` deleting 84 sidecars across 12 recordings. The save's `quicksave.sfs` (last saved 09:31, before the bad session) still contained all 12 `RECORDING_TREE` blocks with the same IDs that just got physically deleted, but the trajectory/craft sidecars were unrecoverable. Some earlier session had loaded `persistent.sfs` (presumably with the trees), dropped the in-memory trees, and saved 0 trees back — leaving the sidecars stranded. The next load then deleted them, turning a recoverable accident (restore `RECORDING_TREE` blocks from `quicksave.sfs`) into permanent bulk-data loss.

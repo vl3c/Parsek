@@ -790,7 +790,7 @@ namespace Parsek.Tests
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
                 isWatching: false, hasGhost: false, sameBody: true, inRange: true, isDebris: false);
 
-            Assert.Contains("No active ghost", tooltip);
+            Assert.Equal("No loaded ghost for this row.", tooltip);
         }
 
         [Fact]
@@ -799,7 +799,7 @@ namespace Parsek.Tests
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
                 isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
 
-            Assert.Equal("Exit watch mode", tooltip);
+            Assert.Equal("Exit watch.", tooltip);
         }
 
         [Fact]

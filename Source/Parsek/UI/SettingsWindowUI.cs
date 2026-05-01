@@ -24,8 +24,6 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
-        private GUIStyle zeroHeightLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
 
         public bool IsOpen
         {
@@ -142,7 +140,6 @@ namespace Parsek
 
         private void DrawSettingsWindow(int windowID)
         {
-            EnsureLayoutStyles();
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
             var s = ParsekSettings.Current;
@@ -206,44 +203,16 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            TooltipBubble.DrawForWindow("Settings", settingsWindowRect);
 
             GUI.DragWindow();
-        }
-
-        private void EnsureLayoutStyles()
-        {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
-                {
-                    wordWrap = true
-                };
-            }
         }
 
         private void DrawRecordingSettings(ParsekSettings s)
         {
             GUILayout.Label("Recording", parentUI.GetSectionHeaderStyle());
             bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
-                new GUIContent(" Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
+                new GUIContent(" Auto-record on launch", "Record launches automatically."));
             if (autoRecordOnLaunch != s.autoRecordOnLaunch)
             {
                 s.autoRecordOnLaunch = autoRecordOnLaunch;
@@ -251,7 +220,7 @@ namespace Parsek
             }
 
             bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
-                new GUIContent(" Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
+                new GUIContent(" Auto-record on EVA", "Record pad EVAs automatically."));
             if (autoRecordOnEva != s.autoRecordOnEva)
             {
                 s.autoRecordOnEva = autoRecordOnEva;
@@ -262,7 +231,7 @@ namespace Parsek
                 s.autoRecordOnFirstModificationAfterSwitch,
                 new GUIContent(
                     " Auto-record on first modification after switch",
-                    "Arm after switching to a real vessel and start recording on the first meaningful physical change"));
+                    "After switching vessels, record the first meaningful change."));
             if (autoRecordOnFirstModificationAfterSwitch != s.autoRecordOnFirstModificationAfterSwitch)
             {
                 s.autoRecordOnFirstModificationAfterSwitch = autoRecordOnFirstModificationAfterSwitch;
@@ -271,7 +240,7 @@ namespace Parsek
             }
 
             bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent(" Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
+                new GUIContent(" Auto-merge recordings", "Off: ask before adding each recording to the timeline."));
             if (autoMerge != s.autoMerge)
             {
                 s.autoMerge = autoMerge;
@@ -284,7 +253,7 @@ namespace Parsek
             GUILayout.Label("Looping", parentUI.GetSectionHeaderStyle());
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Auto-launch every",
-                "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."),
+                "Default launch-to-launch interval for Auto periods."),
                 GUILayout.ExpandWidth(false));
             GUILayout.FlexibleSpace();
             {
@@ -338,7 +307,7 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Ghost audio",
-                "Volume multiplier for ghost vessel audio (engines, RCS, events). 0% = muted."),
+                "Volume for ghost engines, RCS, and events."),
                 GUILayout.Width(85));
             float newAudioVol = GUILayout.HorizontalSlider(s.ghostAudioVolume, 0f, 1f);
             GUILayout.Label(
@@ -356,7 +325,7 @@ namespace Parsek
 
             bool showGhostsTS = GUILayout.Toggle(s.showGhostsInTrackingStation,
                 new GUIContent(" Show ghosts in Tracking Station",
-                    "When off, Parsek ghosts are hidden from the tracking station vessel list and map view"));
+                    "Show ghost vessels and map markers in Tracking Station."));
             if (showGhostsTS != s.showGhostsInTrackingStation)
             {
                 s.showGhostsInTrackingStation = showGhostsTS;
@@ -382,7 +351,7 @@ namespace Parsek
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
                 new GUIContent(" Write readable sidecar mirrors",
-                    "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
+                    "Write readable .txt mirrors beside binary sidecars."));
             if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
             {
                 s.writeReadableSidecarMirrors = writeReadableSidecarMirrors;
@@ -392,13 +361,13 @@ namespace Parsek
             }
 
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
-                "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
+                "Open runtime tests. Ctrl+Shift+T also toggles it.")))
             {
                 parentUI.ToggleTestRunner();
             }
 
             if (GUILayout.Button(new GUIContent("Run Diagnostics Report",
-                "Compute full diagnostics snapshot and dump report to KSP.log")))
+                "Write a diagnostics snapshot to KSP.log.")))
             {
                 ParsekLog.Info("UI", "Run Diagnostics Report button clicked");
                 DiagnosticsComputation.RunDiagnosticsReport();
@@ -412,9 +381,7 @@ namespace Parsek
             var rpSnap = RewindPointDiskUsage.GetSnapshot(rpDir);
             GUILayout.Label(new GUIContent(
                 RewindPointDiskUsage.FormatLine(rpSnap),
-                "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
-                + "Also shows live RP counts split by crashed, stable, and sealed-pending slots. "
-                + "Refreshed every 10 seconds or when RP state changes."));
+                "Rewind point quicksaves: size and live slot counts. Refreshes every 10s."));
         }
 
         private void DrawSamplingSettings(ParsekSettings s)

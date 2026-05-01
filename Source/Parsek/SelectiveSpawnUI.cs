@@ -177,20 +177,20 @@ namespace Parsek
             NearbySpawnCandidate? candidate, double currentUT)
         {
             if (candidate == null)
-                return "No nearby craft to spawn";
+                return "No nearby craft.";
 
             var c = candidate.Value;
             if (c.willDepart)
             {
                 double depDelta = c.departureUT - currentUT;
                 return string.Format(IC,
-                    "Warp to {0} departure (departs in {1})",
+                    "Warp to {0}'s departure in {1}.",
                     c.vesselName, FormatTimeDelta(depDelta));
             }
 
             double delta = c.endUT - currentUT;
             return string.Format(IC,
-                "Warp to {0} (spawns in {1})",
+                "Warp to {0}'s spawn in {1}.",
                 c.vesselName, FormatTimeDelta(delta));
         }
 

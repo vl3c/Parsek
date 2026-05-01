@@ -108,7 +108,7 @@ namespace Parsek.Tests
                 isWatching: false, hasGhost: true, sameBody: true, inRange: true, isDebris: false);
 
             Assert.Equal("W", descriptor.Label);
-            Assert.Equal("Follow ghost in watch mode", descriptor.Tooltip);
+            Assert.Equal("Watch this ghost.", descriptor.Tooltip);
             Assert.True(descriptor.Enabled);
             Assert.True(descriptor.CanWatch);
             Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Enter, descriptor.Action);
@@ -144,7 +144,7 @@ namespace Parsek.Tests
                 isWatching: true, hasGhost: false, sameBody: false, inRange: false, isDebris: false);
 
             Assert.Equal("W*", descriptor.Label);
-            Assert.Equal("Exit watch mode", descriptor.Tooltip);
+            Assert.Equal("Exit watch.", descriptor.Tooltip);
             Assert.True(descriptor.Enabled);
             Assert.False(descriptor.CanWatch);
             Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit, descriptor.Action);

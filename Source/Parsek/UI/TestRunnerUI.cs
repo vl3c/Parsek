@@ -25,7 +25,6 @@ namespace Parsek
         private bool testRunnerWasRunning;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
 
         private const float SpacingSmall = 3f;
         private const float DefaultWindowWidth = 440f;
@@ -160,14 +159,14 @@ namespace Parsek
                 }
                 // Run category button
                 GUI.enabled = !testRunner.IsRunning;
-                if (GUILayout.Button("Run", GUILayout.Width(40)))
+                if (GUILayout.Button(new GUIContent("Run", "Run this category."), GUILayout.Width(40)))
                 {
                     testRunner.ResetCategory(category);
                     testRunner.RunCategory(category);
                     ParsekLog.Verbose("UI", $"Test runner: Run category '{category}'");
                 }
                 if (GUILayout.Button(new GUIContent("Run+",
-                    "Runs this category plus any [isolated] FLIGHT tests by restoring a temporary baseline between destructive tests."),
+                    "Run this category plus isolated FLIGHT tests."),
                     GUILayout.Width(44)))
                 {
                     testRunner.ResetCategory(category);
@@ -256,15 +255,6 @@ namespace Parsek
                 };
                 wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
             }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
-                {
-                    wordWrap = true
-                };
-                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
-            }
         }
 
         private void DrawTestRunnerWindow(int windowID)
@@ -281,21 +271,21 @@ namespace Parsek
             // --- Controls bar ---
             GUILayout.BeginHorizontal();
             GUI.enabled = !testRunner.IsRunning;
-            if (GUILayout.Button("Run All"))
+            if (GUILayout.Button(new GUIContent("Run All", "Run all batch-safe tests.")))
             {
                 testRunner.ResetResults();
                 testRunner.RunAll();
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
             }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Run batch-safe tests plus isolated FLIGHT tests.")))
             {
                 testRunner.ResetResults();
                 testRunner.RunAllIncludingFlightRestore();
                 ParsekLog.Info("UI", "Test runner: Run All + Isolated clicked");
             }
             if (GUILayout.Button(new GUIContent("Reset",
-                "Clears the table AND per-scene history used by the auto-exported results file.")))
+                "Clear results and scene history.")))
             {
                 // Explicit Reset wipes per-scene history so the auto-export on the
                 // next run produces a clean report. The implicit pre-run ResetResults
@@ -304,7 +294,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Test runner: Reset clicked (full history wipe)");
             }
             GUI.enabled = testRunner.IsRunning;
-            if (GUILayout.Button("Cancel"))
+            if (GUILayout.Button(new GUIContent("Cancel", "Stop the current test run.")))
             {
                 testRunner.Cancel();
             }
@@ -350,12 +340,12 @@ namespace Parsek
             // --- Bottom bar ---
             GUILayout.Space(SpacingSmall);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Export Results"))
+            if (GUILayout.Button(new GUIContent("Export Results", "Write the current results file now.")))
             {
                 testRunner.ExportResultsFile();
                 ParsekLog.Info("UI", "Test runner: manually exported results file");
             }
-            if (GUILayout.Button("Close"))
+            if (GUILayout.Button(new GUIContent("Close", "Close this window.")))
             {
                 showTestRunnerWindow = false;
                 ParsekLog.Verbose("UI", "Test runner window closed");
@@ -363,14 +353,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
-            // Always render tooltip label — conditional rendering causes
-            // Layout/Repaint control count mismatch (IMGUI exception).
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Space(SpacingSmall);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            TooltipBubble.DrawForWindow("TestRunner", testRunnerWindowRect);
 
             GUI.DragWindow();
         }

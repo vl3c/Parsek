@@ -59,6 +59,7 @@ All notable changes to Parsek are documented here.
 - Test Runner window title bar now uses the same enlarged font + vertical padding as the rest of the Parsek windows (regression: the Test Runner built its own opaque window style and skipped the title-bar enhancement that the main UI applied separately). The enhancement now lives inside the shared `BuildOpaqueWindowStyleFromSource` builder so every caller gets the same title bar automatically.
 - Tracking Station ghost-actions popup title is now `Parsek - Ghost Actions` (was `Parsek Ghost`) so it matches the `Parsek - <name>` format used by every other top-level Parsek window.
 - Settings Diagnostics now splits rewind-point disk usage into live crashed, stable, and sealed-pending RP counts so stable-leaf cleanup pressure is visible without reading the save file.
+- Hover help now uses a shared 1-second delayed bubble near the hovered control instead of bottom-of-window footer rows. Recordings, Timeline, Settings, Spawn Control, Tracking Station, and both Test Runner surfaces share the same renderer, tooltip copy has been shortened, and an orphaned rich recording-hover method was removed.
 
 ### Tests
 

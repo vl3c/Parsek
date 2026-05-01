@@ -133,12 +133,9 @@ namespace Parsek
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
         private int lastSortedCount = -1;
 
-        // Tooltip state
-        private GUIStyle tooltipLabelStyle;
-        private Rect scrollViewRect;
-        private GUIStyle zeroHeightLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
-        private string recordingsWindowTooltipText = "";
+        // Loop-period clamp help is attached to a value label, not a GUIContent
+        // control, so it feeds the shared tooltip renderer directly.
+        private string recordingsWindowTooltipOverride = "";
 
         // Expanded stats columns
         private bool showExpandedStats;
@@ -732,16 +729,16 @@ namespace Parsek
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
         {
             if (isWatching)
-                return "Exit watch mode";
+                return "Exit watch.";
             if (isDebris)
-                return "Debris is not watchable";
+                return "Debris cannot be watched.";
             if (!hasGhost)
-                return "No active ghost - recording is in the past/future or has no trajectory points";
+                return "No loaded ghost for this row.";
             if (!sameBody)
-                return "Ghost is on a different body";
+                return "Ghost is around another body.";
             if (!inRange)
-                return "Ghost is beyond the fixed 300 km watch range";
-            return "Follow ghost in watch mode";
+                return "Ghost is beyond watch range.";
+            return "Watch this ghost.";
         }
 
         private string BuildWatchObservabilitySuffix(ParsekFlight flight, int index)
@@ -973,7 +970,7 @@ namespace Parsek
             }
 
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
+                "Launch-to-launch period. Shorter than duration creates overlap. Unit cycles sec/min/hr/auto."),
                 colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPeriod");
 
@@ -1116,7 +1113,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             var supersedes = CurrentRecordingSupersedesForDisplay();
             double now = Planetarium.GetUniversalTime();
-            recordingsWindowTooltipText = string.Empty;
+            recordingsWindowTooltipOverride = string.Empty;
 
             // Bug #279 follow-up: drop watch-transition cache entries whose
             // RecordingId is no longer in the committed list (rewind, truncate,
@@ -1318,13 +1315,10 @@ namespace Parsek
                 GUILayout.EndVertical();
                 GUILayout.EndScrollView();
 
-                // Capture scroll view rect for tooltip visibility guard
-                if (Event.current.type == EventType.Repaint)
-                    scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
             DrawRecordingsBottomBar(committed);
-            DrawRecordingsWindowTooltip();
+            TooltipBubble.DrawForWindow("Recordings", recordingsWindowRect, recordingsWindowTooltipOverride);
         }
 
         /// <summary>
@@ -2025,13 +2019,13 @@ namespace Parsek
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip;
                 if (rotation.TotalEligible == 0)
-                    watchTooltip = "no watchable vessels in this group";
+                    watchTooltip = "No watchable ghosts in this group.";
                 else if (isWatching && nextTargetIdx >= 0 && rotation.NextRecordingId != watchedDescendantRecId)
-                    watchTooltip = $"switch to {committed[nextTargetIdx].VesselName}";
+                    watchTooltip = $"Watch {committed[nextTargetIdx].VesselName} next.";
                 else if (isWatching && rotation.IsToggleOff)
-                    watchTooltip = "exit watch (no other watchable vessels)";
+                    watchTooltip = "Exit watch.";
                 else if (nextTargetIdx >= 0)
-                    watchTooltip = $"enter watch on {committed[nextTargetIdx].VesselName}";
+                    watchTooltip = $"Watch {committed[nextTargetIdx].VesselName}.";
                 else
                     watchTooltip = GetWatchButtonTooltip(isWatching, false, false, false, false);
 
@@ -2090,7 +2084,7 @@ namespace Parsek
                     string ffReason;
                     bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
                     GUI.enabled = canFF;
-                    string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
+                    string tooltip = canFF ? "Fast-forward to launch." : ffReason;
                     if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                     {
                         ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{mainIdx} \"{mainRec.VesselName}\"");
@@ -2109,7 +2103,7 @@ namespace Parsek
                     string rewindReason;
                     bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
-                    string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
+                    string tooltip = canRewind ? "Rewind to launch." : rewindReason;
                     if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                     {
                         ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{mainIdx} \"{mainRec.VesselName}\"");
@@ -2522,7 +2516,7 @@ namespace Parsek
 
                 GUI.enabled = canFF;
                 string tooltip = canFF
-                    ? "Fast-forward to this launch"
+                    ? "Fast-forward to launch."
                     : ffReason;
                 if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                 {
@@ -2553,7 +2547,7 @@ namespace Parsek
                 ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
                 GUI.enabled = canRewind;
                 string tooltip = canRewind
-                    ? "Rewind to this launch"
+                    ? "Rewind to launch."
                     : rewindReason;
                 if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                 {
@@ -2691,13 +2685,13 @@ namespace Parsek
             }
 
             string tooltip = canInvoke
-                ? "Re-fly this unfinished flight from the separation moment"
-                : (reason ?? "Re-Fly unavailable");
+                ? "Re-fly from the separation moment."
+                : (reason ?? "Re-fly unavailable.");
             bool flyClicked;
             bool sealClicked;
             DrawBodyCenteredTwoButtons(
                 new GUIContent(kReFlyLabel, tooltip), canInvoke,
-                new GUIContent("Seal", "Close this re-fly slot permanently without changing the recording"), true,
+                new GUIContent("Seal", "Close this slot without changing the recording."), true,
                 ColW_ReFly, out flyClicked, out sealClicked);
             if (flyClicked)
             {
@@ -2716,7 +2710,7 @@ namespace Parsek
         private void DrawDisabledUnfinishedFlightRewindButton(
             Recording rec, int ri, string reason)
         {
-            reason = string.IsNullOrEmpty(reason) ? "Re-Fly unavailable" : reason;
+            reason = string.IsNullOrEmpty(reason) ? "Re-fly unavailable." : reason;
             string recId = rec?.RecordingId ?? "<no-id>";
             string key = "disabled/" + recId + "/" + reason;
             bool prev;
@@ -2762,10 +2756,10 @@ namespace Parsek
         }
 
         private const string StashUnfinishedFlightTooltip =
-            "Stash this stable Rewind Point slot in STASH so it can be re-flown later";
+            "Save this slot in STASH for later re-fly.";
 
         private const string SealStableSlotTooltip =
-            "Close this Rewind Point slot permanently without changing the recording";
+            "Close this slot without changing the recording.";
 
         private bool DrawStashSealUnfinishedFlightButtons(Recording rec, int ri)
         {
@@ -4303,85 +4297,6 @@ namespace Parsek
             return stats;
         }
 
-        private void DrawRecordingTooltip(Recording rec)
-        {
-            var stats = GetOrComputeStats(rec);
-
-            string text = $"Max Altitude: {FormatAltitude(stats.maxAltitude)}\n" +
-                          $"Max Speed: {FormatSpeed(stats.maxSpeed)}\n" +
-                          $"Distance: {FormatDistance(stats.distanceTravelled)}\n" +
-                          $"Points: {stats.pointCount}";
-
-            // Phase 6d-3: Chain status in recording tooltip
-            var flight = parentUI.Flight;
-            if (parentUI.InFlightMode && flight != null)
-            {
-                string chainStatus = ParsekFlight.GetChainStatusForRecording(
-                    flight.ActiveGhostChains, rec);
-                if (chainStatus != null)
-                    text += $"\n{chainStatus}";
-            }
-
-            if (stats.orbitSegmentCount > 0)
-                text += $"\nOrbit Segments: {stats.orbitSegmentCount}";
-            if (stats.partEventCount > 0)
-                text += $"\nPart Events: {stats.partEventCount}";
-            if (!string.IsNullOrEmpty(stats.primaryBody))
-                text += $"\nBody: {stats.primaryBody}";
-            if (stats.maxRange > 0)
-                text += $"\nMax Range: {FormatDistance(stats.maxRange)}";
-
-            // Observability: append storage breakdown from cached file sizes
-            try
-            {
-                double currentUT = Planetarium.GetUniversalTime();
-                var storage = DiagnosticsComputation.GetCachedStorageBreakdown(rec, currentUT);
-                if (storage.totalBytes > 0)
-                {
-                    text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
-                            $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
-                            $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
-                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)}" +
-                            $", readable mirrors: {DiagnosticsComputation.FormatBytes(storage.readableMirrorBytes)})";
-                    text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
-                }
-            }
-            catch { /* Non-KSP context or Planetarium unavailable */ }
-
-            string resourceText = FormatResourceManifest(rec.StartResources, rec.EndResources);
-            if (resourceText != null)
-                text += "\n" + resourceText;
-
-            string inventoryText = FormatInventoryManifest(rec.StartInventory, rec.EndInventory);
-            if (inventoryText != null)
-                text += "\n" + inventoryText;
-
-            string crewText = FormatCrewManifest(rec.StartCrew, rec.EndCrew);
-            if (crewText != null)
-                text += "\n" + crewText;
-
-            EnsureTooltipStyle();
-
-            GUIContent content = new GUIContent(text);
-            Vector2 size = tooltipLabelStyle.CalcSize(content);
-            size.x += 12;
-            size.y += 8;
-
-            Vector2 mousePos = Event.current.mousePosition;
-            float tooltipX = mousePos.x + 15;
-            float tooltipY = mousePos.y - size.y - 5;
-
-            if (tooltipX + size.x > recordingsWindowRect.width)
-                tooltipX = mousePos.x - size.x - 5;
-            if (tooltipY < 0)
-                tooltipY = mousePos.y + 20;
-
-            Rect tooltipRect = new Rect(tooltipX, tooltipY, size.x, size.y);
-            GUI.Box(tooltipRect, "");
-            GUI.Label(new Rect(tooltipX + 6, tooltipY + 4, size.x - 12, size.y - 8),
-                content, tooltipLabelStyle);
-        }
-
         // --- Loop helpers exclusive to recordings table ---
 
         internal static string UnitSuffix(LoopTimeUnit unit)
@@ -4517,7 +4432,7 @@ namespace Parsek
                     }
                     Rect valueRect = GUILayoutUtility.GetLastRect();
                     if (displayClamped && valueRect.Contains(Event.current.mousePosition))
-                        recordingsWindowTooltipText = clampTooltip;
+                        recordingsWindowTooltipOverride = clampTooltip;
                     if (GUI.GetNameOfFocusedControl() == controlName)
                     {
                         loopPeriodEditText = FormatLoopPeriodEditStartText(
@@ -4629,7 +4544,7 @@ namespace Parsek
             {
                 return string.Format(
                     CultureInfo.InvariantCulture,
-                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, minimum period: {3}s, duration: {4}s).",
+                    "Using {0}s. Limit: <= {1} cycles; requested: {2}s; minimum period is {3}s; duration: {4}s.",
                     effectiveText, cap, requestedText, minText, durationText);
             }
 
@@ -4637,7 +4552,7 @@ namespace Parsek
             {
                 return string.Format(
                     CultureInfo.InvariantCulture,
-                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, duration: {3}s).",
+                    "Using {0}s. Limit: <= {1} cycles; requested: {2}s; duration: {3}s.",
                     effectiveText, cap, requestedText, durationText);
             }
 
@@ -4647,13 +4562,13 @@ namespace Parsek
                 {
                     return string.Format(
                         CultureInfo.InvariantCulture,
-                        "Runtime cadence repaired to {0}s from an invalid stored value (minimum period: {1}s).",
+                        "Using {0}s. Stored value was invalid; minimum period is {1}s.",
                         effectiveText, minText);
                 }
 
                 return string.Format(
                     CultureInfo.InvariantCulture,
-                    "Runtime cadence raised to {0}s because the minimum period is {1}s (requested: {2}s).",
+                    "Using {0}s. The minimum period is {1}s; requested: {2}s.",
                     effectiveText, minText, requestedText);
             }
 
@@ -4706,52 +4621,6 @@ namespace Parsek
             loopPeriodFocusedRi = -1;
             loopPeriodEditRect = default;
             GUIUtility.keyboardControl = 0;
-        }
-
-        private void EnsureTooltipStyle()
-        {
-            if (tooltipLabelStyle != null) return;
-            tooltipLabelStyle = new GUIStyle(GUI.skin.label);
-            tooltipLabelStyle.wordWrap = false;
-            tooltipLabelStyle.fontSize = 11;
-        }
-
-        private void EnsureWindowTooltipStyles()
-        {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
-                {
-                    wordWrap = true,
-                    alignment = TextAnchor.UpperLeft
-                };
-            }
-        }
-
-        private void DrawRecordingsWindowTooltip()
-        {
-            EnsureWindowTooltipStyles();
-
-            string tooltip = !string.IsNullOrEmpty(recordingsWindowTooltipText)
-                ? recordingsWindowTooltipText
-                : (GUI.tooltip ?? string.Empty);
-            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
         }
 
         private void EnsureStatusStyles()

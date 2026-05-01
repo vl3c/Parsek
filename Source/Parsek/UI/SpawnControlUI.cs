@@ -43,7 +43,6 @@ namespace Parsek
         private const float SpawnColW_State = 110f;
         private const float SpawnColW_Warp = 85f;
 
-        private const float SpacingSmall = 3f;
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
 
@@ -346,19 +345,9 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            string guiTooltip = GUI.tooltip ?? "";
-            if (guiTooltip.Length > 0)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(guiTooltip, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
-
             ParsekUI.DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
                 "Real Spawn Control window");
+            TooltipBubble.DrawForWindow("SpawnControl", spawnControlWindowRect);
 
             GUI.DragWindow();
         }

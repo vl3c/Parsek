@@ -450,7 +450,7 @@ namespace Parsek.Tests
         public void FormatNextSpawnTooltip_NullCandidate()
         {
             string result = SelectiveSpawnUI.FormatNextSpawnTooltip(null, 100);
-            Assert.Equal("No nearby craft to spawn", result);
+            Assert.Equal("No nearby craft.", result);
         }
     }
 }
