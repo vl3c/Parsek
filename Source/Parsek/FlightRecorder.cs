@@ -55,8 +55,23 @@ namespace Parsek
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
         private uint currentAnchorPid;
+        private string currentAnchorRecordingId;
+        private RecordingAnchorCandidate currentAnchorCandidate;
+        private bool hasCurrentAnchorCandidate;
         private HashSet<uint> treeVesselPids;
-        private List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
+        private readonly List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
+        private readonly List<RecordingAnchorCandidate> recordingAnchorCandidateBuffer =
+            new List<RecordingAnchorCandidate>();
+
+        internal Func<RecordingTree, string, uint, double, IEnumerable<RecordingAnchorCandidate>>
+            ExternalRecordingAnchorCandidatesProvider { get; set; }
+
+        internal delegate bool TryResolveRecordedAnchorPoseOverride(
+            string anchorRecordingId,
+            double ut,
+            out AnchorPose pose,
+            out string reason);
+        internal static TryResolveRecordedAnchorPoseOverride RecordedAnchorPoseOverrideForTesting;
 
         // Part event tracking
         private HashSet<uint> decoupledPartIds = new HashSet<uint>();
@@ -4287,6 +4302,7 @@ namespace Parsek
             var currentRef = currentTrackSection.referenceFrame;
             var currentSource = currentTrackSection.source;
             uint currentAnchor = currentTrackSection.anchorVesselId;
+            string currentAnchorRec = currentTrackSection.anchorRecordingId;
             TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
             TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
 
@@ -4294,7 +4310,12 @@ namespace Parsek
             StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
 
             if (currentRef == ReferenceFrame.Relative)
-                currentTrackSection.anchorVesselId = currentAnchor;
+            {
+                currentTrackSection.anchorRecordingId = currentAnchorRec;
+                currentTrackSection.anchorVesselId = string.IsNullOrEmpty(currentAnchorRec)
+                    ? currentAnchor
+                    : 0u;
+            }
 
             // Only absolute/relative sections carry sparse frame payloads.
             if (currentRef != ReferenceFrame.OrbitalCheckpoint)
@@ -4380,6 +4401,247 @@ namespace Parsek
             return vesselInfoBuffer;
         }
 
+        private IReadOnlyList<RecordingAnchorCandidate> BuildRecordingAnchorCandidateList(
+            Vessel focusedVessel,
+            double ut,
+            out int liveScanned,
+            out int liveAdded,
+            out int ghostScanned,
+            out int ghostAdded)
+        {
+            recordingAnchorCandidateBuffer.Clear();
+            liveScanned = liveAdded = ghostScanned = ghostAdded = 0;
+
+            if (!TryGetActiveTreeRecording(out Recording focusRecording)
+                || focusedVessel == null)
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-no-focus",
+                    $"Recording anchor candidate scan skipped: hasTree={ActiveTree != null} " +
+                    $"activeRecordingId={ActiveTree?.ActiveRecordingId ?? "(none)"} " +
+                    $"hasFocusedVessel={focusedVessel != null}",
+                    5.0);
+                return recordingAnchorCandidateBuffer;
+            }
+
+            AddLiveRecordingAnchorCandidates(
+                focusedVessel,
+                focusRecording,
+                out liveScanned,
+                out liveAdded);
+            AddExternalRecordingAnchorCandidates(
+                focusRecording,
+                ut,
+                out ghostScanned,
+                out ghostAdded);
+
+            ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-candidates",
+                $"Recording anchor candidates: focusRecordingId={focusRecording.RecordingId} " +
+                $"live={liveAdded}/{liveScanned} ghost={ghostAdded}/{ghostScanned} " +
+                $"total={recordingAnchorCandidateBuffer.Count}",
+                5.0);
+
+            return recordingAnchorCandidateBuffer;
+        }
+
+        private void AddLiveRecordingAnchorCandidates(
+            Vessel focusedVessel,
+            Recording focusRecording,
+            out int scanned,
+            out int added)
+        {
+            scanned = added = 0;
+            List<Vessel> vessels = TryGetFlightGlobalsVessels();
+            if (vessels == null)
+                return;
+
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel vessel = vessels[i];
+                if (!IsLiveRecordingAnchorVesselCandidate(vessel, focusedVessel))
+                    continue;
+
+                scanned++;
+                if (!TryResolveLivePeerRecordingId(vessel.persistentId, out string recordingId))
+                    continue;
+                if (!TryGetEligibleAnchorRecording(recordingId, focusRecording, out Recording candidateRecording))
+                    continue;
+
+                if (AnchorDetector.TryCreateRecordingAnchorCandidate(
+                        focusRecording,
+                        candidateRecording,
+                        vessel.GetWorldPos3D(),
+                        vessel.transform.rotation,
+                        AnchorCandidateSource.Live,
+                        vessel.persistentId,
+                        -1,
+                        out RecordingAnchorCandidate candidate))
+                {
+                    recordingAnchorCandidateBuffer.Add(candidate);
+                    added++;
+                }
+            }
+        }
+
+        private void AddExternalRecordingAnchorCandidates(
+            Recording focusRecording,
+            double ut,
+            out int scanned,
+            out int added)
+        {
+            scanned = added = 0;
+            var provider = ExternalRecordingAnchorCandidatesProvider;
+            if (provider == null && ParsekFlight.Instance != null)
+                provider = ParsekFlight.Instance.BuildGhostRecordingAnchorCandidatesForRecorder;
+            if (provider == null)
+                return;
+
+            IEnumerable<RecordingAnchorCandidate> candidates =
+                provider(ActiveTree, focusRecording.RecordingId, RecordingVesselId, ut);
+            if (candidates == null)
+                return;
+
+            foreach (RecordingAnchorCandidate provided in candidates)
+            {
+                scanned++;
+                if (!TryGetEligibleAnchorRecording(
+                        provided.RecordingId,
+                        focusRecording,
+                        out Recording candidateRecording))
+                {
+                    continue;
+                }
+
+                if (AnchorDetector.TryCreateRecordingAnchorCandidate(
+                        focusRecording,
+                        candidateRecording,
+                        provided.WorldPos,
+                        provided.WorldRotation,
+                        provided.Source,
+                        provided.DiagnosticPid,
+                        provided.GhostIndex,
+                        out RecordingAnchorCandidate candidate))
+                {
+                    recordingAnchorCandidateBuffer.Add(candidate);
+                    added++;
+                }
+            }
+        }
+
+        private static bool IsLiveRecordingAnchorVesselCandidate(
+            Vessel vessel,
+            Vessel focusedVessel)
+        {
+            if (vessel == null || !vessel.loaded)
+                return false;
+            if (focusedVessel != null && vessel.persistentId == focusedVessel.persistentId)
+                return false;
+            if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                return false;
+            if (vessel.vesselType == VesselType.Debris
+                || vessel.vesselType == VesselType.EVA
+                || vessel.vesselType == VesselType.SpaceObject
+                || vessel.vesselType == VesselType.Flag)
+            {
+                return false;
+            }
+            if (vessel.situation == Vessel.Situations.LANDED
+                || vessel.situation == Vessel.Situations.SPLASHED
+                || vessel.situation == Vessel.Situations.PRELAUNCH)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryResolveLivePeerRecordingId(uint peerPid, out string recordingId)
+        {
+            recordingId = null;
+            if (peerPid == 0u || peerPid == RecordingVesselId)
+                return false;
+            if (ActiveTree?.BackgroundMap == null)
+                return false;
+            if (!ActiveTree.BackgroundMap.TryGetValue(peerPid, out recordingId)
+                || string.IsNullOrWhiteSpace(recordingId))
+            {
+                return false;
+            }
+            if (IsStillBeingAppendedActiveProvisionalRecordingId(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-active-provisional-skip",
+                    $"Recording anchor candidate skipped: recordingId={recordingId} " +
+                    $"reason=active-provisional-out-of-scope peerPid={peerPid}",
+                    5.0);
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryGetEligibleAnchorRecording(
+            string recordingId,
+            Recording focusRecording,
+            out Recording candidateRecording)
+        {
+            candidateRecording = null;
+            if (string.IsNullOrWhiteSpace(recordingId))
+                return false;
+            if (ActiveTree?.Recordings == null
+                || !ActiveTree.Recordings.TryGetValue(recordingId, out candidateRecording))
+            {
+                return false;
+            }
+            if (IsStillBeingAppendedActiveProvisionalRecordingId(recordingId))
+                return false;
+
+            return AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording);
+        }
+
+        private bool TryGetActiveTreeRecording(out Recording activeRecording)
+        {
+            activeRecording = null;
+            return ActiveTree?.Recordings != null
+                && !string.IsNullOrWhiteSpace(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out activeRecording)
+                && activeRecording != null;
+        }
+
+        private static bool IsStillBeingAppendedActiveProvisionalRecordingId(string recordingId)
+        {
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            return marker != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    recordingId,
+                    StringComparison.Ordinal);
+        }
+
+        private void ClearCurrentRecordingAnchor()
+        {
+            currentAnchorRecordingId = null;
+            currentAnchorPid = 0u;
+            currentAnchorCandidate = default;
+            hasCurrentAnchorCandidate = false;
+        }
+
+        private void SetCurrentRecordingAnchor(RecordingAnchorCandidate candidate)
+        {
+            currentAnchorRecordingId = candidate.RecordingId;
+            currentAnchorPid = candidate.DiagnosticPid;
+            currentAnchorCandidate = candidate;
+            hasCurrentAnchorCandidate = true;
+        }
+
+        private void ApplyCurrentRecordingAnchorToCurrentTrackSection()
+        {
+            if (!trackSectionActive || currentTrackSection.referenceFrame != ReferenceFrame.Relative)
+                return;
+
+            currentTrackSection.anchorRecordingId = currentAnchorRecordingId;
+            currentTrackSection.anchorVesselId = 0u;
+        }
+
         /// <summary>
         /// Per-physics-frame anchor detection state machine for RELATIVE frame (Phase 3a).
         /// Detects proximity to pre-existing vessels, enters/exits RELATIVE mode, and
@@ -4415,9 +4677,10 @@ namespace Parsek
                 double boundaryUT = Planetarium.GetUniversalTime();
                 SamplePositionAtUT(v, boundaryUT);
                 var ic = CultureInfo.InvariantCulture;
-                var oldAnchor = currentAnchorPid;
+                string oldAnchorRecordingId = currentAnchorRecordingId;
+                uint oldAnchorPid = currentAnchorPid;
                 isRelativeMode = false;
-                currentAnchorPid = 0;
+                ClearCurrentRecordingAnchor();
                 CloseCurrentTrackSection(boundaryUT);
                 var env = environmentHysteresis != null
                     ? environmentHysteresis.CurrentEnvironment
@@ -4425,57 +4688,82 @@ namespace Parsek
                 StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
                 AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-landing");
                 ParsekLog.Info("Anchor",
-                    $"RELATIVE mode exited on landing: previousAnchorPid={oldAnchor} " +
+                    $"RELATIVE mode exited on landing: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
+                    $"diagnosticPid={oldAnchorPid} " +
                     $"situation={v.situation} vesselPid={RecordingVesselId}");
             }
             else if (!onSurface)
             {
-                // Rebuild treeVesselPids on every anchor-detection call. The
-                // initial cache from InitializeEnvironmentAndAnchorTracking is
-                // built ONCE at recording start, before staging spawns new
-                // chain members (probe, debris) — so a vessel that joins the
-                // tree mid-flight stays absent from the cached set forever.
-                // Concrete consequence (KSP.log 2026-04-26 a0d14b08 sections
-                // at UT 438.73 / 442.21): the probe (PID 2450432355) joined
-                // the tree at UT 140.79 but the upper stage's
-                // treeVesselPids was frozen at recording start, so when the
-                // upper stage came off rails at UT 438.71 the probe was
-                // selected as anchor again (cache said "non-tree, eligible")
-                // and the next 18 s were captured Relative against a vessel
-                // whose live pose during Re-Fly playback no longer matches
-                // the recorded one. The rebuild is O(tree members + bg map
-                // entries) and runs once per anchor-detection tick — same
-                // cost as BuildVesselInfoList itself, so amortised cost is
-                // negligible compared to physics frame work.
-                treeVesselPids = BuildTreeVesselPids();
-                var vesselInfos = BuildVesselInfoList();
-                var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(
-                    RecordingVesselId, (Vector3d)v.transform.position, vesselInfos, treeVesselPids);
+                double detectionUT = Planetarium.GetUniversalTime();
+                var candidates = BuildRecordingAnchorCandidateList(
+                    v,
+                    detectionUT,
+                    out int liveScanned,
+                    out int liveAdded,
+                    out int ghostScanned,
+                    out int ghostAdded);
+                var result = AnchorDetector.FindNearestRecordingAnchor(
+                    ActiveTree?.ActiveRecordingId,
+                    RecordingVesselId,
+                    v.GetWorldPos3D(),
+                    candidates);
 
-                bool shouldBeRelative = anchorPid != 0 &&
-                    AnchorDetector.ShouldUseRelativeFrame(anchorDist, isRelativeMode);
+                bool shouldBeRelative = result.found
+                    && AnchorDetector.ShouldUseRelativeFrame(result.distance, isRelativeMode);
 
-                if (shouldBeRelative && !isRelativeMode)
+                if (shouldBeRelative)
                 {
-                    // Entering RELATIVE mode
-                    // Sample boundary point BEFORE closing — adaptive sampler may have
-                    // skipped frames, so last recorded point could be far from here.
-                    SamplePosition(v);
-                    var ic = CultureInfo.InvariantCulture;
-                    isRelativeMode = true;
-                    currentAnchorPid = anchorPid;
-                    double boundaryUT = Planetarium.GetUniversalTime();
-                    CloseCurrentTrackSection(boundaryUT);
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
-                    currentTrackSection.anchorVesselId = currentAnchorPid;
-                    SeedRelativeBoundaryPoint(v, currentAnchorPid, boundaryUT);
-                    ParsekLog.Info("Anchor",
-                        $"RELATIVE mode entered: anchorPid={currentAnchorPid} " +
-                        $"dist={anchorDist.ToString("F1", ic)}m " +
-                        $"vesselPid={RecordingVesselId}");
+                    bool anchorChanged = !isRelativeMode
+                        || !string.Equals(
+                            currentAnchorRecordingId,
+                            result.candidate.RecordingId,
+                            StringComparison.Ordinal);
+                    if (anchorChanged)
+                    {
+                        // Entering RELATIVE mode or switching anchors. Sample the
+                        // old section before closing so its final point still uses
+                        // the old frame contract.
+                        SamplePosition(v);
+                        var ic = CultureInfo.InvariantCulture;
+                        string oldAnchorRecordingId = currentAnchorRecordingId;
+                        uint oldAnchorPid = currentAnchorPid;
+                        isRelativeMode = true;
+                        SetCurrentRecordingAnchor(result.candidate);
+                        double boundaryUT = Planetarium.GetUniversalTime();
+                        CloseCurrentTrackSection(boundaryUT);
+                        var env = environmentHysteresis != null
+                            ? environmentHysteresis.CurrentEnvironment
+                            : SegmentEnvironment.Atmospheric;
+                        StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
+                        ApplyCurrentRecordingAnchorToCurrentTrackSection();
+                        bool seeded = SeedRelativeBoundaryPoint(v, result.candidate, boundaryUT);
+                        if (!seeded)
+                        {
+                            ForceExitRelativeToAbsolute(
+                                boundaryUT,
+                                "relative-boundary-seed-failed");
+                            return;
+                        }
+
+                        string transition = oldAnchorRecordingId == null
+                            ? "entered"
+                            : "switched";
+                        ParsekLog.Info("Anchor",
+                            $"RELATIVE mode {transition}: anchorRecordingId={currentAnchorRecordingId} " +
+                            $"source={result.candidate.Source} diagnosticPid={currentAnchorPid} " +
+                            $"previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
+                            $"previousDiagnosticPid={oldAnchorPid} " +
+                            $"dist={result.distance.ToString("F1", ic)}m " +
+                            $"sealed={result.candidate.IsSealed} " +
+                            $"affinity={AnchorDetector.RecordingAnchorAffinityRank(result.candidate)} " +
+                            $"liveCandidates={liveAdded}/{liveScanned} ghostCandidates={ghostAdded}/{ghostScanned} " +
+                            $"vesselPid={RecordingVesselId}");
+                    }
+                    else
+                    {
+                        SetCurrentRecordingAnchor(result.candidate);
+                        ApplyCurrentRecordingAnchorToCurrentTrackSection();
+                    }
                 }
                 else if (!shouldBeRelative && isRelativeMode)
                 {
@@ -4485,9 +4773,16 @@ namespace Parsek
                     double boundaryUT = Planetarium.GetUniversalTime();
                     SamplePositionAtUT(v, boundaryUT);
                     var ic = CultureInfo.InvariantCulture;
-                    var oldAnchor = currentAnchorPid;
+                    string oldAnchorRecordingId = currentAnchorRecordingId;
+                    uint oldAnchorPid = currentAnchorPid;
+                    if (!result.found)
+                    {
+                        ParsekLog.Info("Anchor",
+                            $"RELATIVE exit: no eligible recording anchor candidates " +
+                            $"liveCandidates={liveAdded}/{liveScanned} ghostCandidates={ghostAdded}/{ghostScanned}");
+                    }
                     isRelativeMode = false;
-                    currentAnchorPid = 0;
+                    ClearCurrentRecordingAnchor();
                     CloseCurrentTrackSection(boundaryUT);
                     var env = environmentHysteresis != null
                         ? environmentHysteresis.CurrentEnvironment
@@ -4495,8 +4790,9 @@ namespace Parsek
                     StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
                     AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
                     ParsekLog.Info("Anchor",
-                        $"RELATIVE mode exited: previousAnchorPid={oldAnchor} " +
-                        $"dist={anchorDist.ToString("F1", ic)}m " +
+                        $"RELATIVE mode exited: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
+                        $"diagnosticPid={oldAnchorPid} " +
+                        $"dist={(result.found ? result.distance : double.MaxValue).ToString("F1", ic)}m " +
                         $"vesselPid={RecordingVesselId}");
                 }
             }
@@ -4747,7 +5043,7 @@ namespace Parsek
 
             // Initialize anchor detection for RELATIVE frame (Phase 3a)
             isRelativeMode = false;
-            currentAnchorPid = 0;
+            ClearCurrentRecordingAnchor();
             treeVesselPids = BuildTreeVesselPids();
             ParsekLog.Info("Anchor",
                 $"Anchor detection initialized: treeVesselPids={treeVesselPids?.Count ?? 0} " +
@@ -5053,10 +5349,11 @@ namespace Parsek
                 if (isRelativeMode)
                 {
                     ParsekLog.Info("Anchor",
-                        $"RELATIVE mode cleared on {logTag}: anchorPid={currentAnchorPid}");
+                        $"RELATIVE mode cleared on {logTag}: anchorRecordingId={currentAnchorRecordingId ?? "(none)"} " +
+                        $"diagnosticPid={currentAnchorPid}");
                 }
                 isRelativeMode = false;
-                currentAnchorPid = 0;
+                ClearCurrentRecordingAnchor();
             }
 
             // Disconnect from Harmony patch
@@ -5415,63 +5712,55 @@ namespace Parsek
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
 
-            uint resumeAnchor = 0;
+            string resumeAnchorRecordingId = null;
+            uint resumeAnchorDiagnosticPid = 0u;
             if (resumeRef == ReferenceFrame.Relative)
             {
-                resumeAnchor = resumeSection.HasValue ? resumeSection.Value.anchorVesselId : currentAnchorPid;
+                resumeAnchorRecordingId = resumeSection.HasValue
+                    ? resumeSection.Value.anchorRecordingId
+                    : currentAnchorRecordingId;
+                resumeAnchorDiagnosticPid = resumeSection.HasValue
+                    ? resumeSection.Value.anchorVesselId
+                    : currentAnchorPid;
 
-                // Validate the resume anchor before re-entering Relative. The
-                // saved anchor PID may now belong to a tree member (post-staging
-                // sibling) or to a vessel that's no longer loaded (destroyed,
-                // unloaded after time warp). In either case, decoded relative
-                // offsets at playback would multiply against the wrong pose
-                // and produce visible drift / sub-surface jumps. Same root
-                // cause as the freshly-rebuilt treeVesselPids in
-                // UpdateAnchorDetection, applied here at the resume seam so a
-                // stale-anchor restore downgrades cleanly to Absolute and
-                // lets the next anchor-detection tick re-pick a valid one.
-                //
-                // Skip the safety check when the scene's vessel list is
-                // unqueryable (xUnit / pre-FlightReady scene loads): we
-                // cannot prove the anchor is gone, so trust the saved
-                // metadata. Production paths that legitimately reach this
-                // method have FlightReady scene state available.
-                bool sceneVesselsQueryable = TryGetFlightGlobalsVesselsForResumeValidation() != null;
-                bool anchorIsTreeMember = false;
-                bool anchorLoaded = true;
-                if (sceneVesselsQueryable && resumeAnchor != 0)
+                if (string.IsNullOrWhiteSpace(resumeAnchorRecordingId))
                 {
-                    var freshTreePids = BuildTreeVesselPids();
-                    if (freshTreePids != null && freshTreePids.Contains(resumeAnchor))
-                        anchorIsTreeMember = true;
-                    Vessel anchorVessel = FindVesselByPid(resumeAnchor);
-                    anchorLoaded = anchorVessel != null && anchorVessel.loaded;
-                }
-                if (resumeAnchor == 0
-                    || (sceneVesselsQueryable && (anchorIsTreeMember || !anchorLoaded)))
-                {
-                    if (resumeAnchor != 0)
-                    {
-                        ParsekLog.Info("Anchor",
-                            $"RELATIVE resume rejected: anchorPid={resumeAnchor} " +
-                            $"treeMember={anchorIsTreeMember} loaded={anchorLoaded} " +
-                            $"vesselPid={RecordingVesselId} — starting ABSOLUTE section instead");
-                    }
-                    resumeAnchor = 0;
+                    ParsekLog.Warn("Anchor",
+                        $"RELATIVE resume rejected: missing anchorRecordingId " +
+                        $"legacyDiagnosticPid={resumeAnchorDiagnosticPid} " +
+                        $"vesselPid={RecordingVesselId} — starting ABSOLUTE section instead");
                     resumeRef = ReferenceFrame.Absolute;
                     isRelativeMode = false;
-                    currentAnchorPid = 0;
+                    ClearCurrentRecordingAnchor();
+                }
+                else if (!TryResolveRecordedAnchorPose(
+                             resumeAnchorRecordingId,
+                             ut,
+                             out _,
+                             out string resumeRejectReason))
+                {
+                    ParsekLog.Warn("Anchor",
+                        $"RELATIVE resume rejected: anchorRecordingId={resumeAnchorRecordingId} " +
+                        $"reason={resumeRejectReason} diagnosticPid={resumeAnchorDiagnosticPid} " +
+                        $"vesselPid={RecordingVesselId} — starting ABSOLUTE section instead");
+                    resumeAnchorRecordingId = null;
+                    resumeRef = ReferenceFrame.Absolute;
+                    isRelativeMode = false;
+                    ClearCurrentRecordingAnchor();
                 }
                 else
                 {
                     isRelativeMode = true;
-                    currentAnchorPid = resumeAnchor;
+                    currentAnchorRecordingId = resumeAnchorRecordingId;
+                    currentAnchorPid = resumeAnchorDiagnosticPid;
+                    currentAnchorCandidate = default;
+                    hasCurrentAnchorCandidate = false;
                 }
             }
             else
             {
                 isRelativeMode = false;
-                currentAnchorPid = 0;
+                ClearCurrentRecordingAnchor();
             }
 
             TrajectoryPoint? boundaryPoint = resumeSection.HasValue
@@ -5524,7 +5813,10 @@ namespace Parsek
             StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
 
             if (resumeRef == ReferenceFrame.Relative)
-                currentTrackSection.anchorVesselId = resumeAnchor;
+            {
+                currentTrackSection.anchorRecordingId = resumeAnchorRecordingId;
+                currentTrackSection.anchorVesselId = 0u;
+            }
 
             isOnRails = false;
             if (resumeRef == ReferenceFrame.OrbitalCheckpoint)
@@ -5801,7 +6093,7 @@ namespace Parsek
                     StartNewTrackSection(environmentHysteresis.CurrentEnvironment, currentRef,
                         currentUT);
                     if (isRelativeMode)
-                        currentTrackSection.anchorVesselId = currentAnchorPid;
+                        ApplyCurrentRecordingAnchorToCurrentTrackSection();
 
                     SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
                 }
@@ -5815,52 +6107,58 @@ namespace Parsek
         /// </summary>
         private bool ApplyRelativeOffset(ref TrajectoryPoint point, Vessel v)
         {
-            if (!isRelativeMode || currentAnchorPid == 0)
+            if (!isRelativeMode)
                 return false;
 
-            Vessel anchor = FindVesselByPid(currentAnchorPid);
-            if (anchor != null)
+            if (string.IsNullOrWhiteSpace(currentAnchorRecordingId))
             {
-                return ApplyRelativeOffsetForAnchor(ref point, v, anchor, currentAnchorPid, logSample: true);
+                ParsekLog.Warn("Anchor",
+                    $"RELATIVE sample missing anchorRecordingId — forcing ABSOLUTE " +
+                    $"at UT={point.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"diagnosticPid={currentAnchorPid}");
+                ForceExitRelativeToAbsolute(point.ut, "anchor-recording-id-missing");
+                return false;
             }
-            else
+
+            if (!TryResolveCurrentAnchorPose(point.ut, out AnchorPose anchorPose, out string reason))
             {
-                // Anchor vessel no longer loaded — force transition out of RELATIVE mode.
+                // Anchor recording no longer resolves — force transition out of RELATIVE mode.
                 // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
                 // Close the RELATIVE section and start a new ABSOLUTE section so the frame
                 // tag matches the data.
                 //
                 // No explicit AppendSectionStartSeamPoint call here: every caller of
                 // ApplyRelativeOffset commits the (now-absolute) `point` immediately
-                // after we return — see the three call sites at FlightRecorder.cs ~5665,
-                // ~6228, ~6403. That commit lands at the same UT as the new section's
+                // after we return. That commit lands at the same UT as the new section's
                 // startUT, so the section's first sampled point IS the seam.
                 ParsekLog.Warn("Anchor",
-                    $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
-                    $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
-                var oldAnchor = currentAnchorPid;
-                isRelativeMode = false;
-                currentAnchorPid = 0;
-                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-                var env = environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.Atmospheric;
-                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode force-exited: anchor pid={oldAnchor} unloaded, " +
-                    $"new ABSOLUTE section started");
+                    $"Anchor recording id={currentAnchorRecordingId} unresolved — " +
+                    $"forcing transition to ABSOLUTE at UT={point.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"reason={reason} diagnosticPid={currentAnchorPid}");
+                ForceExitRelativeToAbsolute(point.ut, reason);
                 return false;
             }
+
+            return ApplyRelativeOffsetForAnchorPose(
+                ref point,
+                v,
+                anchorPose,
+                currentAnchorRecordingId,
+                hasCurrentAnchorCandidate ? currentAnchorCandidate.Source : AnchorCandidateSource.Ghost,
+                currentAnchorPid,
+                logSample: true);
         }
 
-        private bool ApplyRelativeOffsetForAnchor(
+        private bool ApplyRelativeOffsetForAnchorPose(
             ref TrajectoryPoint point,
             Vessel v,
-            Vessel anchor,
-            uint anchorPid,
+            AnchorPose anchorPose,
+            string anchorRecordingId,
+            AnchorCandidateSource source,
+            uint diagnosticPid,
             bool logSample)
         {
-            if (v == null || anchor == null || anchorPid == 0u)
+            if (v == null || string.IsNullOrWhiteSpace(anchorRecordingId))
                 return false;
 
             int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
@@ -5871,56 +6169,287 @@ namespace Parsek
             {
                 offset = TrajectoryMath.ComputeRelativeLocalOffset(
                     v.GetWorldPos3D(),
-                    anchor.GetWorldPos3D(),
-                    anchor.transform.rotation);
+                    anchorPose.WorldPos,
+                    anchorPose.WorldRotation);
                 point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
                     v.transform.rotation,
-                    anchor.transform.rotation);
+                    anchorPose.WorldRotation);
             }
             else
             {
                 Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
                     v.latitude, v.longitude, v.altitude);
-                Vector3d anchorPos = v.mainBody.GetWorldSurfacePosition(
-                    anchor.latitude, anchor.longitude, anchor.altitude);
-                offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
+                offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
             }
 
             point.latitude = offset.x;
             point.longitude = offset.y;
             point.altitude = offset.z;
+            ApplyCurrentRecordingAnchorToCurrentTrackSection();
 
             if (logSample)
             {
                 ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
                     $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
                     $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorPid={anchorPid} |offset|={offset.magnitude:F2}m",
+                    $"anchorRecordingId={anchorRecordingId} source={source} diagnosticPid={diagnosticPid} " +
+                    $"|offset|={offset.magnitude:F2}m",
                     2.0);
             }
             return true;
         }
 
-        private void SeedRelativeBoundaryPoint(Vessel v, uint anchorPid, double boundaryUT)
+        private bool SeedRelativeBoundaryPoint(
+            Vessel v,
+            RecordingAnchorCandidate candidate,
+            double boundaryUT)
         {
-            if (v == null || anchorPid == 0u)
-                return;
-            Vessel anchor = FindVesselByPid(anchorPid);
-            if (anchor == null)
-                return;
+            if (v == null || string.IsNullOrWhiteSpace(candidate.RecordingId))
+                return false;
+            if (!TryResolveAnchorPoseForCandidate(
+                    candidate,
+                    boundaryUT,
+                    out AnchorPose anchorPose,
+                    out string reason))
+            {
+                ParsekLog.Warn("Anchor",
+                    $"RELATIVE boundary seed skipped: anchorRecordingId={candidate.RecordingId} " +
+                    $"source={candidate.Source} diagnosticPid={candidate.DiagnosticPid} " +
+                    $"reason={reason} ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                return false;
+            }
 
             TrajectoryPoint absolutePoint = BuildTrajectoryPoint(
                 v,
                 SampleCurrentVelocity(v),
                 boundaryUT);
             TrajectoryPoint relativePoint = absolutePoint;
-            if (!ApplyRelativeOffsetForAnchor(ref relativePoint, v, anchor, anchorPid, logSample: false))
-                return;
+            if (!ApplyRelativeOffsetForAnchorPose(
+                    ref relativePoint,
+                    v,
+                    anchorPose,
+                    candidate.RecordingId,
+                    candidate.Source,
+                    candidate.DiagnosticPid,
+                    logSample: false))
+            {
+                return false;
+            }
 
             SeedBoundaryPoint(relativePoint, absolutePoint);
             ParsekLog.Verbose("Anchor",
-                $"RELATIVE boundary seeded: anchorPid={anchorPid} " +
+                $"RELATIVE boundary seeded: anchorRecordingId={candidate.RecordingId} " +
+                $"source={candidate.Source} diagnosticPid={candidate.DiagnosticPid} " +
                 $"ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        private bool TryResolveCurrentAnchorPose(
+            double ut,
+            out AnchorPose pose,
+            out string reason)
+        {
+            if (hasCurrentAnchorCandidate
+                && string.Equals(
+                    currentAnchorCandidate.RecordingId,
+                    currentAnchorRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return TryResolveAnchorPoseForCandidate(
+                    currentAnchorCandidate,
+                    ut,
+                    out pose,
+                    out reason);
+            }
+
+            return TryResolveRecordedAnchorPose(
+                currentAnchorRecordingId,
+                ut,
+                out pose,
+                out reason);
+        }
+
+        private bool TryResolveAnchorPoseForCandidate(
+            RecordingAnchorCandidate candidate,
+            double ut,
+            out AnchorPose pose,
+            out string reason)
+        {
+            pose = default;
+            reason = null;
+            if (string.IsNullOrWhiteSpace(candidate.RecordingId))
+            {
+                reason = "anchor-recording-id-missing";
+                return false;
+            }
+
+            if (candidate.Source == AnchorCandidateSource.Live && candidate.DiagnosticPid != 0u)
+            {
+                Vessel liveAnchor = FindVesselByPid(candidate.DiagnosticPid);
+                if (liveAnchor != null && liveAnchor.loaded)
+                {
+                    pose = new AnchorPose(
+                        liveAnchor.GetWorldPos3D(),
+                        liveAnchor.transform.rotation,
+                        -1,
+                        candidate.RecordingId);
+                    return true;
+                }
+
+                ParsekLog.WarnRateLimited("Anchor",
+                    "live-recording-anchor-missing|" + candidate.RecordingId,
+                    $"Live recording anchor candidate missing; falling back to recorded pose " +
+                    $"anchorRecordingId={candidate.RecordingId} diagnosticPid={candidate.DiagnosticPid} " +
+                    $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}",
+                    5.0);
+            }
+
+            return TryResolveRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+        }
+
+        private bool TryResolveRecordedAnchorPose(
+            string anchorRecordingId,
+            double ut,
+            out AnchorPose pose,
+            out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(anchorRecordingId))
+            {
+                pose = default;
+                reason = "anchor-recording-id-missing";
+                return false;
+            }
+
+            if (RecordedAnchorPoseOverrideForTesting != null)
+                return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out reason);
+
+            var context = BuildRecorderRelativeAnchorResolverContext();
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                anchorRecordingId,
+                ut,
+                new HashSet<string>(StringComparer.Ordinal),
+                out pose);
+            if (!resolved)
+                reason = "recorded-anchor-unresolved";
+            return resolved;
+        }
+
+        private RelativeAnchorResolverContext BuildRecorderRelativeAnchorResolverContext()
+        {
+            return new RelativeAnchorResolverContext(
+                ActiveTree,
+                focusRecordingId: ActiveTree?.ActiveRecordingId,
+                focusTreeId: ActiveTree?.Id,
+                activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                absoluteWorldPositionResolver: ResolveRecordedPointWorldPosition,
+                bodyWorldRotationResolver: ResolveRecordedPointBodyWorldRotation,
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseForRecorder);
+        }
+
+        private static Vector3d ResolveRecordedPointWorldPosition(TrajectoryPoint point)
+        {
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            if (body == null)
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+        }
+
+        private static Quaternion ResolveRecordedPointBodyWorldRotation(TrajectoryPoint point)
+        {
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            return body != null && body.bodyTransform != null
+                ? body.bodyTransform.rotation
+                : Quaternion.identity;
+        }
+
+        private static bool TryResolveOrbitalAnchorPoseForRecorder(
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            for (int i = 0; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment segment = section.checkpoints[i];
+                if (ut < segment.startUT || ut > segment.endUT)
+                    continue;
+
+                CelestialBody body = FindBodyByNameForRecorder(segment.bodyName);
+                if (body == null)
+                    return false;
+
+                Orbit orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                Vector3d worldPos = orbit.getPositionAtUT(ut);
+                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
+                bool spinning = TrajectoryMath.IsSpinning(segment);
+                var rotation = ParsekFlight.ComputeOrbitalRotation(
+                    segment,
+                    orbit,
+                    ut,
+                    velocity,
+                    worldPos,
+                    body.position,
+                    Quaternion.identity,
+                    sectionIndex,
+                    hasOfr,
+                    spinning);
+
+                pose = new AnchorPose(
+                    worldPos,
+                    rotation.ghostRot,
+                    sectionIndex,
+                    recording?.RecordingId);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static CelestialBody FindBodyByNameForRecorder(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+            try
+            {
+                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+            }
+            catch (TypeInitializationException)
+            {
+                return null;
+            }
+        }
+
+        private void ForceExitRelativeToAbsolute(double ut, string reason)
+        {
+            string oldAnchorRecordingId = currentAnchorRecordingId;
+            uint oldAnchorPid = currentAnchorPid;
+            isRelativeMode = false;
+            ClearCurrentRecordingAnchor();
+            CloseCurrentTrackSection(ut);
+            var env = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.Atmospheric;
+            StartNewTrackSection(env, ReferenceFrame.Absolute, ut);
+            ParsekLog.Info("Anchor",
+                $"RELATIVE mode force-exited: anchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
+                $"diagnosticPid={oldAnchorPid} reason={reason} new ABSOLUTE section started");
         }
 
         /// <summary>
@@ -6850,7 +7379,8 @@ namespace Parsek
             if (isRelativeMode)
             {
                 ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on rails transition: anchorPid={currentAnchorPid}");
+                    $"RELATIVE mode cleared on rails transition: anchorRecordingId={currentAnchorRecordingId ?? "(none)"} " +
+                    $"diagnosticPid={currentAnchorPid}");
                 double clearUT = Planetarium.GetUniversalTime();
                 var clearEnv = environmentHysteresis != null
                     ? environmentHysteresis.CurrentEnvironment
@@ -6858,7 +7388,7 @@ namespace Parsek
                 CloseCurrentTrackSection(clearUT);
                 StartNewTrackSection(clearEnv, ReferenceFrame.Absolute, clearUT);
                 isRelativeMode = false;
-                currentAnchorPid = 0;
+                ClearCurrentRecordingAnchor();
             }
         }
 
@@ -7287,6 +7817,7 @@ namespace Parsek
         internal static void ResetResumeValidationVesselsOverrideForTesting()
         {
             resumeValidationVesselsOverrideForTesting = null;
+            RecordedAnchorPoseOverrideForTesting = null;
         }
 
         private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)

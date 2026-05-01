@@ -1,6 +1,6 @@
 # Ghost rendering anchor — recording chain rearchitecture
 
-**Status:** approved; Phase A implemented 2026-05-01, Phase B+ pending.
+**Status:** approved; Phase A and Phase B implemented 2026-05-01, Phase C+ pending.
 **Author:** synthesised from user's stated intent across multiple sessions.
 **Supersedes:** `relative-anchor-rearchitecture-prompt.md` (had drift on the architectural intent).
 
@@ -89,7 +89,7 @@ The playback chain model is uniform across vessel kinds. There is no separate "d
 
 Recording production is **not** uniform in the current code: `FlightRecorder` already has REL/ABS section switching, while `BackgroundRecorder` currently emits Absolute track sections (`StartBackgroundTrackSection(..., ReferenceFrame.Absolute, ...)`) and absolute samples. Phase B explicitly adds background REL state and sampling; the bullets below describe the target v11 behaviour, not what `BackgroundRecorder` already does today.
 
-- **Decoupler debris** (radial boosters, jettisoned fairings, etc.) is created at separation time as background-recorded vessels. Each piece becomes its own `Recording` in the same tree as the parent. After Phase B, the background recorder writes mostly Absolute sections with brief Relative-anchored windows during proximity to whichever eligible peer was nearest at section start (often the parent recording, sometimes another sibling debris piece).
+- **Decoupler debris** (radial boosters, jettisoned fairings, etc.) is created at separation time as background-recorded vessels. Each piece becomes its own `Recording` in the same tree as the parent. After Phase B, the background recorder writes mostly Absolute sections with brief Relative-anchored windows during proximity to the top-ranked eligible peer at section start (often the parent recording, sometimes another sibling debris piece).
 - **Pre-existing scene vessels** (a station the player approaches, an idle ship in another orbit) are background-recorded from scene-load. Their recordings are independent of the player's mission tree.
 - **Vessels from other missions** (a different `RecordingTree`) follow the same recorder rules after Phase B; v1 skips cross-`CommittedTree` candidates and writes Absolute if no eligible same-scope recording-id anchor exists.
 
@@ -141,7 +141,12 @@ The recorder's anchor-selection at section start opens with a unified rule: ever
   - A still-being-appended active provisional recording is not a valid anchor target in v1. It can be the focus recording being captured, but normal v11 candidate selection must not anchor another recording on it until it is finalized/merged.
   - Candidate recording must not have `LoopAnchorVesselId != 0`; loop-anchored recordings are not valid v11 Relative anchors.
   - Cross-`CommittedTree` candidates are invalid for v1. Skip them and select the next nearest eligible candidate, or write Absolute if none exists.
-- **Selection rule when both live peer and ghost peer are in proximity simultaneously:** nearest-peer-wins (Euclidean distance). Live and ghost candidates are treated uniformly — same proximity threshold, same selection criterion. The recorder does not prefer one source over the other.
+- **Selection rule when multiple live/ghost peers are in proximity simultaneously:** candidate filtering runs first, then candidates are ranked for deterministic stability:
+  1. sealed / immutable recording anchors outrank active provisional or otherwise mutable candidates,
+  2. same replay-point / same-vessel-lineage anchors outrank generic nearby recordings,
+  3. distance breaks ties within the same stability + affinity class.
+
+  Live and ghost candidates use the same proximity threshold and the same ranked selector. The recorder does not prefer a live source over a ghost source by type alone. Remaining ties break by recording id (ordinal) and then by a stable source/index discriminator. This supersedes the original nearest-peer-wins wording: proximity still matters, but it must not select a nearby unstable ghost over a slightly farther sealed same-lineage anchor.
 - The recorder does **not** dual-write `anchorVesselId` into normal v11 trajectory sidecars. If the peer is a live vessel, the recorder may log the peer PID at section-open time for diagnostics, but serialized correctness is `anchorRecordingId` only. Keeping a stale PID beside the recording id creates an attractive wrong fallback; the v11 contract removes that ambiguity.
 
 Required recorder-state replacement:
@@ -375,7 +380,15 @@ internal static (RecordingAnchorCandidate candidate, double distance, bool found
 
 `FlightRecorder.cs:4452` and the new `BackgroundRecorder` REL path call this recording-id detector. `BuildVesselInfoList` may continue filtering ghost-map vessels for the legacy live-vessel list; ghost candidates enter only through `GetActiveAnchorCandidates`. The detector performs a single linear scan over resolved candidates, explicitly skips any candidate whose `RecordingId == focusedRecordingId` or `DiagnosticPid == focusedVesselPid`, and then applies the §3.2 tie-break. Candidate construction should also avoid adding the focused vessel/recording, but the detector keeps the hard guard so a malformed candidate list cannot create distance-0 self-relative sections or resolver cycles.
 
-**B.4 Tie-break for nearest-peer-wins:** primary key is Euclidean distance in world meters; secondary is `recordingId` lexicographic order (stable, source-neutral); tertiary is source kind + engine index for deterministic tests. Distance dominates in practice; no tie-break depends on a live PID.
+**B.4 Deterministic stability ranking:** proximity does not dominate across all candidates. The selector first filters invalid candidates, then ranks by:
+
+1. immutable/sealed recording candidates first,
+2. same replay-point / same-vessel-lineage candidates next,
+3. Euclidean distance in world meters within the same stability + affinity class,
+4. `recordingId` lexicographic order (stable, source-neutral),
+5. source kind + engine index / diagnostic discriminator for deterministic tests.
+
+No tie-break depends on a live PID. Live PIDs remain log-only diagnostics.
 
 **B.5 Frame-ordering reality.** Earlier drafts of this plan asserted: *"That transform is set by `GhostPlaybackEngine.UpdatePlayback` during `OnFixedUpdate` before the recorder's per-physics-frame sample callback runs."* **That is wrong.** `engine.UpdatePlayback` is invoked from `ParsekFlight.Update()` at `ParsekFlight.cs:14113` (Unity Update — once per render frame). The recorder's sample callback is a Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats` (`Patches/PhysicsFramePatch.cs:103`) — runs at physics-tick frequency, fires 0/1/N times per render frame. Under high warp the recorder fires N physics frames per Update; ghost transforms are last positioned by the *previous* render frame.
 
@@ -385,7 +398,9 @@ This collapses three earlier sub-points (audit ordering, skip spawn frame, docum
 
 **Phase ordering note:** B.5 means Phase B depends on a small surface of `RelativeAnchorResolver` (the read API, not the deletions). To keep phasing clean, ship the resolver's read API as part of Phase A's format work (it can sit unused on the shelf), then Phase B turns it on for the recorder, then Phase C turns it on for playback, then Phase D deletes the old live-vessel paths.
 
-**Acceptance:** new recordings have populated `anchorRecordingId` on every `Relative` section where a recording-id-resolvable peer was in proximity. Phase B-produced Relative recordings are data-generation fixtures only until Phase C playback lands; do not use them as visual correctness evidence yet. `dotnet test` covers (a) recorder unit test verifying field is set on live + ghost peers, (b) loop-anchored and cross-committed-tree candidates are skipped, (c) the spawn-frame skip via `positionedThisFrame`, (d) the deterministic tie-break on equidistant input, (e) self-candidate rejection by both recording id and vessel pid, (f) false-alarm resume restores `anchorRecordingId` without calling `FindVesselByPid`, and (g) an in-game test that runs at 4× warp and asserts the recorder's anchor pose for a ghost peer is exact (not stale-by-one-render-frame).
+**Acceptance:** new recordings have populated `anchorRecordingId` on every `Relative` section where a recording-id-resolvable peer was in proximity. Phase B-produced Relative recordings are data-generation fixtures only until Phase C playback lands; do not use them as visual correctness evidence yet. `dotnet test` covers (a) recorder/unit seams verifying field serialization and background section metadata, (b) loop-anchored and out-of-scope candidates skipped, (c) the spawn-frame skip via `positionedThisFrame`, (d) deterministic tie-breaks, (e) self-candidate rejection by both recording id and vessel pid, and (f) false-alarm resume restores `anchorRecordingId` without calling `FindVesselByPid`. Runtime-only validation remains an in-game checklist: run at 4× warp and assert the recorder's anchor pose for a ghost peer is exact, not stale by one render frame.
+
+**Phase B implementation note (2026-05-01):** foreground and background recorders now select recorder-side `RecordingAnchorCandidate` values, rank them by sealed/immutable status, same replay-point / same-vessel-lineage affinity, distance, recording id, then source/index diagnostics, and write `anchorRecordingId` with `anchorVesselId=0` for normal v11 Relative sections. Live-PID data is retained only as a diagnostic/capture-time hint; missing or unresolved `anchorRecordingId` forces a logged Absolute transition rather than a live-PID fallback. `GhostPlaybackEngine.GetActiveAnchorCandidates` and `GhostPlaybackState.positionedThisFrame` provide active ghost candidate identity, while ghost-peer pose math is resolved through `RelativeAnchorResolver` at the recorder's physics UT. Focused xUnit slices passed; the full xUnit run passed 10304 tests and was blocked only by `InjectAllRecordings` refusing to purge the KSP save while `KSP.log` was locked by the running game. The required fallback `dotnet build Source/Parsek.Tests/Parsek.Tests.csproj --no-restore` passed. Runtime high-warp / in-game validation remains checklist-only until run inside KSP.
 
 ### Phase C — Playback uses the chain
 
@@ -572,8 +587,9 @@ If a future scenario produces measurably hot chain walks (perf trace shows it), 
   - Cross-`CommittedTree` peer in proximity → skipped as invalid v1 candidate; next eligible peer wins or section records Absolute.
   - Ghost peer on its spawn frame (`positionedThisFrame == false`) → recorder skips it as anchor candidate.
   - Ghost peer pose under high warp: recorder uses `RelativeAnchorResolver` to fetch the pose at the current physics-frame UT, NOT the rendered transform. Test runs at 4× warp and asserts the recorder's stored offset uses the resolver's pose, not a stale Update-frame transform.
-  - Both live and ghost peer in proximity, ghost is closer → ghost wins (nearest-peer tie-break).
-  - Both peers exactly equidistant on synthetic input → deterministic tie-break by recordingId lexicographic order.
+  - Both live and ghost peer in proximity, farther peer is sealed and nearer peer is mutable → sealed peer wins.
+  - Both peers in the same stability class, one shares replay-point / same-vessel lineage with the focused recording → same-affinity peer wins.
+  - Both peers in the same stability + affinity class → nearer peer wins; exactly equidistant synthetic input breaks by recordingId lexicographic order.
   - No peer → `anchorRecordingId == null`, section reverts to `Absolute`.
 - `BackgroundRecorderAnchorSelectionTests.cs`:
   - Background recorder starts Absolute in current conditions, enters Relative only when a same-scope recording-id candidate is eligible, and writes `anchorRecordingId`.
@@ -632,7 +648,7 @@ The plan is complete when:
 
 Resolved during the 2026-05-01 plan review (initial draft → Opus review → user-supplied confirmations + extra review items). Recording the rationale here so the implementing agent doesn't have to re-litigate these.
 
-1. **Anchor selection when live peer and ghost peer are both in proximity:** nearest-peer-wins. Live and ghost candidates are treated uniformly — same proximity threshold, same selection criterion. **Tie-break:** distance first (Euclidean meters), then `recordingId` lexicographic (stable, source-neutral), then source kind + engine index for deterministic tests. **Skip rule:** any candidate that cannot resolve to a recording id is ignored entirely. (See §3.2.)
+1. **Anchor selection when live peer and ghost peer are both in proximity:** live and ghost candidates are treated uniformly after candidate filtering, but proximity is not the top-level priority. The selector ranks immutable/sealed recordings first for timeline stability, then same replay-point / same-vessel-lineage recordings for architectural affinity, then distance within the same stability + affinity class. **Tie-break:** `recordingId` lexicographic (stable, source-neutral), then source kind + engine index / diagnostic discriminator for deterministic tests. **Skip rule:** any candidate that cannot resolve to a recording id is ignored entirely. (See §3.2.)
 
 2. **Tree scope:** tree-local anchor resolution for v1, **with a composite-lookup overlay** that includes finalized/safe provisional state and `RecordingStore.PendingTree`. A still-being-appended active provisional recording can be the focus recording being captured, but it is not a valid anchor target until finalization/merge. Cross-`CommittedTree` anchors are illegal v11 recorder output for v1; if corrupt/manual data contains one, the resolver warns and uses recorded-shadow debug fallback or section hide. If a real docking-cross-tree bug surfaces, raise Phase 1.5 with a global recording-id index in `RecordingStore`.
 

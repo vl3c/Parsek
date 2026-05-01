@@ -12,6 +12,28 @@ namespace Parsek.Tests
     /// </summary>
     public class AnchorDetectorTests
     {
+        private static RecordingAnchorCandidate RecordingCandidate(
+            string recordingId,
+            double x,
+            AnchorCandidateSource source = AnchorCandidateSource.Ghost,
+            uint diagnosticPid = 0u,
+            int ghostIndex = 0,
+            bool isSealed = false,
+            bool isSameReplayPoint = false,
+            bool isSameVesselLineage = false)
+        {
+            return new RecordingAnchorCandidate(
+                recordingId,
+                new Vector3d(x, 0, 0),
+                Quaternion.identity,
+                source,
+                diagnosticPid,
+                ghostIndex,
+                isSealed,
+                isSameReplayPoint,
+                isSameVesselLineage);
+        }
+
         #region FindNearestAnchor -- No candidates
 
         [Fact]
@@ -212,6 +234,308 @@ namespace Parsek.Tests
 
             Assert.Equal(10u, result.anchorPid);
             Assert.Equal(100.0, result.distance, 5);
+        }
+
+        #endregion
+
+        #region FindNearestRecordingAnchor
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_ComputesPriorityMetadata()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "focus",
+                VesselPersistentId = 42u,
+                ChainId = "chain-a",
+                ParentBranchPointId = "rp-1",
+                VesselName = "Upper Stage"
+            };
+            var anchor = new Recording
+            {
+                RecordingId = "anchor",
+                VesselPersistentId = 42u,
+                ChainId = "chain-a",
+                ChildBranchPointId = "rp-1",
+                VesselName = "Upper Stage",
+                MergeState = MergeState.Immutable
+            };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                anchor,
+                new Vector3d(1, 2, 3),
+                Quaternion.identity,
+                AnchorCandidateSource.Ghost,
+                123u,
+                7,
+                out RecordingAnchorCandidate candidate);
+
+            Assert.True(created);
+            Assert.Equal("anchor", candidate.RecordingId);
+            Assert.True(candidate.IsSealed);
+            Assert.True(candidate.IsSameReplayPoint);
+            Assert.True(candidate.IsSameVesselLineage);
+            Assert.Equal(2, AnchorDetector.RecordingAnchorAffinityRank(candidate));
+        }
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_RejectsLoopAnchoredCandidate()
+        {
+            var focus = new Recording { RecordingId = "focus" };
+            var anchor = new Recording
+            {
+                RecordingId = "anchor",
+                LoopAnchorVesselId = 99u
+            };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                anchor,
+                Vector3d.zero,
+                Quaternion.identity,
+                AnchorCandidateSource.Live,
+                99u,
+                -1,
+                out RecordingAnchorCandidate candidate);
+
+            Assert.False(created);
+            Assert.Null(candidate.RecordingId);
+        }
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_RejectsFocusedRecording()
+        {
+            var focus = new Recording { RecordingId = "same" };
+            var anchor = new Recording { RecordingId = "same" };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                anchor,
+                Vector3d.zero,
+                Quaternion.identity,
+                AnchorCandidateSource.Live,
+                0u,
+                -1,
+                out _);
+
+            Assert.False(created);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_EmptyCandidates_ReturnsNotFound()
+        {
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                new List<RecordingAnchorCandidate>());
+
+            Assert.False(result.found);
+            Assert.Equal(double.MaxValue, result.distance);
+            Assert.Null(result.candidate.RecordingId);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SealedCandidateBeatsNearerUnsealedCandidate()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("near-unsealed", 50.0, isSealed: false),
+                RecordingCandidate("far-sealed", 500.0, isSealed: true)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("far-sealed", result.candidate.RecordingId);
+            Assert.Equal(500.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SameReplayPointBeatsSlightlyNearerGenericCandidate()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("generic", 80.0),
+                RecordingCandidate("same-rp", 125.0, isSameReplayPoint: true)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("same-rp", result.candidate.RecordingId);
+            Assert.Equal(125.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SameVesselLineageBeatsSlightlyNearerGenericCandidate()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("generic", 80.0),
+                RecordingCandidate("same-vessel", 125.0, isSameVesselLineage: true)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("same-vessel", result.candidate.RecordingId);
+            Assert.Equal(125.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_DistanceBreaksTieInsideSamePriorityClass()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("far", 300.0, isSealed: true, isSameReplayPoint: true),
+                RecordingCandidate("near", 100.0, isSealed: true, isSameReplayPoint: true)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("near", result.candidate.RecordingId);
+            Assert.Equal(100.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_RecordingIdTieBreaksEqualRankAndDistance()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("beta", -100.0),
+                RecordingCandidate("alpha", 100.0)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("alpha", result.candidate.RecordingId);
+            Assert.Equal(100.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SkipsFocusedRecordingId()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("focus", 10.0),
+                RecordingCandidate("other", 200.0)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("other", result.candidate.RecordingId);
+            Assert.Equal(200.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SkipsSameNonzeroDiagnosticPidAsFocusedVessel()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("self-pid", 10.0, diagnosticPid: 42u),
+                RecordingCandidate("other", 200.0, diagnosticPid: 99u)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                42u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("other", result.candidate.RecordingId);
+            Assert.Equal(200.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SkipsNullAndEmptyRecordingIds()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate(null, 10.0),
+                RecordingCandidate(string.Empty, 20.0),
+                RecordingCandidate("valid", 200.0)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("valid", result.candidate.RecordingId);
+            Assert.Equal(200.0, result.distance, 5);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_SourceTieBreakIsDeterministic()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Ghost, ghostIndex: 0),
+                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Live, ghostIndex: -1)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("same", result.candidate.RecordingId);
+            Assert.Equal(AnchorCandidateSource.Live, result.candidate.Source);
+        }
+
+        [Fact]
+        public void FindNearestRecordingAnchor_GhostIndexTieBreakIsDeterministicAndIgnoresPid()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("same", 100.0, ghostIndex: 4, diagnosticPid: 10u),
+                RecordingCandidate("same", 100.0, ghostIndex: 2, diagnosticPid: 999u)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates);
+
+            Assert.True(result.found);
+            Assert.Equal("same", result.candidate.RecordingId);
+            Assert.Equal(2, result.candidate.GhostIndex);
+            Assert.Equal(999u, result.candidate.DiagnosticPid);
         }
 
         #endregion

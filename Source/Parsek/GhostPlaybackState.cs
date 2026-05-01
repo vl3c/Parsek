@@ -81,6 +81,7 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        internal bool positionedThisFrame;
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public PendingGhostVisualBuild pendingVisualBuild; // bug #450 B2: multi-frame snapshot build in progress
@@ -136,6 +137,7 @@ namespace Parsek
             // sessions correlating gate state with visibility.
             externalActivationDeferred = false;
             anchorRetiredThisFrame = false;
+            positionedThisFrame = false;
             cameraPivot = null;
             horizonProxy = null;
             pendingVisualBuild = null;

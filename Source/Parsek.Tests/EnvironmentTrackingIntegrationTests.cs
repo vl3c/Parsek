@@ -410,6 +410,9 @@ namespace Parsek.Tests
         [Fact]
         public void RestoreTrackSectionAfterFalseAlarm_PreservesRelativeAnchorMetadata()
         {
+            const string anchorRecordingId = "anchor-rec";
+            SetRecordedAnchorResolvedForTesting(anchorRecordingId);
+
             var lastPoint = new TrajectoryPoint
             {
                 ut = 209.5,
@@ -422,7 +425,8 @@ namespace Parsek.Tests
                 environment = SegmentEnvironment.Atmospheric,
                 referenceFrame = ReferenceFrame.Relative,
                 source = TrackSectionSource.Active,
-                anchorVesselId = 123456789u,
+                anchorRecordingId = anchorRecordingId,
+                anchorVesselId = 0u,
                 startUT = 200.0,
                 endUT = 210.0,
                 frames = new List<TrajectoryPoint> { lastPoint },
@@ -436,7 +440,8 @@ namespace Parsek.Tests
             Assert.Equal(2, recorder.TrackSections.Count);
             var reopened = recorder.TrackSections[1];
             Assert.Equal(ReferenceFrame.Relative, reopened.referenceFrame);
-            Assert.Equal(123456789u, reopened.anchorVesselId);
+            Assert.Equal(anchorRecordingId, reopened.anchorRecordingId);
+            Assert.Equal(0u, reopened.anchorVesselId);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
         }
@@ -444,6 +449,9 @@ namespace Parsek.Tests
         [Fact]
         public void RestoreTrackSectionAfterFalseAlarm_PrefersDiscardedCurrentSectionMetadata()
         {
+            const string anchorRecordingId = "anchor-rec";
+            SetRecordedAnchorResolvedForTesting(anchorRecordingId);
+
             var lastAbsolutePoint = new TrajectoryPoint
             {
                 ut = 109.5,
@@ -464,7 +472,7 @@ namespace Parsek.Tests
             recorder.Recording.Add(lastAbsolutePoint);
 
             recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Relative, 109.8);
-            SetCurrentTrackSectionAnchor(recorder, 123456789u);
+            SetCurrentTrackSectionAnchor(recorder, anchorRecordingId);
             recorder.CloseCurrentTrackSection(110.0);
 
             Assert.Single(recorder.TrackSections);
@@ -475,7 +483,8 @@ namespace Parsek.Tests
             Assert.Equal(2, recorder.TrackSections.Count);
             var reopened = recorder.TrackSections[1];
             Assert.Equal(ReferenceFrame.Relative, reopened.referenceFrame);
-            Assert.Equal(123456789u, reopened.anchorVesselId);
+            Assert.Equal(anchorRecordingId, reopened.anchorRecordingId);
+            Assert.Equal(0u, reopened.anchorVesselId);
             Assert.Empty(reopened.frames);
         }
 
@@ -572,7 +581,7 @@ namespace Parsek.Tests
                 recorder.TrackSections[0].environment);
         }
 
-        private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, uint anchorPid)
+        private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, string anchorRecordingId)
         {
             var field = typeof(FlightRecorder).GetField(
                 "currentTrackSection",
@@ -581,8 +590,26 @@ namespace Parsek.Tests
             Assert.NotNull(field);
 
             var section = (TrackSection)field.GetValue(recorder);
-            section.anchorVesselId = anchorPid;
+            section.anchorRecordingId = anchorRecordingId;
+            section.anchorVesselId = 0u;
             field.SetValue(recorder, section);
+        }
+
+        private static void SetRecordedAnchorResolvedForTesting(string expectedAnchorRecordingId)
+        {
+            FlightRecorder.RecordedAnchorPoseOverrideForTesting =
+                (string anchorRecordingId, double ut, out AnchorPose pose, out string reason) =>
+                {
+                    pose = default;
+                    if (anchorRecordingId == expectedAnchorRecordingId)
+                    {
+                        reason = null;
+                        return true;
+                    }
+
+                    reason = "test-anchor-unresolved";
+                    return false;
+                };
         }
 
         private static TrackSection GetCurrentTrackSection(FlightRecorder recorder)

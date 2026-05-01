@@ -774,6 +774,8 @@ namespace Parsek
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
+        private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
+            new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
@@ -14169,6 +14171,202 @@ namespace Parsek
         // ValidateWatchedGhostStillActive moved to WatchModeController
 
         // FlushDeferredSpawns moved to ParsekPlaybackPolicy (#132)
+
+        internal IEnumerable<RecordingAnchorCandidate> BuildGhostRecordingAnchorCandidatesForRecorder(
+            RecordingTree focusTree,
+            string focusedRecordingId,
+            uint focusedVesselPid,
+            double ut)
+        {
+            cachedGhostRecordingAnchorCandidates.Clear();
+            if (engine == null
+                || focusTree?.Recordings == null
+                || cachedTrajectories.Count == 0)
+            {
+                return cachedGhostRecordingAnchorCandidates;
+            }
+
+            int scanned = 0;
+            int skippedUnpositioned = 0;
+            int skippedScope = 0;
+            int skippedActiveProvisional = 0;
+            int unresolved = 0;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            var context = BuildFlightRelativeAnchorResolverContext(
+                focusTree,
+                focusedRecordingId,
+                marker);
+
+            foreach (GhostAnchorCandidate candidate in engine.GetActiveAnchorCandidates(cachedTrajectories))
+            {
+                scanned++;
+                if (!candidate.PositionedThisFrame)
+                {
+                    skippedUnpositioned++;
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(candidate.RecordingId)
+                    || string.Equals(candidate.RecordingId, focusedRecordingId, StringComparison.Ordinal))
+                {
+                    skippedScope++;
+                    continue;
+                }
+                if (marker != null
+                    && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                    && string.Equals(
+                        marker.ActiveReFlyRecordingId,
+                        candidate.RecordingId,
+                        StringComparison.Ordinal))
+                {
+                    skippedActiveProvisional++;
+                    continue;
+                }
+                if (!focusTree.Recordings.TryGetValue(candidate.RecordingId, out Recording recording)
+                    || recording == null)
+                {
+                    skippedScope++;
+                    continue;
+                }
+                if (recording.LoopAnchorVesselId != 0u)
+                {
+                    skippedScope++;
+                    continue;
+                }
+
+                if (!RelativeAnchorResolver.TryResolveAnchorPose(
+                        context,
+                        candidate.RecordingId,
+                        ut,
+                        new HashSet<string>(StringComparer.Ordinal),
+                        out AnchorPose pose))
+                {
+                    unresolved++;
+                    continue;
+                }
+
+                cachedGhostRecordingAnchorCandidates.Add(
+                    new RecordingAnchorCandidate(
+                        candidate.RecordingId,
+                        pose.WorldPos,
+                        pose.WorldRotation,
+                        AnchorCandidateSource.Ghost,
+                        recording.VesselPersistentId,
+                        candidate.Index));
+            }
+
+            ParsekLog.VerboseRateLimited("Anchor", "ghost-recording-anchor-candidates",
+                $"Ghost recording anchor candidates: focusRecordingId={focusedRecordingId ?? "(none)"} " +
+                $"scanned={scanned} added={cachedGhostRecordingAnchorCandidates.Count} " +
+                $"skippedUnpositioned={skippedUnpositioned} skippedScope={skippedScope} " +
+                $"skippedActiveProvisional={skippedActiveProvisional} unresolved={unresolved} " +
+                $"focusedVesselPid={focusedVesselPid}",
+                5.0);
+
+            return cachedGhostRecordingAnchorCandidates;
+        }
+
+        private RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
+            RecordingTree focusTree,
+            string focusedRecordingId,
+            ReFlySessionMarker marker)
+        {
+            return new RelativeAnchorResolverContext(
+                focusTree,
+                focusRecordingId: focusedRecordingId,
+                focusTreeId: focusTree?.Id,
+                activeReFlyMarker: marker,
+                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
+                bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
+                orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose);
+        }
+
+        private static Vector3d ResolveAnchorResolverPointWorldPosition(TrajectoryPoint point)
+        {
+            CelestialBody body = FindBodyForAnchorResolver(point.bodyName);
+            if (body == null)
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+
+            return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+        }
+
+        private static Quaternion ResolveAnchorResolverBodyWorldRotation(TrajectoryPoint point)
+        {
+            CelestialBody body = FindBodyForAnchorResolver(point.bodyName);
+            return body != null && body.bodyTransform != null
+                ? body.bodyTransform.rotation
+                : Quaternion.identity;
+        }
+
+        private static bool TryResolveFlightOrbitalAnchorPose(
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            for (int i = 0; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment segment = section.checkpoints[i];
+                if (ut < segment.startUT || ut > segment.endUT)
+                    continue;
+
+                CelestialBody body = FindBodyForAnchorResolver(segment.bodyName);
+                if (body == null)
+                    return false;
+
+                Orbit orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                Vector3d worldPos = orbit.getPositionAtUT(ut);
+                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                var rotation = ComputeOrbitalRotation(
+                    segment,
+                    orbit,
+                    ut,
+                    velocity,
+                    worldPos,
+                    body.position,
+                    Quaternion.identity,
+                    sectionIndex,
+                    TrajectoryMath.HasOrbitalFrameRotation(segment),
+                    TrajectoryMath.IsSpinning(segment));
+
+                pose = new AnchorPose(
+                    worldPos,
+                    rotation.ghostRot,
+                    sectionIndex,
+                    recording?.RecordingId);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static CelestialBody FindBodyForAnchorResolver(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+
+            try
+            {
+                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+            }
+            catch (TypeInitializationException)
+            {
+                return null;
+            }
+        }
 
         private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
 

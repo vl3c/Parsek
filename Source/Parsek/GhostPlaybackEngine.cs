@@ -6,6 +6,20 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal readonly struct GhostAnchorCandidate
+    {
+        public readonly int Index;
+        public readonly string RecordingId;
+        public readonly bool PositionedThisFrame;
+
+        internal GhostAnchorCandidate(int index, string recordingId, bool positionedThisFrame)
+        {
+            Index = index;
+            RecordingId = recordingId ?? string.Empty;
+            PositionedThisFrame = positionedThisFrame;
+        }
+    }
+
     /// <summary>
     /// Core ghost playback engine.
     /// Consumes <see cref="IPlaybackTrajectory"/> data plus rendering collaborators to manage
@@ -460,6 +474,8 @@ namespace Parsek
             TrajectoryPlaybackFlags[] flags,
             FrameContext ctx)
         {
+            ClearPrimaryGhostPositionedThisFrame();
+
             if (trajectories == null || trajectories.Count == 0)
             {
                 DiagnosticsState.playbackBudget = default;
@@ -893,6 +909,21 @@ namespace Parsek
             buildReentryFxStopwatch.Reset();
         }
 
+        private void ClearPrimaryGhostPositionedThisFrame()
+        {
+            foreach (var state in ghostStates.Values)
+            {
+                if (state != null)
+                    state.positionedThisFrame = false;
+            }
+        }
+
+        private static void MarkPrimaryGhostPositionedThisFrame(GhostPlaybackState state)
+        {
+            if (state != null)
+                state.positionedThisFrame = true;
+        }
+
         /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
@@ -1082,6 +1113,8 @@ namespace Parsek
             // for a retired ghost was the original misleading symptom.
             bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
+            if (!retired)
+                MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
             {
                 ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
@@ -3063,6 +3096,32 @@ namespace Parsek
             return overlapGhosts.TryGetValue(index, out overlaps);
         }
 
+        /// <summary>Get active primary ghosts that can be considered as recording-id anchors.</summary>
+        internal IEnumerable<GhostAnchorCandidate> GetActiveAnchorCandidates(
+            IReadOnlyList<IPlaybackTrajectory> trajectories)
+        {
+            if (trajectories == null)
+                yield break;
+
+            foreach (var kv in ghostStates)
+            {
+                int index = kv.Key;
+                if (index < 0 || index >= trajectories.Count)
+                    continue;
+
+                var state = kv.Value;
+                if (state == null)
+                    continue;
+
+                string recordingId = trajectories[index]?.RecordingId;
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+
+                yield return new GhostAnchorCandidate(
+                    index, recordingId, state.positionedThisFrame);
+            }
+        }
+
         /// <summary>Get active ghost positions for proximity checking (Real Spawn Control).</summary>
         internal IEnumerable<(int index, Vector3 position)> GetActiveGhostPositions()
         {
@@ -3531,6 +3590,7 @@ namespace Parsek
             => frameLazyReentryBuildCount = value;
         internal void ResetPerFrameCountersForTesting()
         {
+            ClearPrimaryGhostPositionedThisFrame();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
@@ -3573,6 +3633,15 @@ namespace Parsek
         }
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
+
+        internal bool MarkGhostPositionedThisFrameForTesting(int index)
+        {
+            if (!ghostStates.TryGetValue(index, out var state) || state == null)
+                return false;
+
+            MarkPrimaryGhostPositionedThisFrame(state);
+            return true;
+        }
 
         // Bug #613 (PR #594 P1 round 2) test seams: in-game tests need to
         // observe whether TryHandleEarlyDestroyedDebrisCompletion ran on the

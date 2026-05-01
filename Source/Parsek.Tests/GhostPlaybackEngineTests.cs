@@ -2138,6 +2138,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetActiveAnchorCandidates_FiltersMissingRecordingIdsAndCarriesPositionedFlag()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[0] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[1] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[2] = new GhostPlaybackState { positionedThisFrame = false };
+            engine.ghostStates[3] = null;
+            engine.ghostStates[4] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[5] = new GhostPlaybackState { positionedThisFrame = true };
+
+            var trajectories = new List<IPlaybackTrajectory>
+            {
+                new MockTrajectory { RecordingId = "rec-0" },
+                new MockTrajectory { RecordingId = null },
+                new MockTrajectory { RecordingId = "rec-2" },
+                new MockTrajectory { RecordingId = "rec-3" },
+                new MockTrajectory { RecordingId = string.Empty },
+            };
+
+            var candidates = engine.GetActiveAnchorCandidates(trajectories)
+                .OrderBy(c => c.Index)
+                .ToList();
+
+            Assert.Equal(2, candidates.Count);
+            Assert.Equal(0, candidates[0].Index);
+            Assert.Equal("rec-0", candidates[0].RecordingId);
+            Assert.True(candidates[0].PositionedThisFrame);
+            Assert.Equal(2, candidates[1].Index);
+            Assert.Equal("rec-2", candidates[1].RecordingId);
+            Assert.False(candidates[1].PositionedThisFrame);
+            Assert.Empty(engine.GetActiveAnchorCandidates(null));
+        }
+
+        [Fact]
+        public void PositionedThisFrame_ClearsAtFrameStartAndMarksAfterPositionSeam()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[1] = new GhostPlaybackState { positionedThisFrame = true };
+            var trajectories = new List<IPlaybackTrajectory>
+            {
+                new MockTrajectory { RecordingId = "unused" },
+                new MockTrajectory { RecordingId = "rec-1" },
+            };
+
+            Assert.True(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+
+            engine.ResetPerFrameCountersForTesting();
+            Assert.False(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+
+            Assert.True(engine.MarkGhostPositionedThisFrameForTesting(1));
+            Assert.True(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+            Assert.False(engine.MarkGhostPositionedThisFrameForTesting(99));
+        }
+
+        [Fact]
         public void IsGhostOnBody_MatchingBody_ReturnsTrue()
         {
             var engine = new GhostPlaybackEngine(null);
