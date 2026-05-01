@@ -22,13 +22,13 @@ What the player sees today, by stock screen:
 | Stock screen | Past commit | Future commit | Locked / available |
 |---|---|---|---|
 | Tech tree (R&D) | Available (correct) | **Looks identical to a fresh node** until clicked | Locked (correct) |
-| Facilities (KSC view) | Upgraded (correct) | **Looks unupgraded** until clicked | Unupgraded (correct) |
+| Facilities (KSC view) | Upgraded (correct) | Looks unupgraded until clicked — already click-blocked by `FacilityUpgradePatch`; visual overlay deferred to v2 (see §10) | Unupgraded (correct) |
 | Mission Control | Completed in history (correct) | **Looks freshly offered**; nothing prevents double-accept | Offered (correct) |
 | Astronaut Complex | Hired in history (correct) | **Looks like a normal applicant**; nothing prevents double-hire | Applicant (correct) |
 | VAB/SPH crew dialog | Hidden (correct) | Hidden (correct) | Visible (correct) |
 | Top resources bar | Patched (correct) | n/a | n/a |
 
-The four cells marked in bold are the v1 scope.
+The three cells marked in bold are the v1 overlay scope (R&D, Mission Control, Astronaut Complex). Facilities is **out of overlay scope for v1** — the existing `FacilityUpgradePatch` already prevents the player from wasting funds on a double-upgrade, so the safety property holds even without a visual marker. The KSC top-down view also has a less obvious per-facility hook than the three building screens; adding it cleanly is a v2 task. The two new click-blocks (contracts + kerbals) are scope-orthogonal: they ship in v1 alongside the three new overlays.
 
 User-facing complaint: "I have to keep checking the Parsek Career window before I do anything in the buildings, otherwise I waste a click and read a popup."
 
@@ -76,9 +76,11 @@ Note: `CrewHired` round-trips into `Ledger` (via `GameActions/GameStateEventConv
                                 └───────  same predicate, no UT filter   ───────┘
 ```
 
-Critical invariant, **scoped to the four action types where both sides exist** (tech research, facility upgrade, contract accept, kerbal hire): **overlay set == click-block set**. If a row gets decorated for one of those action types, clicking it gets blocked. If it does not get decorated, clicking it is allowed. The implementation enforces this by reading the same `MilestoneStore` helper from both sides — never adding a UT filter to one side without the other.
+Critical invariant, **scoped to action types that have BOTH an overlay AND a click-block**: **overlay candidate set == click-block predicate set**. In v1 that means three action types: tech research, contract accept, kerbal hire. (Facility upgrade has a click-block — `FacilityUpgradePatch` — but no overlay in v1; see §1 and §10. The invariant becomes applicable to facility upgrade once a v2 facility overlay ships.) The implementation enforces this by reading the same `MilestoneStore` helper from both sides — never adding a UT filter to one side without the other, and never letting a UI-surface suppression (E9, E17) leak into the click-block predicate.
 
-The invariant does **not** apply to overlay-only kinds (`FutureRetired`, `ReservedActive`, `ReservedRetired`) because there is no clickable "retire" or "un-reserve" affordance in the Astronaut Complex to block. Those are pure visual telemetry — the player cannot accidentally double-act on them. E18 in §9 lists the unit test that enforces the invariant for the four action types it applies to.
+The invariant does **not** apply to overlay-only kinds (`FutureRetired`, `ReservedActive`, `ReservedRetired`) because there is no clickable "retire" or "un-reserve" affordance in the Astronaut Complex to block. Those are pure visual telemetry — the player cannot accidentally double-act on them. E18 in §9 lists the three pairwise unit tests that enforce the invariant in v1.
+
+**Rule for adding a 5th action type later:** if the new type has a clickable affordance in any stock UI (e.g. someone adds a Strategy-activation overlay), both an overlay path AND a matching click-block patch must ship in the same PR — the invariant is non-negotiable for clickable kinds. Overlay-only kinds are reserved for purely informational state with no click surface (the three Astronaut Complex non-Hire kinds today). E18 must be extended with a fifth pairwise test in that PR.
 
 The overlay is a thin presentation layer; it never mutates ledger state or KSP singletons. Click-blocks are the only mutators added by this PR, and they only refuse player actions — they do not invent new ones.
 
@@ -108,8 +110,11 @@ internal static HashSet<string> GetCommittedContractAcceptIds()
 
 internal static HashSet<string> GetCommittedKerbalHireNames()
 {
-    // GameStateEventType.CrewHired, key = crew.name (already emitted by
-    // GameStateRecorder.cs:779 and converted by GameStateEventConverter.cs:172-173)
+    // GameStateEventType.CrewHired, key = crew.name (emitted by
+    // GameStateRecorder.cs:779 with key = crew.name).
+    // Converter side: GameActions/GameStateEventConverter.cs:172-173
+    // dispatches CrewHired to ConvertCrewHired (we do not depend on the
+    // converted ledger action — the helper reads MilestoneStore directly).
 }
 
 internal static HashSet<string> GetCommittedKerbalRetireNames()
@@ -174,7 +179,7 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 
 **Caching policy:** marks are built **on `onGUI*Spawn`** and held until `…Despawn`. They are NOT rebuilt per OnGUI frame (the §13 review caught this — per-OnGUI walks would be three full passes over `MilestoneStore.Milestones[*].Events[k..]` per frame at 60Hz, too expensive at hundreds of milestones).
 
-**Refresh trigger** (replaces the original `Ledger.StateVersion` polling proposal): the controller subscribes to `LedgerOrchestrator.OnTimelineDataChanged` (the same event the Career window uses — see `career-state-window.md` §5.6). When that fires AND the relevant building is currently open, the controller calls `RebuildAllVisible()` on the next OnGUI frame.
+**Refresh trigger** (replaces the original `Ledger.StateVersion` polling proposal): the controller subscribes to `LedgerOrchestrator.OnTimelineDataChanged` (the established subscribe pattern — `Source/Parsek/ParsekUI.cs` already subscribes at lines 116/131/134/1290 for the Timeline, Recordings, Kerbals, and Career windows; see also `docs/dev/plans/career-state-window.md` §5.6). When that fires AND the relevant building is currently open, the controller calls `RebuildAllVisible()` on the next OnGUI frame.
 
 **Honest about the routing** (review feedback): `OnTimelineDataChanged` is `internal static Action` declared at `Source/Parsek/GameActions/LedgerOrchestrator.cs:106`, with **a single publisher** at `LedgerOrchestrator.cs:1577` inside `RecalculateAndPatch`. The overlay's source-of-truth predicate depends on three things:
 1. `Ledger.Actions` mutated.
@@ -222,9 +227,8 @@ If `OnRDTreeSpawn` does not exist in the running KSP version (defensive — veri
 2. For each name, classify (priority order — first match wins so FutureHired beats Reserved):
    - **FutureHired** if `MilestoneStore.GetCommittedKerbalHireNames()` contains the name (sourced from `GameStateEventType.CrewHired`). Tooltip: "Will be hired at UT 12345 — recording '...'".
    - **FutureRetired** if `MilestoneStore.GetCommittedKerbalRetireNames()` contains the name (sourced from `GameStateEventType.CrewRemoved`). Tooltip with UT, badge color muted.
-   - **ReservedActive** if `LedgerOrchestrator.Kerbals?.IsManaged(name) == true` AND there is a live stand-in. Tooltip: "Reserved by Parsek for slot '<slotOwner>'".
-   - **ReservedRetired** if `LedgerOrchestrator.Kerbals?.IsManaged(name) == true` AND no active stand-in (i.e. the kerbal is in the retired/displaced set). Tooltip: "Retired stand-in (managed by Parsek)".
-   - **No match** — skip. (`KerbalsModule.ShouldFilterFromCrewDialog` is the union of ReservedActive + ReservedRetired and is what VAB/SPH uses to *hide* — for the Astronaut Complex we want a finer split so the tooltip can explain which case it is. **Implementation note:** `KerbalsModule.GetActiveOccupant` returns `null` in two distinct cases — "all occupants in the reserved prefix are still reserved" AND "no active stand-in" (`KerbalsModule.cs:830-832`). The plan's split via `GetActiveOccupant != null` will misclassify the first case. Add a `KerbalsModule.GetReservationKind(string name) → enum {NotManaged, ReservedActive, ReservedRetired}` helper as part of Phase 4 so the controller has an unambiguous predicate. The four `KerbalsModule` methods already accessed through `LedgerOrchestrator.Kerbals?.…` follow this pattern — see `Source/Parsek/Patches/CrewDialogFilterPatch.cs:48-51`, `KerbalDismissalPatch.cs:35`, `Source/Parsek/GameStateRecorder.cs:873`.)
+   - **ReservedActive / ReservedRetired** — call `LedgerOrchestrator.Kerbals?.GetReservationKind(name)` (the new helper added in Phase 1.5; see §11 modified-files list and §12 Phase 1.5). Switch on the returned enum: `ReservedActive` → "Reserved by Parsek for slot '<slotOwner>'"; `ReservedRetired` → "Retired stand-in (managed by Parsek)"; `NotManaged` → fall through to no-match.
+   - **No match** — skip. (`KerbalsModule.ShouldFilterFromCrewDialog` is the union of ReservedActive + ReservedRetired and is what VAB/SPH uses to *hide* — for the Astronaut Complex we want the finer split so the tooltip can explain which case it is. The reason for the new `GetReservationKind` helper rather than reading `IsManaged` + `GetActiveOccupant != null` directly: `GetActiveOccupant` returns `null` in two distinct cases — "all occupants in the reserved prefix are still reserved" AND "no active stand-in" (verified at `Source/Parsek/KerbalsModule.cs:830-832`) — so a naive `GetActiveOccupant != null` split would misclassify the first case. The `KerbalsModule` accessors are instance methods reached through `LedgerOrchestrator.Kerbals?.…` — see `Source/Parsek/Patches/CrewDialogFilterPatch.cs:48-51`, `KerbalDismissalPatch.cs:35`, `Source/Parsek/GameStateRecorder.cs:873`.)
 3. Find the panel's `UIList` that drives the applicants column. The Astronaut Complex UI is `KSP.UI.Screens.AstronautComplex`; its applicants are rendered into a `KSP.UI.CrewListItem` per row (verified by decompile — note the type name is `CrewListItem`, not `KerbalListItem`). The list is accessed via private fields on `AstronautComplex`; the implementation must reflect them, named like `availableCrewList` / `assignedCrewList` (verify exact names during Phase 4 by reading the decompiled assembly). Wrap the reflection in a one-shot warn-on-failure helper following the `KspStatePatcher.protoTechNodes` pattern (see `Source/Parsek/GameActions/KspStatePatcher.cs:439-474`).
 4. For each `CrewListItem` row, derive the kerbal name. `CrewListItem` exposes `GetName() : string` publicly; **no public `ProtoCrewMember` accessor** (verified by decompile). v1 strategy: use `GetName()` for matching. The kerbal name in stock KSP `CrewRoster` is unique within a save (no two `ProtoCrewMember`s can share `name`), so name-based matching is safe. Locale risk: `GetName()` returns the display name which IS the same as `pcm.name` in stock KSP; if a localization mod changes that, the matching breaks (one Verbose log; overlay simply does not draw — fail-soft).
 5. For each `CrewListItem` whose `GetName()` matches an entry in `applicantMarks`, attach a child `Parsek_KerbalOverlay` GameObject under the row transform with a small badge. Color/icon varies by `ApplicantOverlayKind`.
@@ -326,7 +330,7 @@ Subsystem tag `"StockUiOverlay"` for the controller, `"ContractAcceptPatch"` and
 | AstronautComplex private list-field reflection failure (KSP API drift) | Warn (one-shot per session) | `"StockUiOverlay: AstronautComplex list-field reflection failed — applicant overlays disabled this session ({detail})"` |
 | `CrewListItem.GetName()` returns name not in roster (locale mod / mismatch) | Verbose (rate-limited per row) | `"StockUiOverlay: applicant row name '{n}' not found in CrewRoster — overlay skipped"` |
 | Badge parent transform destroyed (stock-side re-layout) | Verbose | `"StockUiOverlay: {screen} badge self-destruct, parent gone — name={n}"` |
-| Astronaut spawn handler entered | Verbose | `"StockUiOverlay: Astronaut spawn — building applicant marks reservedActive={ra} reservedRetired={rr} futureHired={fh} futureRetired={fre}"` |
+| Astronaut spawn handler entered | Verbose | `"StockUiOverlay: Astronaut spawn — building applicant marks reservedActive={ra} reservedRetired={rr} futureHired={fh} futureRetired={fr}"` |
 | Astronaut applicant decoration applied | Verbose (rate-limited per name) | `"StockUiOverlay: applicant decorated name={n} kind={k} ut={ut}"` |
 | Mission Control spawn handler entered | Verbose | `"StockUiOverlay: MissionControl spawn — building contract marks futureAcceptedCount={n}"` |
 | Mission Control row not found for committed contract | Verbose (rate-limited per Guid) | `"StockUiOverlay: MissionControl committed contract not present in current Contracts list guid={g} — likely already-active suppression"` |
@@ -361,7 +365,7 @@ The controller has Unity dependencies, so we test only the pure-helper layer (ma
 - **`BuildTechMarks_UnreplayedEvent_PopulatedWithUtAndRecordingId`** — single unreplayed event (any UT, including past-relative-to-liveUT) with a `recordingId` carries through to the mark. Fails if the helper accidentally introduces a UT cutoff (the bug a reviewer caught).
 - **`BuildTechMarks_AlreadyReplayedEvent_NotIncluded`** — event is at or before `LastReplayedEventIndex` for its milestone. Excluded. Fails if the cursor is off-by-one.
 - **`BuildTechMarks_HiddenByTimelineFilter_NotIncluded`** — event in a milestone hidden by `IsEventVisibleToCurrentTimeline`. Excluded. Fails if the helper bypasses the visibility filter.
-- **`BuildTechMarks_PastUnreplayedEvent_StillIncluded`** — explicit guard: event UT is far below an arbitrary `liveUt`, but `LastReplayedEventIndex` has not advanced past it (e.g. a recording was committed but its replay hasn't run yet). The mark MUST be present so the click-block and the overlay stay in lockstep. Fails the day someone reintroduces a UT cutoff.
+- **`BuildTechMarks_SignatureHasNoLiveUtParameter`** — reflection assertion: `typeof(StockUiOverlayController).GetMethod("BuildTechMarks", BindingFlags.Static | BindingFlags.NonPublic).GetParameters()` does not contain a parameter named `liveUt` or of type `double`. **This guards directly against the regression** of someone reintroducing a UT cutoff — a behavioral test like "past unreplayed event still included" cannot fail if the helper has no UT input to filter on, so the only meaningful guard is at the signature level.
 - **`BuildApplicantMarks_PrefersFutureHiredOverReserved`** — when both predicates fire, FutureHired wins (it carries a UT; Reserved does not).
 - **`BuildContractMarks_AlreadyActive_SuppressedWithLog`** — current `ContractSystem.Instance.Contracts` contains the same Guid in `Active` state; the controller suppresses the overlay and logs.
 - **`BuildContractMarks_LogsSuppressionCountAtVerbose`** — log-assertion test.
@@ -378,7 +382,7 @@ One test per:
 - Allows accept/hire when not committed (no log line, return value `true`).
 - Blocks when committed; asserts a `ParsekLog.Info("CommittedAction", "Blocked action: ...")` line and a `ParsekLog.Info("ContractAcceptPatch"|"KerbalHirePatch", "blocking ...")` line (which the patches emit before calling `ShowBlocked`).
 - Bypasses block when `GameStateRecorder.IsReplayingActions == true`; asserts the bypass Verbose log.
-- **Invariant test (§3, scoped to the four action types with both sides):** the click-block predicate must use **exactly** the helper that the matching overlay reads — `KerbalHirePatch` against `GetCommittedKerbalHireNames()` (NOT `IsManaged`, which is the union of ReservedActive + ReservedRetired and is overlay-only — including reserved-only kerbals in the click-block would break the §3 scope and prevent the player from re-hiring a Parsek-reserved kerbal that has no future-hire commitment). `ContractAcceptPatch` against `GetCommittedContractAcceptIds()`. Test: build a synthetic milestone containing a `CrewHired` and a separate `KerbalsModule` reservation for an unrelated name, assert the patch blocks the first and ignores the second.
+- **Invariant test (§3, scoped to v1's three action types with both sides):** the click-block predicate must use **exactly** the helper that the matching overlay's candidate-mark builder reads — `KerbalHirePatch` against `GetCommittedKerbalHireNames()` (NOT `IsManaged`, which is the union of ReservedActive + ReservedRetired and is overlay-only — including reserved-only kerbals in the click-block would break the §3 scope and prevent the player from re-hiring a Parsek-reserved kerbal that has no future-hire commitment). `ContractAcceptPatch` against `GetCommittedContractAcceptIds()`. Test: build a synthetic milestone containing a `CrewHired` and a separate `KerbalsModule` reservation for an unrelated name, assert the patch blocks the first and ignores the second.
 
 ### 8.4 Settings round-trip test
 
@@ -430,7 +434,7 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 | E15 | Player accepts a contract live, then commits a recording that contains a `ContractAccepted` for the same Guid (rare, defensive) | Overlay suppresses (E9 path) when the contract is already in `Active` state. Click-block does not fire because the contract is no longer offered. Ledger walk handles the duplicate via `ContractsModule`'s existing accept-idempotence. | Triple-defended. |
 | E16 | Overlay GameObjects accumulate after many open/close cycles (leak) | The `OverlaysClearedOnDespawn` in-game test guards against this. The despawn handler logs the strip count so a leak surfaces as `stripped=0 stripped=0 stripped=0` despite open cycles. | Observability over silent correctness. |
 | E17 | A future-hired kerbal name appears in `CrewRoster.Crew` or `CrewRoster.Tourist` (because the future hire already played back, OR the same kerbal entered as a tourist via a rescue contract that the recording then "regularized" to Crew via a second hire event) | KSP guarantees `ProtoCrewMember.name` uniqueness within `CrewRoster` (verified §5.2 click-block note), so the future event and the live entry refer to the same kerbal by identity. Decorating the row with "Will be hired at UT 12345" is therefore truthful but redundant — the player has already done it (Crew) or is about to via a non-applicant path (Tourist). **v1 mitigation:** when classifying applicant marks, exclude any name already in `CrewRoster.Crew` OR `CrewRoster.Tourist` from `FutureHired`. One Verbose log per excluded name. The click-block is moot because `KerbalRoster.HireApplicant` is only called from the Applicants list, never Crew/Tourist. | Stock KSP's roster-name uniqueness guarantees the future event refers to the same kerbal identity; suppressing the redundant badge keeps the visual honest without changing safety. |
-| E18 | Overlay set drifts from click-block set (e.g. someone adds a new filter to the overlay path but forgets the click-block, or vice versa) | Failure mode: player sees a normal-looking row, clicks, gets blocked. Or the inverse: row decorated, player ignores it, click goes through. **Both are bugs** per the §3 invariant. **Mitigation:** four pairwise unit tests in `StockUiOverlayControllerTests.cs`, one per action type that has both sides — tech / facility / contract accept / kerbal hire. Each test builds a synthetic milestone and asserts the **same** `MilestoneStore` helper return value drives both the overlay mark and the click-block predicate. Specifically: (a) `BuildTechMarks` keys equal `GetCommittedTechIds()` exactly; (b) `BuildFacilityMarks` keys equal `GetCommittedFacilityUpgrades()` exactly; (c) `BuildContractMarks` keys equal `GetCommittedContractAcceptIds()` exactly; (d) `BuildApplicantMarks` filtered to `Kind == FutureHired` (only) yields a name set equal to `GetCommittedKerbalHireNames()` exactly. **The other applicant kinds (`ReservedActive`, `ReservedRetired`, `FutureRetired`) are overlay-only by design and MUST NOT appear in any click-block predicate** — including them would block legitimate re-hires of Parsek-reserved kerbals or be no-ops with no callable click-block surface. Future filters added to one side must update the matching test. | Catches the most likely regression pattern for this feature without conflating overlay-only telemetry with click-block enforcement. |
+| E18 | Overlay candidate set drifts from click-block predicate set (e.g. someone adds a new helper-side filter to one without the other) | Failure mode: a row that should be decorated AND blocked is silently allowed (or vice versa). **Mitigation:** three pairwise unit tests in `StockUiOverlayControllerTests.cs`, one per **clickable** action type with both sides in v1 scope (tech / contract accept / kerbal hire — facility overlay is out of v1 scope per §1, so no overlay/click-block pair to test there). Each test asserts that the **candidate** layer of the overlay (before any UI-surface suppression) is driven by the same `MilestoneStore` helper that the click-block patch consults. Specifically: (a) `BuildTechMarks_Candidates(...)` returns a key set equal to `GetCommittedTechIds()` exactly; (b) `BuildContractMarks_Candidates(...)` returns a key set equal to `GetCommittedContractAcceptIds()` exactly; (c) `BuildApplicantMarks_Candidates(...)` filtered to `Kind == FutureHired` (only) yields a name set equal to `GetCommittedKerbalHireNames()` exactly. The implementation must factor mark-building into a `_Candidates` step that returns the raw helper-driven set, plus a `_Suppress` step that applies UI-surface filters (E9 already-Active suppression for contracts; E17 already-in-Crew/Tourist suppression for FutureHired). The final overlay set may legally be smaller than the candidate set; the click-block predicate matches the **candidate** set, never the suppressed set, because the click-block patches the API entry point and does not see UI-surface state. The overlay-only kinds (`ReservedActive`, `ReservedRetired`, `FutureRetired`) are excluded from this test entirely — they have no click-block, by design (§3 invariant scope). Future filters added to either layer must update the matching pairwise test or extend the suppression layer, not both. | Tests the actual contract — same source predicate — without conflating it with E9/E17 UI-surface suppressions or with overlay-only telemetry kinds. |
 
 ---
 
@@ -441,6 +445,7 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 - **Non-stock screens.** ContractConfigurator's own Mission Control replacement, KCT's build queue, etc. are out of scope. Other mods can subscribe to the same `MilestoneStore` helpers if they want parity.
 - **Per-contract / per-kerbal "claim" UI.** No way to tell Parsek "actually I want to override the timeline and accept this anyway" — the current escape hatch is the master setting toggle.
 - **Future-completed / future-failed contract overlays.** v1 only flags FutureAccepted. The other two states are valuable but the data shape is identical and they can be added in a small follow-up once v1 is shipped and the overlay infrastructure is proven.
+- **KSC facility upgrade overlay.** The existing `FacilityUpgradePatch` already prevents the player from wasting funds on a double-upgrade, so the safety property holds without a visual badge. The KSC top-down view's per-facility hook is also less established than the three building screens, so a clean overlay implementation is its own design pass — defer to v2. (Note: `FacilityUpgradePatch` is still in scope of this PR for the "click-blocks setting" gating in Phase 3.)
 - **Strategy activate overlays in the Administration building.** Same shape; defer to a follow-up. Strategies are less commonly recorded than contracts/kerbals/tech in current playtest data.
 - **Tooltip styling polish.** v1 uses stock `GUI.skin.box` + `GUIContent` tooltip; KSP has a fancier tooltip system (`KSP.UI.TooltipTypes.TooltipController_Text`). Use the fancier one in a follow-up if it is worth the dependency surface.
 
@@ -460,6 +465,7 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 
 **Modified:**
 - `Source/Parsek/MilestoneStore.cs` — three new query helpers (§4.1). File at top of `Source/Parsek/`, not under `GameActions/`.
+- `Source/Parsek/KerbalsModule.cs` — new `GetReservationKind(string)` helper (§5.2 step 2; see Phase 1.5 in §12). File at top of `Source/Parsek/`.
 - `Source/Parsek/Patches/TechResearchPatch.cs` — gate on the new "click-blocks" setting.
 - `Source/Parsek/Patches/FacilityUpgradePatch.cs` — gate on the new "click-blocks" setting.
 - `Source/Parsek/UI/SettingsWindowUI.cs` — two new checkboxes.
@@ -483,14 +489,20 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 Sequential on this branch (no isolation worktrees — the changes are tightly coupled and we want one PR for the feature). Each phase ends with `dotnet build && dotnet test` green before the next starts.
 
 **Phase 1 — Data layer (small, self-contained).**
-- Add the four `MilestoneStore` helpers (§4.1): `GetCommittedContractAcceptIds`, `GetCommittedKerbalHireNames`, `GetCommittedKerbalRetireNames` (and reuse the existing tech / facility helpers for symmetry).
+- Add the three `MilestoneStore` helpers (§4.1): `GetCommittedContractAcceptIds`, `GetCommittedKerbalHireNames`, `GetCommittedKerbalRetireNames`. The existing `GetCommittedTechIds` / `GetCommittedFacilityUpgrades` helpers are reused as-is — no changes needed.
 - Add the unit tests in §8.1.
+- One commit.
+
+**Phase 1.5 — Kerbals helper for unambiguous reservation classification.**
+- Add `KerbalsModule.GetReservationKind(string name) → enum {NotManaged, ReservedActive, ReservedRetired}`. Sized small enough to land before the patches; needed by Phase 4's overlay classification (§5.2 step 2). The need is described in §5.2 — `IsManaged` + `GetActiveOccupant != null` gives a wrong split because `GetActiveOccupant` returns null in two distinct cases.
+- Add unit tests covering both null cases of `GetActiveOccupant` to lock the new helper's classification.
 - One commit.
 
 **Phase 2 — Click-blocks for contracts and kerbals.**
 - Add `ContractAcceptPatch.cs` and `KerbalHirePatch.cs` (the `KerbalHirePatch.TargetMethod()` mirror of `CrewDialogFilterPatch.TargetMethod()` is the model).
 - Wire them through `ParsekHarmony.Awake()` with the existing try/catch pattern.
 - Add the patch tests in §8.3.
+- **Do NOT** gate the new patches on the click-block setting yet — the setting field does not exist until Phase 3. Drop a `// TODO Phase 3: gate on ParsekSettings.BlockCommittedActions` next to each patch's entry guard so Phase 3 has an obvious anchor. The existing `TechResearchPatch` / `FacilityUpgradePatch` likewise stay un-gated until Phase 3.
 - One commit.
 
 **Phase 3 — Settings toggles.**
