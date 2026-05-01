@@ -1158,13 +1158,14 @@ namespace Parsek
         /// and source-target-rotation basis fields cleared so restoring the state
         /// on a different ghost re-applies the captured (pitch, hdg) directly
         /// relative to the new target's transform. Used for mode-swap bookmarks
-        /// (V-toggle, auto-mode atmosphere crossings) and for explicit user W->W
-        /// switches, where the captured world-direction would otherwise decompose
-        /// into a visually surprising local angle on the destination ghost's
-        /// rotated basis (its horizon proxy / camera pivot has rotated continuously
-        /// during the seconds the user spent on another ghost). Chain transfers
-        /// (TransferWatchToNextSegment) keep the world-direction path because the
-        /// auto-handoff applies on the same frame with no drift window.
+        /// (V-toggle, auto-mode atmosphere crossings), explicit user W->W switches,
+        /// and chain auto-follow transfers — in all three cases the captured
+        /// world-direction is unreliable as a "same view" signal: the captured
+        /// WorldOrbitDirection is computed from KSP's flightCamera.pivotRotation,
+        /// which is the body-relative-upright frame, NOT the horizon proxy / camera
+        /// pivot the camera is actually composing camPitch/camHdg against. Decomposing
+        /// that direction onto the destination ghost's basis produces visually
+        /// surprising local angles even on a same-frame handoff.
         /// </summary>
         internal static WatchCameraTransitionState MakeWatchCameraStateTargetRelative(
             WatchCameraTransitionState cameraState)
@@ -1504,16 +1505,12 @@ namespace Parsek
             }
             if (switching && hasSwitchCameraState)
             {
-                // Explicit user W->W switches let many frames pass between
-                // capture (on the source ghost) and apply (on the destination
-                // ghost) — the source ghost's basis has rotated continuously
-                // during the gap, so the captured world-orbit-direction would
-                // decompose into a visually surprising local angle on the
-                // destination ghost's rotated basis. Drop the world-direction
-                // and apply the captured (pitch, hdg) directly relative to the
-                // new target. Chain transfers (TransferWatchToNextSegment) keep
-                // the world-direction path because they auto-handoff in a
-                // single frame with no drift window.
+                // Drop the world-direction and apply the captured (pitch, hdg)
+                // directly relative to the new target. The captured world-direction
+                // path is unreliable here (and on chain transfers — see
+                // MakeWatchCameraStateTargetRelative XML doc) because the
+                // captured WorldOrbitDirection comes from flightCamera.pivotRotation
+                // (KSP body-relative-upright), not the horizon proxy / camera pivot.
                 switchCameraState = MakeWatchCameraStateTargetRelative(switchCameraState);
                 RememberWatchCameraState(switchCameraState);
             }
@@ -2459,7 +2456,21 @@ namespace Parsek
             WatchCameraTransitionState transferCameraState = default(WatchCameraTransitionState);
             bool hasTransferCameraState = TryCaptureActiveWatchCameraState(out transferCameraState);
             if (hasTransferCameraState)
+            {
+                // Drop the captured WorldOrbitDirection / TargetRotation and
+                // apply the user's last camPitch/camHdg directly relative to
+                // the next ghost's horizon proxy. See
+                // MakeWatchCameraStateTargetRelative XML doc for why the
+                // world-direction path is unreliable even on a same-frame
+                // chain handoff: the captured WorldOrbitDirection comes from
+                // flightCamera.pivotRotation (KSP body-relative-upright), not
+                // the horizon proxy the camera is actually composing against.
+                // The chain boundary is continuous in body / position / velocity,
+                // so the new horizon proxy has near-identical rotation to the
+                // old one and applying the same local angles preserves the view.
+                transferCameraState = MakeWatchCameraStateTargetRelative(transferCameraState);
                 RememberWatchCameraState(transferCameraState);
+            }
             bool preservedHasRememberedFreeCameraState = hasRememberedFreeCameraState;
             WatchCameraTransitionState preservedFreeCameraState = rememberedFreeCameraState;
             bool preservedHasRememberedHorizonLockedCameraState = hasRememberedHorizonLockedCameraState;
