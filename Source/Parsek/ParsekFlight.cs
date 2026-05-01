@@ -776,6 +776,7 @@ namespace Parsek
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
         private TrajectoryPlaybackFlags[] cachedFlags;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
+        // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
         private static readonly Dictionary<string, string> s_tailLiftPlanTerminalBodyCache =
