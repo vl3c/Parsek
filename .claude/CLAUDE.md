@@ -148,7 +148,7 @@ Key source files and what they do - read the relevant one before modifying:
 
 **HARD RULE — never edit or commit inside `Parsek/` (the main checkout) without explicit per-session approval.** This applies to every change that will produce a commit — code, tests, CHANGELOG trims, todo edits, doc tweaks, anything. "It's just a one-line fix" is not an exception. Recovery if I slip: stash any unrelated WIP, `git worktree add` a new worktree at the tip containing the direct-edit commit, `git reset --hard` `Parsek/` back to the pre-direct-edit tip, `git merge --no-ff` the rescue branch back in, `git stash pop`. Never leave a direct-edit commit standing on `main` or a shared branch.
 
-**HARD RULE - new feature and bugfix work starts in my own separate sibling worktree.** Do not edit or commit in another person's or another task's `Parsek-<branch>/` worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse an existing worktree only when it is mine and already dedicated to the same line of work.
+**HARD RULE - new feature and bugfix work starts in my own separate sibling worktree.** Do not edit or commit in another person's or another task's `Parsek-<branch>/` worktree unless the user specifically asks me to work in that exact worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse an existing worktree only when it is mine and already dedicated to the same line of work.
 
 For manual worktrees (when not using `isolation=worktree`), create as sibling folders:
 ```bash

@@ -137,7 +137,7 @@ Key source files and what they do - read the relevant one before modifying:
 
 ## Worktree Workflow
 
-**HARD RULE - new feature and bugfix work starts in your own separate sibling worktree.** Do not make feature/bugfix commits in the main `Parsek/` checkout, and do not edit or commit in another person's or another task's `Parsek-<branch>/` worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse an existing worktree only when it is yours and already dedicated to the same line of work.
+**HARD RULE - new feature and bugfix work starts in your own separate sibling worktree.** Do not make feature/bugfix commits in the main `Parsek/` checkout, and do not edit or commit in another person's or another task's `Parsek-<branch>/` worktree unless the user specifically asks you to work in that exact worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse an existing worktree only when it is yours and already dedicated to the same line of work.
 
 For manual worktrees (when not using `isolation=worktree`), create as sibling folders:
 ```bash
