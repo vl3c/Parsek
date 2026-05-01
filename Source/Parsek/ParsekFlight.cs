@@ -18800,7 +18800,25 @@ namespace Parsek
             if (liveAnchorWithinActiveFastPath)
                 return false;
 
-            if (!liveAnchorAvailable || !recordedAnchorAvailable)
+            // #688 follow-up: when the live anchor vessel doesn't exist
+            // (typical of regular Watch playback where the recording's
+            // original anchor vessel is gone — recovered, unloaded, or
+            // never existed in the current playback session), the shadow
+            // is the only world-position truth available for the Relative
+            // section. Without this branch, the legacy live-anchor relative
+            // path logs `relative-anchor-unresolved` and leaves the focused
+            // ghost briefly mispositioned at stage-separation moments,
+            // where the recorded anchor (the just-decoupled booster) only
+            // ever existed during the original recording. Caller already
+            // gated on `section.absoluteFrames` being non-empty, so the
+            // shadow data is guaranteed available when this branch fires.
+            if (!liveAnchorAvailable)
+            {
+                reason = "no-live-anchor";
+                return true;
+            }
+
+            if (!recordedAnchorAvailable)
                 return false;
 
             if (RelativeAnchorResolution.IsStaleLiveAnchor(

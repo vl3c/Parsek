@@ -405,6 +405,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_NoLiveAnchor_ReturnsTrue()
+        {
+            // #688 follow-up: regular Watch playback where the recording's
+            // original anchor vessel is gone (recovered/unloaded/never
+            // existed in this session). The shadow is the only world-
+            // position truth available — gate must return true so the
+            // engine routes through the absolute-frame path instead of
+            // the legacy live-anchor relative path that logs
+            // `relative-anchor-unresolved` and leaves the focused ghost
+            // briefly mispositioned at stage-separation moments.
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: false,
+                liveAnchorWorld: Vector3d.zero,
+                liveAnchorWithinActiveFastPath: false,
+                recordedAnchorAvailable: false,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.True(useShadow);
+            Assert.Equal("no-live-anchor", reason);
+            Assert.True(double.IsNaN(staleDeltaMeters));
+        }
+
+        [Fact]
+        public void ShouldUseAbsoluteShadowForRelativeSection_NoLiveAnchor_PrefersFastPathSkip()
+        {
+            // Defensive: even if the caller mis-classifies "live anchor
+            // within fast path" while reporting liveAnchorAvailable=false
+            // (would be a caller-side contract violation), the fast-path
+            // skip wins so an active-vessel-anchored playback isn't
+            // accidentally re-routed through the shadow when the live
+            // anchor IS the player.
+            bool useShadow = ParsekFlight.ShouldUseAbsoluteShadowForRelativeSection(
+                activeReFlyBypass: false,
+                liveAnchorAvailable: false,
+                liveAnchorWorld: Vector3d.zero,
+                liveAnchorWithinActiveFastPath: true,
+                recordedAnchorAvailable: false,
+                recordedAnchorWorld: Vector3d.zero,
+                out string reason,
+                out double staleDeltaMeters);
+
+            Assert.False(useShadow);
+            Assert.Null(reason);
+            Assert.True(double.IsNaN(staleDeltaMeters));
+        }
+
+        [Fact]
         public void IsLiveAnchorWithinActiveFastPath_CloseFiniteDistance_ReturnsTrue()
         {
             bool withinFastPath = ParsekFlight.IsLiveAnchorWithinActiveFastPath(
