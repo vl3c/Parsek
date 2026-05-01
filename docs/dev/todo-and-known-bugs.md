@@ -19,6 +19,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 revert double-rollout charge
+
+- ~~Reverting a flight to launch and re-flying the same craft charged the rollout cost twice in Parsek's career ledger, even though stock KSP refunds the rollout on revert and re-charges on the new launch (net: one charge).~~ Source: `logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld` recorded two `FundsSpending(VesselBuild)` rows for vessel R1 (pid 3442693372, site Launch Pad, cost 8320.001) at UTs 728.21980… and 728.17980…, ~40 ms apart. The two rows had the same vessel/pid/site/cost but different UTs because the revert rolled the in-game clock back, so the existing UT-embedded `dedupKey` (e.g. `rollout:728.21980712880259|pid=3442693372|site=Launch%20Pad|vessel=R1`) never collided across emissions. KSP refunded the original deduction during the revert, but Parsek's `KspStatePatcher` re-applied it from the surviving ledger row, then the relaunch's `OnVesselRolloutSpending` added a second row, leaving the user out 8320 funds.
+
+**Fix:** branch `fix-revert-double-rollout`. `LedgerRolloutAdoption.RecordVesselRolloutSpending` now scans the ledger for an unadopted near-duplicate (same `pid|site|vessel`, same cost within 1 credit, UT within `RolloutDuplicateWindowSeconds = 60` game-seconds) and skips the second emission with an INFO log line. PID match is the primary discriminator because KSP preserves a vessel's persistentId across `RevertToLaunch`/`RevertToPrelaunch` (the revert reloads the launch quicksave, which serialised that PID), while two genuinely independent vessel launches always have distinct PIDs; a name+site fallback covers the rare case where one side of the comparison lacks a PID. A complementary load-time repair pass in `Ledger.RepairDuplicateRolloutActions` (wired into `LedgerOrchestrator.OnKspLoad` after the recovery-dedup-key repair) collapses any pre-existing cluster down to its earliest member, so already-corrupt saves from before this fix heal automatically without a manual migration. Adopted rollouts (RecordingId set) and legacy bare dedup keys are intentionally untouched. New tests in `RevertDoubleRolloutTests.cs` cover the production repro byte-for-byte, the reverse arrival order, distinct PIDs, far-apart UTs, different costs, three-row clusters, idempotency, the OnKspLoad flow, and the end-to-end revert→relaunch timeline. `LedgerRolloutAdoption.cs` was added to `scripts/ers-els-audit-allowlist.txt` (it already had the same trust scope as `LedgerOrchestrator.cs` since the rollout-adoption helpers were extracted into it).
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done - v0.9.1 group rewind button surfacing
 
 - ~~Recordings whose mission group showed the legacy `R` rewind button did not surface that same action to parent or ancestor groups.~~ Source: `logs/2026-05-01_1706_rewind-group-surface/`; the Recordings table group header used `FindGroupMainRecordingIndex` for both watch/status metadata and the Rewind/Forward column. That picked the earliest non-debris descendant, then called `ShouldShowLegacyRewindButton` only on that single recording. If a parent folder's chosen main row was not the rewind owner, the folder rendered no `R` even though a descendant mission group or row did.

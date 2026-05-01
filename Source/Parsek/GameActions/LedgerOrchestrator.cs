@@ -1780,6 +1780,17 @@ namespace Parsek
             // double-credit after the per-session consumed set is cleared on load.
             RepairMissingRecoveryDedupKeys();
 
+            // Revert double-rollout repair (#710): saves written before the
+            // OnVesselRolloutSpending dedup gate landed contain pairs of
+            // VesselRollout actions for the same logical rollout (same PID/site/
+            // vessel/cost, UT within ~1 s) when the player reverted mid-flight
+            // and re-launched. Collapse each cluster down to its earliest member
+            // so the ledger total matches what the user actually paid. Idempotent
+            // on healthy saves; logs a single INFO when at least one row was
+            // collapsed. See production repro at
+            // logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld.
+            Ledger.RepairDuplicateRolloutActions();
+
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
             // Convert existing GameStateStore events into GameActions.
