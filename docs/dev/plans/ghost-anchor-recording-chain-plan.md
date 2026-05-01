@@ -1,6 +1,6 @@
 # Ghost rendering anchor — recording chain rearchitecture
 
-**Status:** approved; Phase A and Phase B implemented 2026-05-01, Phase C+ pending.
+**Status:** approved; Phase A, Phase B, and Phase C implemented 2026-05-01. Phase D is gated on D.0 product-behaviour confirmation.
 **Author:** synthesised from user's stated intent across multiple sessions.
 **Supersedes:** `relative-anchor-rearchitecture-prompt.md` (had drift on the architectural intent).
 
@@ -160,7 +160,7 @@ Required recorder-state replacement:
 
 ### 3.3 Playback (`GhostPlaybackEngine.cs` + `IGhostPositioner.cs` + `ParsekFlight.cs` + new `RelativeAnchorResolver`)
 
-Replace the live-vessel-pid playback contract, not only the lookup inside `ParsekFlight`. Current code is PID-shaped at the engine boundary: `GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(...)` returns `uint anchorVesselId`, `TryPositionRelativeSectionAtPlaybackUT(...)` passes that PID through, and `IGhostPositioner.InterpolateAndPositionRelative(...)` accepts `uint anchorVesselId`. v11 changes that API surface so Relative playback carries the `TrackSection`/section index and `anchorRecordingId` through to the host positioner.
+Replace the live-vessel-pid playback contract, not only the lookup inside `ParsekFlight`. Pre-Phase-C code was PID-shaped at the engine boundary: `GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(...)` returned `uint anchorVesselId`, `TryPositionRelativeSectionAtPlaybackUT(...)` passed that PID through, and `IGhostPositioner.InterpolateAndPositionRelative(...)` accepted `uint anchorVesselId`. v11 changes that API surface so Relative playback carries the `TrackSection`/section index and `anchorRecordingId` through to the host positioner.
 
 Target API shape:
 
@@ -306,7 +306,7 @@ Each phase is independently reviewable and reverts cleanly. Phase A/B are schema
 
 **Acceptance:** new v11 recordings round-trip `anchorRecordingId` through binary and text sidecars, `TrajectorySidecarBinary.CurrentBinaryVersion` and the write-version ladder emit a v11 header for v11 recordings, `CurrentRecordingFormatVersion` consumer grep/audit is recorded with no accidental v11 feature gates, the resolver API passes focused unit tests for empty/missing-anchor inputs plus a single-link Absolute-terminator chain, and the watch-separation-wobble repro is either confirmed on the Phase A baseline or replaced with a documented equivalent. Phase A does not assert legacy cutoff render behaviour because playback is unchanged until Phase C/E.
 
-**Phase A implementation note (2026-05-01):** v11 schema and binary/text sidecar round-trips are in place, `RelativeAnchorResolver` resolves a single-link Relative-to-Absolute chain through recorded data only, and focused plus full xUnit passed. The `CurrentRecordingFormatVersion` audit found default stamping/probe checks plus one risky feature gate in `FlightRecorder.MaybeUpgradeActiveRecordingRelativeContract`; that gate now uses a named target and defers pid-only Relative sections at v10 instead of silently stamping them as v11. `SessionMerger.HealBackgroundActiveUnrecordedGapBoundaries` now compares Relative anchors with `AnchorIdentityKey(section)` so v11 sections with different `anchorRecordingId` values do not collapse because both legacy PIDs are zero. Remaining `anchorVesselId` playback/map/KSC live lookups are intentionally left for Phase C/D/E fences. Runtime baseline was not executed by the agent; use the in-game checklist in `docs/dev/todo-and-known-bugs.md` before Phase B/C visual acceptance.
+**Phase A implementation note (2026-05-01):** v11 schema and binary/text sidecar round-trips are in place, `RelativeAnchorResolver` resolves a single-link Relative-to-Absolute chain through recorded data only, and focused plus full xUnit passed. The `CurrentRecordingFormatVersion` audit found default stamping/probe checks plus one risky feature gate in `FlightRecorder.MaybeUpgradeActiveRecordingRelativeContract`; that gate now uses a named target and defers pid-only Relative sections at v10 instead of silently stamping them as v11. `SessionMerger.HealBackgroundActiveUnrecordedGapBoundaries` now compares Relative anchors with `AnchorIdentityKey(section)` so v11 sections with different `anchorRecordingId` values do not collapse because both legacy PIDs are zero. Remaining `anchorVesselId` playback/map/KSC live lookups were intentionally left for later Phase C/D/E fences. Runtime baseline was not executed by the agent; use the in-game checklist in `docs/dev/todo-and-known-bugs.md` before visual acceptance.
 
 ### Phase B — Recorder writes the new field
 
@@ -410,6 +410,8 @@ This collapses three earlier sub-points (audit ordering, skip spawn frame, docum
 - No user-facing setting preserves the old live-PID render path. A temporary developer trace may compute the old position for comparison logs, but rendering must use the chain resolver or the recorded-shadow debug fallback.
 
 **Acceptance:** the re-captured/generated v11 fixture based on `logs/2026-05-01_1731_watch-separation-wobble/` plays back without the 1.2 s decouple stall. `[PlaybackTrace]` lines through UT 41.74-46.74 show smooth `dM` / `dSpd`, no `RELATIVE absolute shadow forward bridge` WARNs. In-game test exercises a separation event in regular Watch and reports zero-jitter ghost playback.
+
+**Phase C implementation note (2026-05-01):** non-loop Relative playback now passes `RelativeSectionPlaybackTarget` across `GhostPlaybackEngine` / `IGhostPositioner`, resolves `target.AnchorRecordingId` with `RelativeAnchorResolver`, and uses only caller-owned `absoluteFrames` or a logged hide/retire when the chain is unresolved. `ParsekFlight` keeps the existing Re-Fly tree translation in place until Phase D.0/D.1, but the Relative anchor pose itself no longer comes from live PID lookup for the non-loop path. The old PID-based helper was renamed as loop-relative, preserving the explicit loop carve-out. `ProductionAnchorWorldFrameResolver.TryResolveRelativeBoundaryWorldPos` also routes v11 no-shadow Relative boundaries through the recording chain; `TryResolveLoopAnchorWorldPos` remains live-PID by design. Focused xUnit for the engine contract, resolver chain cases, and production boundary guards passed. Runtime acceptance still requires the in-game Watch/Re-Fly checklist and v11 fixture capture.
 
 ### Phase D — Delete the live-anchor band-aids
 

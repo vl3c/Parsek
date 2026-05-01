@@ -104,7 +104,8 @@ namespace Parsek.Tests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
@@ -288,32 +289,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeEndpointReturnsSectionAnchor()
+        public void TryGetRelativeSectionAtUT_RelativeEndpointReturnsSectionTarget()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "focus-rec";
+            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100.0,
                 endUT = 110.0,
-                anchorVesselId = 42u,
+                anchorRecordingId = "anchor-rec",
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
                 traj,
                 GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
-                out uint anchorPid);
+                out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(42u, anchorPid);
+            Assert.Equal("focus-rec", target.RecordingId);
+            Assert.Equal(0, target.SectionIndex);
+            Assert.Equal("anchor-rec", target.AnchorRecordingId);
+            Assert.True(target.HasAnchorRecordingId);
+            Assert.Equal(ReferenceFrame.Relative, target.Section.referenceFrame);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_SinglePointRelativeEndpointStillRoutesRelative()
+        public void TryGetRelativeSectionAtUT_SinglePointRelativeEndpointStillRoutesRelative()
         {
             var traj = new MockTrajectory
             {
+                RecordingId = "focus-single",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 110.0 },
@@ -324,23 +333,26 @@ namespace Parsek.Tests
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100.0,
                 endUT = 110.0,
-                anchorVesselId = 3151978247u,
+                anchorRecordingId = "anchor-single",
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
                 traj,
                 GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
-                out uint anchorPid);
+                out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(3151978247u, anchorPid);
+            Assert.Equal("anchor-single", target.AnchorRecordingId);
+            Assert.Equal(0, target.SectionIndex);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionFallsBackToLoopAnchor()
+        public void TryGetRelativeSectionAtUT_MissingV11AnchorDoesNotSynthesizeLoopAnchor()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "focus-missing";
+            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
             traj.LoopAnchorVesselId = 77u;
             traj.TrackSections.Add(new TrackSection
             {
@@ -351,17 +363,25 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(77u, anchorPid);
+            Assert.False(target.HasAnchorRecordingId);
+            Assert.Null(target.AnchorRecordingId);
+            Assert.Equal(0, target.SectionIndex);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RELATIVE v11 section missing anchorRecordingId")
+                && l.Contains("recordingId=focus-missing"));
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionWithNoAnchorStillRoutesRelative()
+        public void TryGetRelativeSectionAtUT_LegacyMissingAnchorStillRoutesButDoesNotInventPid()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "legacy-focus";
+            traj.RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -371,15 +391,16 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(0u, anchorPid);
+            Assert.False(target.HasAnchorRecordingId);
+            Assert.Equal(0u, target.Section.anchorVesselId);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_AbsoluteEndpointReturnsFalse()
+        public void TryGetRelativeSectionAtUT_AbsoluteEndpointReturnsFalse()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.TrackSections.Add(new TrackSection
@@ -390,11 +411,23 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.False(result);
-            Assert.Equal(0u, anchorPid);
+            Assert.Equal(default(RelativeSectionPlaybackTarget), target);
+        }
+
+        [Fact]
+        public void InterpolateAndPositionRelativeContract_UsesRelativeSectionPlaybackTarget()
+        {
+            MethodInfo method = typeof(IGhostPositioner).GetMethod(
+                nameof(IGhostPositioner.InterpolateAndPositionRelative));
+
+            Assert.NotNull(method);
+            ParameterInfo[] parameters = method.GetParameters();
+            Assert.Equal(typeof(RelativeSectionPlaybackTarget), parameters.Last().ParameterType);
+            Assert.DoesNotContain(parameters, p => p.ParameterType == typeof(uint));
         }
 
         #endregion

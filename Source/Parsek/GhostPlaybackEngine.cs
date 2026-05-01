@@ -2142,12 +2142,12 @@ namespace Parsek
             return traj?.EndUT ?? 0.0;
         }
 
-        internal static bool TryGetRelativeSectionAnchorAtUT(
+        internal static bool TryGetRelativeSectionAtUT(
             IPlaybackTrajectory traj,
             double playbackUT,
-            out uint anchorVesselId)
+            out RelativeSectionPlaybackTarget target)
         {
-            anchorVesselId = 0u;
+            target = default;
             if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
                 return false;
 
@@ -2159,9 +2159,28 @@ namespace Parsek
             if (section.referenceFrame != ReferenceFrame.Relative)
                 return false;
 
-            anchorVesselId = section.anchorVesselId != 0u
-                ? section.anchorVesselId
-                : traj.LoopAnchorVesselId;
+            target = new RelativeSectionPlaybackTarget(
+                traj.RecordingId,
+                sectionIdx,
+                section);
+
+            if (!target.HasAnchorRecordingId
+                && traj.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
+            {
+                string key =
+                    "relative-section-missing-anchor-recording-id|" +
+                    (traj.RecordingId ?? "(none)") + "|" +
+                    sectionIdx.ToString(CultureInfo.InvariantCulture);
+                ParsekLog.WarnRateLimited(
+                    "Engine",
+                    key,
+                    $"RELATIVE v11 section missing anchorRecordingId: " +
+                    $"recordingId={traj.RecordingId ?? "(none)"} " +
+                    $"sectionIndex={sectionIdx} " +
+                    $"sectionUT=[{section.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +
+                    $"{section.endUT.ToString("F2", CultureInfo.InvariantCulture)}]",
+                    10.0);
+            }
             return true;
         }
 
@@ -2172,11 +2191,11 @@ namespace Parsek
             double playbackUT,
             bool suppressFx)
         {
-            if (!TryGetRelativeSectionAnchorAtUT(traj, playbackUT, out uint anchorVesselId))
+            if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
                 return false;
 
             positioner.InterpolateAndPositionRelative(
-                index, traj, state, playbackUT, suppressFx, anchorVesselId);
+                index, traj, state, playbackUT, suppressFx, target);
             return true;
         }
 
@@ -4465,7 +4484,9 @@ namespace Parsek
 
             TrackSection section = traj.TrackSections[sectionIdx];
             string anchorSuffix = section.referenceFrame == ReferenceFrame.Relative
-                ? $" anchorPid={section.anchorVesselId}"
+                ? !string.IsNullOrEmpty(section.anchorRecordingId)
+                    ? $" anchorRec={section.anchorRecordingId}"
+                    : $" anchorRec=missing legacyAnchorPid={section.anchorVesselId}"
                 : string.Empty;
             return
                 $"activeFrame={section.referenceFrame} " +
@@ -4504,8 +4525,13 @@ namespace Parsek
             if (sectionIdx < 0 || sectionIdx >= traj.TrackSections.Count)
                 return string.Empty;
             TrackSection section = traj.TrackSections[sectionIdx];
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.anchorVesselId == 0u)
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return string.Empty;
+
+            if (!string.IsNullOrEmpty(section.anchorRecordingId))
+                return $"anchorRec={section.anchorRecordingId}";
+
+            if (section.anchorVesselId == 0u)
                 return string.Empty;
 
             if (positioner == null
@@ -4530,6 +4556,7 @@ namespace Parsek
             TrajectoryPoint firstPoint = traj.Points[0];
             ReferenceFrame frame = ReferenceFrame.Absolute;
             uint anchorVesselId = 0;
+            string anchorRecordingId = null;
 
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -4539,6 +4566,7 @@ namespace Parsek
                     TrackSection section = traj.TrackSections[sectionIdx];
                     frame = section.referenceFrame;
                     anchorVesselId = section.anchorVesselId;
+                    anchorRecordingId = section.anchorRecordingId;
                 }
             }
 
@@ -4547,7 +4575,10 @@ namespace Parsek
                 Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
                 return
                     $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                    $"frame=Relative offset={FormatVector3d(offset)} anchorPid={anchorVesselId}";
+                    $"frame=Relative offset={FormatVector3d(offset)} " +
+                    (!string.IsNullOrEmpty(anchorRecordingId)
+                        ? $"anchorRec={anchorRecordingId}"
+                        : $"anchorRec=missing legacyAnchorPid={anchorVesselId}");
             }
 
             string rawSummary =

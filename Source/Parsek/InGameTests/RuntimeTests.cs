@@ -12577,7 +12577,8 @@ namespace Parsek.InGameTests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
             }
 
@@ -13053,7 +13054,8 @@ namespace Parsek.InGameTests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
                 RelativeCalls++;
                 if (!SetsRetireFlag || state == null)

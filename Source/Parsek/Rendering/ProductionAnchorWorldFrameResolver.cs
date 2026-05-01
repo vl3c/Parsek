@@ -60,33 +60,43 @@ namespace Parsek.Rendering
                 }
             }
 
-            // V6 or v7-with-no-shadow path: anchor-local offset → world.
-            // Anchor pose comes from the live vessel referenced by the
-            // RELATIVE section's anchorVesselId. HR-15: this is a single
-            // session-entry read.
+            // V11 no-shadow path: anchor-local offset -> recorded anchor chain.
+            // Missing/corrupt legacy anchor ids fail closed here; loop playback
+            // has its own explicit live-anchor resolver below.
             if (relSection.frames == null || relSection.frames.Count == 0) return false;
             if (!TryFindBoundaryFrameSample(relSection.frames, boundaryUT, side, out TrajectoryPoint pt)) return false;
 
-            uint anchorPid = relSection.anchorVesselId;
-            if (anchorPid == 0) return false;
-            Vessel anchor = TryFindVesselByPid(anchorPid);
-            if (anchor == null) return false;
-
-            Vector3d anchorWorldPos;
-            Quaternion anchorRot;
-            try
+            if (!TryBuildRelativeAnchorResolverContext(
+                    rec,
+                    out RelativeAnchorResolverContext context)
+                || !RelativeAnchorResolver.TryResolveRecordingPose(
+                    context,
+                    rec,
+                    pt.ut,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    out AnchorPose pose))
             {
-                anchorWorldPos = anchor.GetWorldPos3D();
-                anchorRot = anchor.transform != null ? anchor.transform.rotation : Quaternion.identity;
-            }
-            catch
-            {
+                ParsekLog.WarnRateLimited("Pipeline-Anchor",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "relative-boundary-chain-unresolved|{0}|{1}|{2}",
+                        rec.RecordingId ?? "(none)",
+                        relIdx,
+                        side),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5}",
+                        rec.RecordingId ?? "(none)",
+                        relIdx,
+                        side,
+                        boundaryUT,
+                        relSection.anchorRecordingId ?? "(missing)",
+                        relSection.anchorVesselId),
+                    5.0);
                 return false;
             }
 
-            worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                anchorWorldPos, anchorRot, pt.latitude, pt.longitude, pt.altitude,
-                rec.RecordingFormatVersion);
+            worldPos = pose.WorldPos;
             return IsFinite(worldPos);
         }
 
@@ -301,6 +311,136 @@ namespace Parsek.Rendering
             {
                 return null;
             }
+        }
+
+        private static bool TryBuildRelativeAnchorResolverContext(
+            Recording rec,
+            out RelativeAnchorResolverContext context)
+        {
+            context = default;
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+
+            if (!TryFindFocusTree(rec, out RecordingTree focusTree))
+                return false;
+
+            context = new RelativeAnchorResolverContext(
+                focusTree,
+                focusRecordingId: rec.RecordingId,
+                focusTreeId: focusTree?.Id,
+                activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
+                bodyWorldRotationResolver: ResolveBodyWorldRotation,
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose);
+            return true;
+        }
+
+        private static bool TryFindFocusTree(Recording rec, out RecordingTree focusTree)
+        {
+            focusTree = null;
+            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    RecordingTree tree = committedTrees[i];
+                    if (tree?.Recordings == null)
+                        continue;
+                    if ((!string.IsNullOrEmpty(rec.TreeId)
+                            && string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
+                        || tree.Recordings.ContainsKey(rec.RecordingId))
+                    {
+                        focusTree = tree;
+                        return true;
+                    }
+                }
+            }
+
+            RecordingTree pending = RecordingStore.HasPendingTree
+                ? RecordingStore.PendingTree
+                : null;
+            if (pending?.Recordings != null
+                && (pending.Recordings.ContainsKey(rec.RecordingId)
+                    || (!string.IsNullOrEmpty(rec.TreeId)
+                        && string.Equals(pending.Id, rec.TreeId, StringComparison.Ordinal))))
+            {
+                focusTree = pending;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static Vector3d ResolveAbsoluteWorldPosition(TrajectoryPoint point)
+        {
+            CelestialBody body = ResolveBody(point.bodyName);
+            if (body == null)
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+        }
+
+        private static Quaternion ResolveBodyWorldRotation(TrajectoryPoint point)
+        {
+            CelestialBody body = ResolveBody(point.bodyName);
+            return body != null && body.bodyTransform != null
+                ? body.bodyTransform.rotation
+                : Quaternion.identity;
+        }
+
+        private static bool TryResolveOrbitalAnchorPose(
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (section.checkpoints == null || section.checkpoints.Count == 0)
+                return false;
+
+            for (int i = 0; i < section.checkpoints.Count; i++)
+            {
+                OrbitSegment segment = section.checkpoints[i];
+                if (ut < segment.startUT || ut > segment.endUT)
+                    continue;
+
+                CelestialBody body = ResolveBody(segment.bodyName);
+                if (body == null)
+                    return false;
+
+                Orbit orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                Vector3d worldPos = orbit.getPositionAtUT(ut);
+                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                var rotation = ParsekFlight.ComputeOrbitalRotation(
+                    segment,
+                    orbit,
+                    ut,
+                    velocity,
+                    worldPos,
+                    body.position,
+                    Quaternion.identity,
+                    sectionIndex,
+                    TrajectoryMath.HasOrbitalFrameRotation(segment),
+                    TrajectoryMath.IsSpinning(segment));
+
+                pose = new AnchorPose(
+                    worldPos,
+                    rotation.ghostRot,
+                    sectionIndex,
+                    recording?.RecordingId);
+                return true;
+            }
+
+            return false;
         }
 
         private static Vessel TryFindVesselByPid(uint pid)

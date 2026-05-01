@@ -419,6 +419,7 @@ namespace Parsek
             public string relativeBodyName;        // body name for altitude computation
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
+            public string relativeAnchorRecordingId;
 
             // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
             // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
@@ -1370,20 +1371,35 @@ namespace Parsek
                     }
                     case GhostPosMode.Relative:
                     {
-                        Vector3d anchorPos;
-                        Quaternion anchorRotation;
+                        Vector3d anchorPos = Vector3d.zero;
+                        Quaternion anchorRotation = Quaternion.identity;
                         bool haveAnchor = false;
 
-                        if (e.relativeRecordedAnchorPose != null)
+                        if (!string.IsNullOrEmpty(e.relativeAnchorRecordingId))
+                        {
+                            haveAnchor = TryResolveRecordedRelativeAnchorPose(
+                                e.anchorRecordingId,
+                                e.relativeAnchorRecordingId,
+                                e.anchorSectionIndex,
+                                e.pointUT,
+                                out RelativeAnchorPose lateRecordedPose);
+                            if (haveAnchor)
+                            {
+                                anchorPos = lateRecordedPose.worldPos;
+                                anchorRotation = lateRecordedPose.worldRotation;
+                            }
+                        }
+                        else if (e.relativeRecordedAnchorPose != null)
                         {
                             haveAnchor = TryResolveStoredRecordedAnchorPose(
                                 e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
                         }
                         else
                         {
-                            // Re-compute ghost position from anchor's current world position + stored offset.
-                            // This handles FloatingOrigin shifts because anchor vessel positions are
-                            // already corrected by KSP before LateUpdate.
+                            // Loop-relative entries keep the explicit live
+                            // loop-anchor contract. Non-loop recorded-relative
+                            // entries set relativeAnchorRecordingId and resolve
+                            // through the branch above.
                             Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
                             if (anchor != null)
                             {
@@ -1710,6 +1726,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRecordedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             unknownFrameTagWarned.Clear();
@@ -14265,7 +14282,7 @@ namespace Parsek
             return cachedGhostRecordingAnchorCandidates;
         }
 
-        private RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
+        private static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusedRecordingId,
             ReFlySessionMarker marker)
@@ -14543,6 +14560,7 @@ namespace Parsek
             proximityVelocitySamples.Clear();
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
+            loggedRecordedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             unknownFrameTagWarned.Clear();
@@ -15424,52 +15442,35 @@ namespace Parsek
         }
 
         void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-            GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+            GhostPlaybackState state, double ut, bool suppressFx,
+            RelativeSectionPlaybackTarget target)
         {
             if (state?.ghost == null || traj?.Points == null) return;
-            // Find the relative TrackSection to get section-local frames
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
-            TrackSection section = sectionIdx >= 0 ? traj.TrackSections[sectionIdx] : default(TrackSection);
+            int sectionIdx = target.SectionIndex >= 0
+                ? target.SectionIndex
+                : TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            TrackSection section = target.SectionIndex >= 0
+                ? target.Section
+                : sectionIdx >= 0 ? traj.TrackSections[sectionIdx] : default(TrackSection);
             var sectionFrames = (sectionIdx >= 0 && section.frames != null)
                 ? section.frames
                 : traj.Points;
-            uint sectionAnchorVesselId = sectionIdx >= 0 && section.anchorVesselId != 0
-                ? section.anchorVesselId
-                : anchorVesselId;
 
-            if (sectionIdx >= 0
-                && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                    index, traj, section, sectionAnchorVesselId, ut, out List<TrajectoryPoint> absoluteFrames))
-            {
-                int absolutePlaybackIdx = state.playbackIndex;
-                InterpolationResult absoluteInterpResult;
-                // Thread recordingId/sectionIndex through so the inner
-                // InterpolateAndPosition can apply the Re-Fly tree anchor
-                // offset on the absolute-shadow path. Without these, the
-                // shadow renders at the original recorded world position
-                // instead of the anchored position relative to the live
-                // active vessel.
-                InterpolateAndPosition(state.ghost, absoluteFrames, null,
-                    ref absolutePlaybackIdx, ut, index * 10000, out absoluteInterpResult,
-                    allowActivation: ShouldAutoActivateGhost(state),
-                    skipOrbitSegments: true,
-                    recordingId: traj.RecordingId,
-                    sectionIndex: sectionIdx);
-                state.SetInterpolated(absoluteInterpResult);
-                state.playbackIndex = absolutePlaybackIdx;
-                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
-                return;
-            }
-
-            long relKey = ((long)index << 32) | anchorVesselId;
-            if (loggedRelativeStart.Add(relKey))
+            string relKey = string.Concat(
+                index.ToString(CultureInfo.InvariantCulture),
+                "|",
+                target.AnchorRecordingId ?? "(missing)",
+                "|",
+                sectionIdx.ToString(CultureInfo.InvariantCulture));
+            if (loggedRecordedRelativeStart.Add(relKey))
             {
                 string sectionUt = sectionIdx >= 0
                     ? $"[{traj.TrackSections[sectionIdx].startUT:F1},{traj.TrackSections[sectionIdx].endUT:F1}]"
                     : "[fallback]";
                 ParsekLog.Info("Playback",
                     $"RELATIVE playback started: recording #{index} \"{traj.VesselName}\" " +
-                    $"anchorPid={anchorVesselId} contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
+                    $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                    $"contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
                     $"version={traj.RecordingFormatVersion} sectionUT={sectionUt}");
             }
 
@@ -15482,9 +15483,9 @@ namespace Parsek
             // TrackGhostAppearance. Without this signal, the engine's
             // unconditional SetActive(true) at the end of the frame would
             // re-show the just-hidden ghost at its stale (0,0,0) transform.
-            InterpolateAndPositionRelative(state.ghost, sectionFrames, ref playbackIdx,
-                ut, anchorVesselId, traj.RecordingFormatVersion,
-                index, traj.RecordingId, traj.VesselName, state,
+            InterpolateAndPositionRecordedRelative(state.ghost, traj, sectionFrames, ref playbackIdx,
+                ut, target, traj.RecordingFormatVersion,
+                index, traj.VesselName, state,
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
@@ -16467,14 +16468,10 @@ namespace Parsek
         /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. v6+
         /// RELATIVE sections store metre offsets in <c>latitude</c>/
         /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
-        /// would land deep inside the planet. Routes through the existing
-        /// instance method
-        /// <see cref="TryResolveRelativeOffsetWorldPosition"/> (or the
-        /// active-re-fly absolute-shadow path
-        /// <see cref="TryUseAbsoluteShadowForActiveReFlyRelativeSection"/>)
-        /// when an instance is available; falls back to legacy lat/lon/alt
-        /// playback for v5-and-older RELATIVE sections (which carried the
-        /// older contract — no anchor-local offsets, no absolute shadow).
+        /// would land deep inside the planet. v11 sections resolve through
+        /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
+        /// with caller-owned absolute-shadow fallback on resolver miss.
+        /// v5-and-older recordings keep their older lat/lon/alt contract.
         /// </summary>
         private static bool TryComputeStandaloneRelativeWorldPosition(
             Recording rec, TrackSection section, double ut, out Vector3d worldPos)
@@ -16490,82 +16487,51 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
-            uint anchorPid = section.anchorVesselId;
-            if (anchorPid == 0)
+            if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
             {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-relative-no-anchor-pid",
+                string reason = rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion
+                    ? "anchor-recording-id-missing"
+                    : "legacy-anchor-recording-id-missing";
+                ParsekLog.WarnRateLimited("Pipeline-CoBubble",
+                    "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
                     string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: anchorVesselId=0 recording={0} ut={1}",
-                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-
-            // P1-C: HR-15 contract — co-bubble primary positions are
-            // recording-only and must NOT read live runtime KSP state.
-            // When the section's anchor matches the active re-fly target's
-            // vessel PID, the live anchor IS the player's controls; the
-            // anchor-driven resolver below would drag the primary ghost
-            // with the player input ("Naive Relative Trap" §3.4). Route
-            // through the absolute-shadow path so the primary plays back
-            // at recorded world coordinates instead. This branch runs
-            // BEFORE the Instance null-check below because the absolute-
-            // shadow lookup is pure (TrackSection.absoluteFrames + body
-            // GetWorldSurfacePosition) and does NOT require ParsekFlight
-            // to be alive.
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid)
-                && activeReFlyPid != 0
-                && anchorPid == activeReFlyPid)
-            {
-                // Active-re-fly path: prefer the recorded absolute-shadow
-                // for HR-15 freezing. If no shadow is available (legacy
-                // pre-v7 RELATIVE recording), fail closed and emit a
-                // visible Verbose so HR-9 surfaces the degradation —
-                // silently falling through to the live-anchor resolver
-                // would re-introduce the bug this fix exists to prevent.
-                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
-                    return true;
-
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "primary-active-refly-no-shadow",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: active-re-fly anchor matched but no absolute shadow available recording={0} ut={1} anchorPid={2}",
+                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2} legacyAnchorPid={3}",
+                        reason,
                         rec.RecordingId,
                         ut.ToString("R", CultureInfo.InvariantCulture),
-                        anchorPid),
+                        section.anchorVesselId),
                     5.0);
+                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                    return true;
                 return false;
             }
 
-            // For v6+ non-re-fly we MUST have an instance to dispatch the
-            // relative resolver. The only legitimate xUnit path that hits
-            // this code is the synthetic test which injects an instance
-            // via the RecordingStore + ParsekScenario fixtures; otherwise
-            // return false and emit a rate-limited Verbose (HR-9 visible
-            // failure).
-            ParsekFlight inst = Instance;
-            if (object.ReferenceEquals(inst, null))
+            if (TryBuildRelativeAnchorResolverContext(
+                    rec.RecordingId,
+                    out RelativeAnchorResolverContext context)
+                && RelativeAnchorResolver.TryResolveRecordingPose(
+                    context,
+                    rec,
+                    ut,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    out AnchorPose pose))
             {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-relative-no-instance",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: ParsekFlight.Instance null recording={0} ut={1}",
-                        rec.RecordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
+                worldPos = pose.WorldPos;
+                return true;
             }
 
-            // Common (non-re-fly) case: route through the anchor-driven
-            // Relative resolver. If the anchor cannot be resolved, the
-            // call returns false and the caller falls back to standalone
-            // (HR-9).
-            List<TrajectoryPoint> frames = section.frames ?? rec.Points;
-            return inst.TryResolveRelativeWorldPosition(
-                frames, ut, anchorPid, rec.RecordingId, rec.RecordingFormatVersion, out worldPos);
+            if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                return true;
+
+            ParsekLog.WarnRateLimited("Pipeline-CoBubble",
+                "standalone-relative-chain-unresolved|" + (rec.RecordingId ?? "(none)") + "|" + section.anchorRecordingId,
+                string.Format(CultureInfo.InvariantCulture,
+                    "TryComputeStandaloneRelativeWorldPosition: chain resolver failed recording={0} anchorRecordingId={1} ut={2}",
+                    rec.RecordingId,
+                    section.anchorRecordingId,
+                    ut.ToString("R", CultureInfo.InvariantCulture)),
+                5.0);
+            return false;
         }
 
         /// <summary>
@@ -17633,8 +17599,10 @@ namespace Parsek
                 $"PositionGhostAtSurface: body={surfPos.body} lat={surfPos.latitude:F4} lon={surfPos.longitude:F4} alt={surfPos.altitude:F1}");
         }
 
-        // Tracks which (recording index, anchor PID) combos have been logged for relative playback start
+        // Tracks which (recording index, anchor PID) combos have been logged for loop-relative playback start.
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
+        private readonly HashSet<string> loggedRecordedRelativeStart =
+            new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> loggedRelativeAbsoluteShadowStart =
             new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
@@ -19004,27 +18972,28 @@ namespace Parsek
                     var section = traj.TrackSections[sectionIdx];
                     if (section.referenceFrame == ReferenceFrame.Relative)
                     {
-                        uint anchorPid = section.anchorVesselId != 0
-                            ? section.anchorVesselId
-                            : traj.LoopAnchorVesselId;
-                        if (anchorPid != 0 && TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                                index, traj, section, anchorPid, playbackUT, out List<TrajectoryPoint> absoluteFrames))
-                        {
-                            return TryResolvePointWorldPosition(
-                                absoluteFrames,
-                                ref cachedIndex,
-                                playbackUT,
-                                out worldPos);
-                        }
-                        if (anchorPid != 0 && TryResolveRelativeWorldPosition(
+                        var target = new RelativeSectionPlaybackTarget(
+                            traj.RecordingId,
+                            sectionIdx,
+                            section);
+                        if (TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
-                                anchorPid,
-                                traj.RecordingId,
+                                target,
                                 traj.RecordingFormatVersion,
                                 out worldPos))
                         {
                             return true;
+                        }
+                        if (section.absoluteFrames != null
+                            && section.absoluteFrames.Count > 0)
+                        {
+                            int absoluteCachedIndex = 0;
+                            return TryResolvePointWorldPosition(
+                                section.absoluteFrames,
+                                ref absoluteCachedIndex,
+                                playbackUT,
+                                out worldPos);
                         }
                         // Relative sections store metre offsets in the
                         // lat/lon/alt fields. If their anchor cannot resolve,
@@ -19218,8 +19187,7 @@ namespace Parsek
         bool TryResolveRelativeWorldPosition(
             List<TrajectoryPoint> frames,
             double targetUT,
-            uint anchorVesselId,
-            string victimRecordingId,
+            RelativeSectionPlaybackTarget target,
             int recordingFormatVersion,
             out Vector3d worldPos)
         {
@@ -19230,7 +19198,7 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, victimRecordingId, targetUT,
+                    target, targetUT,
                     recordingFormatVersion, out worldPos);
             }
 
@@ -19239,7 +19207,7 @@ namespace Parsek
             if (indexBefore < 0)
                 return TryResolveRelativeOffsetWorldPosition(
                     frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    anchorVesselId, victimRecordingId, frames[0].ut,
+                    target, frames[0].ut,
                     recordingFormatVersion, out worldPos);
             if (indexBefore >= frames.Count - 1)
             {
@@ -19247,7 +19215,7 @@ namespace Parsek
                     frames[frames.Count - 1].latitude,
                     frames[frames.Count - 1].longitude,
                     frames[frames.Count - 1].altitude,
-                    anchorVesselId, victimRecordingId, frames[frames.Count - 1].ut,
+                    target, frames[frames.Count - 1].ut,
                     recordingFormatVersion, out worldPos);
             }
 
@@ -19258,7 +19226,7 @@ namespace Parsek
             {
                 return TryResolveRelativeOffsetWorldPosition(
                     before.latitude, before.longitude, before.altitude,
-                    anchorVesselId, victimRecordingId, before.ut,
+                    target, before.ut,
                     recordingFormatVersion, out worldPos);
             }
 
@@ -19272,8 +19240,7 @@ namespace Parsek
                 dx,
                 dy,
                 dz,
-                anchorVesselId,
-                victimRecordingId,
+                target,
                 targetUT,
                 recordingFormatVersion,
                 out worldPos);
@@ -19283,16 +19250,14 @@ namespace Parsek
             double dx,
             double dy,
             double dz,
-            uint anchorVesselId,
-            string victimRecordingId,
+            RelativeSectionPlaybackTarget target,
             double targetUT,
             int recordingFormatVersion,
             out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
             RelativeAnchorPose anchorPose;
-            if (!TryResolveRelativeAnchorPose(
-                    anchorVesselId, victimRecordingId, targetUT, out anchorPose))
+            if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out anchorPose))
                 return false;
 
             worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
@@ -19304,10 +19269,12 @@ namespace Parsek
                 recordingFormatVersion);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPose.worldPos;
+            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset))
+                worldPos += reFlyTreeOffset;
             return true;
         }
 
-        bool TryResolveRelativeAnchorPose(
+        bool TryResolveLoopLiveAnchorPose(
             uint anchorVesselId,
             string victimRecordingId,
             double targetUT,
@@ -20533,6 +20500,19 @@ namespace Parsek
                 $"source={(anchorFromRecordedTrajectory ? "recorded" : "live")}";
         }
 
+        internal static string BuildRecordedRelativeOffsetAppliedLog(
+            int recordingFormatVersion,
+            double dx,
+            double dy,
+            double dz,
+            string anchorRecordingId)
+        {
+            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
+                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
+                $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
+        }
+
         bool TryResolveRecordedAnchorPointPose(
             List<TrajectoryPoint> points,
             double targetUT,
@@ -20691,7 +20671,7 @@ namespace Parsek
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
-                    InterpolateAndPositionRelative(
+                    InterpolateAndPositionLoopRelative(
                         ghost, sectionFrames, ref playbackIdx, loopUT,
                         anchorVesselId, rec.RecordingFormatVersion,
                         recIdx, rec.RecordingId, rec.VesselName, retireSignalState,
@@ -20736,7 +20716,460 @@ namespace Parsek
         /// Ghost position/rotation resolve through the recording's versioned RELATIVE
         /// contract (legacy world-offset v5-and-older, anchor-local v6+).
         /// </summary>
-        void InterpolateAndPositionRelative(
+        void InterpolateAndPositionRecordedRelative(
+            GameObject ghost,
+            IPlaybackTrajectory traj,
+            List<TrajectoryPoint> frames,
+            ref int cachedIndex,
+            double targetUT,
+            RelativeSectionPlaybackTarget target,
+            int recordingFormatVersion,
+            int recordingIndex,
+            string recordingVesselName,
+            GhostPlaybackState retireSignalState,
+            bool allowActivation,
+            out InterpolationResult interpResult)
+        {
+            if (frames == null || frames.Count == 0)
+            {
+                interpResult = InterpolationResult.Zero;
+                ghost.SetActive(false);
+                return;
+            }
+
+            int indexBefore = TrajectoryMath.FindWaypointIndex(frames, ref cachedIndex, targetUT);
+
+            if (indexBefore < 0)
+            {
+                if (TryPositionGhostRecordedRelativeAt(
+                        ghost,
+                        frames[0],
+                        target,
+                        recordingFormatVersion,
+                        allowActivation,
+                        out double firstAltitude))
+                {
+                    interpResult = new InterpolationResult(
+                        frames[0].velocity,
+                        frames[0].bodyName,
+                        firstAltitude);
+                    return;
+                }
+
+                if (TryUseRelativeAbsoluteShadowFallback(
+                        recordingIndex,
+                        traj,
+                        retireSignalState,
+                        target,
+                        targetUT,
+                        ref cachedIndex,
+                        out interpResult))
+                    return;
+
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative");
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
+            TrajectoryPoint before = frames[indexBefore];
+            TrajectoryPoint after = frames[indexBefore + 1];
+
+            double segmentDuration = after.ut - before.ut;
+            if (segmentDuration <= 0.0001)
+            {
+                if (TryPositionGhostRecordedRelativeAt(
+                        ghost,
+                        before,
+                        target,
+                        recordingFormatVersion,
+                        allowActivation,
+                        out double pointAltitude))
+                {
+                    interpResult = new InterpolationResult(
+                        before.velocity,
+                        before.bodyName,
+                        pointAltitude);
+                    return;
+                }
+
+                if (TryUseRelativeAbsoluteShadowFallback(
+                        recordingIndex,
+                        traj,
+                        retireSignalState,
+                        target,
+                        targetUT,
+                        ref cachedIndex,
+                        out interpResult))
+                    return;
+
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative");
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
+            float t = (float)((targetUT - before.ut) / segmentDuration);
+            t = Mathf.Clamp01(t);
+
+            double dx = before.latitude + (after.latitude - before.latitude) * t;
+            double dy = before.longitude + (after.longitude - before.longitude) * t;
+            double dz = before.altitude + (after.altitude - before.altitude) * t;
+            Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
+            interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
+
+            if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
+
+            if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
+            {
+                if (TryUseRelativeAbsoluteShadowFallback(
+                        recordingIndex,
+                        traj,
+                        retireSignalState,
+                        target,
+                        targetUT,
+                        ref cachedIndex,
+                        out interpResult))
+                    return;
+
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative");
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
+            Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchorPose.worldPos,
+                anchorPose.worldRotation,
+                dx,
+                dy,
+                dz,
+                recordingFormatVersion);
+
+            if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
+            {
+                ParsekLog.Warn("Flight", "InterpolateAndPositionRecordedRelative: NaN in ghost position, using anchor position");
+                ghostPos = anchorPose.worldPos;
+            }
+
+            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset))
+                ghostPos += reFlyTreeOffset;
+
+            ghost.transform.position = ghostPos;
+            ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                anchorPose.worldRotation,
+                interpolatedRot);
+
+            ParsekLog.VerboseRateLimited("Flight", "recorded-relative-offset-applied",
+                BuildRecordedRelativeOffsetAppliedLog(
+                    recordingFormatVersion,
+                    dx,
+                    dy,
+                    dz,
+                    target.AnchorRecordingId),
+                2.0);
+
+            string bodyName = before.bodyName ?? "Kerbin";
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            double alt = body != null ? body.GetAltitude(ghostPos) : 0;
+
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Relative,
+                anchorVesselId = 0u,
+                relDx = dx, relDy = dy, relDz = dz,
+                relativeRot = interpolatedRot,
+                relativeBodyName = bodyName,
+                relativeRecordingFormatVersion = recordingFormatVersion,
+                bodyBefore = body,
+                latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
+                relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
+                anchorRecordingId = target.RecordingId,
+                anchorSectionIndex = target.SectionIndex,
+                relativeAnchorRecordingId = target.AnchorRecordingId,
+                pointUT = targetUT,
+                reFlyTreeOffset = reFlyTreeOffset,
+            });
+
+            interpResult = new InterpolationResult(
+                Vector3.Lerp(before.velocity, after.velocity, t),
+                bodyName,
+                alt);
+        }
+
+        private bool TryPositionGhostRecordedRelativeAt(
+            GameObject ghost,
+            TrajectoryPoint point,
+            RelativeSectionPlaybackTarget target,
+            int recordingFormatVersion,
+            bool allowActivation,
+            out double altitude)
+        {
+            altitude = 0.0;
+            if (!TryResolveRecordedRelativeAnchorPose(target, point.ut, out RelativeAnchorPose anchorPose))
+                return false;
+
+            if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
+
+            Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
+            double dx = point.latitude;
+            double dy = point.longitude;
+            double dz = point.altitude;
+            string bodyName = point.bodyName ?? "Kerbin";
+
+            Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                anchorPose.worldPos,
+                anchorPose.worldRotation,
+                dx,
+                dy,
+                dz,
+                recordingFormatVersion);
+
+            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, point.ut, out Vector3d reFlyTreeOffset))
+                ghostPos += reFlyTreeOffset;
+
+            ghost.transform.position = ghostPos;
+            ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                anchorPose.worldRotation,
+                sanitized);
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            altitude = body != null ? body.GetAltitude(ghostPos) : 0.0;
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Relative,
+                anchorVesselId = 0u,
+                relDx = dx, relDy = dy, relDz = dz,
+                relativeRot = sanitized,
+                relativeBodyName = bodyName,
+                relativeRecordingFormatVersion = recordingFormatVersion,
+                bodyBefore = body,
+                latBefore = dx, lonBefore = dy, altBefore = dz,
+                relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
+                anchorRecordingId = target.RecordingId,
+                anchorSectionIndex = target.SectionIndex,
+                relativeAnchorRecordingId = target.AnchorRecordingId,
+                pointUT = point.ut,
+                reFlyTreeOffset = reFlyTreeOffset,
+            });
+            return true;
+        }
+
+        private bool TryResolveRecordedRelativeAnchorPose(
+            RelativeSectionPlaybackTarget target,
+            double targetUT,
+            out RelativeAnchorPose pose)
+        {
+            return TryResolveRecordedRelativeAnchorPose(
+                target.RecordingId,
+                target.AnchorRecordingId,
+                target.SectionIndex,
+                targetUT,
+                out pose);
+        }
+
+        private bool TryResolveRecordedRelativeAnchorPose(
+            string recordingId,
+            string anchorRecordingId,
+            int sectionIndex,
+            double targetUT,
+            out RelativeAnchorPose pose)
+        {
+            pose = default(RelativeAnchorPose);
+            if (string.IsNullOrWhiteSpace(anchorRecordingId))
+            {
+                ParsekLog.WarnRateLimited(
+                    "Anchor",
+                    "recorded-relative-missing-anchor-recording-id|" +
+                    (recordingId ?? "(none)") + "|" +
+                    sectionIndex.ToString(CultureInfo.InvariantCulture),
+                    $"recorded-relative-unresolved: reason=anchor-recording-id-missing " +
+                    $"recordingId={recordingId ?? "(none)"} " +
+                    $"sectionIndex={sectionIndex} ut={targetUT.ToString("R", CultureInfo.InvariantCulture)}",
+                    5.0);
+                return false;
+            }
+
+            anchorRecordingId = anchorRecordingId.Trim();
+            if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
+            {
+                ParsekLog.WarnRateLimited(
+                    "Anchor",
+                    "recorded-relative-focus-tree-missing|" + (recordingId ?? "(none)"),
+                    $"recorded-relative-unresolved: reason=focus-tree-missing " +
+                    $"recordingId={recordingId ?? "(none)"} " +
+                    $"anchorRecordingId={anchorRecordingId} " +
+                    $"ut={targetUT.ToString("R", CultureInfo.InvariantCulture)}",
+                    5.0);
+                return false;
+            }
+
+            var context = BuildFlightRelativeAnchorResolverContext(
+                focusTree,
+                recordingId,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker);
+            if (!RelativeAnchorResolver.TryResolveAnchorPose(
+                    context,
+                    anchorRecordingId,
+                    targetUT,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    out AnchorPose anchorPose))
+            {
+                return false;
+            }
+
+            pose.worldPos = anchorPose.WorldPos;
+            pose.worldRotation = anchorPose.WorldRotation;
+            pose.fromRecordedTrajectory = true;
+            return true;
+        }
+
+        private static bool TryBuildRelativeAnchorResolverContext(
+            string recordingId,
+            out RelativeAnchorResolverContext context)
+        {
+            context = default;
+            if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
+                return false;
+
+            context = BuildFlightRelativeAnchorResolverContext(
+                focusTree,
+                recordingId,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker);
+            return true;
+        }
+
+        private static bool TryFindRelativeAnchorFocusTree(
+            string recordingId,
+            out RecordingTree focusTree)
+        {
+            focusTree = null;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    RecordingTree tree = committedTrees[i];
+                    if (tree?.Recordings != null
+                        && tree.Recordings.ContainsKey(recordingId))
+                    {
+                        focusTree = tree;
+                        return true;
+                    }
+                }
+            }
+
+            RecordingTree pending = RecordingStore.HasPendingTree
+                ? RecordingStore.PendingTree
+                : null;
+            if (pending?.Recordings != null && pending.Recordings.ContainsKey(recordingId))
+            {
+                focusTree = pending;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryUseRelativeAbsoluteShadowFallback(
+            int recordingIndex,
+            IPlaybackTrajectory trajectory,
+            GhostPlaybackState state,
+            RelativeSectionPlaybackTarget target,
+            double targetUT,
+            ref int playbackIdx,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (state?.ghost == null
+                || target.Section.referenceFrame != ReferenceFrame.Relative
+                || target.Section.absoluteFrames == null
+                || target.Section.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            int absolutePlaybackIdx = playbackIdx;
+            InterpolateAndPosition(
+                state.ghost,
+                target.Section.absoluteFrames,
+                null,
+                ref absolutePlaybackIdx,
+                targetUT,
+                recordingIndex * 10000,
+                out interpResult,
+                allowActivation: ShouldAutoActivateGhost(state),
+                skipOrbitSegments: true,
+                recordingId: target.RecordingId,
+                sectionIndex: target.SectionIndex);
+            playbackIdx = absolutePlaybackIdx;
+
+            string key = string.Concat(
+                "recorded-relative-shadow-fallback|",
+                target.RecordingId ?? "(none)",
+                "|",
+                target.AnchorRecordingId ?? "(missing)",
+                "|",
+                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
+            if (loggedRelativeAbsoluteShadowStart.Add(key))
+            {
+                ParsekLog.Warn("Playback",
+                    $"RELATIVE recorded-anchor fallback to absolute shadow: " +
+                    $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
+                    $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                    $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                    $"frames={target.Section.absoluteFrames.Count} " +
+                    $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
+            }
+            return true;
+        }
+
+        private void RetireUnresolvedRecordedRelative(
+            GameObject ghost,
+            int recordingIndex,
+            string recordingVesselName,
+            RelativeSectionPlaybackTarget target,
+            GhostPlaybackState retireSignalState,
+            string callsite)
+        {
+            if (ghost.activeSelf) ghost.SetActive(false);
+            if (retireSignalState != null)
+                retireSignalState.anchorRetiredThisFrame = true;
+
+            ParsekLog.WarnRateLimited(
+                "Anchor",
+                "recorded-relative-retired|" +
+                recordingIndex.ToString(CultureInfo.InvariantCulture) + "|" +
+                (target.AnchorRecordingId ?? "(missing)") + "|" +
+                target.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                $"recorded-relative-retired: recording=#{recordingIndex} " +
+                $"vessel=\"{recordingVesselName ?? "(unknown)"}\" " +
+                $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                $"sectionIndex={target.SectionIndex} callsite={callsite}",
+                5.0);
+        }
+
+        void InterpolateAndPositionLoopRelative(
             GameObject ghost,
             List<TrajectoryPoint> frames,
             ref int cachedIndex,
@@ -20762,7 +21195,7 @@ namespace Parsek
             if (indexBefore < 0)
             {
                 // Before first frame — position at first frame's offset
-                PositionGhostRelativeAt(
+                PositionLoopGhostRelativeAt(
                     ghost,
                     frames[0],
                     anchorVesselId,
@@ -20782,7 +21215,7 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
-                PositionGhostRelativeAt(
+                PositionLoopGhostRelativeAt(
                     ghost,
                     before,
                     anchorVesselId,
@@ -20813,7 +21246,7 @@ namespace Parsek
             string bodyName = before.bodyName ?? "Kerbin";
             RelativeAnchorPose anchorPose;
 
-            if (TryResolveRelativeAnchorPose(anchorVesselId, recordingId, targetUT, out anchorPose))
+            if (TryResolveLoopLiveAnchorPose(anchorVesselId, recordingId, targetUT, out anchorPose))
             {
                 Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                     anchorPose.worldPos,
@@ -20825,7 +21258,7 @@ namespace Parsek
 
                 if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
                 {
-                    ParsekLog.Warn("Flight", "InterpolateAndPositionRelative: NaN in ghost position, using anchor position");
+                    ParsekLog.Warn("Flight", "InterpolateAndPositionLoopRelative: NaN in ghost position, using anchor position");
                     ghostPos = anchorPose.worldPos;
                 }
 
@@ -20901,7 +21334,7 @@ namespace Parsek
                             recordingIndex,
                             recordingVesselName,
                             anchorVesselId,
-                            "InterpolateAndPositionRelative"));
+                            "InterpolateAndPositionLoopRelative"));
 
                 // Return zero result -- ghost stays hidden until the next
                 // absolute section or until the anchor resolves.
@@ -20913,7 +21346,7 @@ namespace Parsek
         /// Positions a ghost at a single RELATIVE frame point (no interpolation).
         /// Used for edge cases (before first frame, zero-duration segments).
         /// </summary>
-        void PositionGhostRelativeAt(
+        void PositionLoopGhostRelativeAt(
             GameObject ghost,
             TrajectoryPoint point,
             uint anchorVesselId,
@@ -20933,7 +21366,7 @@ namespace Parsek
             string bodyName = point.bodyName ?? "Kerbin";
             RelativeAnchorPose anchorPose;
 
-            if (TryResolveRelativeAnchorPose(anchorVesselId, recordingId, point.ut, out anchorPose))
+            if (TryResolveLoopLiveAnchorPose(anchorVesselId, recordingId, point.ut, out anchorPose))
             {
                 Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                     anchorPose.worldPos,
@@ -20978,7 +21411,7 @@ namespace Parsek
             else
             {
                 // No live or recorded anchor pose is available. Retire for this
-                // frame; see InterpolateAndPositionRelative for the same gate.
+                // frame; see InterpolateAndPositionLoopRelative for the same gate.
                 if (ghost.activeSelf) ghost.SetActive(false);
                 if (retireSignalState != null)
                     retireSignalState.anchorRetiredThisFrame = true;
