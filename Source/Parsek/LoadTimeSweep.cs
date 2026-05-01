@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 
 namespace Parsek
 {
@@ -230,6 +231,7 @@ namespace Parsek
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
             GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
 
             // ----------------------------------------------------------------
             // Step 9 (§6.9 step 10): summary log (§10.7).
@@ -243,7 +245,8 @@ namespace Parsek
                 $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
-                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)}");
+                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
+                $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
             // Step 10 (§6.9 step 11): bump state versions once so every
@@ -252,6 +255,117 @@ namespace Parsek
             scenario.BumpSupersedeStateVersion();
             scenario.BumpTombstoneStateVersion();
             EffectiveState.ResetCachesForTesting();
+        }
+
+        internal static int SweepMissingRewindPointQuicksaves(ParsekScenario scenario)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null
+                || scenario.RewindPoints.Count == 0)
+                return 0;
+
+            string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            var missing = new List<MissingRewindPointQuicksave>();
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
+                    continue;
+
+                string absolutePath = RewindPointReaper.ResolveQuicksaveAbsolutePath(rp.RewindPointId);
+                if (string.IsNullOrEmpty(absolutePath))
+                    continue;
+                if (File.Exists(absolutePath))
+                    continue;
+                // Mirror RewindPointReaper's active-marker guard: the live
+                // Re-Fly session still owns this RP, so load-time recovery must
+                // not seal its slots out from under the in-flight marker.
+                if (!string.IsNullOrEmpty(markerRewindPointId)
+                    && string.Equals(rp.RewindPointId, markerRewindPointId, StringComparison.Ordinal))
+                {
+                    ParsekLog.Verbose(SweepTag,
+                        $"Missing rewind-point quicksave sweep skipped active marker rp={rp.RewindPointId}");
+                    continue;
+                }
+                // ReapOrphanedRPs always retains session-provisional RPs. The
+                // missing-file sweep must not seal slots on an RP the reaper
+                // is guaranteed to leave in scenario state.
+                if (rp.SessionProvisional)
+                {
+                    ParsekLog.Verbose(SweepTag,
+                        $"Missing rewind-point quicksave sweep skipped session-provisional rp={rp.RewindPointId} " +
+                        $"sess={rp.CreatingSessionId ?? "<no-sess>"}");
+                    continue;
+                }
+
+                if (rp.ChildSlots != null)
+                {
+                    for (int s = 0; s < rp.ChildSlots.Count; s++)
+                    {
+                        var slot = rp.ChildSlots[s];
+                        if (slot == null) continue;
+                        slot.Sealed = true;
+                    }
+                }
+
+                missing.Add(new MissingRewindPointQuicksave(
+                    rp.RewindPointId,
+                    rp.BranchPointId,
+                    rp.ChildSlots?.Count ?? 0,
+                    absolutePath));
+            }
+
+            if (missing.Count == 0)
+                return 0;
+
+            RewindPointReaper.ReapOrphanedRPs();
+
+            var remainingRpIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
+                    continue;
+                remainingRpIds.Add(rp.RewindPointId);
+            }
+
+            int cleaned = 0;
+            for (int i = 0; i < missing.Count; i++)
+            {
+                var entry = missing[i];
+                if (string.IsNullOrEmpty(entry.RewindPointId)
+                    || remainingRpIds.Contains(entry.RewindPointId))
+                    continue;
+
+                cleaned++;
+                ParsekLog.Info(SweepTag,
+                    $"Cleaned missing rewind-point quicksave: rp={entry.RewindPointId} " +
+                    $"bp={entry.BranchPointId ?? "<no-bp>"} " +
+                    $"slots={entry.SlotCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"path={entry.AbsolutePath}");
+            }
+
+            return cleaned;
+        }
+
+        private sealed class MissingRewindPointQuicksave
+        {
+            public MissingRewindPointQuicksave(
+                string rewindPointId,
+                string branchPointId,
+                int slotCount,
+                string absolutePath)
+            {
+                RewindPointId = rewindPointId;
+                BranchPointId = branchPointId;
+                SlotCount = slotCount;
+                AbsolutePath = absolutePath;
+            }
+
+            public string RewindPointId { get; }
+            public string BranchPointId { get; }
+            public int SlotCount { get; }
+            public string AbsolutePath { get; }
         }
 
         // ------------------------------------------------------------------

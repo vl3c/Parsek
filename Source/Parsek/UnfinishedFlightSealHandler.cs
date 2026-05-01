@@ -15,11 +15,13 @@ namespace Parsek
         internal const string DialogLockId = "ParsekUFSealDialog";
 
         internal static Func<DateTime> UtcNowForTesting;
+        internal static Func<bool> SavePersistentForTesting;
         internal static bool DialogLockActiveForTesting { get; private set; }
 
         internal static void ResetForTesting()
         {
             UtcNowForTesting = null;
+            SavePersistentForTesting = null;
             DialogLockActiveForTesting = false;
         }
 
@@ -66,28 +68,77 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
+            bool persistedBeforeReap = true;
             if (!object.ReferenceEquals(null, scenario))
+            {
                 scenario.BumpSupersedeStateVersion();
+                persistedBeforeReap = PersistSealBeforeReap();
+            }
 
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 !object.ReferenceEquals(null, scenario)
                     ? scenario.RecordingSupersedes
                     : null;
-            bool willReap = RewindPointReaper.IsReapEligible(rp, supersedes);
+            bool reapEligible = RewindPointReaper.IsReapEligible(rp, supersedes);
+            bool willReap = persistedBeforeReap && reapEligible;
             int reaped = 0;
             if (willReap)
                 reaped = RewindPointReaper.ReapOrphanedRPs();
+            else if (reapEligible && !persistedBeforeReap)
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"Seal deferred RP reap until persistent save succeeds " +
+                    $"rec={rec.RecordingId ?? "<no-id>"} rp={rp.RewindPointId ?? "<no-rp>"}");
+            }
 
             Recording tip = EffectiveState.ResolveChainTerminalRecording(rec);
             string terminal = tip?.TerminalStateValue.HasValue == true
                 ? tip.TerminalStateValue.Value.ToString()
                 : "<none>";
-            string impact = willReap ? "willReap" : "stillBlocked";
+            string impact = willReap
+                ? "willReap"
+                : (reapEligible ? "deferredPersistence" : "stillBlocked");
 
             ParsekLog.Info("UnfinishedFlights",
                 $"Sealed slot={slotListIndex} rec={rec.RecordingId ?? "<no-id>"} " +
                 $"bp={rp.BranchPointId ?? "<no-bp>"} rp={rp.RewindPointId ?? "<no-rp>"} " +
                 $"terminal={terminal} reaperImpact={impact} reaped={reaped}");
+            return true;
+        }
+
+        private static bool PersistSealBeforeReap()
+        {
+            var saveHook = SavePersistentForTesting;
+            if (saveHook != null)
+            {
+                bool saved = saveHook();
+                ParsekLog.Info("UnfinishedFlights",
+                    $"Seal persisted before RP reap via test hook saved={saved}");
+                return saved;
+            }
+
+            if (HighLogic.CurrentGame != null
+                && !string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                string result = GamePersistence.SaveGame(
+                    "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Warn("UnfinishedFlights",
+                        "Seal persistent save before RP reap returned empty result");
+                    return false;
+                }
+                else
+                {
+                    ParsekLog.Info("UnfinishedFlights",
+                        "Seal persisted to persistent.sfs before RP reap");
+                }
+                return true;
+            }
+
+            ParsekLog.Verbose("UnfinishedFlights",
+                "Seal skipped persistent save before RP reap " +
+                "(no HighLogic.CurrentGame / SaveFolder — test harness or pre-scene path)");
             return true;
         }
 

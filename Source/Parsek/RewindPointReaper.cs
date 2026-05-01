@@ -58,11 +58,13 @@ namespace Parsek
         /// real <see cref="File.Delete"/>.
         /// </summary>
         internal static Func<string, bool> DeleteQuicksaveForTesting;
+        internal static Func<string, string> ResolveQuicksaveAbsolutePathForTesting;
 
         /// <summary>Clears all test seams. Called from test class Dispose.</summary>
         internal static void ResetTestOverrides()
         {
             DeleteQuicksaveForTesting = null;
+            ResolveQuicksaveAbsolutePathForTesting = null;
         }
 
         /// <summary>
@@ -315,8 +317,12 @@ namespace Parsek
             }
         }
 
-        private static string ResolveQuicksaveAbsolutePath(string rewindPointId)
+        internal static string ResolveQuicksaveAbsolutePath(string rewindPointId)
         {
+            var hook = ResolveQuicksaveAbsolutePathForTesting;
+            if (hook != null)
+                return hook(rewindPointId);
+
             string relPath = RecordingPaths.BuildRewindPointRelativePath(rewindPointId);
             if (string.IsNullOrEmpty(relPath)) return null;
 

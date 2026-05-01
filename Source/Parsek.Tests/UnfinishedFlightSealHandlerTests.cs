@@ -162,6 +162,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrySeal_PersistsSealBeforeDeletingQuicksave()
+        {
+            var rec = Rec("rec_probe");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording
+                {
+                    RecordingId = "rec_focus",
+                    TreeId = "tree_1",
+                    MergeState = MergeState.Immutable,
+                },
+                "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_probe")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            bool saveHookObservedSeal = false;
+            bool deleteHookObservedAfterSave = false;
+
+            UnfinishedFlightSealHandler.SavePersistentForTesting = () =>
+            {
+                Assert.True(rp.ChildSlots[1].Sealed);
+                Assert.Single(scenario.RewindPoints);
+                saveHookObservedSeal = true;
+                return true;
+            };
+            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            {
+                Assert.Equal("rp_1", rpId);
+                Assert.True(rp.ChildSlots[1].Sealed);
+                Assert.True(saveHookObservedSeal);
+                deleteHookObservedAfterSave = true;
+                return true;
+            };
+
+            bool ok = UnfinishedFlightSealHandler.TrySeal(rec, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.True(saveHookObservedSeal);
+            Assert.True(deleteHookObservedAfterSave);
+            Assert.Empty(scenario.RewindPoints);
+        }
+
+        [Fact]
+        public void TrySeal_WhenPersistentSaveFails_DoesNotDeleteQuicksaveOrReap()
+        {
+            var rec = Rec("rec_probe");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording
+                {
+                    RecordingId = "rec_focus",
+                    TreeId = "tree_1",
+                    MergeState = MergeState.Immutable,
+                },
+                "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_probe")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            bool deleteHookCalled = false;
+
+            UnfinishedFlightSealHandler.SavePersistentForTesting = () => false;
+            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            {
+                deleteHookCalled = true;
+                return true;
+            };
+
+            bool ok = UnfinishedFlightSealHandler.TrySeal(rec, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.True(rp.ChildSlots[1].Sealed);
+            Assert.False(deleteHookCalled);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Seal deferred RP reap until persistent save succeeds")
+                && l.Contains("rp=rp_1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("reaperImpact=deferredPersistence")
+                && l.Contains("reaped=0"));
+        }
+
+        [Fact]
         public void TrySeal_MissingSlot_ReturnsFalseAndLogsError()
         {
             var rec = Rec("rec_probe");
