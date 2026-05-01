@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Recording sidecar files are no longer wiped from disk when the scenario file lost its `RECORDING_TREE` metadata. `CleanOrphanFiles` now refuses to delete sidecars when the scenario reports zero known recording IDs but the disk still holds sidecar-shaped IDs, preserving recovery options when a save's metadata can be restored from `quicksave.sfs` or a backup. The save path also warns when about to write zero `RECORDING_TREE` nodes over a directory that still has stranded sidecars, surfacing the originating state-management bug.
+- Sealing an Unfinished Flight slot now persists immediately before destructive cleanup, and skips rewind-point file deletion if that save fails, so Rewind-to-Launch or quickload can no longer un-seal a slot whose quicksave file was already deleted.
 - Ghost trajectory rendering: Upper-stage ghosts now stay aligned through stage separation during Re-Fly and Watch mode. The trajectory line no longer bounces across the relative-to-absolute transition.
 - Ghost engine audio now batches simultaneous replayed engine events before enforcing the per-ghost loop-source cap, preventing same-frame Play/Stop churn during stage separation from producing audible crackles.
 - In-place Re-Fly merges now remove the just-committed destroyed entry from STASH even when the re-flight crashes again and a surviving piece lands from the breakup. The merge now closes the re-flight's temporary rewind point before refreshing STASH membership.

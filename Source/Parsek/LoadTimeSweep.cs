@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 
 namespace Parsek
 {
@@ -230,6 +231,7 @@ namespace Parsek
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
             GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
 
             // ----------------------------------------------------------------
             // Step 9 (§6.9 step 10): summary log (§10.7).
@@ -243,7 +245,8 @@ namespace Parsek
                 $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
-                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)}");
+                $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
+                $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
             // Step 10 (§6.9 step 11): bump state versions once so every
@@ -252,6 +255,51 @@ namespace Parsek
             scenario.BumpSupersedeStateVersion();
             scenario.BumpTombstoneStateVersion();
             EffectiveState.ResetCachesForTesting();
+        }
+
+        internal static int SweepMissingRewindPointQuicksaves(ParsekScenario scenario)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null
+                || scenario.RewindPoints.Count == 0)
+                return 0;
+
+            var missing = new List<RewindPoint>();
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
+                    continue;
+
+                string absolutePath = RewindPointReaper.ResolveQuicksaveAbsolutePath(rp.RewindPointId);
+                if (string.IsNullOrEmpty(absolutePath))
+                    continue;
+                if (File.Exists(absolutePath))
+                    continue;
+
+                if (rp.ChildSlots != null)
+                {
+                    for (int s = 0; s < rp.ChildSlots.Count; s++)
+                    {
+                        var slot = rp.ChildSlots[s];
+                        if (slot == null) continue;
+                        slot.Sealed = true;
+                    }
+                }
+
+                missing.Add(rp);
+                ParsekLog.Info(SweepTag,
+                    $"Missing rewind-point quicksave: rp={rp.RewindPointId ?? "<no-rp>"} " +
+                    $"bp={rp.BranchPointId ?? "<no-bp>"} " +
+                    $"slots={(rp.ChildSlots?.Count ?? 0).ToString(CultureInfo.InvariantCulture)} " +
+                    $"path={absolutePath}");
+            }
+
+            if (missing.Count == 0)
+                return 0;
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+            return Math.Min(missing.Count, reaped);
         }
 
         // ------------------------------------------------------------------
