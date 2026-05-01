@@ -138,8 +138,9 @@ namespace Parsek.InGameTests.Helpers
         }
 
         /// <summary>
-        /// Waits until FlightGlobals.ready is true and HighLogic.LoadedScene matches
-        /// the target scene, or until timeout.
+        /// Waits until the reloaded FLIGHT scene has a new ParsekFlight instance,
+        /// FlightGlobals.ready is true, and an active vessel is present, or until
+        /// timeout. Pass 0 when there is no previous ParsekFlight instance.
         /// </summary>
         internal static IEnumerator WaitForFlightReady(int previousFlightInstanceId, float timeoutSeconds = 10f)
         {
@@ -147,12 +148,13 @@ namespace Parsek.InGameTests.Helpers
             while (Time.time < deadline)
             {
                 var flight = ParsekFlight.Instance;
-                bool replacedFlight = flight != null
-                    && (previousFlightInstanceId <= 0
-                        || flight.GetInstanceID() != previousFlightInstanceId);
-                if (HighLogic.LoadedScene == GameScenes.FLIGHT
-                    && FlightGlobals.ready
-                    && replacedFlight)
+                int currentFlightInstanceId = flight != null ? flight.GetInstanceID() : 0;
+                if (IsReloadedFlightReady(
+                    HighLogic.LoadedScene,
+                    FlightGlobals.ready,
+                    FlightGlobals.ActiveVessel != null,
+                    currentFlightInstanceId,
+                    previousFlightInstanceId))
                     yield break;
                 yield return null;
             }
@@ -165,6 +167,22 @@ namespace Parsek.InGameTests.Helpers
                 $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, activeVessel={activeVesselName}, " +
                 $"parsekFlight={(timedOutFlight != null ? timedOutFlight.GetInstanceID().ToString() : "null")}, " +
                 $"expectedDifferentFrom={previousFlightInstanceId})");
+        }
+
+        internal static bool IsReloadedFlightReady(
+            GameScenes loadedScene,
+            bool flightGlobalsReady,
+            bool activeVesselPresent,
+            int currentFlightInstanceId,
+            int previousFlightInstanceId)
+        {
+            bool replacedFlight = currentFlightInstanceId != 0
+                && (previousFlightInstanceId == 0
+                    || currentFlightInstanceId != previousFlightInstanceId);
+            return loadedScene == GameScenes.FLIGHT
+                && flightGlobalsReady
+                && activeVesselPresent
+                && replacedFlight;
         }
 
         /// <summary>
