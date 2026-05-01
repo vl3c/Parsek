@@ -477,9 +477,20 @@ namespace Parsek
             {
                 var slot = rp.ChildSlots[slotListIndex];
                 string classifierReason;
+                // Treat the merge-time slot as the de-facto focus: the player
+                // just Re-Flew this slot themselves, so a stable Orbiting /
+                // SubOrbital terminal is a concluded outcome, not a "non-focus
+                // unconcluded leaf" left over from background flight. Without
+                // this override the classifier would compare against the
+                // capture-time rp.FocusSlotIndex (whichever vessel happened to
+                // be active when the RP was recorded) and keep the slot
+                // re-flyable, blocking auto-seal. Natural / non-Re-Fly call
+                // sites do not pass an override and continue to use the
+                // static focus.
                 bool classifierQualifies = UnfinishedFlightClassifier.TryQualify(
                     provisional, slot, rp, false, out classifierReason,
-                    treeContext: null, allowNotCommitted: true);
+                    treeContext: null, allowNotCommitted: true,
+                    focusSlotOverride: slotListIndex);
 
                 ReFlyCloseReason closeReason;
                 bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(

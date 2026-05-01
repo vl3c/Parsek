@@ -138,6 +138,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OrbitingNonFocusSlot_WithFocusOverride_ReturnsStableTerminalFocusSlot()
+        {
+            // Re-Fly merge call site passes the merge-time slot index here so
+            // a player who Re-Flew this slot themselves is treated as the
+            // de-facto focus. Without the override the slot-aware path would
+            // return stableLeafUnconcluded and keep the slot re-flyable.
+            const string treeId = "tree_probe";
+            const string bpId = "bp_probe_split";
+            var probe = Rec(
+                "rec_probe",
+                MergeState.CommittedProvisional,
+                TerminalState.Orbiting,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, probe);
+            var rp = RpWithFocus("rp_probe_split", bpId, 0, "rec_parent", "rec_probe");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                probe, out RewindPoint probeRp, out int probeSlot));
+            Assert.Same(rp, probeRp);
+            Assert.Equal(1, probeSlot);
+
+            // Sanity: without the override, the slot stays unconcluded.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                probe,
+                rp.ChildSlots[probeSlot],
+                rp,
+                considerSealed: false,
+                out string baselineReason));
+            Assert.Equal("stableLeafUnconcluded", baselineReason);
+
+            // With the override pointing at this slot, the classifier
+            // returns stableTerminalFocusSlot (qualifies=false) and the
+            // log line tags the override value.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                probe,
+                rp.ChildSlots[probeSlot],
+                rp,
+                considerSealed: false,
+                out string overrideReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: probeSlot));
+            Assert.Equal("stableTerminalFocusSlot", overrideReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_probe")
+                && l.Contains("reason=stableTerminalFocusSlot")
+                && l.Contains("override=1"));
+        }
+
+        [Fact]
+        public void OrbitingFocusSlot_StaticFocusPathUnchangedByOverride()
+        {
+            // When the slot already matches rp.FocusSlotIndex, the static
+            // focus check fires before the override branch; behavior is
+            // unchanged regardless of whether the override is supplied.
+            const string treeId = "tree_focus";
+            const string bpId = "bp_focus_split";
+            var focus = Rec(
+                "rec_focus",
+                MergeState.CommittedProvisional,
+                TerminalState.Orbiting,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, focus);
+            var rp = RpWithFocus("rp_focus_split", bpId, 0, "rec_focus", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                focus, out RewindPoint focusRp, out int focusSlot));
+            Assert.Same(rp, focusRp);
+            Assert.Equal(0, focusSlot);
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                focus,
+                rp.ChildSlots[focusSlot],
+                rp,
+                considerSealed: false,
+                out string staticReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: focusSlot));
+            Assert.Equal("stableTerminalFocusSlot", staticReason);
+        }
+
+        [Fact]
         public void OriginOnlyFallback_WithMultipleMatchingRps_ResolvesLatest()
         {
             const string treeId = "tree_multi_rp";

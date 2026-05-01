@@ -462,8 +462,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_KeepsCommittedProvisional()
+        public void OrbitingNonFocusReFlyTarget_PromotesFocusAndProducesImmutable()
         {
+            // Re-Fly target promotes focus: the player just Re-Flew slot 1
+            // themselves, so a stable Orbiting terminal is a concluded
+            // outcome and the merge must commit Immutable. Without the
+            // override the classifier would keep the slot re-flyable as
+            // stableLeafUnconcluded, blocking auto-seal — see
+            // SupersedeCommit.ClassifyMergeStateOrThrow's focusSlotOverride.
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -494,19 +500,27 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.False(originSlot.Sealed);
             Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
                 && l.Contains("autoSeal=False"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_provisional")
+                && l.Contains("reason=stableTerminalFocusSlot")
+                && l.Contains("override=1"));
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_ProducesCommittedProvisional()
+        public void OrbitingNonFocusReFlyTarget_OriginOnlyMarkerTarget_PromotesFocusAndProducesImmutable()
         {
+            // Origin-only branch-resolution variant of the focus-override
+            // path: same outcome — the Re-Fly target slot is treated as the
+            // de-facto focus and the merge commits Immutable.
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -536,20 +550,21 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.False(originSlot.Sealed);
             Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
                 && l.Contains("autoSeal=False"));
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_provisional")
-                && l.Contains("reason=stableLeafUnconcluded")
-                && l.Contains("side=origin-only"));
+                && l.Contains("reason=stableTerminalFocusSlot")
+                && l.Contains("side=origin-only")
+                && l.Contains("override=1"));
         }
 
         [Fact]
@@ -606,8 +621,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTargetAndKeepsOpen()
+        public void OrbitingNonFocusReFlyTarget_PreflightFallbackResolvesChainedMarkerTargetAndPromotesFocus()
         {
+            // The marker-target preflight fallback resolves the slot via the
+            // chained supersede target; the focus override still applies
+            // and the merge commits Immutable instead of leaving the slot
+            // re-flyable as stableLeafUnconcluded.
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             var priorTip = Rec("rec_prior_tip", "tree_1", terminal: TerminalState.Orbiting);
@@ -644,7 +663,7 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.False(originSlot.Sealed);
             Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(scenario.RecordingSupersedes,
@@ -655,9 +674,9 @@ namespace Parsek.Tests
                 r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_provisional");
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
                 && l.Contains("autoSeal=False"));
         }
 
@@ -1803,8 +1822,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocus_KeepsOpen()
+        public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocusReFlyTarget_PromotesFocusAndProducesImmutable()
         {
+            // Mirror of OrbitingNonFocusReFlyTarget_PromotesFocusAndProducesImmutable
+            // for the in-place-continuation merge code path. The player Re-Flew
+            // slot 1 (the probe) and reached stable orbit; the focus override
+            // routes through the in-place tail of MergeDialog.TryCommitReFlySupersede
+            // and still commits Immutable.
             const string kBpId = "bp_inplace_stable_leaf";
             var origin = Rec("rec_probe", "tree_1",
                 parentBranchPointId: kBpId,
@@ -1874,18 +1898,31 @@ namespace Parsek.Tests
                 RewindPointReaper.ResetTestOverrides();
             }
 
-            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            // Slot.Sealed remains false: closing the slot via Immutable does
+            // not flip slot.Sealed (only hard-safety terminals + recording-
+            // scoped world actions do that). The slot is no longer
+            // re-flyable simply because the recording is Immutable.
             Assert.False(probeSlot.Sealed);
             Assert.Null(probeSlot.SealedRealTime);
-            Assert.Single(scenario.RewindPoints);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(0, deletes);
+            // With slot 1 now Immutable and slot 0 orphan-eligible, the RP
+            // is reap-eligible — the post-merge reap call deletes the
+            // quicksave (deletes==1) and removes the RP from the scenario
+            // list. Before the focus override, slot 1 was kept open as
+            // CommittedProvisional which blocked reap (deletes==0).
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Equal(1, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
-                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("mergeState=Immutable")
                 && l.Contains("autoSeal=False"));
-            Assert.Contains(logLines, l =>
+            // The in-place "retained CommittedProvisional" log fires only
+            // when SupersedeCommit decides to keep the slot open. With the
+            // focus override the slot is closed (Immutable), so that log
+            // line must NOT appear.
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("in-place continuation retained")
                 && l.Contains("slot remains re-flyable"));

@@ -30,7 +30,8 @@ namespace Parsek
             bool considerSealed,
             out string reason,
             RecordingTree treeContext = null,
-            bool allowNotCommitted = false)
+            bool allowNotCommitted = false,
+            int? focusSlotOverride = null)
         {
             reason = null;
             string recId = rec?.RecordingId ?? "<no-id>";
@@ -147,11 +148,13 @@ namespace Parsek
                 // real rewind route of its own. Crash/debris bookkeeping BPs do
                 // not suppress the older playable split.
                 return TerminalOutcomeQualifiesInternal(
-                    rec, recId, chainTip, slot, rp, out reason, branchSide);
+                    rec, recId, chainTip, slot, rp, out reason, branchSide,
+                    focusSlotOverride);
             }
 
             return TerminalOutcomeQualifiesInternal(
-                rec, recId, chainTip, slot, rp, out reason, branchSide);
+                rec, recId, chainTip, slot, rp, out reason, branchSide,
+                focusSlotOverride);
         }
 
         internal static bool TerminalOutcomeQualifies(
@@ -161,7 +164,8 @@ namespace Parsek
         {
             string reason;
             return TerminalOutcomeQualifiesInternal(
-                null, chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
+                null, chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null,
+                focusSlotOverride: null);
         }
 
         private static bool TerminalOutcomeQualifiesInternal(
@@ -171,7 +175,8 @@ namespace Parsek
             ChildSlot slot,
             RewindPoint rp,
             out string reason,
-            string branchSide)
+            string branchSide,
+            int? focusSlotOverride)
         {
             reason = null;
             TerminalState? terminal = chainTip?.TerminalStateValue;
@@ -251,12 +256,24 @@ namespace Parsek
             }
 
             int slotListIndex = ResolveSlotListIndexByReference(rp, slot);
+            // Re-Fly merge call site passes the merge-time slot index here as
+            // the focus override, so a player who just Re-Flew this slot
+            // themselves is treated as the current focus even when
+            // rp.FocusSlotIndex points at the capture-time vessel (a
+            // sibling). Background-only / natural promotion call sites pass
+            // null. The override applies only to the non-focus stable
+            // Orbiting / SubOrbital branch below — the static focus path
+            // ahead is unchanged so existing focus-slot tests / log lines
+            // still pass.
+            string focusSlotLogValue = focusSlotOverride.HasValue
+                ? $"{rp.FocusSlotIndex}/override={focusSlotOverride.Value}"
+                : rp.FocusSlotIndex.ToString();
             if (rp.FocusSlotIndex < 0)
             {
                 reason = "noFocusSignalOrbiting";
                 LogVerdict(false, recId, reason,
                     WithBranchSide(
-                        $"terminal={terminal.Value} slot={slotListIndex} focusSlot={rp.FocusSlotIndex}",
+                        $"terminal={terminal.Value} slot={slotListIndex} focusSlot={focusSlotLogValue}",
                         branchSide));
                 return false;
             }
@@ -266,7 +283,7 @@ namespace Parsek
                 reason = "stableTerminalFocusSlot";
                 LogVerdict(false, recId, reason,
                     WithBranchSide(
-                        $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                        $"slot={slotListIndex} focusSlot={focusSlotLogValue} terminal={terminal.Value}",
                         branchSide));
                 return false;
             }
@@ -275,11 +292,26 @@ namespace Parsek
                 || terminal.Value == TerminalState.SubOrbital)
             {
                 string detail = WithBranchSide(
-                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                    $"slot={slotListIndex} focusSlot={focusSlotLogValue} terminal={terminal.Value}",
                     branchSide);
                 if (TryRejectRecordingScopedWorldAction(
                     rec, recId, out reason, detail))
                     return false;
+
+                // Re-Fly target promotes focus: the player just Re-Flew this
+                // slot themselves, so a stable Orbiting / SubOrbital terminal
+                // is a concluded outcome, not "non-focus left as background"
+                // — return stableTerminalFocusSlot so SupersedeCommit closes
+                // the slot (MergeState.Immutable). No override (natural
+                // promotion / background) keeps the existing
+                // stableLeafUnconcluded keep-open behavior.
+                if (focusSlotOverride.HasValue
+                    && slotListIndex == focusSlotOverride.Value)
+                {
+                    reason = "stableTerminalFocusSlot";
+                    LogVerdict(false, recId, reason, detail);
+                    return false;
+                }
 
                 reason = "stableLeafUnconcluded";
                 LogVerdict(true, recId, reason, detail);
@@ -289,7 +321,7 @@ namespace Parsek
             reason = "stableTerminal";
             LogVerdict(false, recId, reason,
                 WithBranchSide(
-                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                    $"slot={slotListIndex} focusSlot={focusSlotLogValue} terminal={terminal.Value}",
                     branchSide));
             return false;
         }
