@@ -36,13 +36,13 @@ namespace Parsek
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 75f;
-        private const float ColW_ReFly = 75f;
+        private const float ColW_Rewind = 60f;
+        private const float ColW_ReFly = 90f;
         private const float ColW_Hide = 80f;
-        internal const float DefaultCollapsedWindowWidth = 1280f + ColW_ReFly;
-        internal const float DefaultExpandedWindowWidth = 1738f + ColW_ReFly;
-        private const string RewindActionLabel = "Rewind";
-        private const string FastForwardActionLabel = "Forward";
+        internal const float DefaultCollapsedWindowWidth = 1205f + ColW_Rewind + ColW_ReFly;
+        internal const float DefaultExpandedWindowWidth = 1663f + ColW_Rewind + ColW_ReFly;
+        private const string RewindActionLabel = "R";
+        private const string FastForwardActionLabel = "FF";
 
         // Header cell height — the cells containing a label + select-all toggle
         // (Loop, Archive) naturally measure taller than a single bold label in
@@ -205,8 +205,8 @@ namespace Parsek
         // overflows the container (margins are "outside" the content width). Zeroing
         // horizontal margin lets Space(N) + Button(Width=cellW-N) fit the cell exactly.
         private GUIStyle bodyCellButtonFlush;
-        // Compact-padding variant for narrow action columns; keeps full-word
-        // labels readable inside the 75px Rewind and Re-Fly columns.
+        // Compact-padding variant for narrow action columns; keeps labels
+        // readable inside the narrow Rewind (60px) and Re-Fly (90px) columns.
         private GUIStyle bodyCellButtonCompact;
         // Zero-horizontal-margin text-field style for the Period val TextField inside
         // the same shifted-right wrap treatment as bodyCellButtonFlush.
