@@ -593,7 +593,12 @@ namespace Parsek
             return terminalRec != null && terminalRec.TerminalStateValue.HasValue;
         }
 
-        private static bool HasStashedResolvedSlot(Recording rec)
+        /// <summary>
+        /// Returns true only for open manual-stash slots. A slot that is both
+        /// stashed and sealed is closed; sealed wins, matching
+        /// <see cref="RewindPointReaper.IsReapEligible"/>'s closed-slot rule.
+        /// </summary>
+        internal static bool HasStashedResolvedSlot(Recording rec)
         {
             RewindPoint rp;
             int slotListIndex;
@@ -604,7 +609,8 @@ namespace Parsek
             return rp?.ChildSlots != null
                 && slotListIndex >= 0
                 && slotListIndex < rp.ChildSlots.Count
-                && rp.ChildSlots[slotListIndex]?.Stashed == true;
+                && rp.ChildSlots[slotListIndex]?.Stashed == true
+                && rp.ChildSlots[slotListIndex]?.Sealed == false;
         }
 
         private static bool StashedTerminalQualifies(Recording chainTip, TerminalState terminal)

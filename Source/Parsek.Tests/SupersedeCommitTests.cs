@@ -437,6 +437,43 @@ namespace Parsek.Tests
                 && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
         }
 
+        [Fact]
+        public void InPlaceContinuationSlotLookupFailure_UsesFallbackWithoutError()
+        {
+            var provisional = AddProvisional("rec_origin", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var marker = Marker("rec_origin", "rec_origin", supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_other",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_origin",
+                        Controllable = true
+                    }
+                }
+            });
+
+            SupersedeCommit.FlipMergeStateAndClearTransient(
+                marker, provisional, scenario, preserveMarker: false);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[ERROR][Supersede]")
+                && l.Contains("Site B-1 slot lookup failed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE][Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("in-place continuation: using v0.9 terminalKind classifier"));
+        }
+
         // ---------- Subtree supersede ---------------------------------------
 
         [Fact]

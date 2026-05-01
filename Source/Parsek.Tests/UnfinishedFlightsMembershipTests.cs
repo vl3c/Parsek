@@ -145,6 +145,30 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
+        public void HasStashedResolvedSlot_SealedStashedSlot_ReturnsFalse()
+        {
+            var rec = Rec("rec_stashed", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                new RewindPoint
+                {
+                    RewindPointId = "rp_1",
+                    BranchPointId = "bp_1",
+                    FocusSlotIndex = 0,
+                    ChildSlots = new List<ChildSlot>
+                    {
+                        Slot(0, "rec_stashed", sealedSlot: true, stashedSlot: true)
+                    }
+                }
+            });
+
+            bool result = UnfinishedFlightClassifier.HasStashedResolvedSlot(rec);
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void ImmutableDestroyedUnderRP_IsMember()
         {
             // Regression: a committed Immutable recording whose terminal is
