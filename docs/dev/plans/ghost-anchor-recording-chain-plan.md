@@ -93,6 +93,8 @@ Recording production is **not** uniform in the current code: `FlightRecorder` al
 - **Pre-existing scene vessels** (a station the player approaches, an idle ship in another orbit) are background-recorded from scene-load. Their recordings are independent of the player's mission tree.
 - **Vessels from other missions** (a different `RecordingTree`) follow the same recorder rules after Phase B; v1 skips cross-`CommittedTree` candidates and writes Absolute if no eligible same-scope recording-id anchor exists.
 
+**Mid-re-fly debris caveat (v1).** Because still-being-appended active provisional recordings are not valid anchor targets, fresh debris created during a live re-fly cannot anchor on the live re-fly recording even though that data exists in memory. That debris records Absolute until it has another eligible same-scope anchor, or until a future phase explicitly supports reading active provisionals as anchors.
+
 During re-fly, all of these render via the same chain math:
 
 1. If the section is `Absolute` → render direct from recorded data.
@@ -289,6 +291,7 @@ Each phase is independently reviewable and reverts cleanly. Phase A/B are schema
 
 - Add `anchorRecordingId : string` (nullable) to `TrackSection.cs` alongside the existing `anchorVesselId` field.
 - Bump `RecordingAnchorChainFormatVersion = 11` in `RecordingStore.cs`. Bump `CurrentRecordingFormatVersion = 11`.
+- Audit `CurrentRecordingFormatVersion` consumers before committing the bump: run a source search for `CurrentRecordingFormatVersion` and inspect comparison/gating sites. Any feature-specific gate should use the named feature version (`RecordingAnchorChainFormatVersion`, `StructuralEventFlagFormatVersion`, etc.), not silently inherit the v11 bump. Record the audit result in the Phase A review notes.
 - In `TrajectorySidecarBinary.cs`: pin `RecordingAnchorChainBinaryVersion = RecordingStore.RecordingAnchorChainFormatVersion` (NOT a literal `11` — mirrors the existing peer-pinning discipline at `TrajectorySidecarBinary.cs:48-61`). Set `CurrentBinaryVersion = RecordingAnchorChainBinaryVersion`. Extend `IsSupportedBinaryVersion` and `GetBinaryEncoding`. Insert the new version at the top of the `Write(...)` version-selection ladder so v11 recordings actually write a v11 binary header. Gate read/write of `anchorRecordingId` on `binaryVersion >= RecordingAnchorChainBinaryVersion`. Older versions can deserialize as legacy data, but no migration or playback-correctness guarantee is required.
 - ConfigNode codec lands in **`TrajectoryTextSidecarCodec.SerializeTrackSections` / `DeserializeTrackSections`** — the per-section `TRACK_SECTION` node block in the trajectory sidecar. **NOT** `RecordingTreeRecordCodec` (that's `.sfs` recording metadata and does not hold per-section blocks; mirroring there would pass metadata round-trip while silently failing the actual trajectory sidecar round-trip). Add an `anchorRecordingId` value key to the `TRACK_SECTION` node, written when non-null.
 - Recorder writes `anchorRecordingId = null` only during this transitional phase; these Phase A recordings are not correctness fixtures and should be discarded/re-recorded after Phase B.
@@ -296,7 +299,7 @@ Each phase is independently reviewable and reverts cleanly. Phase A/B are schema
 - Before Phase B changes recorder behaviour, rerun or synthesize the `logs/2026-05-01_1731_watch-separation-wobble/` scenario on the Phase A baseline and confirm the old wobble/repro signal still exists. If the original scenario no longer reproduces, pick and document a replacement repro before touching the recorder; otherwise Phase C has no comparable evidence loop.
 - Playback unchanged.
 
-**Acceptance:** new v11 recordings round-trip `anchorRecordingId` through binary and text sidecars, `TrajectorySidecarBinary.CurrentBinaryVersion` and the write-version ladder emit a v11 header for v11 recordings, the resolver API passes focused unit tests for empty/missing-anchor inputs plus a single-link Absolute-terminator chain, and the watch-separation-wobble repro is either confirmed on the Phase A baseline or replaced with a documented equivalent. Phase A does not assert legacy cutoff render behaviour because playback is unchanged until Phase C/E.
+**Acceptance:** new v11 recordings round-trip `anchorRecordingId` through binary and text sidecars, `TrajectorySidecarBinary.CurrentBinaryVersion` and the write-version ladder emit a v11 header for v11 recordings, `CurrentRecordingFormatVersion` consumer grep/audit is recorded with no accidental v11 feature gates, the resolver API passes focused unit tests for empty/missing-anchor inputs plus a single-link Absolute-terminator chain, and the watch-separation-wobble repro is either confirmed on the Phase A baseline or replaced with a documented equivalent. Phase A does not assert legacy cutoff render behaviour because playback is unchanged until Phase C/E.
 
 ### Phase B — Recorder writes the new field
 
