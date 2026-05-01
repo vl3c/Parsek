@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 active-recorder destruction terminal override
+
+- ~~An actively recorded vessel that exploded mid-flight could finalize its active tree leaf as `SubOrbital` instead of `Destroyed`.~~ Source: `logs/2026-05-01_1358_suborbital-vs-destroyed/KSP.log`; recording `f7c9225e422541bf8520205bd4bd65ee`, vessel pid `2708531065`, showed `OnVesselWillDestroy` at line 11432 and `Active vessel destroyed during recording` at line 11438, but the active leaf had no `vessel pid=... not found` finalizer log before line 11475 stamped `terminal=SubOrbital`. Diagnosis: KSP lazily kept the exploding vessel findable long enough for `FinalizeIndividualRecording` to take the live-vessel branch and map `FLYING`/`SUB_ORBITAL` through `RecordingTree.DetermineTerminalState`; `FlightRecorder.VesselDestroyedDuringRecording` was never passed into finalization, and `ApplyDestroyedFallback` had no production caller.
+
+**Fix:** `FinalizeTreeRecordings` now captures the active recorder's `VesselDestroyedDuringRecording` flag before force-stopping/flushing and passes it through `FinalizeTreeRecordingsAfterFlush` to `FinalizeIndividualRecording` for the active recording only. After the normal terminal assignment block, `ApplyDestroyedFallback` overrides any non-`Destroyed` terminal to `Destroyed` and logs the previous/new states at `[Flight]` INFO. Recordings whose recorder did not observe a destruction event keep their live `Landed`/`Splashed`/`Orbiting` terminal classification.
+
+**Cache-repair decision:** `ShouldRepairExistingTerminalFromDestroyedCache` stays narrow. It still accepts only a `Destroyed` cache repairing a stale `SubOrbital` terminal; it does not accept `Orbiting` cache results. In this repro the `Orbiting` cache came from the patched-conic future-UT anomaly tracked as #639 below, so broadening the repair gate would make a known bad cache authoritative instead of using the recorder's destruction event.
+
+**Status:** CLOSED 2026-05-01. Follow-up: #639 tracks the separate finalizer-cache future-UT/cache-thrash anomaly.
+
+---
+
 ## Done - v0.9.1 origin-only Re-Fly resolution
 
 - ~~A tree-branching parent vessel that stayed alive past a separation Rewind Point, then crashed later, could lose its Re-Fly button even though the RP slot captured that same vessel as controllable.~~ Source: `logs/2026-05-01_1320_refly-stash-investigation/`; `Kerbal X` had no `parentBranchPointId` or `childBranchPointId` because tree-branching kept the parent recording open, while RP `rp_9979514b2c9c43eb8a36f8c5febe1625` slot 0 still referenced the parent recording id. Fix: Unfinished Flight resolution now tries the legacy child/parent BranchPoint walks first, then falls back to the latest matching RP slot by `OriginChildRecordingId`, logging `side=origin-only` for the new path. The merge-time supersede classifier uses the same marker-target origin fallback for separate provisional re-flights, while in-place continuations keep their existing fallback policy.
@@ -394,6 +406,16 @@ ghost files for true alias cases. Regression coverage:
 `ReFlyChainRootGhostSnapshotTests.ReFlyBreakupRoot_SceneExitFinalizerPreservesGhostSnapshotAcrossRoundTrip`
 and the in-game `ReFlyRootFinalization_PreservesRecordedStartGhostMesh`
 PartLoader-backed mesh-build guard.
+
+## 639. FinalizerCache patched-conic atmospheric tail can refresh to `Orbiting` from a future segment
+
+**Status:** TODO - investigated 2026-05-01, not fixed by the active-recorder destruction override.
+
+Source: `logs/2026-05-01_1358_suborbital-vs-destroyed/KSP.log`. The active recorder's finalizer cache flipped from `Destroyed` earlier in flight (`terminal=Destroyed` at lines 9482, 9555, 9912) to `Orbiting` near destruction (`terminal=Orbiting` at lines 11181 and 11437). At the destroy event, `Extrapolator Start` logged `ut=611.574` while the actual recorder/game UT was about `61.1` (`OnVesselWillDestroy:entry ... ut=61.1` at line 11432).
+
+Call-site evidence: `FlightRecorder.RefreshFinalizationCache` passes `Planetarium.GetUniversalTime()` to `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`, so the refresh UT itself is not the 611 s value. The future start comes later: `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel` calls `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording`, which snapshots the patched-conic chain with the current refresh UT, then `TryCompleteFinalizationFromPatchedSnapshot` prefers the last appended predicted `OrbitSegment` and builds the extrapolator start state from that segment's `endUT`. `PatchedConicSnapshot.ToOrbitSegment` clamps only the first segment `startUT` to the snapshot UT; it preserves `patch.EndUT` when it is later. On atmospheric bodies, `TryShortCircuitSolverPredictedImpact` refuses the solver-predicted impact short-circuit because `body.HasAtmosphere` is true, so the extrapolator can start from the far-future atmospheric segment end and horizon-cap to `Orbiting`.
+
+Impact: the active-recorder destruction fix no longer depends on this cache, but cache thrash can still make diagnostics misleading and may affect other paths that do not have `VesselDestroyedDuringRecording` as an authoritative override. Future fix candidates: detect stale/future atmospheric patched-conic tails at destruction-time refresh, clamp or reject predicted segment starts that are implausibly far from `refreshUT` while the live vessel is still low in atmosphere, or add an atmospheric-body impact short-circuit with terrain/atmosphere validation instead of falling through to a 50-year horizon cap.
 
 ## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -189,6 +190,75 @@ namespace Parsek.Tests
                 l.Contains("a8079-upper") &&
                 l.Contains("terminal=Destroyed") &&
                 l.Contains("leaf=True"));
+        }
+
+        [Fact]
+        public void FinalizeTreeRecordingsAfterFlush_ActiveRecorderDestroyed_LiveFlyingVesselOverridesSubOrbital()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-active-destroyed",
+                TreeName = "Kerbal X",
+                RootRecordingId = "active-destroyed",
+                ActiveRecordingId = "active-destroyed"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "active-destroyed",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 60.9, altitude = 130.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 61.1, altitude = 125.6, bodyName = "Kerbin" });
+            tree.Recordings[rec.RecordingId] = rec;
+
+            Vessel liveFlyingVessel = TestVessel(rec.VesselPersistentId, Vessel.Situations.FLYING);
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 61.2,
+                isSceneExit: false,
+                resolveFinalizationCache: null,
+                resolveDestroyedDuringRecording: r => r != null && r.RecordingId == rec.RecordingId,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveFlyingVessel : null);
+
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][Flight]") &&
+                l.Contains("active-recorder destruction override") &&
+                l.Contains("from SubOrbital to Destroyed"));
+        }
+
+        [Theory]
+        [InlineData(Vessel.Situations.LANDED, TerminalState.Landed)]
+        [InlineData(Vessel.Situations.SPLASHED, TerminalState.Splashed)]
+        public void FinalizeIndividualRecording_NotDestroyed_LiveStableVesselKeepsStableTerminal(
+            Vessel.Situations situation,
+            TerminalState expected)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "stable-live",
+                VesselName = "Stable Vessel",
+                VesselPersistentId = 42
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0, altitude = 0.0, bodyName = "Kerbin" });
+            Vessel liveVessel = TestVessel(rec.VesselPersistentId, situation);
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 12.0,
+                isSceneExit: false,
+                finalizationCache: null,
+                treeContext: null,
+                vesselDestroyedDuringRecording: false,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? liveVessel : null);
+
+            Assert.Equal(expected, rec.TerminalStateValue);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("active-recorder destruction override") &&
+                l.Contains("stable-live"));
         }
 
         [Fact]
@@ -480,6 +550,14 @@ namespace Parsek.Tests
                 epoch = startUT,
                 isPredicted = isPredicted
             };
+        }
+
+        private static Vessel TestVessel(uint persistentId, Vessel.Situations situation)
+        {
+            var vessel = (Vessel)FormatterServices.GetUninitializedObject(typeof(Vessel));
+            vessel.persistentId = persistentId;
+            vessel.situation = situation;
+            return vessel;
         }
     }
 }
