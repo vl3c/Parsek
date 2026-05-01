@@ -107,6 +107,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingsWindowDefaultWidths_AccountForReFlyColumn()
+        {
+            Assert.Equal(1355f, RecordingsTableUI.DefaultCollapsedWindowWidth);
+            Assert.Equal(1813f, RecordingsTableUI.DefaultExpandedWindowWidth);
+        }
+
+        [Fact]
         public void TryResolveUnfinishedFlightRewindPoint_NormalRowFindsRpSlot()
         {
             // Regression for the Kerbal X Probe staging case: the normal
@@ -656,15 +663,22 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
-            int rpRoute = rowBlock.IndexOf("DrawUnfinishedFlightRewindButton(rec, ri", StringComparison.Ordinal);
-            int legacyRoute = rowBlock.IndexOf("RecordingStore.CanRewind(rec, out rewindReason", StringComparison.Ordinal);
+            Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
+            Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
-            Assert.True(rpRoute >= 0, "Row block should try RP-backed unfinished-flight rewind first.");
-            Assert.True(legacyRoute > rpRoute, "Legacy tree-root rewind must remain a fallback after RP routing.");
+            int resolverStart = uiSrc.IndexOf("internal static ReFlyColumnAction ResolveReFlyColumnAction", StringComparison.Ordinal);
+            int resolverEnd = uiSrc.IndexOf("/// <summary>", resolverStart, StringComparison.Ordinal);
+            string resolverBlock = uiSrc.Substring(resolverStart, resolverEnd - resolverStart);
+
+            int rpRoute = resolverBlock.IndexOf("ResolveUnfinishedFlightRewindRoute(", StringComparison.Ordinal);
+            int stashRoute = resolverBlock.IndexOf("TryResolveStashableUnfinishedFlightRewindPoint(", StringComparison.Ordinal);
+
+            Assert.True(rpRoute >= 0, "Re-Fly decision should check RP-backed unfinished-flight rewind.");
+            Assert.True(stashRoute > rpRoute, "Fly/Seal routing must take precedence over Stash/Seal routing.");
             Assert.DoesNotContain("unfinishedFlightRowDepth > 0 && DrawUnfinishedFlightRewindButton", rowBlock);
             Assert.Contains("DrawDisabledUnfinishedFlightRewindButton(", uiSrc);
             Assert.Contains("ResolveUnfinishedFlightRewindRoute(", uiSrc);
@@ -683,16 +697,27 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int rowStart = uiSrc.IndexOf("// Rewind / Forward button", StringComparison.Ordinal);
+            int rowStart = uiSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
             int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
             string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
 
-            Assert.Contains("RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording)", rowBlock);
-            Assert.Contains("RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording)", rowBlock);
+            Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
+            Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
+
+            int helperStart = uiSrc.IndexOf("private void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
+            int helperEnd = uiSrc.IndexOf("private void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
+            string helperBlock = uiSrc.Substring(helperStart, helperEnd - helperStart);
+
+            Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
+            Assert.Contains("RecordingStore.CanRewind(", helperBlock);
             Assert.DoesNotContain("canWatch", rowBlock);
             Assert.DoesNotContain("hasGhost", rowBlock);
             Assert.DoesNotContain("sameBody", rowBlock);
             Assert.DoesNotContain("inRange", rowBlock);
+            Assert.DoesNotContain("canWatch", helperBlock);
+            Assert.DoesNotContain("hasGhost", helperBlock);
+            Assert.DoesNotContain("sameBody", helperBlock);
+            Assert.DoesNotContain("inRange", helperBlock);
 
             int groupStart = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", StringComparison.Ordinal);
             int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
