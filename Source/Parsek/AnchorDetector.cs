@@ -110,7 +110,8 @@ namespace Parsek
             string focusedRecordingId,
             uint focusedVesselPid,
             Vector3d focusedPosition,
-            IReadOnlyList<RecordingAnchorCandidate> candidates)
+            IReadOnlyList<RecordingAnchorCandidate> candidates,
+            double maxDistanceExclusive = double.MaxValue)
         {
             RecordingAnchorCandidate best = default;
             double bestDistance = double.MaxValue;
@@ -134,6 +135,9 @@ namespace Parsek
                 }
 
                 double distance = Vector3d.Distance(focusedPosition, candidate.WorldPos);
+                if (distance >= maxDistanceExclusive)
+                    continue;
+
                 if (!found || IsBetterRecordingAnchor(candidate, distance, best, bestDistance))
                 {
                     best = candidate;
@@ -270,6 +274,13 @@ namespace Parsek
             return rank;
         }
 
+        internal static double RelativeFrameRangeLimit(bool currentlyRelative)
+        {
+            return currentlyRelative
+                ? RelativeExitDistance
+                : RelativeEntryDistance;
+        }
+
         private static bool SameNonEmpty(string a, string b)
         {
             return !string.IsNullOrEmpty(a)
@@ -288,7 +299,7 @@ namespace Parsek
             if (!currentlyRelative)
             {
                 // Not currently relative -- enter at physics bubble edge
-                bool enter = anchorDistance < RelativeEntryDistance;
+                bool enter = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
                 if (enter)
                 {
                     var ic = CultureInfo.InvariantCulture;
@@ -300,7 +311,7 @@ namespace Parsek
             else
             {
                 // Currently relative -- exit with hysteresis
-                bool stay = anchorDistance < RelativeExitDistance;
+                bool stay = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
                 if (!stay)
                 {
                     var ic = CultureInfo.InvariantCulture;

@@ -4706,7 +4706,8 @@ namespace Parsek
                     ActiveTree?.ActiveRecordingId,
                     RecordingVesselId,
                     v.GetWorldPos3D(),
-                    candidates);
+                    candidates,
+                    AnchorDetector.RelativeFrameRangeLimit(isRelativeMode));
 
                 bool shouldBeRelative = result.found
                     && AnchorDetector.ShouldUseRelativeFrame(result.distance, isRelativeMode);

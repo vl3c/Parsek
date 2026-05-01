@@ -650,7 +650,7 @@ The plan is complete when:
 
 Resolved during the 2026-05-01 plan review (initial draft → Opus review → user-supplied confirmations + extra review items). Recording the rationale here so the implementing agent doesn't have to re-litigate these.
 
-1. **Anchor selection when live peer and ghost peer are both in proximity:** live and ghost candidates are treated uniformly after candidate filtering, but proximity is not the top-level priority. The selector ranks immutable/sealed recordings first for timeline stability, then same replay-point / same-vessel-lineage recordings for architectural affinity, then distance within the same stability + affinity class. **Tie-break:** `recordingId` lexicographic (stable, source-neutral), then source kind + engine index / diagnostic discriminator for deterministic tests. **Skip rule:** any candidate that cannot resolve to a recording id is ignored entirely. (See §3.2.)
+1. **Anchor selection when live peer and ghost peer are both in proximity:** live and ghost candidates are treated uniformly after candidate filtering, and distance eligibility is applied before priority ranking. Among range-eligible candidates, the selector ranks immutable/sealed recordings first for timeline stability, then same replay-point / same-vessel-lineage recordings for architectural affinity, then distance within the same stability + affinity class. **Tie-break:** `recordingId` lexicographic (stable, source-neutral), then source kind + engine index / diagnostic discriminator for deterministic tests. **Skip rule:** any candidate that cannot resolve to a recording id is ignored entirely. (See §3.2.)
 
 2. **Tree scope:** tree-local anchor resolution for v1, **with a composite-lookup overlay** that includes finalized/safe provisional state and `RecordingStore.PendingTree`. A still-being-appended active provisional recording can be the focus recording being captured, but it is not a valid anchor target until finalization/merge. Cross-`CommittedTree` anchors are illegal v11 recorder output for v1; if corrupt/manual data contains one, the resolver warns and uses recorded-shadow debug fallback or section hide. If a real docking-cross-tree bug surfaces, raise Phase 1.5 with a global recording-id index in `RecordingStore`.
 
@@ -658,7 +658,7 @@ Resolved during the 2026-05-01 plan review (initial draft → Opus review → us
 
 4. **`anchorVesselId` field lifecycle:** not part of the v11 contract. It remains through v11 only as a legacy/read-only field while old data paths are fenced, then is removed in the next intentional format cleanup (`v12`). Normal v11 sidecars do not dual-write `anchorPid`, and playback MUST NOT use `anchorVesselId` to place ghosts. Diagnostics should log live PIDs at section-open time instead of preserving them as a fallback key. (See §3.2 and §6.)
 
-5. **Re-Fly UX behaviour change:** explicitly accepted (§1 callout). After Phase D, ghosts in an active Re-Fly tree no longer follow the player's live vessel — they play back at original recorded coordinates. Confirmed by user as the explicit intent (Appendix verbatim quotes).
+5. **Re-Fly UX behaviour change target:** recorded as the intended Phase D direction (§1 callout): after Phase D, ghosts in an active Re-Fly tree no longer follow the player's live vessel and instead play back at original recorded coordinates. This is **not yet the D.0 gate artifact**; Phase D deletion still requires the explicit product-behaviour confirmation described in §5 before landing.
 
 ---
 

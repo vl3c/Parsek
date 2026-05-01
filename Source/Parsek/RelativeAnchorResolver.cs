@@ -262,7 +262,7 @@ namespace Parsek
                 out pose);
         }
 
-        private static bool TryResolveRelativeSectionPose(
+        internal static bool TryResolveRelativeSectionPose(
             RelativeAnchorResolverContext context,
             Recording recording,
             TrackSection section,

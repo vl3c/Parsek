@@ -357,6 +357,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FindNearestRecordingAnchor_RangeFilterRunsBeforePriority()
+        {
+            var candidates = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("near-unsealed", 1000.0),
+                RecordingCandidate("far-sealed", 3000.0, isSealed: true)
+            };
+
+            var result = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                candidates,
+                AnchorDetector.RelativeFrameRangeLimit(currentlyRelative: false));
+
+            Assert.True(result.found);
+            Assert.Equal("near-unsealed", result.candidate.RecordingId);
+            Assert.Equal(1000.0, result.distance, 5);
+        }
+
+        [Fact]
         public void FindNearestRecordingAnchor_SameReplayPointBeatsSlightlyNearerGenericCandidate()
         {
             var candidates = new List<RecordingAnchorCandidate>

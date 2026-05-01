@@ -69,11 +69,12 @@ namespace Parsek.Rendering
             if (!TryBuildRelativeAnchorResolverContext(
                     rec,
                     out RelativeAnchorResolverContext context)
-                || !RelativeAnchorResolver.TryResolveRecordingPose(
+                || !TryResolveKnownRelativeBoundaryPose(
                     context,
                     rec,
+                    relSection,
+                    relIdx,
                     pt.ut,
-                    new HashSet<string>(StringComparer.Ordinal),
                     out AnchorPose pose))
             {
                 ParsekLog.WarnRateLimited("Pipeline-Anchor",
@@ -98,6 +99,24 @@ namespace Parsek.Rendering
 
             worldPos = pose.WorldPos;
             return IsFinite(worldPos);
+        }
+
+        internal static bool TryResolveKnownRelativeBoundaryPose(
+            RelativeAnchorResolverContext context,
+            Recording rec,
+            TrackSection relSection,
+            int relIdx,
+            double ut,
+            out AnchorPose pose)
+        {
+            return RelativeAnchorResolver.TryResolveRelativeSectionPose(
+                context,
+                rec,
+                relSection,
+                relIdx,
+                ut,
+                new HashSet<string>(StringComparer.Ordinal),
+                out pose);
         }
 
         public bool TryResolveOrbitalCheckpointWorldPos(
