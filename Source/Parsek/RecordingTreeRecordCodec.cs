@@ -261,6 +261,56 @@ namespace Parsek
                 recNode.AddValue("supersedeTargetId", rec.SupersedeTargetId);
             if (!string.IsNullOrEmpty(rec.ProvisionalForRpId))
                 recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
+
+            // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
+            // at session start so the per-frame anchor offset can sample the
+            // ORIGINAL active recording at any UT — even after the live
+            // recording is trimmed past cutoffUT and re-extended with new
+            // player flight data. The snapshot fields are [NonSerialized]
+            // and would otherwise vanish on F5/F9 mid-session, breaking the
+            // per-frame anchor for every other ghost in the Re-Fly tree.
+            // Encoded as a child PRE_REFLY_ANCHOR node containing a full
+            // serialized trajectory (points/orbit segments/track sections);
+            // SerializeTrajectoryInto is reused via a temp Recording so the
+            // codec stays a single source of truth for trajectory layout.
+            // SupersedeCommit clears the snapshot once the session ends, so
+            // the .sfs bloat is bounded to active sessions only.
+            //
+            // [storage-exempt] CLAUDE.md's storage contract reserves bulk
+            // trajectory data for sidecar `.prec` files. We deliberately
+            // inline the snapshot into `.sfs` here because the data is
+            // session-scoped (one recording per active Re-Fly, capped at
+            // session lifetime), the lifetime is bounded by
+            // ClearPreReFlyAnchorSnapshotsForSession at every session-end
+            // path plus a load-time orphan sweep, and tying the snapshot
+            // to the same atomic write as the marker / supersede / merge-
+            // state metadata avoids a sidecar-orphan class of bug where the
+            // snapshot's lifecycle drifts from the marker's. A future
+            // optimisation could move the encoded payload into a sidecar
+            // file keyed by session id; not blocking on it because the
+            // worst-case bloat is bounded to active sessions only.
+            if (!string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)
+                && rec.HasPreReFlyAnchorTrajectory(rec.PreReFlyAnchorSessionId))
+            {
+                Recording snapshotRec = rec.BuildPreReFlyAnchorTrajectoryRecording(
+                    rec.PreReFlyAnchorSessionId);
+                if (snapshotRec != null)
+                {
+                    ConfigNode anchorNode = recNode.AddNode("PRE_REFLY_ANCHOR");
+                    anchorNode.AddValue("sessionId", rec.PreReFlyAnchorSessionId);
+                    TrajectoryTextSidecarCodec.SerializeTrajectoryInto(anchorNode, snapshotRec);
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ANCHOR written: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + rec.PreReFlyAnchorSessionId
+                            + " points=" + (snapshotRec.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (snapshotRec.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (snapshotRec.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
+            }
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -806,6 +856,39 @@ namespace Parsek
                 ParsekLog.Warn("Recording",
                     $"Stray SupersedeTargetId on committed rec={rec.RecordingId}; treating as cleared");
                 rec.SupersedeTargetId = null;
+            }
+
+            // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). The
+            // matching SaveRecordingInto branch documents the lifecycle and
+            // why the snapshot must survive F5/F9. Decoded into a temp
+            // Recording (re-using SerializeTrajectoryInto's inverse) so the
+            // shared trajectory codec stays a single source of truth.
+            ConfigNode anchorNode = recNode.GetNode("PRE_REFLY_ANCHOR");
+            if (anchorNode != null)
+            {
+                string anchorSessionId = anchorNode.GetValue("sessionId");
+                if (!string.IsNullOrEmpty(anchorSessionId))
+                {
+                    Recording snapshotRec = new Recording
+                    {
+                        RecordingFormatVersion = rec.RecordingFormatVersion,
+                    };
+                    TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(anchorNode, snapshotRec);
+                    rec.PreReFlyAnchorSessionId = anchorSessionId;
+                    rec.PreReFlyAnchorPoints = snapshotRec.Points;
+                    rec.PreReFlyAnchorOrbitSegments = snapshotRec.OrbitSegments;
+                    rec.PreReFlyAnchorTrackSections = snapshotRec.TrackSections;
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ANCHOR loaded: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + anchorSessionId
+                            + " points=" + (snapshotRec.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (snapshotRec.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (snapshotRec.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
             }
         }
 

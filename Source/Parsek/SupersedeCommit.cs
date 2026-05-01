@@ -326,8 +326,46 @@ namespace Parsek
             // call site that commits while still in flight.
             ReFlyRevertButtonGate.Apply("SupersedeCommit:marker-cleared");
 
+            // #688 follow-up: drop any captured pre-Re-Fly anchor trajectory
+            // snapshot now that the session is committed. The snapshot was
+            // only needed to feed the per-frame anchor offset while the live
+            // recording was being trimmed/extended; post-merge the recording's
+            // own data is final and the snapshot would otherwise linger in
+            // memory and in the .sfs as dead weight (the codec writes a
+            // full PRE_REFLY_ANCHOR node whenever HasPreReFlyAnchorTrajectory
+            // returns true). Idempotent — clears all recordings tagged with
+            // this session id, even though under the in-place contract only
+            // one recording carries a snapshot per session.
+            ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        internal static int ClearPreReFlyAnchorSnapshotsForSession(string sessionId)
+        {
+            if (string.IsNullOrEmpty(sessionId)) return 0;
+            int cleared = 0;
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null) continue;
+                    if (!string.Equals(
+                            rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal))
+                        continue;
+                    rec.ClearPreReFlyAnchorTrajectory();
+                    cleared++;
+                }
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Cleared {cleared} pre-Re-Fly anchor snapshot(s) for sess={sessionId}");
+            }
+            return cleared;
         }
 
         /// <summary>

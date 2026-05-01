@@ -263,6 +263,11 @@ namespace Parsek
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 ReFlyRevertButtonGate.Apply("RetryHandler:marker-cleared");
+                // #688 follow-up: drop the captured pre-Re-Fly anchor
+                // trajectory snapshot (matches SupersedeCommit's cleanup;
+                // retry restarts a fresh session, the previous capture is
+                // dead weight).
+                SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(oldSessionId);
                 ParsekLog.Verbose(SessionTag,
                     $"RetryHandler: marker cleared for sess={oldSessionId} target={target}; re-invoking rewind");
             }
@@ -355,6 +360,10 @@ namespace Parsek
                     scenario.ActiveMergeJournal = null;
                     scenario.BumpSupersedeStateVersion();
                     ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:rp-unresolvable");
+                    // #688 follow-up: drop the captured pre-Re-Fly anchor
+                    // trajectory snapshot — the discarded session is dead
+                    // and the snapshot is no longer needed for any ghost.
+                    SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
                 }
 
                 PostScreenMessage("Discard Re-fly failed: rewind point missing");
@@ -403,6 +412,10 @@ namespace Parsek
                 // flight where the next FlightDriver.Start will recompute,
                 // making the call a logged no-op there — cheap and consistent.
                 ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:marker-cleared");
+                // #688 follow-up: drop the captured pre-Re-Fly anchor
+                // trajectory snapshot — the discarded session is dead and
+                // the snapshot is no longer needed for any ghost.
+                SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
             }
 
             // Step 7: defensively clean up the prior session's temp quicksave

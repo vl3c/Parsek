@@ -441,6 +441,12 @@ namespace Parsek
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("TreeDiscardPurge:tree-discarded");
+            // #688 follow-up: clear the captured pre-Re-Fly anchor snapshot
+            // for this dead session. Defensive — the tree's recordings are
+            // about to be purged in the same outer call, so the snapshot's
+            // host disappears anyway. Belt-and-braces against a future caller
+            // that clears the marker but keeps recordings alive briefly.
+            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(marker.SessionId);
             ParsekLog.Info(SessionTag,
                 $"End reason=treeDiscarded sess={sessionId} tree={treeId}");
             return true;
