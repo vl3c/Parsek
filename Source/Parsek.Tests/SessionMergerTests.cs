@@ -1540,6 +1540,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeTree_BackgroundToActiveRelativeAnchorRecordingMismatch_SkipsHeal()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 0.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+            background.anchorRecordingId = "anchor-background";
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 50.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+            active.anchorRecordingId = "anchor-active";
+
+            Assert.Equal(0u, background.anchorVesselId);
+            Assert.Equal(0u, active.anchorVesselId);
+            Assert.Equal("recording:anchor-background", SessionMerger.AnchorIdentityKey(background));
+            Assert.Equal("recording:anchor-active", SessionMerger.AnchorIdentityKey(active));
+
+            var rec = MakeRecording("rec-580-anchor-rec", "Anchor Recording Vessel",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Anchor Recording Mismatch", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-anchor-rec"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(2.0, merged.TrackSections[1].frames[0].ut);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-anchor-rec"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Anchor Recording Vessel'") &&
+                l.Contains("prevRef=Relative") &&
+                l.Contains("nextRef=Relative") &&
+                l.Contains("cause=unrecorded-gap"));
+        }
+
+        [Fact]
         public void MergeTree_BackgroundToActiveUnrecordedGap_HealsMultipleBoundaries()
         {
             var background1 = MakeSectionWithFrame(

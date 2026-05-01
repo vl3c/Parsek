@@ -1,6 +1,6 @@
 # Ghost rendering anchor — recording chain rearchitecture
 
-**Status:** plan, awaiting review.
+**Status:** approved; Phase A implemented 2026-05-01, Phase B+ pending.
 **Author:** synthesised from user's stated intent across multiple sessions.
 **Supersedes:** `relative-anchor-rearchitecture-prompt.md` (had drift on the architectural intent).
 
@@ -300,6 +300,8 @@ Each phase is independently reviewable and reverts cleanly. Phase A/B are schema
 - Playback unchanged.
 
 **Acceptance:** new v11 recordings round-trip `anchorRecordingId` through binary and text sidecars, `TrajectorySidecarBinary.CurrentBinaryVersion` and the write-version ladder emit a v11 header for v11 recordings, `CurrentRecordingFormatVersion` consumer grep/audit is recorded with no accidental v11 feature gates, the resolver API passes focused unit tests for empty/missing-anchor inputs plus a single-link Absolute-terminator chain, and the watch-separation-wobble repro is either confirmed on the Phase A baseline or replaced with a documented equivalent. Phase A does not assert legacy cutoff render behaviour because playback is unchanged until Phase C/E.
+
+**Phase A implementation note (2026-05-01):** v11 schema and binary/text sidecar round-trips are in place, `RelativeAnchorResolver` resolves a single-link Relative-to-Absolute chain through recorded data only, and focused plus full xUnit passed. The `CurrentRecordingFormatVersion` audit found default stamping/probe checks plus one risky feature gate in `FlightRecorder.MaybeUpgradeActiveRecordingRelativeContract`; that gate now uses a named target and defers pid-only Relative sections at v10 instead of silently stamping them as v11. `SessionMerger.HealBackgroundActiveUnrecordedGapBoundaries` now compares Relative anchors with `AnchorIdentityKey(section)` so v11 sections with different `anchorRecordingId` values do not collapse because both legacy PIDs are zero. Remaining `anchorVesselId` playback/map/KSC live lookups are intentionally left for Phase C/D/E fences. Runtime baseline was not executed by the agent; use the in-game checklist in `docs/dev/todo-and-known-bugs.md` before Phase B/C visual acceptance.
 
 ### Phase B — Recorder writes the new field
 

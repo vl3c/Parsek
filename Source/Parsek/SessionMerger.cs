@@ -623,6 +623,17 @@ namespace Parsek
             return (float)dist;
         }
 
+        internal static string AnchorIdentityKey(TrackSection section)
+        {
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return string.Empty;
+
+            if (!string.IsNullOrEmpty(section.anchorRecordingId))
+                return "recording:" + section.anchorRecordingId;
+
+            return "pid:" + section.anchorVesselId.ToString(CultureInfo.InvariantCulture);
+        }
+
         private static int HealBackgroundActiveUnrecordedGapBoundaries(
             string recId, string vesselName, List<TrackSection> sections,
             out List<TrackSection> preHealSections)
@@ -647,7 +658,9 @@ namespace Parsek
                     || prev.referenceFrame != next.referenceFrame
                     || prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint
                     || (prev.referenceFrame == ReferenceFrame.Relative
-                        && prev.anchorVesselId != next.anchorVesselId))
+                        && !StringComparer.Ordinal.Equals(
+                            AnchorIdentityKey(prev),
+                            AnchorIdentityKey(next))))
                 {
                     continue;
                 }

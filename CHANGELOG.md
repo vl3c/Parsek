@@ -96,6 +96,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
+- Began the ghost anchor recording-chain rearchitecture with the Phase A v11 format break: `TrackSection` now carries `anchorRecordingId`, binary and text trajectory sidecars round-trip it without normal v11 `anchorPid` output, `TrajectorySidecarBinary.CurrentBinaryVersion` emits v11 headers, and the staged `RelativeAnchorResolver` resolves recorded-data-only single-link Relative chains. Existing pid-only Relative sections are not silently stamped to v11, and SessionMerger now compares v11 Relative anchors by recording id so zeroed legacy PIDs cannot collapse distinct anchors.
 - Downgraded a benign in-place Re-Fly marker-rebuild warning from WARN to VERBOSE.
 - Hardened `UnfinishedFlightClassifier.HasStashedResolvedSlot` to reject slots that are both stashed and sealed.
 - Continued refactor-4 (Pass 4) with a behavior-neutral `LedgerOrchestrator` extraction for vessel recovery-funds pairing and rollout cost/adoption helpers. Existing orchestrator wrappers, constants, log tags/text, dedup formats, KSC sequence allocation, and build-cost residual emission stay in place while the moved logic lives in focused helper classes.

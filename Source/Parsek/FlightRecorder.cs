@@ -6626,12 +6626,26 @@ namespace Parsek
                 return;
             }
 
-            if (activeRec.RecordingFormatVersion >= RecordingStore.CurrentRecordingFormatVersion)
+            bool hasRelativeTrackSections = HasRelativeTrackSections(activeRec);
+            int targetFormatVersion = ResolveRelativeContractUpgradeTarget(
+                activeRec.RecordingFormatVersion,
+                hasRelativeTrackSections);
+            if (activeRec.RecordingFormatVersion >= targetFormatVersion)
             {
+                if (hasRelativeTrackSections
+                    && activeRec.RecordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
+                    && targetFormatVersion < RecordingStore.CurrentRecordingFormatVersion)
+                {
+                    ParsekLog.VerboseRateLimited("Recorder",
+                        "relative-contract-v11-upgrade-deferred-" + activeRec.RecordingId,
+                        $"Relative contract v11 upgrade deferred: recording={activeRec.RecordingId} " +
+                        $"version={activeRec.RecordingFormatVersion} " +
+                        $"current={RecordingStore.CurrentRecordingFormatVersion} " +
+                        $"reason={reason} existingRelativeSections=true");
+                }
                 return;
             }
 
-            bool hasRelativeTrackSections = HasRelativeTrackSections(activeRec);
             if (hasRelativeTrackSections
                 && activeRec.RecordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
             {
@@ -6652,12 +6666,25 @@ namespace Parsek
             // frozen anchor trajectory path; only new v7 samples append
             // absolute shadow frames.
             int previousVersion = activeRec.RecordingFormatVersion;
-            activeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            activeRec.RecordingFormatVersion = targetFormatVersion;
             ParsekLog.Info("Recorder",
                 $"Relative contract upgraded: recording={activeRec.RecordingId} " +
                 $"version={previousVersion}->{activeRec.RecordingFormatVersion} " +
                 $"contract={RecordingStore.DescribeRelativeFrameContract(activeRec.RecordingFormatVersion)} " +
                 $"reason={reason}");
+        }
+
+        internal static int ResolveRelativeContractUpgradeTarget(
+            int recordingFormatVersion,
+            bool hasRelativeTrackSections)
+        {
+            if (hasRelativeTrackSections
+                && recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion)
+            {
+                return RecordingStore.StructuralEventFlagFormatVersion;
+            }
+
+            return RecordingStore.CurrentRecordingFormatVersion;
         }
 
         /// <summary>

@@ -52,6 +52,9 @@ namespace Parsek.Tests
         [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(9, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(10, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(11, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
@@ -75,6 +78,17 @@ namespace Parsek.Tests
                 Assert.Null(probe.FailureReason);
             else
                 Assert.Equal($"unsupported binary trajectory version {version}", probe.FailureReason);
+        }
+
+        [Fact]
+        public void CurrentBinaryVersion_IsRecordingAnchorChainVersion()
+        {
+            Assert.Equal(
+                RecordingStore.RecordingAnchorChainFormatVersion,
+                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
+            Assert.Equal(
+                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion,
+                TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
         [Fact]
@@ -149,6 +163,27 @@ namespace Parsek.Tests
             Assert.Equal(2, restored.TrackSections[0].absoluteFrames.Count);
             AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
             AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
+        }
+
+        [Fact]
+        public void WriteRead_RelativeSection_PreservesAnchorRecordingId()
+        {
+            Recording original = BuildAnchorRecordingIdFixture();
+
+            string path = Path.Combine(tempDir, "anchor-recording-id.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 21);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.Equal(RecordingStore.RecordingAnchorChainFormatVersion, probe.FormatVersion);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Single(restored.TrackSections);
+            Assert.Equal("anchor-rec-1", restored.TrackSections[0].anchorRecordingId);
+            Assert.Equal(0u, restored.TrackSections[0].anchorVesselId);
+            Assert.Equal(2, restored.TrackSections[0].frames.Count);
         }
 
         [Fact]
@@ -417,6 +452,40 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording BuildAnchorRecordingIdFixture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "v11-anchor-recording-id",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                VesselName = "Upper Stage",
+                VesselPersistentId = 12001u
+            };
+
+            var relativeA = MakePoint(100.0, 1.0, 2.0, 3.0, "Kerbin");
+            var relativeB = MakePoint(101.0, 4.0, 5.0, 6.0, "Kerbin");
+            rec.Points.Add(relativeA);
+            rec.Points.Add(relativeB);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 101.0,
+                anchorRecordingId = "anchor-rec-1",
+                anchorVesselId = 3314061462u,
+                sampleRateHz = 2f,
+                minAltitude = 3f,
+                maxAltitude = 6f,
+                frames = new List<TrajectoryPoint> { relativeA, relativeB },
+                absoluteFrames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
         private static BinaryTrajectoryEnvelope ReadEnvelopeHeader(string path)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -529,6 +598,7 @@ namespace Parsek.Tests
             Assert.Equal(expected.startUT, actual.startUT);
             Assert.Equal(expected.endUT, actual.endUT);
             Assert.Equal(expected.anchorVesselId, actual.anchorVesselId);
+            Assert.Equal(expected.anchorRecordingId, actual.anchorRecordingId);
             Assert.Equal(expected.sampleRateHz, actual.sampleRateHz);
             Assert.Equal(expected.source, actual.source);
             Assert.Equal(expected.boundaryDiscontinuityMeters, actual.boundaryDiscontinuityMeters);

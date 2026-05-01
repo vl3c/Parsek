@@ -1426,7 +1426,11 @@ namespace Parsek
                 if (!float.IsNaN(track.maxAltitude))
                     tsNode.AddValue("maxAlt", track.maxAltitude.ToString("R", ic));
 
-                if (track.anchorVesselId != 0)
+                if (!string.IsNullOrEmpty(track.anchorRecordingId))
+                    tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
+
+                if (recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
+                    && track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
@@ -1580,6 +1584,7 @@ namespace Parsek
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))
                     section.anchorVesselId = anchorPid;
+                section.anchorRecordingId = tsNode.GetValue("anchorRecordingId");
 
                 // Producer-C boundary seam flag: defaults to false when absent — forward-tolerant
                 // for legacy text recordings that were written before v8.
