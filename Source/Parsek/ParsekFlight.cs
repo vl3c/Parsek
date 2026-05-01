@@ -17609,6 +17609,8 @@ namespace Parsek
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         private readonly HashSet<string> recordedAnchorSeenRecordingIds =
             new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> recordedRelativeAnchorVisited =
+            new HashSet<string>(StringComparer.Ordinal);
         // Phase 4 HR-9: per-(recordingId, sectionIndex) dedup so an unrecognised
         // FrameTag warns once per session instead of every per-frame dispatch.
         // Cleared in the same Cleanup hooks as the other per-session log state.
@@ -21025,12 +21027,25 @@ namespace Parsek
                 focusTree,
                 recordingId,
                 ParsekScenario.Instance?.ActiveReFlySessionMarker);
-            if (!RelativeAnchorResolver.TryResolveAnchorPose(
+            HashSet<string> visited = recordedRelativeAnchorVisited;
+            visited.Clear();
+            bool resolved;
+            AnchorPose anchorPose;
+            try
+            {
+                resolved = RelativeAnchorResolver.TryResolveAnchorPose(
                     context,
                     anchorRecordingId,
                     targetUT,
-                    new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose anchorPose))
+                    visited,
+                    out anchorPose);
+            }
+            finally
+            {
+                visited.Clear();
+            }
+
+            if (!resolved)
             {
                 return false;
             }

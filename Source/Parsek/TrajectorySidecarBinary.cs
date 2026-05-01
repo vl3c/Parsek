@@ -381,8 +381,7 @@ namespace Parsek
                 || version == BoundarySeamFlagBinaryVersion
                 || version == TerrainGroundClearanceBinaryVersion
                 || version == StructuralEventFlagBinaryVersion
-                || version == RecordingAnchorChainBinaryVersion
-                || version == CurrentBinaryVersion;
+                || version == RecordingAnchorChainBinaryVersion;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)

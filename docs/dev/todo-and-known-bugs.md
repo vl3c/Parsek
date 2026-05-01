@@ -17,6 +17,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Status:** Observability wired up; Phases A-C of `docs/dev/plans/ghost-anchor-recording-chain-plan.md` landed the v11 schema, recorder anchor selection, and playback chain handoff. Headless coverage now pins the engine/positioner target contract, multi-link resolver failures, and production boundary resolver fencing. The KSP-only validation remains open: re-capture or synthesize the `logs/2026-05-01_1731_watch-separation-wobble/` fixture under v11, replay the UT 41.74-46.74 separation window with `[PlaybackTrace]` enabled, and preserve the trace showing smooth `dM` / `dSpd` before Phase D deletion work.
 
+**PR #708 follow-ups:** Phase A added `TrackSection.anchorRecordingId` and v11 sidecar round-trips, Phase B writes recording-id Relative anchors from range-eligible candidates ranked sealed / affinity / distance, and Phase C resolves non-loop Relative playback through `RelativeAnchorResolver` with logged shadow-or-hide failure handling. Before Phase D increases chain traffic, profile the resolver hot path and, if measured, add per-frame `(recordingId, sectionIndex, ut)` pose memoization plus a `RecordingStore` recording-id-to-tree index instead of reviving live-PID fallbacks.
+
 ---
 
 ## Done - v0.9.1 group rewind button surfacing

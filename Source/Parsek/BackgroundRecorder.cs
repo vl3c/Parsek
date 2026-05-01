@@ -133,6 +133,8 @@ namespace Parsek
         private System.Func<Vessel, double> distanceOverrideForTesting;
         private readonly List<RecordingAnchorCandidate> backgroundAnchorCandidateBuffer =
             new List<RecordingAnchorCandidate>();
+        private readonly HashSet<string> backgroundAnchorVisitedRecordingIds =
+            new HashSet<string>(StringComparer.Ordinal);
 
         public BackgroundRecorder(RecordingTree tree)
         {
@@ -3806,12 +3808,23 @@ namespace Parsek
                 bodyWorldRotationResolver: ResolveBackgroundBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveBackgroundOrbitalAnchorPose);
 
-            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                context,
-                anchorRecordingId,
-                ut,
-                new HashSet<string>(StringComparer.Ordinal),
-                out pose);
+            HashSet<string> visited = backgroundAnchorVisitedRecordingIds;
+            visited.Clear();
+            bool resolved;
+            try
+            {
+                resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                    context,
+                    anchorRecordingId,
+                    ut,
+                    visited,
+                    out pose);
+            }
+            finally
+            {
+                visited.Clear();
+            }
+
             if (!resolved)
                 reason = "recorded-anchor-unresolved";
             return resolved;
