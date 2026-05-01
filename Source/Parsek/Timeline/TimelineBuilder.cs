@@ -208,8 +208,8 @@ namespace Parsek
                 //
                 //   * UnfinishedFlightSeparation (T1, default-visible) —
                 //     terminal=Destroyed/Crashed AND a matching RP exists.
-                //     Renders with a Fly button in the timeline so the
-                //     player can re-fly directly from here.
+                //     Renders with Fly/Seal buttons in the timeline so the
+                //     player can re-fly or close the slot directly from here.
                 //
                 //   * Separation (T2, detail-only) — formerly-UF rows
                 //     whose RP was reaped on merge. Just label and GoTo

@@ -35,7 +35,8 @@ namespace Parsek
         {
             Overview,
             Details,
-            RewindOrFastForward
+            RewindOrFastForward,
+            ReFly
         }
 
         private readonly ParsekUI parentUI;
@@ -56,8 +57,8 @@ namespace Parsek
         private const float RowActionButtonWidth = 35f;
         private const float GoToButtonWidth = 48f;
 
-        // Shared width for all top filter/preset buttons (Overview, Details, Rewind/FF,
-        // Recordings, Actions, Events + Last Day / Last 7d / Last 30d / This Year / All / Custom).
+        // Shared width for top filter/source/preset buttons: Overview, Details,
+        // Rewind/FF, Re-Fly, Recordings, Actions, Events, and time presets.
         // Every button in the Timeline's top zone uses the same width so the rows align.
         private const float FilterButtonWidth = 93f;
 
@@ -124,6 +125,26 @@ namespace Parsek
             internal bool Enabled { get; }
             internal bool CanWatch { get; }
             internal TimelineWatchButtonAction Action { get; }
+        }
+
+        internal readonly struct TimelineFlySealButtonDescriptor
+        {
+            internal TimelineFlySealButtonDescriptor(
+                bool flyEnabled,
+                string flyTooltip,
+                bool sealEnabled,
+                string sealTooltip)
+            {
+                FlyEnabled = flyEnabled;
+                FlyTooltip = flyTooltip;
+                SealEnabled = sealEnabled;
+                SealTooltip = sealTooltip;
+            }
+
+            internal bool FlyEnabled { get; }
+            internal string FlyTooltip { get; }
+            internal bool SealEnabled { get; }
+            internal string SealTooltip { get; }
         }
 
         public bool IsOpen
@@ -417,9 +438,9 @@ namespace Parsek
 
             // First-row buttons sit at fixed column positions matching the preset row
             // below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
-            // Actions=col5, Events=col6. The second row adds a lone Rewind/FF toggle
-            // directly under Overview using the same width, so it reads as a third
-            // mutually-exclusive tier preset instead of another source toggle.
+            // Actions=col5, Events=col6. The second row adds action filters directly
+            // under Overview/Details, so they read as mutually-exclusive tier presets
+            // instead of source toggles.
             float btnW = GetResponsiveButtonWidth();
 
             GUILayout.BeginHorizontal();
@@ -448,8 +469,9 @@ namespace Parsek
             // Recordings 8px left of This Year due to the missing margin gap.
             GUILayout.Label("", GUILayout.Width(btnW));
 
-            bool rewindOrFastForwardMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-            if (rewindOrFastForwardMode && !showRecordingEntries)
+            bool actionFilterMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward
+                || tierFilterMode == TimelineTierFilterMode.ReFly;
+            if (actionFilterMode && !showRecordingEntries)
             {
                 showRecordingEntries = true;
                 filterDirty = true;
@@ -457,7 +479,7 @@ namespace Parsek
 
             // Source toggles (columns 4-6).
             bool previousGuiEnabled = GUI.enabled;
-            GUI.enabled = !rewindOrFastForwardMode;
+            GUI.enabled = !actionFilterMode;
             bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
@@ -486,13 +508,31 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
             bool rewindOrFastForwardActive = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-            if (GUILayout.Toggle(rewindOrFastForwardActive, "Rewind/FF", toggleButtonStyle, GUILayout.Width(btnW)) &&
+            if (GUILayout.Toggle(
+                    rewindOrFastForwardActive,
+                    new GUIContent("Rewind/FF", "Show rows with R or FF."),
+                    toggleButtonStyle,
+                    GUILayout.Width(btnW)) &&
                 !rewindOrFastForwardActive)
             {
                 tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
                 showRecordingEntries = true;
                 filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
+            }
+
+            bool reFlyActive = tierFilterMode == TimelineTierFilterMode.ReFly;
+            if (GUILayout.Toggle(
+                    reFlyActive,
+                    new GUIContent("Re-Fly", "Show rows with Fly or Seal."),
+                    toggleButtonStyle,
+                    GUILayout.Width(btnW)) &&
+                !reFlyActive)
+            {
+                tierFilterMode = TimelineTierFilterMode.ReFly;
+                showRecordingEntries = true;
+                filterDirty = true;
+                ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
             }
             GUILayout.EndHorizontal();
         }
@@ -746,6 +786,17 @@ namespace Parsek
                 if (!HasActionableRewindOrFastForwardButton(entry, rec, currentUT, canFastForward, canRewind))
                     return false;
             }
+            else if (tierFilterMode == TimelineTierFilterMode.ReFly)
+            {
+                var rec = FindRecordingById(entry.RecordingId);
+                RewindPoint rp;
+                int slotListIndex;
+                string routeReason;
+                var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
+                    rec, out rp, out slotListIndex, out routeReason);
+                if (!HasActionableFlyOrSealButton(entry, rec, route, rp, slotListIndex))
+                    return false;
+            }
             else if (entry.Tier == SignificanceTier.T2 && tierFilterMode == TimelineTierFilterMode.Overview)
             {
                 return false;
@@ -936,10 +987,10 @@ namespace Parsek
                       || entry.Type == TimelineEntryType.Separation)
                      && !string.IsNullOrEmpty(entry.RecordingId))
             {
-                // Separation row: tree-child split point. UF flavour gets a
-                // Fly button; the plain post-merge / non-UF flavour just
-                // gets GoTo. No Watch / Loop / R / FF — those are launch-
-                // playback affordances, not split affordances.
+                // Separation row: tree-child split point. UF flavour gets
+                // Fly/Seal actions; the plain post-merge / non-UF flavour
+                // just gets GoTo. No Watch / Loop / R / FF — those are
+                // launch-playback affordances, not split affordances.
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
@@ -947,7 +998,7 @@ namespace Parsek
 
                     if (entry.Type == TimelineEntryType.UnfinishedFlightSeparation)
                     {
-                        DrawTimelineFlyButton(rec);
+                        DrawTimelineFlySealButtons(rec);
                     }
 
                     if (GUILayout.Button(
@@ -968,15 +1019,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Draw the timeline-row "Fly" button for an Unfinished Flight
-        /// separation entry. Resolves the RP slot via the shared
+        /// Draw the timeline-row "Fly" and "Seal" buttons for an Unfinished
+        /// Flight separation entry. Resolves the RP slot via the shared
         /// <see cref="RecordingsTableUI.ResolveUnfinishedFlightRewindRoute"/>
         /// so the timeline and the Recordings table dispatch through the
-        /// same code path; clicking ends in
-        /// <see cref="RewindInvoker.ShowDialog"/>. Width matches the
-        /// other row action buttons.
+        /// same code path. Fly opens <see cref="RewindInvoker.ShowDialog"/>;
+        /// Seal uses the same slot-close path as the Recordings table.
         /// </summary>
-        private void DrawTimelineFlyButton(Recording rec)
+        private void DrawTimelineFlySealButtons(Recording rec)
         {
             float width = GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind);
 
@@ -986,35 +1036,55 @@ namespace Parsek
             var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
                 rec, out rp, out slotListIndex, out routeReason);
 
-            bool resolvable =
-                route == RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved
-                && rp != null && slotListIndex >= 0 && rp.ChildSlots != null
-                && slotListIndex < rp.ChildSlots.Count;
+            bool resolvable = IsResolvedFlySealRoute(route, rp, slotListIndex);
 
             if (!resolvable)
             {
-                GUI.enabled = false;
-                GUILayout.Button(
-                    new GUIContent("Fly", routeReason ?? "Re-Fly unavailable"),
-                    GUILayout.Width(width));
-                GUI.enabled = true;
+                var descriptor = BuildFlySealButtonDescriptor(
+                    resolvable: false, canInvoke: false, unavailableReason: routeReason);
+                DrawTimelineFlySealButtons(width, descriptor, out _, out _);
                 return;
             }
 
             string reason;
             bool canInvoke = RecordingsTableUI.CanInvokeRewindPointSlot(
                 rp, slotListIndex, out reason);
-            GUI.enabled = canInvoke;
-            string tooltip = canInvoke
-                ? "Re-fly this unfinished flight from the separation moment"
-                : (reason ?? "Re-Fly unavailable");
-            if (GUILayout.Button(new GUIContent("Fly", tooltip), GUILayout.Width(width)))
+            var buttonState = BuildFlySealButtonDescriptor(
+                resolvable: true, canInvoke: canInvoke, unavailableReason: reason);
+            bool flyClicked;
+            bool sealClicked;
+            DrawTimelineFlySealButtons(width, buttonState, out flyClicked, out sealClicked);
+            if (flyClicked)
             {
                 ParsekLog.Info("UI",
                     $"Timeline Fly button clicked: \"{rec.VesselName}\" id={rec.RecordingId} " +
                     $"rp={rp.RewindPointId ?? "<no-id>"} slot={slotListIndex}");
                 RewindInvoker.ShowDialog(rp, slotListIndex);
             }
+
+            if (sealClicked)
+            {
+                ParsekLog.Info("UI",
+                    $"Timeline Seal button clicked: \"{rec.VesselName}\" id={rec.RecordingId} " +
+                    $"rp={rp.RewindPointId ?? "<no-id>"} slot={slotListIndex}");
+                RecordingsTableUI.HandleSealUnfinishedFlightClick(rec, rp, slotListIndex);
+            }
+        }
+
+        private static void DrawTimelineFlySealButtons(
+            float width,
+            TimelineFlySealButtonDescriptor descriptor,
+            out bool flyClicked,
+            out bool sealClicked)
+        {
+            GUI.enabled = descriptor.FlyEnabled;
+            flyClicked = GUILayout.Button(
+                new GUIContent("Fly", descriptor.FlyTooltip),
+                GUILayout.Width(width));
+            GUI.enabled = descriptor.SealEnabled;
+            sealClicked = GUILayout.Button(
+                new GUIContent("Seal", descriptor.SealTooltip),
+                GUILayout.Width(width));
             GUI.enabled = true;
         }
 
@@ -1039,6 +1109,31 @@ namespace Parsek
             bool isFuture = entry.UT > currentUT;
             return (ShouldShowFastForwardButton(rec, isFuture) && canFastForward)
                 || (ShouldShowRewindButton(rec, isFuture) && canRewind);
+        }
+
+        internal static bool HasActionableFlyOrSealButton(
+            TimelineEntry entry,
+            Recording rec,
+            RecordingsTableUI.UnfinishedFlightRewindRoute route,
+            RewindPoint rp,
+            int slotListIndex)
+        {
+            return entry != null
+                && entry.Type == TimelineEntryType.UnfinishedFlightSeparation
+                && rec != null
+                && IsResolvedFlySealRoute(route, rp, slotListIndex);
+        }
+
+        internal static bool IsResolvedFlySealRoute(
+            RecordingsTableUI.UnfinishedFlightRewindRoute route,
+            RewindPoint rp,
+            int slotListIndex)
+        {
+            return route == RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved
+                && rp != null
+                && slotListIndex >= 0
+                && rp.ChildSlots != null
+                && slotListIndex < rp.ChildSlots.Count;
         }
 
         internal static float GetRowActionButtonWidth(TimelineRowActionButtonKind actionKind)
@@ -1078,6 +1173,23 @@ namespace Parsek
                 RecordingsTableUI.ShouldEnableWatchButton(canWatch, isWatching),
                 canWatch,
                 GetWatchButtonAction(isWatching));
+        }
+
+        internal static TimelineFlySealButtonDescriptor BuildFlySealButtonDescriptor(
+            bool resolvable, bool canInvoke, string unavailableReason)
+        {
+            string unavailable = string.IsNullOrEmpty(unavailableReason)
+                ? "Action unavailable."
+                : unavailableReason;
+            return new TimelineFlySealButtonDescriptor(
+                flyEnabled: resolvable && canInvoke,
+                flyTooltip: resolvable && canInvoke
+                    ? "Re-fly from the separation moment."
+                    : unavailable,
+                sealEnabled: resolvable,
+                sealTooltip: resolvable
+                    ? "Close this slot without changing the recording."
+                    : unavailable);
         }
 
         internal static void ApplyWatchButtonAction(

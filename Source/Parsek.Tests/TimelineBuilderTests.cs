@@ -1977,7 +1977,7 @@ namespace Parsek.Tests
                 Assert.Equal(TimelineEntryType.UnfinishedFlightSeparation, sep.Type);
                 Assert.Equal(200, sep.UT);
                 Assert.Equal(booster.RecordingId, sep.RecordingId);
-                Assert.Equal("Separation of Unfinished Flight: Kerbal X Probe", sep.DisplayText);
+                Assert.Equal("Unfinished Flight: Kerbal X Probe", sep.DisplayText);
                 Assert.Equal(SignificanceTier.T1, sep.Tier);
             }
             finally

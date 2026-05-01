@@ -115,6 +115,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildFlySealButtonDescriptor_ResolvedSlot_EnablesBothActions()
+        {
+            var descriptor = TimelineWindowUI.BuildFlySealButtonDescriptor(
+                resolvable: true, canInvoke: true, unavailableReason: null);
+
+            Assert.True(descriptor.FlyEnabled);
+            Assert.Equal("Re-fly from the separation moment.", descriptor.FlyTooltip);
+            Assert.True(descriptor.SealEnabled);
+            Assert.Equal("Close this slot without changing the recording.", descriptor.SealTooltip);
+        }
+
+        [Fact]
+        public void BuildFlySealButtonDescriptor_ResolvedButNotInvokable_OnlyDisablesFly()
+        {
+            var descriptor = TimelineWindowUI.BuildFlySealButtonDescriptor(
+                resolvable: true, canInvoke: false, unavailableReason: "Rewind point save missing.");
+
+            Assert.False(descriptor.FlyEnabled);
+            Assert.Equal("Rewind point save missing.", descriptor.FlyTooltip);
+            Assert.True(descriptor.SealEnabled);
+            Assert.Equal("Close this slot without changing the recording.", descriptor.SealTooltip);
+        }
+
+        [Fact]
+        public void BuildFlySealButtonDescriptor_UnresolvedSlot_DisablesBothActions()
+        {
+            var descriptor = TimelineWindowUI.BuildFlySealButtonDescriptor(
+                resolvable: false, canInvoke: false, unavailableReason: "Rewind point slot not found.");
+
+            Assert.False(descriptor.FlyEnabled);
+            Assert.Equal("Rewind point slot not found.", descriptor.FlyTooltip);
+            Assert.False(descriptor.SealEnabled);
+            Assert.Equal("Rewind point slot not found.", descriptor.SealTooltip);
+        }
+
+        [Fact]
+        public void BuildFlySealButtonDescriptor_UnresolvedWithoutReason_UsesGenericUnavailableCopy()
+        {
+            var descriptor = TimelineWindowUI.BuildFlySealButtonDescriptor(
+                resolvable: false, canInvoke: false, unavailableReason: null);
+
+            Assert.False(descriptor.FlyEnabled);
+            Assert.Equal("Action unavailable.", descriptor.FlyTooltip);
+            Assert.False(descriptor.SealEnabled);
+            Assert.Equal("Action unavailable.", descriptor.SealTooltip);
+        }
+
+        [Fact]
         public void BuildRecordingIndexLookup_MapsRecordingIdsToIndices()
         {
             var lookup = TimelineWindowUI.BuildRecordingIndexLookup(new[]
@@ -253,6 +301,77 @@ namespace Parsek.Tests
 
             Assert.False(TimelineWindowUI.HasActionableRewindOrFastForwardButton(
                 entry, rec, currentUT: 200, canFastForward: false, canRewind: false));
+        }
+
+        [Fact]
+        public void HasActionableFlyOrSealButton_UnfinishedFlightSeparationResolvedSlot_ReturnsTrue()
+        {
+            var entry = new TimelineEntry
+            {
+                Type = TimelineEntryType.UnfinishedFlightSeparation,
+                UT = 100,
+                RecordingId = "rec-1"
+            };
+            var rec = new Recording { RecordingId = "rec-1" };
+            var rp = new RewindPoint
+            {
+                ChildSlots = new System.Collections.Generic.List<ChildSlot>
+                {
+                    new ChildSlot()
+                }
+            };
+
+            Assert.True(TimelineWindowUI.HasActionableFlyOrSealButton(
+                entry,
+                rec,
+                RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved,
+                rp,
+                slotListIndex: 0));
+        }
+
+        [Fact]
+        public void HasActionableFlyOrSealButton_UnresolvedSlot_ReturnsFalse()
+        {
+            var entry = new TimelineEntry
+            {
+                Type = TimelineEntryType.UnfinishedFlightSeparation,
+                UT = 100,
+                RecordingId = "rec-1"
+            };
+            var rec = new Recording { RecordingId = "rec-1" };
+
+            Assert.False(TimelineWindowUI.HasActionableFlyOrSealButton(
+                entry,
+                rec,
+                RecordingsTableUI.UnfinishedFlightRewindRoute.MissingSlot,
+                rp: null,
+                slotListIndex: -1));
+        }
+
+        [Fact]
+        public void HasActionableFlyOrSealButton_RecordingStart_ReturnsFalse()
+        {
+            var entry = new TimelineEntry
+            {
+                Type = TimelineEntryType.RecordingStart,
+                UT = 100,
+                RecordingId = "rec-1"
+            };
+            var rec = new Recording { RecordingId = "rec-1" };
+            var rp = new RewindPoint
+            {
+                ChildSlots = new System.Collections.Generic.List<ChildSlot>
+                {
+                    new ChildSlot()
+                }
+            };
+
+            Assert.False(TimelineWindowUI.HasActionableFlyOrSealButton(
+                entry,
+                rec,
+                RecordingsTableUI.UnfinishedFlightRewindRoute.Resolved,
+                rp,
+                slotListIndex: 0));
         }
     }
 }
