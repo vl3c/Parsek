@@ -483,6 +483,7 @@ namespace Parsek
             if (rewindPoints == null)
                 return false;
 
+            double bestUt = double.NegativeInfinity;
             for (int i = 0; i < rewindPoints.Count; i++)
             {
                 var candidate = rewindPoints[i];
@@ -492,12 +493,16 @@ namespace Parsek
                 if (resolved < 0)
                     continue;
 
+                double candidateUt = candidate.UT;
+                if (rp != null && candidateUt < bestUt)
+                    continue;
+
                 rp = candidate;
                 slotListIndex = resolved;
-                return true;
+                bestUt = candidateUt;
             }
 
-            return false;
+            return rp != null;
         }
 
         private static bool TryResolveRewindPointForBranch(

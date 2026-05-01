@@ -137,6 +137,28 @@ namespace Parsek.Tests
                 && l.Contains("side=origin-only"));
         }
 
+        [Fact]
+        public void OriginOnlyFallback_WithMultipleMatchingRps_ResolvesLatest()
+        {
+            const string treeId = "tree_multi_rp";
+            var parent = Rec(
+                "rec_parent",
+                MergeState.Immutable,
+                TerminalState.Destroyed);
+            InstallTree(treeId, parent);
+            var olderRp = Rp("rp_older", "bp_older", "rec_parent");
+            olderRp.UT = 10.0;
+            var latestRp = RpWithFocus("rp_latest", "bp_latest", 0, "rec_other", "rec_parent");
+            latestRp.UT = 46.0;
+            InstallScenario(new List<RewindPoint> { olderRp, latestRp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                parent, out RewindPoint resolvedRp, out int slotListIndex));
+
+            Assert.Same(latestRp, resolvedRp);
+            Assert.Equal(1, slotListIndex);
+        }
+
         private static Recording Rec(
             string id,
             MergeState state,
