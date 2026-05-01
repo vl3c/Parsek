@@ -250,19 +250,15 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Gap 2 + adoption interaction: even with a multi-second clock
-        /// rollback (well outside <c>TryAdoptRolloutAction</c>'s 0.5 s
-        /// post-startUT cap), the in-place UT update keeps adoption viable.
-        /// Sequence: write rollout A at T1 — adopt it — revert and relaunch
-        /// at T1 - 5 (the write-time gate drops B and updates A's UT to
-        /// T1 - 5). A new recording starting at T1 - 4.6 (within the 0.5 s
-        /// cap of the updated UT) must still be able to find the
-        /// already-adopted row by UT proximity if it tried to re-adopt it
-        /// (and conversely, a recalc/reconcile pass running with maxUT below
-        /// T1 must not prune the survivor as a future-dated row).
+        /// Adoption interaction: once the original rollout has already been
+        /// adopted by a recording, the write-time duplicate gate must not
+        /// mutate that adopted row during a later revert-relaunch. The
+        /// relaunch emission remains a fresh unadopted row so a future
+        /// recording can claim the new rollout; load-time repair owns the
+        /// already-corrupt adopted+unadopted cleanup path.
         /// </summary>
         [Fact]
-        public void OnVesselRolloutSpending_AdoptedRowUTUpdatedAfterRevert_StillFindableByLagWindow()
+        public void OnVesselRolloutSpending_AdoptedRowDoesNotBlockRelaunchWrite()
         {
             const double t1 = 1000.0;
             // Pre-revert launch + adoption.
@@ -589,13 +585,15 @@ namespace Parsek.Tests
             int unadoptedAfter = CountUnadoptedRollouts();
             Assert.Equal(1, adoptedAfter);
             Assert.Equal(0, unadoptedAfter);
-            // The adopted row keeps its identity (RecordingId, ActionId, UT
-            // unchanged — no payload swap from the discarded row).
+            // The adopted row keeps its identity (RecordingId, ActionId) while
+            // moving to the duplicate cluster's earliest UT.
             var survivor = Ledger.Actions.Single(a =>
                 a.Type == GameActionType.FundsSpending &&
                 a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
             Assert.Equal("rec-adopted", survivor.RecordingId);
             Assert.Equal(adopted.ActionId, survivor.ActionId);
+            Assert.Equal(ProductionUtSecond, survivor.UT);
+            Assert.Equal(50, survivor.Sequence);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("RepairDuplicateRolloutActions: removing duplicate rollout") &&
@@ -653,6 +651,12 @@ namespace Parsek.Tests
             int unadoptedAfter = CountUnadoptedRollouts();
             Assert.Equal(1, adoptedAfter);
             Assert.Equal(0, unadoptedAfter);
+            var survivor = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal("rec-adopted", survivor.RecordingId);
+            Assert.Equal(ProductionUtSecond, survivor.UT);
+            Assert.Equal(1, survivor.Sequence);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("RepairDuplicateRolloutActions: removing duplicate rollout") &&
@@ -797,6 +801,65 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnKspLoad(new HashSet<string>(), maxUT: 10000.0);
 
             Assert.Equal(1, CountUnadoptedRollouts());
+        }
+
+        /// <summary>
+        /// Follow-up regression: OnKspLoad must run duplicate-rollout repair
+        /// before Reconcile's maxUT pruning. If an already-adopted rollout row
+        /// still carries the original pre-revert UT, and the unadopted relaunch
+        /// duplicate carries the rolled-back UT, Reconcile would otherwise
+        /// prune the adopted row as "future" before repair could move it onto
+        /// the relaunch timeline.
+        /// </summary>
+        [Fact]
+        public void OnKspLoad_RepairsAdoptedFutureRowBeforeReconcilePrunes()
+        {
+            Ledger.SeedInitialFunds(25000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-adopted",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            const double staleFutureUT = 1000.0;
+            const double relaunchUT = 995.0;
+            Ledger.AddAction(new GameAction
+            {
+                UT = staleFutureUT,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                RecordingId = "rec-adopted",
+                Sequence = 10,
+                DedupKey = null,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = relaunchUT,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 11,
+                DedupKey = $"rollout:{relaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+            });
+
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "rec-adopted" },
+                maxUT: relaunchUT + 0.25);
+
+            var rolloutRows = Ledger.Actions
+                .Where(a => a.Type == GameActionType.FundsSpending &&
+                    a.FundsSpendingSource == FundsSpendingSource.VesselBuild)
+                .ToList();
+            Assert.Single(rolloutRows);
+            Assert.Equal("rec-adopted", rolloutRows[0].RecordingId);
+            Assert.Equal(relaunchUT, rolloutRows[0].UT);
+            Assert.Equal(11, rolloutRows[0].Sequence);
         }
 
         /// <summary>

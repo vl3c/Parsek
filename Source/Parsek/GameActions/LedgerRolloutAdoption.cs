@@ -240,16 +240,19 @@ namespace Parsek
         ///   rollback).</description></item>
         ///   <item><description><b>Anchor adopted, candidate unadopted</b> —
         ///   the adopted row is the recording's authoritative cost line; drop
-        ///   the unadopted candidate without rewriting anchor's ActionId
-        ///   (nothing references the unadopted ActionId — adoption never
-        ///   claimed it, no tombstone exists for FundsSpending(VesselBuild),
-        ///   and FundsModule's per-ActionId rate-limit cache is recomputed
-        ///   from scratch on the next recalc).</description></item>
+        ///   the unadopted candidate. If the candidate has the earlier UT,
+        ///   move the adopted row's UT/Sequence to that relaunch timestamp,
+        ///   but do not rewrite the adopted row's ActionId (nothing references
+        ///   the unadopted ActionId — adoption never claimed it, no tombstone
+        ///   exists for FundsSpending(VesselBuild), and FundsModule's
+        ///   per-ActionId rate-limit cache is recomputed from scratch on the
+        ///   next recalc).</description></item>
         ///   <item><description><b>Anchor unadopted, candidate adopted</b> —
         ///   same rule applied symmetrically: keep the adopted candidate as
-        ///   the cluster survivor and drop the unadopted anchor. Done by
-        ///   marking the anchor index for removal and breaking out of the
-        ///   inner scan since the anchor is dead.</description></item>
+        ///   the cluster survivor, move its UT/Sequence to the unadopted
+        ///   anchor's earlier timestamp when needed, and drop the unadopted
+        ///   anchor. Done by marking the anchor index for removal and breaking
+        ///   out of the inner scan since the anchor is dead.</description></item>
         ///   <item><description><b>Both adopted</b> — rare; would mean two
         ///   recordings independently adopted rollouts for the same logical
         ///   vessel within the dedup window. Keep both rows untouched and
@@ -322,17 +325,31 @@ namespace Parsek
                     if (anchorAdopted && !candidateAdopted)
                     {
                         // Anchor (adopted) survives; drop the unadopted candidate.
-                        // ActionId is NOT rewritten because the adopted row's
+                        // Preserve the cluster minimum-UT invariant, but do
+                        // NOT rewrite ActionId because the adopted row's
                         // ActionId is the recording's authoritative reference
                         // and the unadopted ActionId has no consumers.
+                        double anchorOldUT = anchor.UT;
+                        int anchorOldSequence = anchor.Sequence;
+                        bool adoptedTimestampMoved = false;
+                        if (candidate.UT < anchor.UT)
+                        {
+                            anchor.UT = candidate.UT;
+                            anchor.Sequence = candidate.Sequence;
+                            adoptedTimestampMoved = true;
+                        }
+
                         ParsekLog.Info(Tag,
                             $"RepairDuplicateRolloutActions: removing duplicate rollout — adopted anchor wins " +
                             $"(removedUT={candidate.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"keptUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"oldKeptUT={anchorOldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"keptRecordingId={anchor.RecordingId}, " +
                             $"cost={candidate.FundsSpent:F1}, " +
                             $"context={FormatRolloutAdoptionContext(anchorContext)}, " +
-                            $"removedDedupKey={candidate.DedupKey ?? "(null)"})");
+                            $"removedDedupKey={candidate.DedupKey ?? "(null)"}, " +
+                            $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
+                            $"oldSequence={anchorOldSequence}, newSequence={anchor.Sequence})");
 
                         alreadyMarked.Add(j);
                         toRemove.Add(j);
@@ -345,16 +362,30 @@ namespace Parsek
                         // Candidate (adopted) survives; drop the unadopted anchor.
                         // The anchor is dead — break out of the inner scan; the
                         // outer loop will continue at i+1 and skip the now-marked
-                        // index. Symmetric to the previous branch: we never
-                        // rewrite the candidate's ActionId.
+                        // index. Symmetric to the previous branch: preserve
+                        // the cluster minimum-UT invariant, but never rewrite
+                        // the candidate's ActionId.
+                        double candidateOldUT = candidate.UT;
+                        int candidateOldSequence = candidate.Sequence;
+                        bool adoptedTimestampMoved = false;
+                        if (anchor.UT < candidate.UT)
+                        {
+                            candidate.UT = anchor.UT;
+                            candidate.Sequence = anchor.Sequence;
+                            adoptedTimestampMoved = true;
+                        }
+
                         ParsekLog.Info(Tag,
                             $"RepairDuplicateRolloutActions: removing duplicate rollout — adopted candidate wins " +
                             $"(removedUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"keptUT={candidate.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"oldKeptUT={candidateOldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"keptRecordingId={candidate.RecordingId}, " +
                             $"cost={anchor.FundsSpent:F1}, " +
                             $"context={FormatRolloutAdoptionContext(candidateContext)}, " +
-                            $"removedDedupKey={anchor.DedupKey ?? "(null)"})");
+                            $"removedDedupKey={anchor.DedupKey ?? "(null)"}, " +
+                            $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
+                            $"oldSequence={candidateOldSequence}, newSequence={candidate.Sequence})");
 
                         alreadyMarked.Add(i);
                         toRemove.Add(i);
