@@ -11,6 +11,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 Timeline Unfinished Flight actions
+
+- ~~Timeline Unfinished Flight separation rows only exposed `Fly`, and the `Separation of Unfinished Flight: <vessel>` label was wordy enough to make the action row harder to scan.~~ Source: UI review on 2026-05-01. Fix: Timeline rows now read `Unfinished Flight: <vessel>` and show both `Fly` and `Seal` directly at the split moment, reusing the Recordings-table Seal handler for the same slot. Timeline now has a dedicated `Re-Fly` filter for those rows, separate from `Rewind/FF`. `Stash` stays Recordings-only because it is a management action, not a Timeline action.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done — v0.9.1 orphan-cleanup safety guard
 
 - ~~`RecordingStore.CleanOrphanFiles` unconditionally deletes every sidecar file whose recording ID is not in the in-memory known-IDs set, with no protection for the "load lost its tree state" case.~~ Source: `Kerbal Space Program/KSP.log` from save `s19` showed `Save folder changed to 's19' — resetting session state` at 10:13:42 followed by `OnLoad initial: cleared CommittedTrees, loading 0 tree(s)` and then `CleanOrphanFiles: scanning 84 file(s) against 0 known recording ID(s)` deleting 84 sidecars across 12 recordings. The save's `quicksave.sfs` (last saved 09:31, before the bad session) still contained all 12 `RECORDING_TREE` blocks with the same IDs that just got physically deleted, but the trajectory/craft sidecars were unrecoverable. Some earlier session had loaded `persistent.sfs` (presumably with the trees), dropped the in-memory trees, and saved 0 trees back — leaving the sidecars stranded. The next load then deleted them, turning a recoverable accident (restore `RECORDING_TREE` blocks from `quicksave.sfs`) into permanent bulk-data loss.

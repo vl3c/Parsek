@@ -120,9 +120,9 @@ namespace Parsek
 
         /// <summary>
         /// Display text for an Unfinished-Flight separation event:
-        /// "Separation of Unfinished Flight: Booster Y" — the row keeps a
-        /// Fly button so the player can re-fly the destroyed sibling
-        /// directly from the timeline. Once the player merges (or
+        /// "Unfinished Flight: Booster Y" — the row keeps Fly and Seal
+        /// buttons so the player can either re-fly the sibling directly
+        /// from the timeline or close the slot. Once the player merges (or
         /// otherwise finalizes) the re-flight, the recording is no longer
         /// an Unfinished Flight and TimelineBuilder emits a plain
         /// <see cref="GetSeparationText"/> entry instead.
@@ -130,7 +130,7 @@ namespace Parsek
         internal static string GetUnfinishedFlightSeparationText(string vesselName)
         {
             string name = string.IsNullOrEmpty(vesselName) ? "<unnamed>" : vesselName;
-            return $"Separation of Unfinished Flight: {name}";
+            return $"Unfinished Flight: {name}";
         }
 
         /// <summary>
