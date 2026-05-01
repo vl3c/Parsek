@@ -17239,7 +17239,8 @@ namespace Parsek
             // committed-tree walk. Pass the result through.
             bool ghostActive = state.ghost.activeSelf;
             bool inTree = !ghostActive && IsRecordingInReFlyTreeMarker(recordingId, marker);
-            bool hasResolvableAnchorData = inTree && HasResolvableReFlyAnchorData(marker);
+            bool hasResolvableAnchorData = inTree
+                && HasResolvableReFlyAnchorData(marker, currentUT);
             bool offsetApplied = false;
             if (hasResolvableAnchorData)
             {
@@ -17324,61 +17325,81 @@ namespace Parsek
 
         /// <summary>
         /// Returns true when the active Re-Fly target has trajectory data
-        /// the per-frame anchor model can sample. The predicate must
-        /// match <see cref="TrySampleRecordedAbsoluteWorld"/>'s real data
-        /// contract: an Absolute section needs at least one entry in
-        /// <see cref="TrackSection.frames"/>, a Relative section needs at
-        /// least one entry in <see cref="TrackSection.absoluteFrames"/>
-        /// (the v7 shadow), and OrbitalCheckpoint sections never
-        /// satisfy the sampler. Without this contract match, the gate
-        /// would stay raised forever for recordings whose section list
-        /// looks plausible but is structurally unsampleable (e.g. a
-        /// legacy v6 Relative section with no shadow, or an Absolute
-        /// section whose frames list was never populated by
-        /// repair/splice paths) — leaving the ghost permanently
-        /// invisible. Pure read-only helper exposed for unit-test
-        /// coverage of the safety-net branch.
+        /// the per-frame anchor model can sample at the current playback
+        /// UT. The predicate must agree with
+        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on TWO axes:
+        /// <list type="bullet">
+        ///   <item><description><b>Source selection.</b> When a captured
+        ///   pre-Re-Fly snapshot exists for the active session, the offset
+        ///   sampler uses the snapshot's <see cref="Recording.PreReFlyAnchorTrackSections"/>
+        ///   exclusively — it does NOT fall through to live track sections
+        ///   if the snapshot is unsampleable. The gate predicate must
+        ///   match: when a snapshot exists for the session, only the
+        ///   snapshot is consulted; when no snapshot exists, only the
+        ///   live recording's <see cref="Recording.TrackSections"/> are.
+        ///   Falling through to live in the snapshot-unsampleable case
+        ///   would land on the player's NEW flight data (post-trim
+        ///   extension), producing a circular self-anchored result.</description></item>
+        ///   <item><description><b>Section-at-UT.</b> The sampler picks
+        ///   the section that covers <paramref name="currentUT"/> (or
+        ///   clamps to the nearest endpoint section), then accepts /
+        ///   rejects that single section. The gate predicate must
+        ///   evaluate sampleability against the SAME section the sampler
+        ///   would choose — a recording with an early sampleable Absolute
+        ///   section followed by a later OrbitalCheckpoint section
+        ///   reports false during the checkpoint window even though the
+        ///   list as a whole has sampleable data elsewhere.</description></item>
+        /// </list>
         /// </summary>
-        internal static bool HasResolvableReFlyAnchorData(ReFlySessionMarker marker)
+        internal static bool HasResolvableReFlyAnchorData(
+            ReFlySessionMarker marker, double currentUT)
         {
             if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
                 return false;
             Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
             if (reFlyRec == null)
                 return false;
-            // Prefer the captured snapshot when present and sampleable.
-            if (!string.IsNullOrEmpty(marker.SessionId)
+            // Pick the SAME source list TryComputeReFlyRecordingAnchorOffset
+            // will sample from at this UT. No fall-through.
+            List<TrackSection> sampleSections = !string.IsNullOrEmpty(marker.SessionId)
                 && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
-                && HasSampleableTrackSection(reFlyRec.PreReFlyAnchorTrackSections))
-                return true;
-            // Otherwise the live recording's track sections must be
-            // sampleable (HasPreReFlyAnchorTrajectory only confirms a
-            // snapshot exists; it doesn't guarantee its sections sample
-            // cleanly, so callers must still check via this helper).
-            return HasSampleableTrackSection(reFlyRec.TrackSections);
+                ? reFlyRec.PreReFlyAnchorTrackSections
+                : reFlyRec.TrackSections;
+            return HasSampleableTrackSectionAtUT(sampleSections, currentUT);
         }
 
         /// <summary>
         /// Mirrors <see cref="TrySampleRecordedAbsoluteWorld"/>'s
-        /// section-acceptance rule: returns true iff
-        /// <paramref name="sections"/> contains at least one section
-        /// whose underlying frame list (Absolute frames or Relative
-        /// absolute-shadow frames) is non-empty.
+        /// section-selection-then-acceptance rule: picks the section that
+        /// covers <paramref name="ut"/> (clamping to the nearest endpoint
+        /// section when <paramref name="ut"/> is outside any section,
+        /// matching the sampler's clamp behaviour), then returns true iff
+        /// that single section is sampleable (Absolute with non-empty
+        /// <see cref="TrackSection.frames"/>, or Relative with non-empty
+        /// <see cref="TrackSection.absoluteFrames"/> v7 shadow). A list
+        /// containing sampleable sections elsewhere does not satisfy the
+        /// predicate when the section selected for the current UT is
+        /// unsampleable.
         /// </summary>
-        internal static bool HasSampleableTrackSection(List<TrackSection> sections)
+        internal static bool HasSampleableTrackSectionAtUT(
+            List<TrackSection> sections, double ut)
         {
             if (sections == null || sections.Count == 0)
                 return false;
-            for (int i = 0; i < sections.Count; i++)
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (sectionIdx < 0)
             {
-                TrackSection s = sections[i];
-                if (s.referenceFrame == ReferenceFrame.Absolute
-                    && s.frames != null && s.frames.Count > 0)
-                    return true;
-                if (s.referenceFrame == ReferenceFrame.Relative
-                    && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                    return true;
+                // Mirror TrySampleRecordedAbsoluteWorld's clamp: UT
+                // outside any section falls back to the nearest endpoint.
+                sectionIdx = ut < sections[0].startUT ? 0 : sections.Count - 1;
             }
+            TrackSection s = sections[sectionIdx];
+            if (s.referenceFrame == ReferenceFrame.Absolute
+                && s.frames != null && s.frames.Count > 0)
+                return true;
+            if (s.referenceFrame == ReferenceFrame.Relative
+                && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
+                return true;
             return false;
         }
 

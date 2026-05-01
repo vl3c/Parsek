@@ -511,11 +511,11 @@ namespace Parsek.Tests
         [Fact]
         public void HasResolvableAnchorData_NullOrEmptyMarker_ReturnsFalse()
         {
-            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(null));
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(null, currentUT: 0.0));
             Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
-                new ReFlySessionMarker { ActiveReFlyRecordingId = null }));
+                new ReFlySessionMarker { ActiveReFlyRecordingId = null }, currentUT: 0.0));
             Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
-                new ReFlySessionMarker { ActiveReFlyRecordingId = "" }));
+                new ReFlySessionMarker { ActiveReFlyRecordingId = "" }, currentUT: 0.0));
         }
 
         [Fact]
@@ -528,7 +528,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-missing",
-                }));
+                },
+                currentUT: 0.0));
         }
 
         [Fact]
@@ -556,7 +557,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-empty",
-                }));
+                },
+                currentUT: 0.0));
         }
 
         [Fact]
@@ -590,7 +592,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-with-snap",
-                }));
+                },
+                currentUT: 2.5));
         }
 
         [Fact]
@@ -633,15 +636,65 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-empty-snap",
-                }));
+                },
+                currentUT: 2.5));
         }
 
         [Fact]
-        public void HasResolvableAnchorData_SnapshotSessionMismatch_FallsThroughToTrackSections()
+        public void HasResolvableAnchorData_SnapshotPresentButUnsampleable_DoesNotFallThroughToLive()
         {
-            // Snapshot present but for a different session id — it should
-            // not satisfy the predicate via the snapshot branch. The live
-            // recording's track sections then determine the result.
+            // Regression coverage for the second-pass review: even when
+            // the live recording's TrackSections are sampleable, the
+            // sampler does NOT fall through from an unsampleable snapshot
+            // — it commits to the snapshot. The predicate must match.
+            // Otherwise the gate would say "data is resolvable" while the
+            // sampler permanently fails, raising the gate forever.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-snap-vs-live",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-snap-vs-live",
+                TreeId = "tree-1",
+                VesselName = "Unsampleable Snapshot, Sampleable Live",
+            };
+            // Live TrackSections are perfectly sampleable.
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(0, 5));
+            // Capture the snapshot from the current state, then mutate
+            // the snapshot's track-section list to be unsampleable
+            // (only an OrbitalCheckpoint section).
+            rec.CapturePreReFlyAnchorTrajectory("sess");
+            rec.PreReFlyAnchorTrackSections.Clear();
+            rec.PreReFlyAnchorTrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 0, endUT = 5,
+            });
+            tree.Recordings["rec-snap-vs-live"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // Predicate must NOT report sampleable on the strength of the
+            // live sections, because the sampler will be reading the
+            // snapshot.
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-snap-vs-live",
+                },
+                currentUT: 2.5));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_SnapshotSessionMismatch_UsesLiveSections()
+        {
+            // Snapshot present but for a different session id — the
+            // sampler treats this as "no snapshot" and falls back to
+            // live, so the predicate must too.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -659,16 +712,17 @@ namespace Parsek.Tests
             tree.Recordings["rec-mismatch"] = rec;
             RecordingStore.CommittedTrees.Add(tree);
 
-            // No track sections + sessionId mismatch ⇒ false.
+            // No live track sections + sessionId mismatch ⇒ false.
             Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
                 new ReFlySessionMarker
                 {
                     SessionId = "sess-current",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-mismatch",
-                }));
+                },
+                currentUT: 2.5));
 
-            // Add a sampleable Absolute section (frames non-empty) ⇒ true.
+            // Add a sampleable live Absolute section ⇒ true.
             rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(0, 5));
             Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(
                 new ReFlySessionMarker
@@ -676,7 +730,8 @@ namespace Parsek.Tests
                     SessionId = "sess-current",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-mismatch",
-                }));
+                },
+                currentUT: 2.5));
         }
 
         [Fact]
@@ -715,7 +770,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-empty-abs",
-                }));
+                },
+                currentUT: 2.5));
 
             // Also exercise the empty (non-null) frames list shape.
             rec.TrackSections[0] = new TrackSection
@@ -730,7 +786,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-empty-abs",
-                }));
+                },
+                currentUT: 2.5));
         }
 
         [Fact]
@@ -773,7 +830,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-rel-no-shadow",
-                }));
+                },
+                currentUT: 2.5));
 
             // Adding a v7 absolute-shadow frame restores sampleability.
             rec.TrackSections[0] = new TrackSection
@@ -796,14 +854,124 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-rel-no-shadow",
-                }));
+                },
+                currentUT: 2.5));
         }
 
         [Fact]
-        public void HasSampleableTrackSection_PicksFirstSampleableMatch()
+        public void HasSampleableTrackSectionAtUT_OnlySectionAtUTMatters()
         {
-            // Mixed section list: only one sampleable section anywhere in
-            // the list is enough.
+            // The predicate must mirror TrySampleRecordedAbsoluteWorld's
+            // section-at-UT selection: a list with sampleable sections
+            // elsewhere does NOT satisfy the predicate when the section
+            // selected for the current UT is unsampleable.
+            var sections = new List<TrackSection>
+            {
+                // [0, 5] sampleable Absolute
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 0, endUT = 5,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 0.0, bodyName = "Kerbin" },
+                    },
+                },
+                // [5, 10] OrbitalCheckpoint (never sampleable)
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                    startUT = 5, endUT = 10,
+                },
+                // [10, 15] sampleable Relative with shadow
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 10, endUT = 15,
+                    frames = new List<TrajectoryPoint> { new TrajectoryPoint() },
+                    absoluteFrames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 12.0, bodyName = "Kerbin" },
+                    },
+                },
+            };
+
+            // UT inside the early Absolute section ⇒ true.
+            Assert.True(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 2.5));
+            // UT inside the checkpoint section ⇒ FALSE even though
+            // sampleable sections exist before AND after.
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 7.5));
+            // UT inside the Relative-with-shadow section ⇒ true.
+            Assert.True(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 12.5));
+
+            // Out-of-range UT clamps to nearest endpoint section.
+            // Before the first section ⇒ uses sections[0] (sampleable Absolute) ⇒ true.
+            Assert.True(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: -10.0));
+            // After the last section ⇒ uses sections[Count-1] (sampleable Relative) ⇒ true.
+            Assert.True(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 1000.0));
+
+            // Null / empty list short-circuits regardless of UT.
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(null, ut: 2.5));
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(new List<TrackSection>(), ut: 2.5));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_AbsoluteThenCheckpoint_FalseDuringCheckpoint()
+        {
+            // Regression coverage for the second-pass review: a recording
+            // whose section at currentUT is OrbitalCheckpoint while
+            // earlier sections are sampleable would have raised the gate
+            // forever during the checkpoint window. The predicate must
+            // mirror the sampler's section-at-UT selection.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-mixed",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-mixed",
+                TreeId = "tree-1",
+                VesselName = "Mixed Sections",
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0, endUT = 5,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 0.0, bodyName = "Kerbin" },
+                },
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 5, endUT = 100,
+            });
+            tree.Recordings["rec-mixed"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-mixed",
+            };
+
+            // currentUT inside the early Absolute section ⇒ true.
+            Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(marker, currentUT: 2.5));
+            // currentUT inside the checkpoint section ⇒ FALSE, even
+            // though the list contains a sampleable Absolute earlier.
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(marker, currentUT: 50.0));
+        }
+
+        [Fact]
+        public void HasSampleableTrackSectionAtUT_OnlyUnsampleableSections_AlwaysFalse()
+        {
+            // A list whose only sections are unsampleable (no frames,
+            // checkpoint-only) returns false at every UT — including UTs
+            // that clamp to the nearest endpoint.
             var sections = new List<TrackSection>
             {
                 new TrackSection
@@ -817,27 +985,11 @@ namespace Parsek.Tests
                     startUT = 5, endUT = 10,
                     frames = null,
                 },
-                new TrackSection
-                {
-                    referenceFrame = ReferenceFrame.Relative,
-                    startUT = 10, endUT = 15,
-                    frames = new List<TrajectoryPoint> { new TrajectoryPoint() },
-                    absoluteFrames = new List<TrajectoryPoint>
-                    {
-                        new TrajectoryPoint { ut = 12.0, bodyName = "Kerbin" },
-                    },
-                },
             };
-            Assert.True(ParsekFlight.HasSampleableTrackSection(sections));
-
-            // Drop the sampleable Relative section — list becomes empty
-            // of usable sections.
-            sections.RemoveAt(2);
-            Assert.False(ParsekFlight.HasSampleableTrackSection(sections));
-
-            // Null / empty list short-circuits.
-            Assert.False(ParsekFlight.HasSampleableTrackSection(null));
-            Assert.False(ParsekFlight.HasSampleableTrackSection(new List<TrackSection>()));
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: -10.0));
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 2.5));
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 7.5));
+            Assert.False(ParsekFlight.HasSampleableTrackSectionAtUT(sections, ut: 1000.0));
         }
 
         [Fact]
@@ -874,7 +1026,8 @@ namespace Parsek.Tests
                     SessionId = "sess",
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-checkpoint-only",
-                }));
+                },
+                currentUT: 50.0));
         }
 
         [Fact]
@@ -916,7 +1069,7 @@ namespace Parsek.Tests
         /// <summary>
         /// Builds a sampleable Absolute <see cref="TrackSection"/>: one
         /// frame at <paramref name="startUT"/> on Kerbin so
-        /// <see cref="ParsekFlight.HasSampleableTrackSection"/> returns
+        /// <see cref="ParsekFlight.HasSampleableTrackSectionAtUT"/> returns
         /// true and <see cref="ParsekFlight.TrySampleRecordedAbsoluteWorld"/>
         /// can interpolate across the section bounds.
         /// </summary>
