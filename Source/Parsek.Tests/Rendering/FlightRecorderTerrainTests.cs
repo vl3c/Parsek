@@ -430,6 +430,91 @@ namespace Parsek.Tests.Rendering
             Assert.Contains("recordingId: previewRecording?.RecordingId", callBlock);
         }
 
+        [Fact]
+        public void TailLift_PreviewRecordingFallback_AppliesLiftWithoutCommit()
+        {
+            Recording rec = CreateTailLiftRecording("tail_lift_preview_only");
+            // Intentionally do NOT add to RecordingStore — preview captures
+            // never get committed before UpdatePlayback runs.
+            ParsekFlight.RegisterPreviewRecordingForTailLift(rec);
+            try
+            {
+                TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+                double effective = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                    fakeKerbin, 1.0, 2.0,
+                    recordedAltitude: 100.0,
+                    recordedGroundClearance: double.NaN,
+                    referenceFrame: ReferenceFrame.Absolute,
+                    pointUT: 85.0,
+                    recordingId: rec.RecordingId);
+
+                Assert.Equal(106.0, effective);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Pipeline-Terrain]")
+                    && l.Contains("TailLift active")
+                    && l.Contains(rec.RecordingId));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("reason=recording-missing")
+                    && l.Contains(rec.RecordingId));
+            }
+            finally
+            {
+                ParsekFlight.ClearPreviewRecordingForTailLift();
+            }
+        }
+
+        [Fact]
+        public void TailLift_PreviewRecordingClear_RestoresRecordingMissing()
+        {
+            Recording rec = CreateTailLiftRecording("tail_lift_preview_clear");
+            ParsekFlight.RegisterPreviewRecordingForTailLift(rec);
+            ParsekFlight.ClearPreviewRecordingForTailLift();
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+            double effective = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                fakeKerbin, 1.0, 2.0,
+                recordedAltitude: 100.0,
+                recordedGroundClearance: double.NaN,
+                referenceFrame: ReferenceFrame.Absolute,
+                pointUT: 85.0,
+                recordingId: rec.RecordingId);
+
+            Assert.Equal(100.0, effective);
+            Assert.Contains(logLines, l =>
+                l.Contains("reason=recording-missing")
+                && l.Contains(rec.RecordingId));
+        }
+
+        [Fact]
+        public void PositionGhostAt_AltitudeAuthoritative_DoesNotDoubleApplyLift()
+        {
+            // Simulates the PositionAtPoint flow: ApplyLandedGhostClearance has
+            // already produced the final altitude (currentTerrain + clearance),
+            // so the tail-lift wrapper must not add Δ on top. Verified by
+            // exercising the source-of-truth branch via PositionGhostAt's
+            // effective-altitude logic. The unit test covers the contract by
+            // calling the inner compositor for the Phase 7 path and the
+            // structural check verifies the call site itself.
+            string source = File.ReadAllText(LocateParsekFlightSource());
+
+            // 1. PositionAtPoint records the authoritative bool when
+            //    ApplyLandedGhostClearance ran.
+            string positionAtPoint = ExtractMethodBody(source,
+                "void IGhostPositioner.PositionAtPoint");
+            Assert.Contains("altitudeAuthoritative = true;", positionAtPoint);
+            Assert.Contains(
+                "PositionGhostAt(state.ghost, positioned, traj?.RecordingId, altitudeAuthoritative);",
+                positionAtPoint);
+
+            // 2. PositionGhostAt skips the wrapper when altitudeAuthoritative is true.
+            string positionGhostAt = ExtractMethodBody(source,
+                "void PositionGhostAt(GameObject ghost, TrajectoryPoint point, string recordingId = null,");
+            Assert.Contains("altitudeAuthoritative", positionGhostAt);
+            Assert.Contains("? point.altitude", positionGhostAt);
+            Assert.Contains(": ResolveEffectiveAltitudeWithTailLift(", positionGhostAt);
+        }
+
         private static Recording CreateTailLiftRecording(
             string recordingId,
             string terminalBodyName = "Kerbin")
