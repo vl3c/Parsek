@@ -515,7 +515,7 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_provisional")
                 && l.Contains("reason=stableTerminalFocusSlot")
-                && l.Contains("override=1"));
+                && l.Contains("focusSlotOverride=1"));
         }
 
         [Fact]
@@ -565,38 +565,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingReFlyTarget_StructuralMutationDuringSession_AutoSealsSlot()
+        public void OrbitingReFlyTarget_StashedSlotWithBreakupBranchPointDuringSession_AutoSealsSlot()
         {
-            // The Re-Fly session created a side-off sibling recording with
-            // the same CreatingSessionId in a different chain (decouple /
-            // stage / undock / joint break). Per playtest contract: any
-            // structural mutation during Re-Fly seals the slot, even when
-            // the chain tip would otherwise qualify as a safe stable retry.
-            // The Re-Fly target itself sits on a Stashed slot here so the
-            // classifier returns stashedStableLeaf (qualifies=true) and the
-            // structural-mutation gate is what closes the slot.
-            const string bpId = "bp_struct_seal";
-            const string siblingBpId = "bp_struct_seal_decouple";
-            var origin = Rec("rec_origin", "tree_1");
-            InstallTree("tree_1",
+            // The Re-Fly session created a structural Breakup branch point
+            // in the provisional's tree at a UT past the rewind point.
+            // Per playtest contract: any structural mutation during Re-Fly
+            // seals the slot even when the chain tip would otherwise
+            // qualify as a safe stable retry. The Re-Fly target sits on a
+            // Stashed slot so the classifier returns stashedStableLeaf
+            // (qualifies=true) — the structural-mutation gate is what
+            // closes the slot.
+            const string bpId = "bp_stashed_struct_seal";
+            const string breakupBpId = "bp_stashed_struct_seal_decouple";
+            var origin = Rec("rec_origin", "tree_struct_stashed");
+            var breakupBp = new BranchPoint
+            {
+                Id = breakupBpId,
+                Type = BranchPointType.Breakup,
+                UT = 286.0,
+                ChildRecordingIds = new List<string> { "rec_decoupled_debris" },
+            };
+            InstallTree("tree_struct_stashed",
                 new List<Recording> { origin },
-                new List<BranchPoint>());
-            var provisional = AddProvisional("rec_provisional", "tree_1",
+                new List<BranchPoint> { breakupBp });
+            var provisional = AddProvisional("rec_provisional", "tree_struct_stashed",
                 TerminalState.Orbiting, supersedeTargetId: "rec_origin");
             provisional.ParentBranchPointId = bpId;
-            provisional.CreatingSessionId = "sess_struct_seal";
-            provisional.ChainId = "chain_provisional";
-            provisional.ChainBranch = 0;
-            // Sibling recording created during the same Re-Fly session in a
-            // different chain — the structural-mutation signal.
-            var sibling = AddProvisional("rec_decoupled", "tree_1",
-                TerminalState.Destroyed, supersedeTargetId: null);
-            sibling.ParentBranchPointId = siblingBpId;
-            sibling.CreatingSessionId = "sess_struct_seal";
-            sibling.ChainId = "chain_decoupled";
-            sibling.ChainBranch = 0;
             var marker = Marker("rec_origin", "rec_provisional");
-            marker.SessionId = "sess_struct_seal";
+            marker.SessionId = "sess_stashed_struct_seal";
+            marker.TreeId = "tree_struct_stashed";
+            marker.InvokedUT = 284.5;
             var scenario = InstallScenario(marker);
             var originSlot = new ChildSlot
             {
@@ -608,9 +606,10 @@ namespace Parsek.Tests
             };
             scenario.RewindPoints.Add(new RewindPoint
             {
-                RewindPointId = "rp_struct_seal",
+                RewindPointId = "rp_stashed_struct_seal",
                 BranchPointId = bpId,
                 FocusSlotIndex = 0,
+                UT = 284.5,
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
@@ -628,7 +627,106 @@ namespace Parsek.Tests
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=structuralMutation:")
-                && l.Contains("first=rec_decoupled"));
+                && l.Contains($"firstBp={breakupBpId}")
+                && l.Contains("firstType=Breakup"));
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_PreRewindBreakup_NotDetected()
+        {
+            // A Breakup branch point authored BEFORE the rewind point's UT
+            // belongs to the pre-rewind flight history and must not trip
+            // the structural-mutation gate. Otherwise a vessel that
+            // already separated before the player invoked Re-Fly would
+            // unconditionally seal on merge.
+            var rec = Rec("rec_provisional", "tree_pre_rewind");
+            var preRewindBp = new BranchPoint
+            {
+                Id = "bp_pre_rewind",
+                Type = BranchPointType.Breakup,
+                UT = 100.0,
+                ChildRecordingIds = new List<string>(),
+            };
+            InstallTree("tree_pre_rewind",
+                new List<Recording> { rec },
+                new List<BranchPoint> { preRewindBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_pre_rewind";
+            marker.InvokedUT = 200.0;
+            InstallScenario(marker);
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.Null(detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_NonStructuralBranchPointTypes_NotDetected()
+        {
+            // Dock / Board / Launch / Terminal branch points are not
+            // structural mutations: Dock and Board attach to a pre-existing
+            // vessel without spawning a new one, Launch is the tree root,
+            // Terminal marks the recording's end.
+            var rec = Rec("rec_provisional", "tree_non_struct");
+            var dockBp = new BranchPoint
+            {
+                Id = "bp_dock",
+                Type = BranchPointType.Dock,
+                UT = 300.0,
+            };
+            var boardBp = new BranchPoint
+            {
+                Id = "bp_board",
+                Type = BranchPointType.Board,
+                UT = 305.0,
+            };
+            var terminalBp = new BranchPoint
+            {
+                Id = "bp_terminal",
+                Type = BranchPointType.Terminal,
+                UT = 310.0,
+            };
+            InstallTree("tree_non_struct",
+                new List<Recording> { rec },
+                new List<BranchPoint> { dockBp, boardBp, terminalBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_non_struct";
+            marker.InvokedUT = 200.0;
+            InstallScenario(marker);
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.Null(detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_DifferentTreeId_NotDetected()
+        {
+            // The provisional's TreeId must match marker.TreeId. If the
+            // marker references a different tree (defensive: should not
+            // happen but the field is independently persisted), the gate
+            // returns false rather than scanning an unrelated tree.
+            var rec = Rec("rec_provisional", "tree_a");
+            var bp = new BranchPoint
+            {
+                Id = "bp_struct",
+                Type = BranchPointType.Breakup,
+                UT = 300.0,
+            };
+            InstallTree("tree_a",
+                new List<Recording> { rec },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_b";
+            marker.InvokedUT = 200.0;
+            InstallScenario(marker);
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.Null(detail);
         }
 
         [Fact]
@@ -680,7 +778,7 @@ namespace Parsek.Tests
                 && l.Contains("rec=rec_provisional")
                 && l.Contains("reason=stableTerminalFocusSlot")
                 && l.Contains("side=origin-only")
-                && l.Contains("override=1"));
+                && l.Contains("focusSlotOverride=1"));
         }
 
         [Fact]
@@ -2021,9 +2119,9 @@ namespace Parsek.Tests
             // Slot.Sealed remains false: closing the slot via Immutable does
             // not flip slot.Sealed (only hard-safety terminals + recording-
             // scoped world actions do that). The slot is no longer
-            // re-flyable. The recording is Immutable AND auto-seal flipped
+            // The recording is Immutable AND auto-seal flipped
             // probeSlot.Sealed=true via the stableTerminalFocusSlot
-            // close-reason path.
+            // close-reason path, so the slot can no longer be re-flown.
             Assert.True(probeSlot.Sealed);
             Assert.NotNull(probeSlot.SealedRealTime);
             Assert.Null(scenario.ActiveReFlySessionMarker);

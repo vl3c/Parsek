@@ -633,15 +633,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true when the Re-Fly session produced at least one
-        /// session-tagged sibling / child Recording in a different chain
-        /// from <paramref name="rec"/> — i.e. a decouple, stage, undock, or
-        /// joint-break created a separate vessel during this Re-Fly. Same-
-        /// chain optimizer-split tails (TreeId+ChainId+ChainBranch all
-        /// match the provisional) are excluded because they are recorder
-        /// artifacts, not player-driven structural mutation. Caller is
-        /// expected to gate by terminal kind (crashed / EVA outcomes use
-        /// the existing retry path before this check fires).
+        /// Returns true when the Re-Fly session created at least one
+        /// structural-event branch point in the provisional's tree after
+        /// the rewind point's UT — i.e. a decouple / stage / undock /
+        /// joint-break / EVA produced a sibling vessel during this
+        /// Re-Fly. Detection is on tree topology rather than
+        /// <see cref="Recording.CreatingSessionId"/> because
+        /// <c>CreateBreakupChildRecording</c> does not propagate the
+        /// session id to debris / controlled-child recordings, so a
+        /// session-tagged-recording scan would miss the most common
+        /// structural events (visible in the playtest log as
+        /// <c>Coalescer ProcessBreakupEvent: ... child created</c>).
+        /// Branch points authored before <c>marker.InvokedUT</c> belong
+        /// to the pre-rewind history and are excluded; non-structural
+        /// types (<see cref="BranchPointType.Dock"/>,
+        /// <see cref="BranchPointType.Board"/>,
+        /// <see cref="BranchPointType.Launch"/>,
+        /// <see cref="BranchPointType.Terminal"/>) are also excluded.
+        /// Caller is expected to gate by terminal kind (crashed / EVA
+        /// outcomes use the existing retry path before this check fires).
         /// </summary>
         internal static bool HasReFlySessionStructuralMutation(
             Recording rec,
@@ -649,55 +659,76 @@ namespace Parsek
             out string detail)
         {
             detail = null;
-            if (rec == null || marker == null
-                || string.IsNullOrEmpty(marker.SessionId))
+            if (rec == null || marker == null) return false;
+            if (!(marker.InvokedUT >= 0)) return false;
+            if (string.IsNullOrEmpty(marker.TreeId)) return false;
+            if (string.IsNullOrEmpty(rec.TreeId)) return false;
+            if (!string.Equals(rec.TreeId, marker.TreeId,
+                    StringComparison.Ordinal))
                 return false;
 
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
+            RecordingTree tree = RecordingStore.CommittedTrees != null
+                ? RecordingStore.CommittedTrees.Find(t =>
+                    t != null
+                    && string.Equals(t.Id, marker.TreeId,
+                        StringComparison.Ordinal))
+                : null;
+            if (tree == null || tree.BranchPoints == null) return false;
 
-            string sessionId = marker.SessionId;
-            string treeId = rec.TreeId;
-            string chainId = rec.ChainId;
-            int chainBranch = rec.ChainBranch;
-            string provisionalId = rec.RecordingId;
+            // A small UT slack absorbs floating-point round-trip drift
+            // between marker.InvokedUT and a branch-point UT that arose
+            // from the same physics frame. The rewind point itself does
+            // not author its own branch point at invokedUT, so this is
+            // exclusion-safe.
+            const double UtSlackSeconds = 0.001;
+            double cutoff = marker.InvokedUT + UtSlackSeconds;
 
-            int siblingCount = 0;
-            string firstSiblingId = null;
-            for (int i = 0; i < committed.Count; i++)
+            int matchedCount = 0;
+            string firstBpId = null;
+            BranchPointType? firstBpType = null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
-                var cand = committed[i];
-                if (cand == null) continue;
-                if (object.ReferenceEquals(cand, rec)) continue;
-                if (!string.IsNullOrEmpty(provisionalId)
-                    && string.Equals(cand.RecordingId, provisionalId,
-                        StringComparison.Ordinal))
-                    continue;
-                if (!string.Equals(cand.CreatingSessionId, sessionId,
-                        StringComparison.Ordinal))
-                    continue;
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (!IsStructuralBranchPointType(bp.Type)) continue;
+                if (bp.UT < cutoff) continue;
 
-                // Same in-place chain → optimizer-created split tail of the
-                // provisional itself, not a structural side-off.
-                if (!string.IsNullOrEmpty(treeId)
-                    && !string.IsNullOrEmpty(chainId)
-                    && string.Equals(cand.TreeId, treeId,
-                        StringComparison.Ordinal)
-                    && string.Equals(cand.ChainId, chainId,
-                        StringComparison.Ordinal)
-                    && cand.ChainBranch == chainBranch)
-                    continue;
-
-                siblingCount++;
-                if (firstSiblingId == null)
-                    firstSiblingId = cand.RecordingId;
+                matchedCount++;
+                if (firstBpId == null)
+                {
+                    firstBpId = bp.Id;
+                    firstBpType = bp.Type;
+                }
             }
 
-            if (siblingCount == 0) return false;
+            if (matchedCount == 0) return false;
 
-            detail = $"siblings={siblingCount.ToString(CultureInfo.InvariantCulture)}" +
-                $" first={firstSiblingId ?? "<no-id>"}";
+            var ic = CultureInfo.InvariantCulture;
+            detail = $"branchPoints={matchedCount.ToString(ic)}" +
+                $" firstBp={firstBpId ?? "<no-id>"}" +
+                $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
+                $" sinceUT={marker.InvokedUT.ToString("F2", ic)}";
             return true;
+        }
+
+        private static bool IsStructuralBranchPointType(BranchPointType type)
+        {
+            // Dock / Board / Launch / Terminal are not "the player changed
+            // the vessel's shape": Dock and Board attach to a pre-existing
+            // vessel without spawning a new one mid-flight; Launch is the
+            // tree root; Terminal marks the recording's end. Everything
+            // else (Undock, EVA, JointBreak, Breakup) creates a new
+            // sibling vessel and counts as structural mutation.
+            switch (type)
+            {
+                case BranchPointType.Undock:
+                case BranchPointType.EVA:
+                case BranchPointType.JointBreak:
+                case BranchPointType.Breakup:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool ShouldAutoSealReFlySlotAfterMerge(

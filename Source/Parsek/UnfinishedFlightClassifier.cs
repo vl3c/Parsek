@@ -266,7 +266,7 @@ namespace Parsek
             // ahead is unchanged so existing focus-slot tests / log lines
             // still pass.
             string focusSlotLogValue = focusSlotOverride.HasValue
-                ? $"{rp.FocusSlotIndex}/override={focusSlotOverride.Value}"
+                ? $"{rp.FocusSlotIndex} focusSlotOverride={focusSlotOverride.Value}"
                 : rp.FocusSlotIndex.ToString();
             if (rp.FocusSlotIndex < 0)
             {

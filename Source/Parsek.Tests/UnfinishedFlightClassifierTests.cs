@@ -190,7 +190,7 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_probe")
                 && l.Contains("reason=stableTerminalFocusSlot")
-                && l.Contains("override=1"));
+                && l.Contains("focusSlotOverride=1"));
         }
 
         [Fact]

@@ -5,21 +5,22 @@ namespace Parsek.InGameTests
 {
     /// <summary>
     /// A Re-Fly that produced a structural side-off (decouple, stage,
-    /// undock, joint break) during the session must auto-seal the slot on
-    /// merge regardless of where the chain tip lands. Without this gate, a
-    /// stashed-slot Re-Fly that staged debris and reached stable orbit
-    /// would still classify as <c>stashedStableLeaf</c> and keep the slot
-    /// re-flyable. With the structural-mutation rule, any session-tagged
-    /// sibling Recording in a different chain from the provisional closes
-    /// the slot.
+    /// undock, joint break, EVA) during the session must auto-seal the
+    /// slot on merge regardless of where the chain tip lands. Without
+    /// this gate, a stashed-slot Re-Fly that staged debris and reached
+    /// stable orbit would still classify as <c>stashedStableLeaf</c> and
+    /// keep the slot re-flyable. With the structural-mutation rule, any
+    /// structural-typed branch point in the provisional's tree at a UT
+    /// past <c>marker.InvokedUT</c> closes the slot.
     ///
     /// <para>
-    /// Preconditions: an active Re-Fly session marker, the provisional
-    /// recording's chain tip has a non-Crashed terminal (Crashed retains
-    /// its existing retry-keep-open path), and at least one other
-    /// Recording in the committed list shares the marker's
-    /// <c>SessionId</c> via <c>CreatingSessionId</c> but sits in a
-    /// different chain. The test auto-skips otherwise.
+    /// Preconditions: an active Re-Fly session marker on a Stashed slot
+    /// (so the classifier returns <c>stashedStableLeaf qualifies=true</c>
+    /// and the structural gate is reached), the provisional's chain tip
+    /// has a non-Crashed terminal (Crashed retains its existing retry-
+    /// keep-open path), and the provisional's tree carries at least one
+    /// structural branch point past <c>marker.InvokedUT</c>. The test
+    /// auto-skips otherwise.
     /// </para>
     /// </summary>
     public class MergeReFlyStructuralMutationAutoSealsTest
