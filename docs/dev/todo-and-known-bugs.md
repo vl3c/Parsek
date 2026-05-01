@@ -11,6 +11,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 optimizer chain FX/camera transfer
+
+- ~~Optimizer-split chain continuations lost running engine/RCS visual state, and watch-mode auto-follow could hard-flip camera mode at the atmosphere boundary.~~ Source: `logs/2026-05-01_1545_optimizer-merge-investigation/`; the Kerbal X Probe re-fly was split into several chain segments, but `RecordingOptimizer.SplitAtSection` only forwarded permanent visual events into the continuation segment, so an engine that was firing before the split had no `EngineIgnited`/`EngineThrottle` seed in the next segment. During the same handoff, `WatchModeController.ResolveSwitchCameraStateForGhost` re-ran altitude-based mode selection and flipped Horizon-locked to Free above Kerbin's 70 km atmosphere cap, then back again just below it. Fix: split-time transient seeding now reconstructs engine and RCS state up to the split UT, inserts running-engine/RCS seeds into the continuation segment, and emits known idle-engine shutdown sentinels to preserve the orphan-auto-start guard. Chain auto-follow transfers now pass a preserve-mode flag so only fresh watch entry and explicit recording switches auto-derive camera mode from altitude.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
+## TODO - Relative frame decouple distance overflow
+
+- `logs/2026-05-01_1545_optimizer-merge-investigation/KSP.log` logged `RELATIVE mode exited` with `dist=1.79e+308m` immediately after the decouple at UT 279.53. This did not affect the reported playback because the chain was classified Absolute by the time it played, but the double.MaxValue-like displacement points to a degenerate relative-frame distance calculation at the decouple boundary.
+
+**Status:** OPEN.
+
+---
+
 ## Done - v0.9.1 origin-only Re-Fly resolution
 
 - ~~A tree-branching parent vessel that stayed alive past a separation Rewind Point, then crashed later, could lose its Re-Fly button even though the RP slot captured that same vessel as controllable.~~ Source: `logs/2026-05-01_1320_refly-stash-investigation/`; `Kerbal X` had no `parentBranchPointId` or `childBranchPointId` because tree-branching kept the parent recording open, while RP `rp_9979514b2c9c43eb8a36f8c5febe1625` slot 0 still referenced the parent recording id. Fix: Unfinished Flight resolution now tries the legacy child/parent BranchPoint walks first, then falls back to the latest matching RP slot by `OriginChildRecordingId`, logging `side=origin-only` for the new path. The merge-time supersede classifier uses the same marker-target origin fallback for separate provisional re-flights, while in-place continuations keep their existing fallback policy.

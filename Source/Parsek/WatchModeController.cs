@@ -1212,9 +1212,10 @@ namespace Parsek
             bool userModeOverride,
             bool hasAtmosphere,
             double atmosphereDepth,
-            double altitude)
+            double altitude,
+            bool preserveMode = false)
         {
-            if (userModeOverride)
+            if (preserveMode || userModeOverride)
                 return currentMode;
 
             return ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude)
@@ -1276,7 +1277,8 @@ namespace Parsek
 
         private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
             WatchCameraTransitionState currentState,
-            GhostPlaybackState state)
+            GhostPlaybackState state,
+            bool preserveMode = false)
         {
             CelestialBody body = ResolveBody(state);
             bool hasAtmosphere = body != null && body.atmosphere;
@@ -1287,7 +1289,8 @@ namespace Parsek
                 currentState.UserModeOverride,
                 hasAtmosphere,
                 atmosphereDepth,
-                altitude);
+                altitude,
+                preserveMode);
             return currentState;
         }
 
@@ -2466,7 +2469,7 @@ namespace Parsek
             bool restoredTransferCameraState = hasTransferCameraState
                 && TryApplySwitchedWatchCameraState(
                     gs,
-                    ResolveSwitchCameraStateForGhost(transferCameraState, gs),
+                    ResolveSwitchCameraStateForGhost(transferCameraState, gs, preserveMode: true),
                     logContext: "segment-apply");
             if (!restoredTransferCameraState)
                 ApplyCameraTarget(gs);

@@ -528,6 +528,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveSwitchCameraMode_PreserveMode_KeepsCurrentAcrossAtmosphereBoundary()
+        {
+            WatchCameraMode aboveAtmosphere = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000,
+                preserveMode: true);
+            WatchCameraMode belowAtmosphere = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 250,
+                preserveMode: true);
+
+            Assert.Equal(WatchCameraMode.HorizonLocked, aboveAtmosphere);
+            Assert.Equal(WatchCameraMode.Free, belowAtmosphere);
+        }
+
+        [Fact]
         public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState
