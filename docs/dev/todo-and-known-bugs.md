@@ -641,15 +641,25 @@ Phase 8 PR #644 was rebased onto Phase 5 tip `83bef832` so the branch now carrie
 
 ## 633. Ladders rendered extended in ghost when recorded vessel had them stowed
 
-**Status:** ~~done~~ — fix landed on `claude/fix-ladder-state-bug-2cQL1`.
+**Status:** ~~done~~ — initial stow-baseline fix landed on
+`claude/fix-ladder-state-bug-2cQL1`; follow-up fix now covers
+`RetractableLadder.StateName` seeding for ladders that start extended.
 
 Stock retractable ladders showed up extended in the ghost snapshot even when
-the recording started with them stowed. The recorder side was correct:
-`PartStateSeeder.SeedLadders` only seeds deployed ladders into the
-`deployedLadders` set, so a stowed ladder produces no `DeployableExtended`
-seed event at recording start, and per-frame transitions during the recording
-correctly emit `DeployableExtended` / `DeployableRetracted` events from
-`FlightRecorder.CheckLadderState`. The toggle-action recording works.
+the recording started with them stowed. For default-stowed recordings,
+`PartStateSeeder.SeedLadders` intentionally emits no `DeployableExtended`
+seed event at recording start, so the first-spawn ghost path needs to apply a
+stowed visual baseline.
+
+Follow-up investigation against `logs/2026-04-08_mun-mission` and the recent
+Kerbal X bundles found a recorder-side gap for the opposite case: stock
+`RetractableLadder` exposes stable state as `StateName = Extended` /
+`Retracted`, but `FlightRecorder.TryClassifyRetractableLadderState` only
+looked at UI event activity and bool fields. That meant an already-extended
+ladder at recording start could miss its seed event, then be forced stowed by
+the new first-spawn baseline and remain visually retracted. Fix: classify
+stable `StateName` values before event-activity and bool-field fallbacks,
+while treating transient `Extending` / `Retracting` states as unclassified.
 
 The bug lived in `GhostPlaybackLogic.PopulateGhostInfoDictionaries`
 (`GhostPlaybackLogic.cs:1062`): it built `state.deployableInfos` from the
@@ -682,6 +692,15 @@ when `deployableInfos` is null or empty (no log noise); (c) the dict is
 keyed by `partPersistentId` so seed events can find the matching info; (d)
 defensive null-transform handling in `ApplyDeployableState` (unresolved
 ghost paths must not NRE the spawn baseline).
+
+Follow-up regression tests in `FlightRecorderExtractedTests.cs` pin
+`StateName = Extended` / `Retracted` classification and ensure transient
+ladder state names stay unclassified.
+
+Remaining integration-test gap: add an in-game Kerbal X ladder-state seed test
+with one extended and one retracted stock ladder, then start a recording and
+assert the extended ladder emits a start-time `DeployableExtended` seed while
+the retracted ladder does not.
 
 ## ~~632. Optimizer meaningful-action gate broke per-phase loop splits~~
 
