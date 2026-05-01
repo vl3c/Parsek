@@ -501,18 +501,134 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            // Auto-seal fires for stableTerminalFocusSlot regardless of
+            // whether the player-chosen slot matched the static focus or
+            // was promoted via the override.
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("classifierReason=stableTerminalFocusSlot")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("autoSeal=True"));
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_provisional")
                 && l.Contains("reason=stableTerminalFocusSlot")
                 && l.Contains("override=1"));
+        }
+
+        [Fact]
+        public void OrbitingFocusStableLeaf_StableTerminalFocusSlot_AutoSealsSlot()
+        {
+            // Static-focus orbit Re-Fly: same auto-seal trigger as the
+            // override path. Player flew the focus slot to stable orbit;
+            // slot.Sealed must be true so the row drops out of UF.
+            const string bpId = "bp_stage_focus_seal";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 0,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_focus_seal",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    originSlot,
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_other", Controllable = true },
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("autoSeal=True"));
+        }
+
+        [Fact]
+        public void OrbitingReFlyTarget_StructuralMutationDuringSession_AutoSealsSlot()
+        {
+            // The Re-Fly session created a side-off sibling recording with
+            // the same CreatingSessionId in a different chain (decouple /
+            // stage / undock / joint break). Per playtest contract: any
+            // structural mutation during Re-Fly seals the slot, even when
+            // the chain tip would otherwise qualify as a safe stable retry.
+            // The Re-Fly target itself sits on a Stashed slot here so the
+            // classifier returns stashedStableLeaf (qualifies=true) and the
+            // structural-mutation gate is what closes the slot.
+            const string bpId = "bp_struct_seal";
+            const string siblingBpId = "bp_struct_seal_decouple";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            provisional.CreatingSessionId = "sess_struct_seal";
+            provisional.ChainId = "chain_provisional";
+            provisional.ChainBranch = 0;
+            // Sibling recording created during the same Re-Fly session in a
+            // different chain — the structural-mutation signal.
+            var sibling = AddProvisional("rec_decoupled", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: null);
+            sibling.ParentBranchPointId = siblingBpId;
+            sibling.CreatingSessionId = "sess_struct_seal";
+            sibling.ChainId = "chain_decoupled";
+            sibling.ChainBranch = 0;
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.SessionId = "sess_struct_seal";
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+                Stashed = true,
+                StashedRealTime = "2026-05-02T00:00:00.0000000Z",
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_struct_seal",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=structuralMutation:")
+                && l.Contains("first=rec_decoupled"));
         }
 
         [Fact]
@@ -551,14 +667,14 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
                 && l.Contains("classifierReason=stableTerminalFocusSlot")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("autoSeal=True"));
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_provisional")
@@ -664,8 +780,8 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
             Assert.Contains(scenario.RecordingSupersedes,
@@ -677,7 +793,7 @@ namespace Parsek.Tests
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
                 && l.Contains("classifierReason=stableTerminalFocusSlot")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
@@ -1022,13 +1138,16 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            // Re-Fly target reached stable Orbiting on the static focus
+            // slot: per playtest contract the slot auto-seals, closing the
+            // Unfinished-Flight row and preventing further re-fly retries.
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("classifierReason=stableTerminalFocusSlot")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
@@ -1902,22 +2021,24 @@ namespace Parsek.Tests
             // Slot.Sealed remains false: closing the slot via Immutable does
             // not flip slot.Sealed (only hard-safety terminals + recording-
             // scoped world actions do that). The slot is no longer
-            // re-flyable simply because the recording is Immutable.
-            Assert.False(probeSlot.Sealed);
-            Assert.Null(probeSlot.SealedRealTime);
+            // re-flyable. The recording is Immutable AND auto-seal flipped
+            // probeSlot.Sealed=true via the stableTerminalFocusSlot
+            // close-reason path.
+            Assert.True(probeSlot.Sealed);
+            Assert.NotNull(probeSlot.SealedRealTime);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            // With slot 1 now Immutable and slot 0 orphan-eligible, the RP
-            // is reap-eligible — the post-merge reap call deletes the
-            // quicksave (deletes==1) and removes the RP from the scenario
-            // list. Before the focus override, slot 1 was kept open as
-            // CommittedProvisional which blocked reap (deletes==0).
+            // With slot 1 now Immutable + Sealed and slot 0 orphan-eligible,
+            // the RP is reap-eligible — the post-merge reap call deletes
+            // the quicksave (deletes==1) and removes the RP from the
+            // scenario list. Before the focus override, slot 1 was kept
+            // open as CommittedProvisional which blocked reap (deletes==0).
             Assert.Empty(scenario.RewindPoints);
             Assert.Equal(1, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("classifierReason=stableTerminalFocusSlot")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("autoSeal=True"));
             // The in-place "retained CommittedProvisional" log fires only
             // when SupersedeCommit decides to keep the slot open. With the
             // focus override the slot is closed (Immutable), so that log

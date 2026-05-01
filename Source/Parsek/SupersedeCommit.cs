@@ -416,6 +416,7 @@ namespace Parsek
             ClassifierClosed,
             RecordingAction,
             UnsafeClassifierReason,
+            StructuralMutation,
         }
 
         private struct ReFlyCloseReason
@@ -435,6 +436,8 @@ namespace Parsek
                         return "recordingAction:" + (Detail ?? "<none>");
                     case ReFlyCloseReasonKind.UnsafeClassifierReason:
                         return "unsafeClassifierReason:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.StructuralMutation:
+                        return "structuralMutation:" + (Detail ?? "<none>");
                     default:
                         return null;
                 }
@@ -494,7 +497,7 @@ namespace Parsek
 
                 ReFlyCloseReason closeReason;
                 bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(
-                    provisional, classifierQualifies, classifierReason,
+                    provisional, marker, classifierQualifies, classifierReason,
                     out closeReason);
                 result.NewState = keepSlotOpen
                     ? MergeState.CommittedProvisional
@@ -562,6 +565,7 @@ namespace Parsek
 
         private static bool ShouldKeepReFlySlotOpenAfterMerge(
             Recording rec,
+            ReFlySessionMarker marker,
             bool classifierQualifies,
             string classifierReason,
             out ReFlyCloseReason closeReason)
@@ -595,6 +599,26 @@ namespace Parsek
             if (IsTerminalFailureReFlyOutcome(rec))
                 return true;
 
+            // Structural-mutation seal: a Re-Fly that produced a sibling /
+            // child vessel via decouple, stage, undock, joint break, etc. is
+            // a concluded re-flight even when the chain tip itself is still
+            // a "safe stable retry" leaf (Orbiting / SubOrbital non-focus or
+            // a Stashed slot). Player intent, by playtest contract: any
+            // shape change to the Re-Fly target during the session means
+            // they want to keep the run, not retry — close the slot here.
+            // Crashed / stranded-EVA outcomes return earlier above so the
+            // existing terminal-failure retry path is preserved.
+            string structuralDetail;
+            if (HasReFlySessionStructuralMutation(rec, marker, out structuralDetail))
+            {
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.StructuralMutation,
+                    Detail = structuralDetail,
+                };
+                return false;
+            }
+
             if (!IsSafeStableRetryClassifierReason(classifierReason))
             {
                 closeReason = new ReFlyCloseReason
@@ -608,6 +632,74 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Returns true when the Re-Fly session produced at least one
+        /// session-tagged sibling / child Recording in a different chain
+        /// from <paramref name="rec"/> — i.e. a decouple, stage, undock, or
+        /// joint-break created a separate vessel during this Re-Fly. Same-
+        /// chain optimizer-split tails (TreeId+ChainId+ChainBranch all
+        /// match the provisional) are excluded because they are recorder
+        /// artifacts, not player-driven structural mutation. Caller is
+        /// expected to gate by terminal kind (crashed / EVA outcomes use
+        /// the existing retry path before this check fires).
+        /// </summary>
+        internal static bool HasReFlySessionStructuralMutation(
+            Recording rec,
+            ReFlySessionMarker marker,
+            out string detail)
+        {
+            detail = null;
+            if (rec == null || marker == null
+                || string.IsNullOrEmpty(marker.SessionId))
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+
+            string sessionId = marker.SessionId;
+            string treeId = rec.TreeId;
+            string chainId = rec.ChainId;
+            int chainBranch = rec.ChainBranch;
+            string provisionalId = rec.RecordingId;
+
+            int siblingCount = 0;
+            string firstSiblingId = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var cand = committed[i];
+                if (cand == null) continue;
+                if (object.ReferenceEquals(cand, rec)) continue;
+                if (!string.IsNullOrEmpty(provisionalId)
+                    && string.Equals(cand.RecordingId, provisionalId,
+                        StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.CreatingSessionId, sessionId,
+                        StringComparison.Ordinal))
+                    continue;
+
+                // Same in-place chain → optimizer-created split tail of the
+                // provisional itself, not a structural side-off.
+                if (!string.IsNullOrEmpty(treeId)
+                    && !string.IsNullOrEmpty(chainId)
+                    && string.Equals(cand.TreeId, treeId,
+                        StringComparison.Ordinal)
+                    && string.Equals(cand.ChainId, chainId,
+                        StringComparison.Ordinal)
+                    && cand.ChainBranch == chainBranch)
+                    continue;
+
+                siblingCount++;
+                if (firstSiblingId == null)
+                    firstSiblingId = cand.RecordingId;
+            }
+
+            if (siblingCount == 0) return false;
+
+            detail = $"siblings={siblingCount.ToString(CultureInfo.InvariantCulture)}" +
+                $" first={firstSiblingId ?? "<no-id>"}";
+            return true;
+        }
+
         private static bool ShouldAutoSealReFlySlotAfterMerge(
             Recording rec,
             bool classifierQualifies,
@@ -616,6 +708,8 @@ namespace Parsek
             if (!closeReason.HasValue)
                 return false;
             if (closeReason.Kind == ReFlyCloseReasonKind.RecordingAction)
+                return true;
+            if (closeReason.Kind == ReFlyCloseReasonKind.StructuralMutation)
                 return true;
             if (classifierQualifies)
                 return true;
@@ -629,6 +723,14 @@ namespace Parsek
             if (string.Equals(closeReason.Detail, "stableTerminal",
                     StringComparison.Ordinal))
                 return IsHardSafetyTerminal(rec);
+            // The Re-Fly target slot (player-chosen, either static focus or
+            // promoted via focusSlotOverride) reached a stable Orbiting /
+            // SubOrbital terminal. Per playtest contract: a successful
+            // Re-Fly to stable state seals the slot — the player is done
+            // with that line of flight, no further retry expected.
+            if (string.Equals(closeReason.Detail, "stableTerminalFocusSlot",
+                    StringComparison.Ordinal))
+                return true;
 
             return false;
         }
