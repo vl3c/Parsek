@@ -12953,7 +12953,8 @@ namespace Parsek
                 TrajectoryMath.IsSurfaceAtUT(previewRecording.TrackSections, recordingTime);
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
-                skipOrbitSegments: surfaceSkip);
+                skipOrbitSegments: surfaceSkip,
+                recordingId: previewRecording?.RecordingId);
 
             if (previewGhostState != null && previewRecording != null)
             {

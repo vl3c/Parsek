@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Parsek;
 using Parsek.Rendering;
 using UnityEngine;
@@ -399,6 +400,36 @@ namespace Parsek.Tests.Rendering
                 && l.Contains(rec.RecordingId));
         }
 
+        [Fact]
+        public void TailLift_ManualPreviewInterpolationPassesRecordingId()
+        {
+            string source = File.ReadAllText(LocateParsekFlightSource());
+            string methodBody = ExtractMethodBody(source, "void UpdatePlayback()");
+
+            int surfaceSkipIndex = methodBody.IndexOf(
+                "TrajectoryMath.IsSurfaceAtUT(previewRecording.TrackSections, recordingTime)",
+                StringComparison.Ordinal);
+            Assert.True(surfaceSkipIndex >= 0,
+                "UpdatePlayback preview surface-skip block was not found.");
+
+            int callIndex = methodBody.IndexOf(
+                "InterpolateAndPosition(ghostObject, recording, orbitSegments",
+                surfaceSkipIndex,
+                StringComparison.Ordinal);
+            Assert.True(callIndex >= 0,
+                "UpdatePlayback preview InterpolateAndPosition call was not found.");
+
+            int nextPreviewStateIndex = methodBody.IndexOf(
+                "if (previewGhostState != null && previewRecording != null)",
+                callIndex,
+                StringComparison.Ordinal);
+            Assert.True(nextPreviewStateIndex > callIndex,
+                "UpdatePlayback preview interpolation block end was not found.");
+
+            string callBlock = methodBody.Substring(callIndex, nextPreviewStateIndex - callIndex);
+            Assert.Contains("recordingId: previewRecording?.RecordingId", callBlock);
+        }
+
         private static Recording CreateTailLiftRecording(
             string recordingId,
             string terminalBodyName = "Kerbin")
@@ -420,6 +451,49 @@ namespace Parsek.Tests.Rendering
                 recordedGroundClearance = double.NaN
             });
             return rec;
+        }
+
+        private static string LocateParsekFlightSource()
+        {
+            string dir = AppContext.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (File.Exists(candidate))
+                    return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+        }
+
+        private static string ExtractMethodBody(string source, string methodSignature)
+        {
+            int methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
+            Assert.True(methodStart >= 0,
+                $"{methodSignature} not found in ParsekFlight.cs.");
+
+            int openBrace = source.IndexOf('{', methodStart);
+            Assert.True(openBrace >= 0,
+                $"{methodSignature} has no opening brace in ParsekFlight.cs.");
+
+            int depth = 0;
+            for (int i = openBrace; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(methodStart, i - methodStart + 1);
+                }
+            }
+
+            Assert.True(false,
+                $"{methodSignature} has unbalanced braces in ParsekFlight.cs.");
+            return string.Empty;
         }
     }
 }
