@@ -231,6 +231,78 @@ namespace Parsek
             return remapped;
         }
 
+        /// <summary>
+        /// Removes the action at the given index. Used by maintenance passes that
+        /// already iterated <see cref="Actions"/> to identify rows to drop (see
+        /// <see cref="LedgerRolloutAdoption.RepairDuplicateRolloutActions"/>).
+        /// Out-of-range indices are a silent no-op so callers do not have to gate
+        /// their own removeAt callback. Bumps <see cref="StateVersion"/> when a
+        /// row is actually removed so ELS consumers rebuild their cache.
+        /// </summary>
+        internal static void RemoveActionAt(int index)
+        {
+            if (index < 0 || index >= actions.Count) return;
+            actions.RemoveAt(index);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Repairs the loaded ledger by collapsing near-duplicate
+        /// VesselRollout actions that point at the same logical rollout
+        /// (same PID-or-vessel+site, same cost, UT within
+        /// <see cref="LedgerRolloutAdoption.RolloutDuplicateWindowSeconds"/>).
+        /// Already-corrupt saves written before the
+        /// <c>OnVesselRolloutSpending</c> dedup gate landed contain pairs of
+        /// rollout actions that represent the same charge — see the production
+        /// repro at <c>logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld</c>
+        /// where two rollout rows for pid 3442693372 (vessel 'R1', cost 8320.001)
+        /// landed ~40 ms apart because the player reverted mid-flight and
+        /// re-launched. Returns the number of rows removed; emits a single INFO
+        /// log line per dedup. Idempotent — running it on a healthy ledger is
+        /// a no-op.
+        ///
+        /// <para>Also handles the adopted+unadopted scenario flagged in the
+        /// follow-up to PR #711: a recording adopts the original launch's
+        /// rollout (clearing its DedupKey), the player reverts and relaunches,
+        /// and a fresh unadopted row lands beside it. The adopted row carries
+        /// no DedupKey so its rollout context must be sourced from the
+        /// associated recording — that lookup is delegated to
+        /// <see cref="LedgerOrchestrator.FindRecordingById"/> via the resolver
+        /// below. The adopted row always wins the cluster.</para>
+        /// </summary>
+        internal static int RepairDuplicateRolloutActions()
+        {
+            int removed = LedgerRolloutAdoption.RepairDuplicateRolloutActions(
+                actions,
+                RemoveActionAt,
+                ResolveAdoptedRolloutContext);
+
+            if (removed > 0)
+            {
+                ParsekLog.Info("Ledger",
+                    $"RepairDuplicateRolloutActions: collapsed {removed} duplicate " +
+                    $"VesselRollout action(s); ledger total now {actions.Count}");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Resolver wired into <see cref="LedgerRolloutAdoption.RepairDuplicateRolloutActions"/>
+        /// for adopted rollout rows — adopted rows have no DedupKey so the
+        /// rollout-adoption context (PID/vessel/site) must come from the
+        /// recording the row was adopted into. Returns a default-zero
+        /// context when no recording can be found, which the repair pass
+        /// treats as "cannot match" and skips the row.
+        /// </summary>
+        private static LedgerRolloutAdoption.RolloutAdoptionContext ResolveAdoptedRolloutContext(string recordingId)
+        {
+            var rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            if (rec == null)
+                return default(LedgerRolloutAdoption.RolloutAdoptionContext);
+            return LedgerRolloutAdoption.CreateRolloutAdoptionContext(rec);
+        }
+
         /// <summary>Clears all actions from the in-memory ledger.</summary>
         internal static void Clear()
         {
