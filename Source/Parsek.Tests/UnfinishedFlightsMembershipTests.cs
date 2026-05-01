@@ -193,6 +193,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyedWithRecordingScopedScienceAction_NotMember()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_crash",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_A",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_A")
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
+        }
+
+        [Fact]
+        public void DestroyedWithOnlyTombstoneableKerbalDeathActions_IsMember()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_A",
+                UT = 20.0,
+                KerbalName = "Jebediah Kerman",
+                KerbalEndStateField = KerbalEndState.Dead,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death_rep",
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_A",
+                UT = 20.1,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = 2.0f,
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void StrandedEvaWithRecordingScopedScienceAction_NotMember()
+        {
+            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_eva",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_eva",
+                UT = 12.0,
+                SubjectId = "evaReport@MunSrfLandedMidlands",
+                ScienceAwarded = 1.5f,
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_eva")
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_eva"));
+        }
+
+        [Fact]
         public void DestroyedStagesWithDownstreamCrashBranch_AreMembers()
         {
             // 2026-04-29 Kerbal X repro: upper/root and probe/booster both
@@ -601,6 +689,37 @@ namespace Parsek.Tests
             Assert.Empty(members);
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]") && l.Contains("reason=stableTerminal"));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void StashedWorldInteractingTerminal_NotMember(TerminalState terminal)
+        {
+            var rec = Rec("rec_unsafe", MergeState.Immutable, terminal,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = -1,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_unsafe", stashedSlot: true)
+                }
+            };
+            InstallScenario(rps: new List<RewindPoint> { rp });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=stableTerminal")
+                && l.Contains("terminal=" + terminal));
         }
 
         [Fact]

@@ -64,9 +64,9 @@ The recording tree never shrinks. The new `ChildSlot.Sealed` flag is the close s
 
 The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus, SubOrbital non-focus, EVA-stranded). Over-inclusion is handled by the player Sealing the row. Under-inclusion (rover drove 20m and player wants it re-flyable) was accepted as a v1 limitation; the v2 Stash-from-not-UF affordance is the explicit escape hatch while the backing RP still exists. **No heuristic predicates** beyond the simple terminal-state-plus-focus rule. R1-R3's voluntary-action heuristic exploration was explicitly rejected.
 
-### 2.4 Predicate must not drift between call sites
+### 2.4 Predicate is shared; safety gates cap retry intent
 
-The predicate is shared between two call sites — Site A (original tree commit) and Site B-1 (re-fly merge classifier flip). Both route through the same `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed)` entry point. A drift would mean the predicate's verdict changes depending on which path produced the row, which the player would experience as "rows that disappear immediately after merge." A shared-classifier identity test guards against drift. Site B-2 is a separate concern — it consumes Site B-1's verdict and decides what to do with it on the in-place merge path; see §6.3.
+The STASH membership predicate is shared between Site A (original tree commit) and Site B-1 (re-fly merge classification) for diagnostics and crash/stranded-EVA detection. Manual Stash is the player's intent signal for a stable leaf, but retry intent is capped by hard safety gates: no recovered/docked/boarded terminal, no downstream structural/world interaction, and no recording-linked game action that changed career/world state. Safe stable retry reasons (`stableLeafUnconcluded`, `stashedStableLeaf`) stay `CommittedProvisional` after merge when those gates are clean. Terminal failure outcomes (`Destroyed`, or an EVA kerbal that did not board) also remain retryable unless the recording has a non-tombstoneable career/world action; tombstoneable kerbal-death ledger rows remain retryable because a successful re-fly can retire them and return the kerbal.
 
 ### 2.5 Layering: classifier owns the helpers, UI consumes
 
@@ -96,12 +96,12 @@ This section fixes the vocabulary. "Recording" (lowercase) is the concept; **Rec
 - **Focus slot** — the `ChildSlot` in a `RewindPoint` whose vessel was the active focus at the moment the multi-controllable split fired. Identified by `RewindPoint.FocusSlotIndex` (default -1 = no focus signal).
 - **Non-focus slot** — any slot other than the focus slot. `slot.SlotIndex != RP.FocusSlotIndex AND RP.FocusSlotIndex >= 0`.
 - **No-focus-signal RP** — a RewindPoint with `FocusSlotIndex == -1`. Either a legacy RP that predates this feature, OR a new RP where no slot was focused at split time (rare: e.g. the player was focused on an unrelated vessel outside the split).
-- **Sealed slot** — a `ChildSlot` with `Sealed == true`. The player has explicitly closed this slot; the row drops from UF and the reaper treats it as equivalent-to-Immutable for reap eligibility.
+- **Sealed slot** — a `ChildSlot` with `Sealed == true`. Either the player explicitly closed this slot, or the merge safety gate auto-sealed it after a committed re-fly produced a hard-close signal such as a recording-linked science/milestone/funds/rep/contract/facility/strategy action. The row drops from UF and the reaper treats it as equivalent-to-Immutable for reap eligibility. Current persistence stores only `Sealed` / `SealedRealTime`; the auto-seal reason is logged at merge time, while persisted `SealedBy` / `SealedReason` metadata is a deferred schema follow-up tracked in `docs/dev/todo-and-known-bugs.md`.
 - **Stranded EVA** — an EVA kerbal recording whose chain TIP has `EvaCrewName != null` AND a non-`Boarded` terminal (typically `Landed` for surface strands, `Orbiting` for drift strands; `Destroyed` is a dead kerbal and routes through the Crashed branch).
 - **Prior tip** — the slot's current effective recording id at re-fly invocation time, before any new supersede relation has been appended for the current re-fly. Equals `slot.OriginChildRecordingId` on the first re-fly into a slot; equals the previous re-fly's recording id on chain extension.
 - **Site A** — `RecordingStore.ApplyRewindProvisionalMergeStates`. The MergeState-promotion call site that runs at original tree commit.
 - **Site B-1** — `SupersedeCommit.FlipMergeStateAndClearTransient`. The MergeState-promotion call site that runs at re-fly merge.
-- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. After Site B-1 runs, this path currently overrides the classifier's verdict with an unconditional `provisional.MergeState = MergeState.Immutable`. The override exists because the in-place path has no separate provisional (the same recording is both slot effective AND supersede target), and leaving it CP would create a duplicate / un-reapable UF row. Site B-2's job in this feature is to handle the in-place CP case correctly per §6.3 — three candidate options (B2-A force-Immutable / B2-B fresh-provisional / B2-C auto-Seal), decision deferred to §11.3.
+- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. It no longer unconditionally forces every in-place outcome closed. It consumes Site B-1's safety decision: clean stable or safety-clean terminal-failure outcomes stay `CommittedProvisional`, while safety-closed outcomes inherit Site B-1's `Immutable` + auto-seal result and can be reaped.
 
 ---
 
@@ -138,7 +138,7 @@ RewindPointReaper.IsReapEligible: 4 slots are CP (open) -> RP-1 stays alive.
 Recordings Manager Unfinished Flights group shows P1, P2, P3, P4 with Fly + Seal buttons.
 ```
 
-Player can pick any probe individually, hit Fly, rewind to the staging UT, and fly that probe to a real mission (land it, transfer it elsewhere, etc.). The other three probes ghost-play-back from their committed coast. Merge produces a re-fly that supersedes the original probe; if the re-fly ends Landed/Splashed/Recovered, the slot closes Immutable. If it ends Orbiting in a different orbit, the slot stays CP for further re-fly. If the player decides one probe is "done," they hit Seal and the row drops.
+Player can pick any probe individually, hit Fly, rewind to the staging UT, and fly that probe to a real mission (land it, transfer it elsewhere, etc.). The other three probes ghost-play-back from their committed coast. Merge produces a re-fly that supersedes the original probe. If the new recording is a clean stable leaf, the slot can stay in STASH for another synchronization pass; if it recovers, docks, boards, creates a downstream structural/world interaction, or records a career/world action such as science or milestone credit, the safety gate auto-seals it. Destroyed/non-boarded-EVA outcomes stay CP for another retry unless they also contain a non-tombstoneable career/world action. If the player decides one probe is "done" before re-flying it, they hit Seal and the row drops.
 
 ### 4.2 Focus exclusion: routine upper stages don't pollute the list
 
@@ -166,9 +166,9 @@ U:  non-focus, terminal Orbiting -> UF -> CommittedProvisional
 
 The booster is excluded as the focus mission; the upper stage is the unfinished off-mission sibling. RP stays alive while U's slot is open.
 
-### 4.3 EVA carve-out: stranded kerbals always qualify
+### 4.3 EVA carve-out: stranded kerbals bypass focus, not safety
 
-The kerbal branch in `TerminalOutcomeQualifies` returns BEFORE the focus short-circuit. A stranded EVA kerbal qualifies as UF whether the player flew the EVA actively or not, and whether the RP is post-feature (with FocusSlotIndex set) or legacy (FocusSlotIndex == -1). Stranded kerbals are unambiguous (player wants them back); orbital siblings are ambiguous (intent unclear). This asymmetry is the only retroactive-surfacing exception in the migration story.
+The kerbal branch in `TerminalOutcomeQualifies` runs BEFORE the focus short-circuit. A stranded EVA kerbal can qualify as UF whether the player flew the EVA actively or not, and whether the RP is post-feature (with FocusSlotIndex set) or legacy (FocusSlotIndex == -1). Stranded kerbals are unambiguous (player wants them back); orbital siblings are ambiguous (intent unclear). This asymmetry is the only retroactive-surfacing exception in the migration story. It is still capped by the recording-scoped world-action gate from §2.4: a stranded-EVA recording that already produced non-tombstoneable science/career/world actions closes with `recordingAction:<type>:<actionId>`, while kerbal-death rows and their paired reputation penalty stay retryable.
 
 ### 4.4 Seal closes a slot, not a recording
 
@@ -178,7 +178,7 @@ The reaper (§6.5) treats `slot.Sealed == true` as equivalent-to-Immutable for c
 
 ### 4.5 Tree-branching parent that ends Destroyed
 
-A tree-branching split can capture a RewindPoint with both the continuing parent vessel and the new side-off child as controllable slots without closing the parent's Recording row. In that model, the parent keeps flying under the same `RecordingId` after the BranchPoint, so `Recording.ParentBranchPointId` and `Recording.ChildBranchPointId` can both stay empty even though the RP slot's `OriginChildRecordingId` points at the parent. If the parent later ends `Destroyed`, it is still an unfinished flight: destruction is conclusive and focus exclusion does not apply. The same origin-only route can surface a non-focus tree-branching parent that later ends `Orbiting` or `SubOrbital`, matching the stable-leaf focus-exclusion rules from §4.1-§4.2.
+A tree-branching split can capture a RewindPoint with both the continuing parent vessel and the new side-off child as controllable slots without closing the parent's Recording row. In that model, the parent keeps flying under the same `RecordingId` after the BranchPoint, so `Recording.ParentBranchPointId` and `Recording.ChildBranchPointId` can both stay empty even though the RP slot's `OriginChildRecordingId` points at the parent. If the parent later ends `Destroyed`, it is still an unfinished flight when the recording-scoped world-action gate is clean: destruction is conclusive and focus exclusion does not apply, but non-tombstoneable science/career/world actions still close the retry row. The same origin-only route can surface a non-focus tree-branching parent that later ends `Orbiting` or `SubOrbital`, matching the stable-leaf focus-exclusion rules from §4.1-§4.2.
 
 Resolution order is part of the contract. `UnfinishedFlightClassifier.TryResolveRewindPointForRecording` first walks the legacy child/parent BranchPoint links so chain-continuation recordings keep their existing precedence. Only after those walks fail does it scan live RewindPoints and call `EffectiveState.ResolveRewindPointSlotIndexForRecording` to match by slot origin id, choosing the latest matching RP by UT when the same parent recording appears in multiple origin slots. `TryQualify` labels this fallback `side=origin-only` when the matched RP is justified by the slot origin rather than by a parent/child BranchPoint match. The log line therefore distinguishes the new tree-branching-parent path from the existing `side=active-parent-child` chain-continuation parent and regular `side=child` branches.
 
@@ -220,9 +220,11 @@ public class ChildSlot
 
     /// <summary>
     /// True when the player invoked the per-row Stash action on this slot,
-    /// promoting a default-excluded stable terminal leaf into Unfinished
-    /// Flights. Excluded only when the slot is Sealed or the structural
-    /// classifier closes it (for example boarded EVA / downstream BP).
+    /// promoting a safe default-excluded stable terminal leaf into Unfinished
+    /// Flights. Only spawnable stable terminals (Landed/Splashed/Orbiting/
+    /// SubOrbital) qualify; Recovered, Docked, Boarded, and downstream
+    /// branch outcomes remain closed because they changed career state or
+    /// another world object.
     ///
     /// Default false; legacy saves load with false. Stash is only possible
     /// while the backing RewindPoint still exists; it does not resurrect
@@ -444,9 +446,9 @@ The following helpers move from `UI/RecordingsTableUI.cs` into this file (or `Ef
 
 `RecordingsTableUI` becomes a consumer of the moved helpers. Other consumers (Site A and Site B-1 predicate-call paths in §6.3, plus the Seal handler in §6.6) call them from non-UI namespaces. Site B-2 reads Site B-1's verdict downstream and does not call the predicate directly; it lives in `MergeDialog` and consumes the marker + the just-classified provisional state.
 
-### 6.3 MergeState promotion: Site A + Site B-1 (predicate-evaluation), Site B-2 (in-place handling)
+### 6.3 MergeState promotion: Site A display predicate, Site B merge-close policy
 
-The predicate must be applied at two call sites — Site A and Site B-1. Both route through `UnfinishedFlightClassifier.Qualifies` to prevent drift. Site B-2 is a separate concern that consumes Site B-1's verdict on the in-place merge path; it does not evaluate the predicate independently.
+Site A decides whether a newly committed original-tree recording appears in STASH. Site B decides what happens after the player re-flies one of those slots and commits the attempt back to the timeline. The policies share the same predicate but Site B also applies the hard safety gate: clean stable leaves can remain retryable, while recovered/docked/boarded terminals, downstream structural/world interactions, and non-tombstoneable recording-linked career/world actions close the slot.
 
 **Site A: original tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` ([RecordingStore.cs:715-770](../Source/Parsek/RecordingStore.cs)) extends from the v0.9 Crashed-only check to the broader predicate:
 
@@ -471,7 +473,7 @@ for each rec in tree.Recordings:
 
 The existing v0.9 crash-only path is subsumed: `Qualifies` returns true for `terminal == Destroyed` regardless of focus.
 
-**Site B-1: re-fly merge classifier flip.** `SupersedeCommit.FlipMergeStateAndClearTransient` extends from `(kind == Crashed) ? CP : Immutable` to:
+**Site B-1: re-fly merge classifier flip.** `SupersedeCommit.FlipMergeStateAndClearTransient` resolves the RP slot, evaluates the STASH predicate for diagnostics, then applies the merge-close gate:
 
 ```
 // Slot resolution: walk supersedes from each slot's OriginChildRecordingId
@@ -495,28 +497,38 @@ if NOT TryResolveRewindPointForRecording(provisional, out rp, out slotIdx):
 var slot = rp.ChildSlots[slotIdx]
 bool qualifies = UnfinishedFlightClassifier.Qualifies(
     provisional, slot, rp, considerSealed: false)
-provisional.MergeState = qualifies ? CommittedProvisional : Immutable
+
+bool terminalFailure =
+    terminal == Destroyed
+    OR (EvaCrewName != null AND terminal != Boarded)
+
+bool hasUnsafeRecordingAction =
+    HasRecordingScopedWorldAction(provisional)
+    EXCEPT tombstoneable KerbalAssignment+Dead and bundled death ReputationPenalty
+
+bool cleanStableRetry =
+    classifierReason in { stableLeafUnconcluded, stashedStableLeaf }
+
+bool keepOpen =
+    qualifies
+    AND NOT hasUnsafeRecordingAction
+    AND (terminalFailure OR cleanStableRetry)
+
+provisional.MergeState = keepOpen
+    ? CommittedProvisional
+    : Immutable
+
+if (!keepOpen AND closeReason is a safety-close reason)
+    slot.Sealed = true
+
 log [Supersede] Info: provisional=<rid> mergeState=<state> qualifies=<b>
     slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex>
+    classifierReason=<reason> autoSeal=<b> autoSealReason=<reason>
 ```
 
-**Site B-2: in-place continuation merge handling.** `MergeDialog.TryCommitReFlySupersede` currently calls `FlipMergeStateAndClearTransient` and then immediately overrides with `provisional.MergeState = MergeState.Immutable` regardless of the classifier verdict. The override exists for a real invariant: on the in-place path there is **no separate provisional**. The same `Recording` instance plays both roles — it IS the slot's effective recording AND the supersede target. If we let it stay `CommittedProvisional` after merge, the row never drops from Unfinished Flights (the recording is its own effective; the slot stays CP; the predicate keeps qualifying it), creating a duplicate / un-reapable state.
+This intentionally means a non-focus `Orbiting`/`SubOrbital` leaf can appear in STASH before the re-fly and remain there after a clean stable re-fly. Stable is not inherently final: an undocked probe parked in orbit, or a rover moved safely on the surface, can still be a useful synchronization point. The slot closes only when the re-fly crosses a hard safety gate. If the player runs science from the vehicle, earns funds/rep/milestone/contract credit, changes facilities/strategies, recovers, docks, boards, or creates a downstream structural/world interaction, the recording has affected the universe and future retry is blocked.
 
-Removing the override naively therefore introduces a regression. Site B-2 must produce one of these end states for in-place re-flies that Site B-1 would otherwise classify as CP (Orbiting/SubOrbital/EVA-stranded non-focus):
-
-- **(B2-A) Force Immutable** — current v0.9 behavior preserved. The slot closes; chain extension via the in-place path on stable terminals is unavailable. The player must use a separate RP (a different split) to re-fly again. Simplest; lowest implementation risk; matches the v0.9 invariant exactly.
-- **(B2-B) Switch the in-place path to use a fresh provisional** — architectural change. The supersede chain has distinct old/new endpoints; chain extension works the same as the fresh-provisional path. Cleanest semantically; non-trivial code change to the in-place merge code path.
-- **(B2-C) Auto-Seal the slot on in-place CP merge** — set `slot.Sealed = true` whenever Site B-1 returned CP for an in-place merge whose recording is its own effective. Row drops post-merge; chain extension blocked. Hack-feeling because Seal is a player-explicit action elsewhere.
-
-**Decision deferred to the §11.3 investigation, with a preference order.** The implementation PR picks one of (B2-A) / (B2-B) / (B2-C) only after the §11.3 code-archaeology pass establishes (a) the actual end state v0.9 produces, (b) what code paths consume that state downstream, and (c) which option is safest. Preference order:
-
-1. **Try (B2-B) fresh-provisional first.** Cleanest gameplay: the design's promise of "stable unfinished re-flights chain naturally" holds for both in-place and fresh-provisional merge paths. A player who in-place-merges twice doesn't hit arbitrary friction. Ship if §11.3 confirms the in-place path can be re-architected to spawn a fresh provisional within v1 scope.
-2. **Fall back to (B2-A) force-Immutable** if B2-B requires a deep refactor of `MergeDialog.TryCommitReFlySupersede` that's out of scope for v1. Preserves v0.9 behavior exactly; documented chain-extension limitation in CHANGELOG.
-3. **Avoid (B2-C) auto-Seal** unless both B2-B and B2-A are blocked. The Seal action is meant as an explicit player intent ("I'm done with this slot"); auto-firing it from a merge code path muddies the semantic and makes the per-row Seal log line ambiguous (was the seal a player action or a system action?).
-
-The §10 risk + §13 test-plan entries are written against the (B2-A) fallback so the design ships under the conservative assumption; if §11.3 confirms B2-B is feasible, the test plan extends.
-
-The over-arching shared-classifier rule still holds: Site A and Site B-1 always route through `UnfinishedFlightClassifier.Qualifies` for the predicate verdict. Site B-2 is about what to DO with that verdict on the in-place path, not whether to compute it.
+**Site B-2: in-place continuation merge handling.** `MergeDialog.TryCommitReFlySupersede` consumes Site B-1's result. Clean stable and safety-clean terminal-failure in-place outcomes stay `CommittedProvisional` and remain retryable. Safety-closed outcomes are already `Immutable` and auto-sealed, so the reaper can remove the RP when all slots are closed. Destroyed vessels and stranded/dead EVAs remain retryable from the same RP only while their ledger actions are limited to the tombstoneable kerbal-death carve-out.
 
 ### 6.4 Closure-helper split + invocation linearization (PREREQUISITE)
 
@@ -649,15 +661,14 @@ Handler (in a new `UnfinishedFlightSealHandler` static class or as a method on t
 
 #### 6.7.1 Layout
 
-The Rewind column splits into Fly + Seal via **L1: widen the Rewind column**. `ColW_Rewind` increases from 75 px to ~150 px. Two `DrawBodyCenteredButton` calls side-by-side at ~70 px each. Header relabels to "Rewind / Seal."
+The Recordings table has separate **Rewind** and **Re-Fly** columns. Rewind/Forward remain in the Rewind column so launch and timeline navigation stay visible. STASH actions live in the Re-Fly column: existing STASH rows show `Fly` + `Seal`, and stable rows that are eligible for the manual escape hatch show `Stash` + `Seal`.
 
-L1 is chosen over L2 (new column), L3 (kebab menu), L4 (right-click) because:
-- L1 stays inside the existing Rewind cell affordance pattern and adds zero new layout primitives. Crashed UF rows (today's v0.9 case) get the same layout — Fly is the primary action, Seal is the secondary. Seal-on-Crashed is "I accept the crash; stop offering me the re-fly."
-- L2 adds an empty column for non-UF rows (most rows in the table), wasting horizontal space.
-- L3 (kebab) is invisible discoverability — players don't know to click "...". KSP has no stock kebab pattern for tables.
-- L4 (right-click) has no precedent in KSP's stock UI for table rows; adds an event handler + accessibility concern.
+The separate Re-Fly column is chosen over widening/overloading the Rewind cell, a kebab menu, or right-click because:
+- Rewind and Re-Fly are different workflows; keeping them in separate columns prevents stable-row Stash from hiding launch Rewind.
+- STASH rows need visible `Fly`, `Stash`, and `Seal` affordances. A menu would make the safety/cleanup path too easy to miss.
+- KSP's stock UI has no strong right-click table-row precedent, and the mod already uses explicit row buttons for primary actions.
 
-Cascade: every row in the Recordings Manager table gets the wider Rewind column. Crashed rows currently using R / FF / Fly / blank in the cell continue to render in the wider cell (the buttons are centered). Tooltip refresh on the Unfinished Flights group header.
+Cascade: every row in the Recordings Manager table gets the Rewind and Re-Fly columns. Non-STASH rows leave the Re-Fly cell empty unless the row can be manually Stashed. Tooltip refresh on the STASH group header.
 
 #### 6.7.2 Seal confirmation dialog
 
@@ -723,20 +734,20 @@ Survivor V's chain TIP terminal Destroyed. Crashed branch returns true regardles
 ### 7.10 Breakup-survivor active parent, terminal Landed
 Survivor V's chain TIP terminal Landed. Landed always returns false from `TerminalOutcomeQualifies`. Not UF. RP reaps when other slots close. v0.9 behavior.
 
-### 7.11 Breakup-survivor active parent, terminal Orbiting (ACCEPTED LIMITATION)
-Survivor V is FocusSlot, terminal Orbiting → not UF (focus exclusion). Player loses access to re-fly the breakup moment via UF by default. **Accepted v1 limitation — see §10 risk.** Mitigation: player can manually crash the post-breakup vessel and the row will appear, or use v2 Stash while the backing RP still exists.
+### 7.11 Breakup-survivor active parent, terminal Orbiting, focus slot
+Survivor V is FocusSlot, terminal Orbiting → not UF (focus exclusion). Player loses access to re-fly the breakup moment via UF by default unless they use v2 Stash while the backing RP still exists. The origin-only fallback from §4.5 does not bypass focus exclusion; it only restores the missing RP-slot link when the slot would otherwise qualify.
 
 ### 7.12 Cross-tree dock during stable-leaf re-fly
-Re-flown probe docks with another tree's station. Dock BP fires; probe-re-fly's chain TIP gets `ChildBranchPointId = dockBp.Id`. Per-RP leaf gate fails. Site B-1 sees Docked terminal → `TerminalOutcomeQualifies` returns false → Immutable. Slot closes. AppendRelations closure walk (rooted at SupersedeTargetId) is tree-scoped and halts at the mixed-parent BP; station's tree unaffected. ✓
+Re-flown probe docks with another tree's station. Dock BP fires; probe-re-fly's chain TIP gets `ChildBranchPointId = dockBp.Id`. Per-RP leaf gate fails. Site B-1 sees the downstream structural/world interaction → `TerminalOutcomeQualifies` returns false → Immutable, auto-sealed. AppendRelations closure walk (rooted at SupersedeTargetId) is tree-scoped and halts at the mixed-parent BP; station's tree unaffected. ✓
 
-### 7.13 Re-fly a stashed probe, end in Mun orbit (chain extension on stable terminal)
-Re-fly merge: Site B-1 sees Orbiting + non-focus → CP. Slot stays open. Supersede chain extends linearly: probeOrig -> probeReFly1 (via §6.4 prerequisite). Player can Fly probe again; chain extends to probeReFly2 on a third re-fly. Player Seals to close.
+### 7.13 Re-fly a stashed probe, end in Mun orbit
+Re-fly merge: Site B-1 sees Orbiting + non-focus, records `classifierReason=stableLeafUnconcluded`, then applies the safety gate. If the recording has no non-tombstoneable career/world action, the committed stable orbit stays `CommittedProvisional`, the slot remains open, and the player can re-fly from the same RP again to synchronize against other recordings. Supersede still appends `{priorTip -> provisional}` so the timeline points at the new recording. If the re-fly also ran science, earned milestone/funds/rep/contract credit, or otherwise recorded a career/world action, the gate commits `Immutable`, auto-seals the slot, and the row drops from STASH.
 
 ### 7.14 Re-fly an auto-included stable-leaf probe, end Landed
-Re-fly merge: Site B-1 sees Landed → not UF → Immutable. Slot closes. Supersede relation `{priorTip -> provisional}` appended. Reaper sees all slots closed → reaps RP. Manual-Stash variant: if the player explicitly set `slot.Stashed`, Landed remains `stashedStableLeaf` and the slot stays open until the player Seals it; boarded EVA and downstream-BP close-outs still use the normal closed path.
+Auto-included stable-leaf rows only cover `Orbiting` / `SubOrbital`; a non-stashed Landed outcome is a stable terminal that the predicate does not keep open, so it commits `Immutable`. Manual-Stash variant: if the player explicitly set `slot.Stashed`, the classifier reports `stashedStableLeaf` for diagnostics. A clean Landed rover can remain `CommittedProvisional` and stay in STASH; a Landed rover that ran science or otherwise recorded a non-tombstoneable career/world action commits `Immutable`, auto-seals, and can be reaped.
 
 ### 7.15 Re-fly a stashed stranded EVA kerbal, succeed in reboarding
-Re-fly merge produces a Board BP. Provisional has `ChildBranchPointId = boardBp.Id`. `TerminalOutcomeQualifies` returns false (Boarded → kerbal branch returns false). Site B-1 → Immutable. Slot closes. Stranded-kerbal-recovery path complete.
+Re-fly merge produces a Board BP. Provisional has `ChildBranchPointId = boardBp.Id`. `TerminalOutcomeQualifies` returns false (Boarded → kerbal branch returns false). Site B-1 → Immutable and auto-sealed. Stranded-kerbal-recovery path complete.
 
 ### 7.16 Player Seals a UF row
 `slot.Sealed = true`; row drops from group; reaper runs (RP deleted if all sibling slots also closed, NotCommitted-not-allowed). Recording unchanged; ghost playback unchanged on subsequent rewinds. **Planned test.**
@@ -766,13 +777,9 @@ RP captures with explicit `FocusSlotIndex = -1` (player was focused on an unrela
 RP captures with `FocusSlotIndex = -1` (no focus involved). All sibling slots stay Immutable post-commit. No UF rows. RP reaps. Same outcome as legacy save case.
 
 ### 7.25 In-place re-fly merge ending Orbiting (Site B-2 behavior)
-Player drives a re-fly merge through `MergeDialog.TryCommitReFlySupersede` (in-place path). Site B-1 classifier returns Orbiting + non-focus → CP. Site B-2's end state depends on which option (§6.3) is picked:
+Player drives a re-fly merge through `MergeDialog.TryCommitReFlySupersede` (in-place path). Site B-1 records the Orbiting + non-focus predicate reason. If the re-fly has no non-tombstoneable recording-linked career/world action, it stays `CommittedProvisional`; Site B-2 does not force a different state, and the RP remains available. If the re-fly ran science or otherwise changed career/world state, Site B-1 commits `Immutable` and auto-seals the slot; Site B-2 lets the reaper remove the RP when all sibling slots are also closed.
 
-- **(B2-A) force-Immutable**: slot closes; row drops post-merge; chain extension via in-place blocked. v0.9 behavior preserved.
-- **(B2-B) fresh-provisional**: in-place merge spawns a separate provisional, supersede chain has distinct old/new endpoints, slot stays CP, row stays in UF for further re-fly.
-- **(B2-C) auto-Seal**: same as B2-A end state, but reached via `slot.Sealed = true` rather than MergeState flip.
-
-The §11.3 investigation picks one. The test plan in §13 starts with a (B2-A) baseline and extends if (B2-B) or (B2-C) is picked.
+Destroyed / stranded-EVA in-place merges use the same gate: pure terminal failure, plus tombstoneable kerbal-death ledger rows, stays `CommittedProvisional`; any additional career/world action closes the slot.
 
 ### 7.26 Hybrid star+linear supersede graph
 Save loaded with legacy star portion `{probeOrig -> probeReFly1, probeOrig -> probeReFly2}` from a pre-§6.4 chain extension. Player invokes a new re-fly into the same slot. New invocation computes `priorTip = slot.EffectiveRecordingId(supersedes)` — the walker picks the oldest member of the star (probeReFly1) and walks linearly from there. New relation appended: `{probeReFly1 -> probeReFly3}`. Resulting graph is hybrid: star portion preserved, linear portion grows from probeReFly1. `TryResolveRewindPointForRecording(probeReFly3, ...)` returns the slot via the forward walk from slot.OriginChildRecordingId → probeReFly1 → probeReFly3. **Tolerated, no migration sweep needed.**
@@ -781,7 +788,7 @@ Save loaded with legacy star portion `{probeOrig -> probeReFly1, probeOrig -> pr
 Marker validates against on-disk session-provisional + RP. Session resumes. **No new state vs v0.9.** `MarkerValidator.Validate` extension weakly validates `SupersedeTargetId`; failure clears the field and AppendRelations falls back to `OriginChildRecordingId`.
 
 ### 7.28 Player reverts a stable-leaf re-fly mid-flight
-`RevertInterceptor` 3-option dialog appears. Discard Re-fly preserves the stashed row in UF (origin RP promoted, slot still CP). **Same as v0.9** (the in-place force in §6.3 Site B-2 doesn't affect Discard Re-fly because the Discard path doesn't reach the merge classifier).
+`RevertInterceptor` 3-option dialog appears. Discard Re-fly preserves the stashed row in UF (origin RP promoted, slot still CP). **Same as v0.9** (the merge-close gate in §6.3 doesn't affect Discard Re-fly because the Discard path doesn't reach the merge classifier).
 
 ### 7.29 Tree discard during chain-extension state
 `TreeDiscardPurge.PurgeTree` removes every RP, supersede relation, and tombstone scoped to the discarded tree. The new `slot.Sealed` flags on the tree's RP slots are removed alongside the RPs. `marker.SupersedeTargetId` clears alongside the marker. **No new code paths needed in TreeDiscardPurge** — the discard already removes the parent objects.
@@ -828,7 +835,7 @@ The migration + behavior-change story splits into three notes that must be prese
 
 > **Stranded EVA kerbals: retroactive.** EVA kerbals who got stranded on a body in past missions DO appear in Unfinished Flights after the upgrade. Click Fly to attempt a rescue. (Why: stranded kerbals are unambiguous — you almost certainly want them back — unlike orbital siblings where intent is unclear.)
 
-> **In-place re-fly merges close the slot on stable terminals.** When you click Continue Flying through the in-place merge dialog (instead of letting Parsek spawn a fresh provisional), an Unfinished Flight that ends Orbiting / SubOrbital / EVA-stranded closes the slot via MergeState — the Fly button on that row disappears and the rewind point becomes eligible for cleanup. Re-flying that slot again requires a fresh split with its own RewindPoint. (Why: the in-place merge path uses one Recording for both the slot's effective state AND the supersede target, so leaving it CommittedProvisional would create a row that never goes away. The fresh-provisional merge path — the default in most UI flows — keeps the slot open for chain extension as today.) See §6.3 (B2-A) and §11.3 for context; the implementation PR may revise this behavior to (B2-B) or (B2-C) per the §11.3 investigation.
+> **Stable re-flights stay open only while safe.** If you Fly a STASH entry and merge a clean stable outcome (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`), Parsek can keep that retry slot open so you can synchronize it against other recordings. The slot closes when the re-fly reaches a recovered/docked/boarded terminal, creates a downstream structural/world interaction, or records a non-tombstoneable career/world action such as science, milestone/funds/rep, contract, facility, kerbal, or strategy state. Destroyed vessels and non-boarded EVA kerbals stay retryable unless they also changed career/world state beyond tombstoneable kerbal death.
 
 ### 9.3 v1+ saves on pre-v1 (v0.9.x) Parsek
 
@@ -842,17 +849,17 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 ## 10. Risks
 
-- **Disk usage growth.** Stable-leaf RPs persist until Sealed or all sibling slots close. Bounded by player diligence with the Seal button + by the FocusSlotIndex gate (which prevents routine focus-continuation upper stages from inflating the count). Mitigation: the Settings → Diagnostics RP disk-usage line includes live crashed-open, stable-open, and sealed-pending RP buckets next to the byte/file total.
+- **Disk usage growth.** Stable-leaf RPs persist while they are offered in STASH and can remain open after clean stable re-flights. Crash/death retry RPs also persist until the player succeeds, hits a safety gate, or explicitly Seals them. Mitigation: the Settings → Diagnostics RP disk-usage line includes live crashed-open, stable-open, and sealed-pending RP buckets next to the byte/file total.
 
 - **Over-inclusion.** The simple terminal-state classifier surfaces some cases where the player meaningfully flew or didn't intend to leave a vessel and it ended Orbiting/SubOrbital (Mun-transfer-and-park, briefly-nudged-probe, deep-space probe carried by transfer stage and undocked there). The Seal button is the design's answer. **Do not re-introduce voluntary-action heuristics** — that path was explicitly rejected in R1-R3.
 
-- **Predicate drift between Site A and Site B-1.** Both predicate-evaluation call sites must route through `UnfinishedFlightClassifier.Qualifies` with the same `(rec, slot, rp)` triple. A drift would mean rows that disappear immediately after a merge that should have kept them visible. Shared-classifier identity test in §13 guards against this. (Site B-2 is downstream of Site B-1's verdict and does not evaluate the predicate directly; the relevant Site B-2 risk is the in-place duplicate-row invariant below.)
+- **Predicate-vs-merge policy confusion.** Site A's STASH-display predicate and Site B's post-merge policy share the classifier reason, but Site B adds the hard safety gate. Stable rows can be offered before the re-fly and clean stable rows can stay open after merge; unsafe terminal, downstream interaction, or non-tombstoneable career/world actions close them. Tests must pin both the diagnostic classifier reason and the merge result so this does not regress into accidental closure or paradox-prone re-fly exposure.
 
 - **Reversal of v0.9 §7.31 stance.** v0.9 said "stable-end splits explicitly not in scope." v1 says some non-focus stable-end splits ARE in scope (Orbiting/SubOrbital non-focus, EVA-stranded). Focus-continuation stable terminals continue to NOT get a row, preserving the "your mission's upper stage didn't suddenly become unfinished" intuition. The CHANGELOG must be precise about what changed and what didn't.
 
-- **Breakup-survivor with stable-orbit terminal isn't auto-added to UF** (§7.11). The single most "obvious-feeling-bug" outcome of the focus-slot exclusion. Player remembers a structural failure, looks for it under UF, doesn't find it (because they survived to orbit). **Accepted v1 limitation.** Mitigations: player can crash the post-breakup vessel, or use v2 Stash while the backing RP still exists. CHANGELOG must surface this with an FAQ-style entry; consider a forum/Discord post too.
+- **Focus-slot breakup-survivor with stable-orbit terminal still isn't auto-added to UF** (§7.11). Origin-only RP-slot resolution fixes tree-branching parent rows that are otherwise eligible, including crashed parents and non-focus Orbiting/SubOrbital parents. It deliberately does not bypass focus exclusion: a focus-slot survivor that reaches stable orbit is considered the player's continued mission unless they explicitly use v2 Stash while the backing RP still exists.
 
-- **Site B-2 in-place duplicate-row invariant.** The current v0.9 `MergeDialog.TryCommitReFlySupersede` override exists because the in-place path has no separate provisional — leaving the recording CP after merge would create a duplicate / un-reapable UF row. §6.3 enumerates three candidate handlings with a preference order: **(B2-B) fresh-provisional first** (cleanest gameplay, keeps the chain-extension promise on the in-place path), **(B2-A) force-Immutable as fallback** (preserves v0.9 behavior exactly when B2-B is out of v1 scope), avoid **(B2-C) auto-Seal** (muddies the player-explicit Seal semantic). §11.3 picks per the investigation. Until then, the design ships under the (B2-A) fallback assumption: the in-place re-fly's recording flips to `MergeState.Immutable` (closing the slot via MergeState — distinct from the player-explicit `ChildSlot.Sealed` action elsewhere in the design), chain extension via in-place is unavailable, and the player must use a fresh split RP to re-fly again. Documented in §9.2 CHANGELOG note 3 (which the implementation PR retracts if B2-B is picked instead).
+- **Site B-2 in-place duplicate-row invariant.** The in-place path has no separate provisional, so an open clean-stable result means the recording remains its own effective slot target by design until the player Seals or a later re-fly hits a safety gate. Site B-1 owns that decision; Site B-2 preserves CP for clean stable and terminal-failure outcomes, and reaps only safety-closed `Immutable` outcomes.
 
 - **Legacy hybrid supersede graphs.** §7.26 — tolerated by the design but the §11 hybrid test must run green for confidence. If the walker behavior on hybrids differs from expectations, a migration sweep may need to be added back.
 
@@ -891,26 +898,17 @@ The implementation PR's pre-work must run that test against current `main` and d
 
 ### 11.3 Build-phase open question: Site B-2 in-place handling
 
-`MergeDialog.TryCommitReFlySupersede`'s in-place path uses the same `Recording` instance as both the slot's effective recording AND the supersede target — there is no separate provisional. The current v0.9 unconditional `provisional.MergeState = MergeState.Immutable` override after `FlipMergeStateAndClearTransient` exists because leaving the recording CP would create a duplicate / un-reapable UF row (the recording is its own effective; the slot stays CP; the predicate keeps qualifying it).
+Resolved in implementation. `MergeDialog.TryCommitReFlySupersede`'s in-place path uses the same `Recording` instance as both the slot's effective recording AND the supersede target, so it delegates the close/open decision to Site B-1 instead of applying a second local policy. The chosen policy is:
 
-The implementation PR's pre-work must:
+- Clean stable outcomes (`stableLeafUnconcluded`, `stashedStableLeaf`) stay `CommittedProvisional`; Site B-2 preserves that state.
+- Safety-closed outcomes auto-seal in Site B-1 and commit `Immutable`; Site B-2 lets the reaper clean the RP.
+- Terminal failure outcomes (`Destroyed`, non-boarded EVA) stay `CommittedProvisional` unless they also carry non-tombstoneable career/world actions.
 
-1. Read `MergeDialog.TryCommitReFlySupersede` and confirm the duplicate-row failure mode actually occurs without the override (write a regression test that builds the in-place case and asserts the row stays in UF post-merge under naive removal).
-2. Pick one of the three handling options from §6.3:
-   - **(B2-A) Force Immutable.** Preserve v0.9 behavior. Chain extension via in-place blocked. Simplest, lowest risk.
-   - **(B2-B) Switch in-place to fresh-provisional.** Architectural change to `MergeDialog.TryCommitReFlySupersede`. Cleanest semantically; non-trivial code change. Pre-work: confirm fresh-provisional path is reachable from in-place context (vessel state, scenario state, etc.).
-   - **(B2-C) Auto-Seal on in-place CP merge.** Set `slot.Sealed = true` whenever Site B-1 returned CP for an in-place merge. Hack-feeling; trivial code change. Pre-work: confirm auto-Seal logs make sense (`reaperImpact=willReap` etc.).
-3. Document the choice + rationale in the prerequisite PR description and update §6.3 / §7.25 / §10 / §13.1 to remove the "deferred" framing.
-
-**Preferred outcome: (B2-B)**. Cleanest gameplay model — the design's promise of "stable unfinished re-flights chain naturally" holds for both merge paths. A player who in-place-merges a stable-leaf re-fly twice doesn't hit arbitrary slot-closure friction. The investigation should bias toward shipping B2-B in v1 if the in-place path's re-architecture is feasible without a deep refactor.
-
-**Fallback: (B2-A)** if the investigation reveals B2-B requires changes to `MergeDialog.TryCommitReFlySupersede` that are out of v1 scope. Preserves v0.9 behavior exactly; CHANGELOG note 3 (in §9.2) documents the chain-extension limitation. Acceptable v1 outcome; B2-B becomes a v2 follow-up.
-
-**Avoid (B2-C)** unless both B2-B and B2-A are blocked. Auto-firing the Seal action from a merge code path muddies the per-row Seal semantic — Seal is meant as an explicit player intent ("I'm done with this slot"), and an auto-Seal makes the audit log ambiguous (was the seal a player action or a system action?). Players who use Seal manually expect it to mean "I explicitly closed this." Reserve B2-C only for the case where neither of the cleaner options is implementable.
+This keeps the conservative no-paradox behavior for recovered/docked/boarded, downstream structural/world interaction, and career/world-action outcomes while preserving clean stable retry and the original crash/death retry affordance.
 
 ### 11.4 v2 Stash-from-not-UF affordance
 
-Implemented as a follow-up. The Recordings table shows a `Stash` button for stable-terminal leaves that the default predicate excludes (rover-drove-20m, breakup-survivor-orbiting, focus-continuation upper stage the player decided to come back to) when the row still resolves to a live Rewind Point slot. The action sets `slot.Stashed` / `slot.StashedRealTime`, leaves the recording and `MergeState` unchanged, makes the row qualify as an Unfinished Flight, and from there exposes the same `Fly` + `Seal` affordance. `RewindPointReaper` treats an unsealed stashed `Immutable` slot as open while the classifier still qualifies it; Stash does not resurrect already-reaped RP quicksaves. Under the B2-A in-place merge policy, confirming an in-place re-fly clears `slot.Stashed` before forcing `Immutable`, so the in-place path still closes the slot.
+Implemented as a follow-up. The Recordings table shows a `Stash` button for stable-terminal leaves that the default predicate excludes (rover-drove-20m, focus-slot breakup-survivor-orbiting, focus-continuation upper stage the player decided to come back to) when the row still resolves to a live Rewind Point slot. Manual Stash is deliberately conservative: only spawnable stable terminals (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`) can be stashed. `Recovered`, `Docked`, and `Boarded` recordings are not stashable because they imply career recovery, docking/merge absorption, or crew/vessel transfer into another world object; `Destroyed` rows are already automatic Unfinished Flights rather than manual Stash candidates. Manual Stash is an intent signal, not a bypass: the resolver also rejects any recording with a non-tombstoneable recording-linked career/world action. A player-controlled rover or probe that already ran science is therefore not stashable. The action sets `slot.Stashed` / `slot.StashedRealTime`, leaves the recording and `MergeState` unchanged, makes the row qualify as an Unfinished Flight, and from there exposes the same `Fly` + `Seal` affordance. `RewindPointReaper` treats an unsealed stashed `Immutable` slot as open while the classifier still qualifies it; if a previously stashed slot later resolves to a non-stashable terminal such as `Docked` or `Boarded`, the classifier closes it on the next membership/reaper pass instead of keeping a paradox-prone re-fly entry alive. Stash does not resurrect already-reaped RP quicksaves. Confirming a re-fly from a stashed slot keeps clean stable results open, auto-seals safety-gated results, and preserves terminal failures only when their ledger effects are tombstoneable kerbal-death rows.
 
 ### 11.5 v2 Auto-purge of long-lived sealed RPs
 
@@ -975,6 +973,9 @@ Site B-1 flip:
 ```
 [Supersede] Info: provisional=<rid> mergeState=<state> qualifies=<b>
     slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex>
+    classifierReason=<reason> autoSeal=<b> autoSealReason=<reason>
+[Supersede] Info: Auto-sealed re-fly slot=<slotIdx> rec=<rid>
+    rp=<rpId> terminal=<state> reason=<reason>
 [Supersede] Error: Site B-1 slot lookup failed for provisional=<rid>
     rpId=<marker.RewindPointId> originChildRec=<marker.OriginChildRecordingId>
     supersedeTargetId=<marker.SupersedeTargetId>
@@ -1020,15 +1021,15 @@ Predicate gates (`UnfinishedFlightClassifierTests`):
 - Per-RP leaf gate: chainTip.ChildBranchPointId == null → proceed; chainTip.ChildBranchPointId == matchingRP.BranchPointId (breakup-survivor) → proceed; chainTip.ChildBranchPointId == otherBp.Id → rejected. **Fails if:** breakup-survivor regression returns or downstream-BP recordings start appearing as UF.
 - Slot-closed gate: `slot.Sealed == false` → proceed; `slot.Sealed == true` → rejected. **Fails if:** Sealed slots persist as UF rows.
 
-Site A / Site B-1 predicate-evaluation tests:
+Site A / Site B merge-policy tests:
 
 - Site A: stable-leaf non-focus controllable → CP; stable-leaf focus controllable → Immutable; stable-leaf debris → Immutable; crashed-leaf focus → CP (active-parent crash regression guard); crashed-leaf non-focus → CP. **Fails if:** the broader predicate misclassifies any case.
-- Site B-1: re-fly ending Orbiting + non-focus → CP; re-fly ending Orbiting + focus → Immutable; re-fly ending Crashed → CP (regression); re-fly ending EVA-stranded Landed → CP. **Fails if:** chain extension on stable terminals breaks.
-- Shared-classifier identity test: assert that Site A and Site B-1 paths resolve the same answer on the same `(Recording, ChildSlot, RewindPoint)` triple for every terminal-state value. **Fails if:** either predicate-call site starts using a different classifier or skipping a gate.
+- Site B: re-fly ending Orbiting + non-focus with no career/world actions → classifier reason `stableLeafUnconcluded`, MergeState `CommittedProvisional`, and `slot.Sealed=false`; origin-only marker-target resolution produces the same result and logs `side=origin-only`; the same origin-only or branch-linked re-fly with `ScienceEarning` → `Immutable` + `slot.Sealed=true`; re-fly ending Recovered/Docked/Boarded or with downstream structural/world interaction → `Immutable` + `slot.Sealed=true`; re-fly ending Orbiting + focus or unstashed Landed → `Immutable` and not auto-sealed; re-fly ending Landed from a clean stashed slot → CP and not sealed; re-fly ending Destroyed with no non-tombstoneable actions → CP and not sealed; re-fly ending Destroyed with science → `Immutable` + sealed; re-fly ending Destroyed with tombstoneable kerbal-death rows only → CP and not sealed. **Fails if:** clean stable outcomes are forced closed, unsafe action outcomes remain re-flyable, or terminal failure outcomes stop being retryable.
+- Shared-classifier diagnostic test: assert that Site B logs the same classifier reason Site A would have produced on the same `(Recording, ChildSlot, RewindPoint)` triple, while separately asserting Site B's stricter merge result. **Fails if:** the diagnostic predicate drifts or the merge-close policy regresses.
 
-Site B-2 in-place handling test (consumes Site B-1's verdict, does not re-evaluate the predicate):
+Site B-2 in-place handling test:
 
-- Site B-2 (B2-A baseline): in-place re-fly ending Orbiting/SubOrbital/EVA-stranded → Immutable (preserves v0.9 behavior; row drops from UF post-merge; chain extension via in-place blocked). If §11.3 picks B2-B (fresh-provisional): assert CP and chain-extensible. If §11.3 picks B2-C (auto-Seal): assert `slot.Sealed == true` and MergeState == CP. **Fails if:** the chosen Site B-2 option regresses, OR the in-place path produces a duplicate / un-reapable UF row.
+- In-place re-fly ending Orbiting/SubOrbital/stashed stable with no career/world actions → CP, `slot.Sealed=false`, RP remains and the row stays in STASH; the same path with a recording-linked science/action row → `Immutable` + `slot.Sealed=true`, RP reaps when all slots are closed. In-place re-fly ending Destroyed / non-boarded EVA → CP unless the recording has a non-tombstoneable career/world action. **Fails if:** clean stable in-place rows are forced closed, unsafe action rows remain open, or terminal failure rows are forced closed.
 
 Seal handler:
 
@@ -1061,9 +1062,9 @@ Seal handler:
 - Auto-parachute booster (S3, S19): verify NOT in UF and RP reaps cleanly when upper stage commits. **Critical regression guard: the largest-impact failure mode of an over-broad predicate.**
 - Inverted scenario (S5): fly booster, leave upper stage Orbiting, verify upper stage IS in UF and RP stays alive.
 - Stranded EVA (S6): kerbal stranded + lander Orbiting → both in UF; Fly kerbal, reboard, merge → kerbal slot closes; lander slot still in UF; Seal lander to clean up.
-- Breakup-survivor (S7-S11): trigger a breakup, survive, land safely → NOT in UF and RP reaps. Trigger another, survive but Orbiting → NOT in UF (focus exclusion — documented limitation). Trigger a third, crash post-survival → IS in UF (Crashed regardless of focus).
+- Breakup-survivor (S7-S11): trigger a breakup, survive, land safely → NOT in UF and RP reaps. Trigger another, survive but Orbiting as the focus slot → NOT in UF (intentional focus exclusion). Trigger a comparable origin-only non-focus survivor to Orbiting/SubOrbital → IS in UF. Trigger a third, crash post-survival → IS in UF (Crashed regardless of focus).
 - Cross-tree dock during stable-leaf re-fly (S12): probe re-fly docks with another tree's station, merge, verify slot closes Immutable, supersede stays inside probe's tree, station's tree unchanged.
-- Re-fly chain extension on a stable terminal (S13): auto-included non-focus probe, re-fly to a different stable orbit, merge, verify slot stays CP and UF still shows the probe with the new flight as effective; re-fly again, land it, merge, verify slot now Immutable. Manual-Stash variant: Stash a default-excluded stable row, verify the stashed flag keeps Landed/Orbiting outcomes in UF until Seal.
+- Re-fly a stable terminal (S13): auto-included non-focus probe, re-fly to a different stable orbit, merge, verify the supersede relation points at the new recording and the clean slot remains in STASH; run science during a comparable re-fly and verify the slot auto-seals and drops. Manual-Stash variant: Stash a default-excluded stable row, merge clean Landed/Orbiting outcomes and verify the slot remains open; then merge a science/world-action outcome and verify it closes; then crash a re-fly with only tombstoneable kerbal-death rows and verify the slot stays open for another retry.
 - Seal-and-no-unseal: Seal a row, verify there's no in-game un-seal path (Full-Revert is the only undo).
 
 ### 13.5 Hybrid graph regression test

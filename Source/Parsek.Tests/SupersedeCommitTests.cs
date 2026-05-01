@@ -229,6 +229,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CrashedTerminal_WithRpSlot_StaysOpenAndDoesNotSeal()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 0,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot> { originSlot },
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=crashed")
+                && l.Contains("autoSeal=False"));
+        }
+
+        [Fact]
         public void SplashedTerminal_ProducesImmutable()
         {
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
@@ -242,7 +281,188 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_ProducesCommittedProvisional()
+        public void LandedTerminal_WithRpSlot_ClosesWithoutAutoSeal()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminal")
+                && l.Contains("autoSeal=False"));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        public void HardSafetyTerminal_WithRpSlot_AutoSeals(TerminalState terminal)
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                terminal, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminal")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=classifierClosed:stableTerminal"));
+        }
+
+        [Fact]
+        public void DownstreamStructuralInteraction_WithRpSlot_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            provisional.ChildBranchPointId = "bp_downstream";
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=downstreamBp")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=classifierClosed:downstreamBp"));
+        }
+
+        [Fact]
+        public void StashedLandedLeaf_MergeKeepsCommittedProvisional()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+                Stashed = true,
+                StashedRealTime = "2026-04-29T12:00:00.0000000Z",
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.True(originSlot.Stashed);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=stashedStableLeaf")
+                && l.Contains("autoSeal=False"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_KeepsCommittedProvisional()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -254,6 +474,12 @@ namespace Parsek.Tests
             provisional.ParentBranchPointId = bpId;
             var marker = Marker("rec_origin", "rec_provisional");
             var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
             scenario.RewindPoints.Add(new RewindPoint
             {
                 RewindPointId = "rp_1",
@@ -262,17 +488,20 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
-                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                    originSlot,
                 }
             });
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("classifierReason=stableLeafUnconcluded"));
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("autoSeal=False"));
         }
 
         [Fact]
@@ -287,6 +516,12 @@ namespace Parsek.Tests
                 TerminalState.Orbiting, supersedeTargetId: "rec_origin");
             var marker = Marker("rec_origin", "rec_provisional");
             var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
             scenario.RewindPoints.Add(new RewindPoint
             {
                 RewindPointId = "rp_1",
@@ -295,18 +530,21 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
-                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                    originSlot,
                 }
             });
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=stableLeafUnconcluded"));
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("autoSeal=False"));
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_provisional")
@@ -315,7 +553,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTarget()
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_origin",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_origin",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("slot=1")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_PreflightFallbackResolvesChainedMarkerTargetAndKeepsOpen()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -330,6 +621,12 @@ namespace Parsek.Tests
                 supersedeTargetId: "rec_prior_tip");
             var scenario = InstallScenario(marker);
             scenario.RecordingSupersedes.Add(Rel("rec_origin", "rec_prior_tip"));
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
             scenario.RewindPoints.Add(new RewindPoint
             {
                 RewindPointId = "rp_1",
@@ -338,7 +635,7 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
-                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                    originSlot,
                 }
             });
 
@@ -348,6 +645,8 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
             Assert.Contains(scenario.RecordingSupersedes,
@@ -358,7 +657,316 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=stableLeafUnconcluded"));
+                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("autoSeal=False"));
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            var priorTip = Rec("rec_prior_tip", "tree_1", terminal: TerminalState.Orbiting);
+            InstallTree("tree_1",
+                new List<Recording> { origin, priorTip },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_prior_tip");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional",
+                supersedeTargetId: "rec_prior_tip");
+            var scenario = InstallScenario(marker);
+            scenario.RecordingSupersedes.Add(Rel("rec_origin", "rec_prior_tip"));
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_origin",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_origin",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
+        }
+
+        [Fact]
+        public void TryFindRecordingScopedWorldAction_CacheInvalidatesOnLedgerMutation()
+        {
+            var rec = Rec("rec_cache", "tree_1");
+
+            string summary;
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_cache",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_cache",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache", summary);
+
+            Ledger.ResetForTesting();
+
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+        }
+
+        [Fact]
+        public void TryFindRecordingScopedWorldAction_CacheInvalidatesOnSupersedeMutation()
+        {
+            var rec = Rec("rec_new", "tree_1");
+            var scenario = InstallScenario(Marker("rec_old", "rec_new"));
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_old",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_old",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            string summary;
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+
+            scenario.RecordingSupersedes.Add(Rel("rec_old", "rec_new"));
+            scenario.BumpSupersedeStateVersion();
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_old", summary);
+        }
+
+        [Fact]
+        public void EffectiveStateResetCachesForTesting_ClearsWorldActionSafetyCache()
+        {
+            var rec = Rec("rec_cache_reset", "tree_1");
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_cache_reset",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_cache_reset",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            string summary;
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache_reset", summary);
+
+            int versionBeforeTruncate = Ledger.StateVersion;
+            Ledger.TruncateActionsForTesting(0);
+            Assert.Equal(versionBeforeTruncate, Ledger.StateVersion);
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache_reset", summary);
+
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_provisional",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
+        }
+
+        [Fact]
+        public void DestroyedTerminal_WithRecordingScopedScienceAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_provisional",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
+        }
+
+        [Fact]
+        public void DestroyedTerminal_WithTombstoneEligibleKerbalDeathAction_KeepsOpen()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_death",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_provisional",
+                UT = 12.0,
+                KerbalName = "Jebediah Kerman",
+                KerbalEndStateField = KerbalEndState.Dead,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_rep",
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_provisional",
+                UT = 12.0,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = 2.0f,
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=crashed")
+                && l.Contains("autoSeal=False"));
         }
 
         [Fact]
@@ -374,6 +982,12 @@ namespace Parsek.Tests
             provisional.ParentBranchPointId = bpId;
             var marker = Marker("rec_origin", "rec_provisional");
             var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
             scenario.RewindPoints.Add(new RewindPoint
             {
                 RewindPointId = "rp_1",
@@ -382,17 +996,20 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_other", Controllable = true },
-                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_origin", Controllable = true },
+                    originSlot,
                 }
             });
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=stableTerminalFocusSlot"));
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("autoSeal=False"));
         }
 
         [Fact]
@@ -959,16 +1576,14 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// After an in-place continuation merge, the recording's RP must be
-        /// reaped so the row stops satisfying <see cref="EffectiveState.IsUnfinishedFlight"/>
-        /// (terminal=Destroyed AND matching RP). Without the reap, the row
-        /// stays duplicated in the Unfinished Flights virtual group even
-        /// though the player has already "committed" the re-flight by
-        /// merging — observed in the 10:47 playtest. Reap must run even
-        /// when the re-fly itself crashed (terminal stays Destroyed).
+        /// After an in-place continuation merge, a terminal failure outcome
+        /// must remain re-flyable. Destroyed / stranded-EVA outcomes are the
+        /// original Unfinished Flights retry affordance; the merge dialog
+        /// should not force them closed just because this branch reused the
+        /// same Recording instance as the provisional.
         /// </summary>
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_ReapsRpAndPromotesOutOfUnfinishedFlights()
+        public void TryCommitReFlySupersede_InPlaceContinuation_DestroyedStaysOpenInUnfinishedFlights()
         {
             const string kBpId = "bp_breakup_test";
             var origin = Rec("rec_origin", "tree_1",
@@ -1046,23 +1661,27 @@ namespace Parsek.Tests
             }
 
             // Post-merge:
-            // 1) The RP is reaped, so the recording no longer matches an RP
-            //    even though terminal stays Destroyed.
-            Assert.Empty(scenario.RewindPoints);
-            // 2) IsUnfinishedFlight returns false — promoted out of UF.
-            Assert.False(EffectiveState.IsUnfinishedFlight(origin),
-                "expected origin recording to drop out of IsUnfinishedFlight post-merge " +
-                "(RP reaped, no matching slot)");
-            // 3) MergeState flipped to Immutable (Destroyed terminal).
-            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            // 1) The RP remains because the destroyed recording still has an
+            //    open retry slot.
+            Assert.Single(scenario.RewindPoints);
+            // 2) IsUnfinishedFlight remains true for the retry affordance.
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "expected destroyed in-place continuation to remain re-flyable post-merge");
+            // 3) MergeState remains CommittedProvisional (Destroyed terminal).
+            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
             // 4) Marker cleared.
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            // 5) Reaper attempted to delete the quicksave file.
-            Assert.Equal(1, deletes);
-            // 6) INFO log advertises the reap count.
+            // 5) Reaper did not delete the still-open quicksave file.
+            Assert.Equal(0, deletes);
+            // 6) INFO log advertises the retained retry and zero reap count.
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("in-place continuation reaped 1 orphaned RP")
+                && l.Contains("in-place continuation retained")
+                && l.Contains("CommittedProvisional")
+                && l.Contains("slot remains re-flyable"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation reaped 0 orphaned RP")
                 && l.Contains("post-merge"));
         }
 
@@ -1153,13 +1772,13 @@ namespace Parsek.Tests
 
             Assert.False(rp.SessionProvisional);
             Assert.Null(rp.CreatingSessionId);
-            Assert.Empty(scenario.RewindPoints);
-            Assert.False(EffectiveState.IsUnfinishedFlight(origin),
-                "expected origin to leave Unfinished Flights after the session-created RP was reaped");
-            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.Single(scenario.RewindPoints);
+            Assert.True(EffectiveState.IsUnfinishedFlight(origin),
+                "expected destroyed origin to remain re-flyable after the session-created RP was promoted");
+            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
             Assert.Equal(MergeState.Immutable, survivor.MergeState);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(1, deletes);
+            Assert.Equal(0, deletes);
             int sessionEndLogIndex = logLines.FindIndex(l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("End reason=merged")
@@ -1178,13 +1797,13 @@ namespace Parsek.Tests
                 && l.Contains("sess=" + kSessionId)
                 && l.Contains("fromSession=1"));
             Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]")
-                && l.Contains("Reaped rp=rp_inflight_survivor")
-                && l.Contains("slots=2"));
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation reaped 0 orphaned RP")
+                && l.Contains("post-merge"));
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocus_ForcedImmutable_DoesNotSealSlot()
+        public void TryCommitReFlySupersede_InPlaceContinuation_OrbitingNonFocus_KeepsOpen()
         {
             const string kBpId = "bp_inplace_stable_leaf";
             var origin = Rec("rec_probe", "tree_1",
@@ -1255,24 +1874,28 @@ namespace Parsek.Tests
                 RewindPointReaper.ResetTestOverrides();
             }
 
-            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
             Assert.False(probeSlot.Sealed);
-            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(probeSlot.SealedRealTime);
+            Assert.Single(scenario.RewindPoints);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(1, deletes);
+            Assert.Equal(0, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("classifierReason=stableLeafUnconcluded")
-                && l.Contains("mergeState=CommittedProvisional"));
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("autoSeal=False"));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("in-place continuation forced")
-                && l.Contains("CommittedProvisional")
-                && l.Contains("Immutable"));
+                && l.Contains("in-place continuation retained")
+                && l.Contains("slot remains re-flyable"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation forced"));
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_ClearsStashedAndReaps()
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_KeepsOpen()
         {
             const string kBpId = "bp_inplace_stashed_leaf";
             var origin = Rec("rec_rover", "tree_1",
@@ -1345,20 +1968,22 @@ namespace Parsek.Tests
                 RewindPointReaper.ResetTestOverrides();
             }
 
-            Assert.Equal(MergeState.Immutable, origin.MergeState);
-            Assert.False(roverSlot.Stashed);
-            Assert.Null(roverSlot.StashedRealTime);
+            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
+            Assert.True(roverSlot.Stashed);
+            Assert.NotNull(roverSlot.StashedRealTime);
             Assert.False(roverSlot.Sealed);
-            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(roverSlot.SealedRealTime);
+            Assert.Single(scenario.RewindPoints);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(1, deletes);
+            Assert.Equal(0, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("classifierReason=stashedStableLeaf")
-                && l.Contains("mergeState=CommittedProvisional"));
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("autoSeal=False"));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("in-place continuation cleared stashed")
+                && l.Contains("in-place continuation kept stashed")
                 && l.Contains("rec=rec_rover"));
         }
 

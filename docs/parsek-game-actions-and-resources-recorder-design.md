@@ -211,6 +211,8 @@ However, the invariant does not prevent the player from adding **new** spendings
 
 The **reservation system** (sections 6.5 and 7.6) covers this gap: committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
 
+**STASH / Re-Fly interaction:** Re-Fly supersede does not delete or subtract recording-linked ledger actions from the old recording. Superseded recording events remain on the ledger and recalculation may reduce only derived credit (for example effective science after subject caps). Because a STASH retry must not let the player rewrite a branch that already changed career/world state, Unfinished Flights treats any non-tombstoneable recording-linked game action as a hard safety gate: science, funds, reputation, milestones, contracts, facilities, strategies, and ordinary kerbal actions close the re-fly slot instead of leaving it stashable. The only carve-out is the existing tombstoneable kerbal-death pair (`KerbalAssignment` ending Dead plus its bundled death reputation penalty), because a successful re-fly can retire those rows and return the kerbal.
+
 ### 3.6 Recalculation triggers
 
 | # | Trigger |
