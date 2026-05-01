@@ -142,6 +142,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_SingleFrameRelativeSectionCoversSectionInterval()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            Recording relative = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 2, 3),
+                anchorRecordingId: absolute.RecordingId);
+            TrackSection relativeSection = relative.TrackSections[0];
+            relativeSection.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, new Vector3d(1, 2, 3), Quaternion.identity),
+            };
+            relative.TrackSections[0] = relativeSection;
+
+            tree.AddOrReplaceRecording(absolute);
+            tree.AddOrReplaceRecording(relative);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                relative.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(0, pose.ResolvedSectionIndex);
+            Assert.Equal(106.0, pose.WorldPos.x, 6);
+            Assert.Equal(2.0, pose.WorldPos.y, 6);
+            Assert.Equal(3.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors()
         {
             var tree = new RecordingTree { Id = "tree" };

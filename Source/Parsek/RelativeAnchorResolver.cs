@@ -291,6 +291,8 @@ namespace Parsek
 
             if (!TryInterpolateRelativeFrame(
                     section.frames,
+                    section.startUT,
+                    section.endUT,
                     ut,
                     out double dx,
                     out double dy,
@@ -480,6 +482,8 @@ namespace Parsek
 
         private static bool TryInterpolateRelativeFrame(
             List<TrajectoryPoint> frames,
+            double sectionStartUT,
+            double sectionEndUT,
             double ut,
             out double dx,
             out double dy,
@@ -488,11 +492,15 @@ namespace Parsek
         {
             dx = dy = dz = 0.0;
             relativeRotation = Quaternion.identity;
-            if (!PointListCoversUT(frames, ut))
+            if (frames == null || frames.Count == 0)
                 return false;
-
+            if (double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
             if (frames.Count == 1)
             {
+                if (!RelativeSingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut))
+                    return false;
+
                 TrajectoryPoint point = frames[0];
                 dx = point.latitude;
                 dy = point.longitude;
@@ -500,6 +508,9 @@ namespace Parsek
                 relativeRotation = TrajectoryMath.SanitizeQuaternion(point.rotation);
                 return true;
             }
+
+            if (!PointListCoversUT(frames, ut))
+                return false;
 
             int cachedIndex = 0;
             if (!TrajectoryMath.InterpolatePoints(
@@ -518,6 +529,29 @@ namespace Parsek
             dz = before.altitude + (after.altitude - before.altitude) * t;
             relativeRotation = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
             return true;
+        }
+
+        private static bool RelativeSingleFrameCoversUT(
+            TrajectoryPoint point,
+            double sectionStartUT,
+            double sectionEndUT,
+            double ut)
+        {
+            const double epsilon = 1e-6;
+            if (Math.Abs(point.ut - ut) <= epsilon)
+                return true;
+            if (double.IsNaN(sectionStartUT)
+                || double.IsNaN(sectionEndUT)
+                || double.IsInfinity(sectionStartUT)
+                || double.IsInfinity(sectionEndUT))
+            {
+                return false;
+            }
+
+            double start = Math.Min(sectionStartUT, sectionEndUT);
+            double end = Math.Max(sectionStartUT, sectionEndUT);
+            return ut >= start - epsilon
+                && ut <= end + epsilon;
         }
 
         private static bool PointListCoversUT(List<TrajectoryPoint> frames, double ut)
