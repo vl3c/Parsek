@@ -11,6 +11,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 origin-only Re-Fly resolution
+
+- ~~A tree-branching parent vessel that stayed alive past a separation Rewind Point, then crashed later, could lose its Re-Fly button even though the RP slot captured that same vessel as controllable.~~ Source: `logs/2026-05-01_1320_refly-stash-investigation/`; `Kerbal X` had no `parentBranchPointId` or `childBranchPointId` because tree-branching kept the parent recording open, while RP `rp_9979514b2c9c43eb8a36f8c5febe1625` slot 0 still referenced the parent recording id. Fix: Unfinished Flight resolution now tries the legacy child/parent BranchPoint walks first, then falls back to the latest matching RP slot by `OriginChildRecordingId`, logging `side=origin-only` for the new path. The merge-time supersede classifier uses the same marker-target origin fallback for separate provisional re-flights, while in-place continuations keep their existing fallback policy.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done - v0.9.1 Timeline Unfinished Flight actions
 
 - ~~Timeline Unfinished Flight separation rows only exposed `Fly`, and the `Separation of Unfinished Flight: <vessel>` label was wordy enough to make the action row harder to scan.~~ Source: UI review on 2026-05-01. Fix: Timeline rows now read `Unfinished Flight: <vessel>` and show both `Fly` and `Seal` directly at the split moment, reusing the Recordings-table Seal handler for the same slot. Timeline now has a dedicated `Re-Fly` filter for those rows, separate from `Rewind/FF`. `Stash` stays Recordings-only because it is a management action, not a Timeline action.
