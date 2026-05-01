@@ -1770,8 +1770,25 @@ namespace Parsek
             // contract used at scene-switch / rewind-end boundaries.
             FlushStalePendingRecoveryFunds("KSP load");
 
-            // Reconcile first — prunes orphaned actions from the existing ledger.
-            // On empty ledger (old save), this is a no-op.
+            // Revert double-rollout repair (#710): saves written before the
+            // OnVesselRolloutSpending dedup gate landed contain pairs of
+            // VesselRollout actions for the same logical rollout (same PID/site/
+            // vessel/cost, UT within ~1 s) when the player reverted mid-flight
+            // and re-launched. Collapse each cluster down to its earliest member
+            // so the ledger total matches what the user actually paid. Idempotent
+            // on healthy saves; logs a single INFO when at least one row was
+            // collapsed. See production repro at
+            // logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld.
+            //
+            // Run before Reconcile: adopted+unadopted duplicate repair may move
+            // the adopted survivor to the relaunch's rolled-back UT. If Reconcile's
+            // maxUT pruning ran first, an adopted row still carrying the original
+            // future UT could be pruned before the repair pass had a chance to
+            // normalize it.
+            Ledger.RepairDuplicateRolloutActions();
+
+            // Reconcile after timestamp-normalizing rollout repair — prunes orphaned
+            // actions from the existing ledger. On empty ledger (old save), this is a no-op.
             Ledger.Reconcile(validRecordingIds, maxUT);
 
             // Compatibility repair for early #444 saves written before recovery
