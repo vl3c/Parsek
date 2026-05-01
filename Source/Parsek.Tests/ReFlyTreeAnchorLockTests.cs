@@ -282,6 +282,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recording_DeepClone_PreservesPreReFlyAnchorSnapshot()
+        {
+            // #688 follow-up: repair / splice paths that DeepClone a
+            // recording must preserve the captured pre-Re-Fly anchor
+            // snapshot — otherwise the per-frame anchor falls back to the
+            // trimmed live recording mid-session and ghosts in the active
+            // Re-Fly tree misposition.
+            var rec = new Recording
+            {
+                RecordingId = "rec-clone-source",
+                VesselName = "Source",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 1.0, endUT = 2.0 });
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(0, 5));
+            rec.CapturePreReFlyAnchorTrajectory("sess-clone");
+
+            var clone = Recording.DeepClone(rec);
+
+            Assert.NotNull(clone);
+            Assert.Equal("sess-clone", clone.PreReFlyAnchorSessionId);
+            Assert.True(clone.HasPreReFlyAnchorTrajectory("sess-clone"));
+            Assert.NotNull(clone.PreReFlyAnchorPoints);
+            Assert.Single(clone.PreReFlyAnchorPoints);
+            Assert.NotNull(clone.PreReFlyAnchorOrbitSegments);
+            Assert.Single(clone.PreReFlyAnchorOrbitSegments);
+            Assert.NotNull(clone.PreReFlyAnchorTrackSections);
+            Assert.Single(clone.PreReFlyAnchorTrackSections);
+
+            // Independence: mutating the source's snapshot list must not
+            // affect the clone (deep copy contract).
+            rec.PreReFlyAnchorPoints.Add(new TrajectoryPoint { ut = 99.0 });
+            Assert.Single(clone.PreReFlyAnchorPoints);
+        }
+
+        [Fact]
+        public void Recording_DeepClone_NoSnapshot_LeavesCloneFieldsNull()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-clone-no-snap",
+                VesselName = "No Snapshot",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+
+            var clone = Recording.DeepClone(rec);
+
+            Assert.Null(clone.PreReFlyAnchorSessionId);
+            Assert.Null(clone.PreReFlyAnchorPoints);
+            Assert.Null(clone.PreReFlyAnchorOrbitSegments);
+            Assert.Null(clone.PreReFlyAnchorTrackSections);
+            Assert.False(clone.HasPreReFlyAnchorTrajectory("any-sess"));
+        }
+
+        [Fact]
         public void RecordingTreeRecordCodec_RoundTrip_NoSnapshot_OmitsAnchorNode()
         {
             var rec = new Recording
@@ -506,7 +562,10 @@ namespace Parsek.Tests
         [Fact]
         public void HasResolvableAnchorData_SnapshotMatchesSession_ReturnsTrue()
         {
-            // In-place Re-Fly with captured snapshot.
+            // In-place Re-Fly with captured snapshot. The snapshot must
+            // contain at least one sampleable track section (the predicate
+            // mirrors TrySampleRecordedAbsoluteWorld's contract — points
+            // alone do not satisfy it).
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -520,6 +579,7 @@ namespace Parsek.Tests
                 VesselName = "Origin",
             };
             rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(0, 5));
             rec.CapturePreReFlyAnchorTrajectory("sess");
             tree.Recordings["rec-with-snap"] = rec;
             RecordingStore.CommittedTrees.Add(tree);
@@ -534,12 +594,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HasResolvableAnchorData_SnapshotPresentButUnsampleable_ReturnsFalse()
+        {
+            // Regression coverage for the #688 follow-up:
+            // HasResolvableReFlyAnchorData previously returned true purely
+            // on snapshot presence (`HasPreReFlyAnchorTrajectory`), but the
+            // sampler rejects empty / shadowless sections. A snapshot whose
+            // sections never sample cleanly would have raised the gate
+            // forever, leaving the ghost permanently invisible. The
+            // predicate must now reject this case.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-empty-snap",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-empty-snap",
+                TreeId = "tree-1",
+                VesselName = "Empty Snapshot",
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            // Only a checkpoint section — sampler rejects all checkpoint
+            // sections, so the snapshot is effectively unsampleable.
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 0, endUT = 5,
+            });
+            rec.CapturePreReFlyAnchorTrajectory("sess");
+            tree.Recordings["rec-empty-snap"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-empty-snap",
+                }));
+        }
+
+        [Fact]
         public void HasResolvableAnchorData_SnapshotSessionMismatch_FallsThroughToTrackSections()
         {
             // Snapshot present but for a different session id — it should
-            // not satisfy the predicate via the snapshot branch. Track
-            // sections then determine the result. Empty track sections →
-            // false; an Absolute section → true.
+            // not satisfy the predicate via the snapshot branch. The live
+            // recording's track sections then determine the result.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -566,12 +668,8 @@ namespace Parsek.Tests
                     ActiveReFlyRecordingId = "rec-mismatch",
                 }));
 
-            // Add an Absolute track section ⇒ true.
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 0, endUT = 5,
-            });
+            // Add a sampleable Absolute section (frames non-empty) ⇒ true.
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(0, 5));
             Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(
                 new ReFlySessionMarker
                 {
@@ -579,6 +677,167 @@ namespace Parsek.Tests
                     TreeId = "tree-1",
                     ActiveReFlyRecordingId = "rec-mismatch",
                 }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_AbsoluteSectionWithoutFrames_ReturnsFalse()
+        {
+            // Regression coverage for the #688 follow-up: an Absolute
+            // section with a null/empty frames list is structurally
+            // present but the sampler rejects it. The predicate must
+            // match the sampler's contract — otherwise the gate raises
+            // and stays raised forever, leaving the ghost permanently
+            // invisible.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-empty-abs",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-empty-abs",
+                TreeId = "tree-1",
+                VesselName = "Empty Absolute",
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0, endUT = 5,
+                frames = null, // structurally present, but no data
+            });
+            tree.Recordings["rec-empty-abs"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-empty-abs",
+                }));
+
+            // Also exercise the empty (non-null) frames list shape.
+            rec.TrackSections[0] = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0, endUT = 5,
+                frames = new List<TrajectoryPoint>(),
+            };
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-empty-abs",
+                }));
+        }
+
+        [Fact]
+        public void HasResolvableAnchorData_RelativeSectionWithoutShadow_ReturnsFalse()
+        {
+            // Regression coverage for the #688 follow-up: a Relative
+            // section without an absoluteFrames shadow (legacy v6 format
+            // or upgraded recording where the shadow was never written)
+            // looks plausible to a section-presence-only check but is
+            // structurally unsampleable for the per-frame anchor model.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "rec-rel-no-shadow",
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-rel-no-shadow",
+                TreeId = "tree-1",
+                VesselName = "Relative without shadow",
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0, endUT = 5,
+                anchorVesselId = 12345u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1.0 },
+                },
+                absoluteFrames = null, // legacy / upgraded recording
+            });
+            tree.Recordings["rec-rel-no-shadow"] = rec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            Assert.False(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-rel-no-shadow",
+                }));
+
+            // Adding a v7 absolute-shadow frame restores sampleability.
+            rec.TrackSections[0] = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0, endUT = 5,
+                anchorVesselId = 12345u,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1.0, latitude = 0.0, longitude = 0.0, altitude = 100.0, bodyName = "Kerbin" },
+                },
+            };
+            Assert.True(ParsekFlight.HasResolvableReFlyAnchorData(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "rec-rel-no-shadow",
+                }));
+        }
+
+        [Fact]
+        public void HasSampleableTrackSection_PicksFirstSampleableMatch()
+        {
+            // Mixed section list: only one sampleable section anywhere in
+            // the list is enough.
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                    startUT = 0, endUT = 5,
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 5, endUT = 10,
+                    frames = null,
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 10, endUT = 15,
+                    frames = new List<TrajectoryPoint> { new TrajectoryPoint() },
+                    absoluteFrames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 12.0, bodyName = "Kerbin" },
+                    },
+                },
+            };
+            Assert.True(ParsekFlight.HasSampleableTrackSection(sections));
+
+            // Drop the sampleable Relative section — list becomes empty
+            // of usable sections.
+            sections.RemoveAt(2);
+            Assert.False(ParsekFlight.HasSampleableTrackSection(sections));
+
+            // Null / empty list short-circuits.
+            Assert.False(ParsekFlight.HasSampleableTrackSection(null));
+            Assert.False(ParsekFlight.HasSampleableTrackSection(new List<TrackSection>()));
         }
 
         [Fact]
@@ -652,6 +911,34 @@ namespace Parsek.Tests
             };
             tree.Recordings[recordingId] = rec;
             return tree;
+        }
+
+        /// <summary>
+        /// Builds a sampleable Absolute <see cref="TrackSection"/>: one
+        /// frame at <paramref name="startUT"/> on Kerbin so
+        /// <see cref="ParsekFlight.HasSampleableTrackSection"/> returns
+        /// true and <see cref="ParsekFlight.TrySampleRecordedAbsoluteWorld"/>
+        /// can interpolate across the section bounds.
+        /// </summary>
+        private static TrackSection MakeAbsoluteSectionWithFrame(double startUT, double endUT)
+        {
+            return new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT,
+                endUT = endUT,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = startUT,
+                        latitude = 0.0,
+                        longitude = 0.0,
+                        altitude = 100.0,
+                        bodyName = "Kerbin",
+                    },
+                },
+            };
         }
     }
 }

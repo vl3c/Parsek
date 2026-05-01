@@ -14921,10 +14921,26 @@ namespace Parsek
         /// "first-visible-frame shows stale initial pose" regression that #258
         /// fixed. <c>ShouldAutoActivateGhost</c> is the canonical source for the
         /// value.
+        ///
+        /// <para>
+        /// The host-scene activation gate
+        /// (<see cref="GhostPlaybackState.externalActivationDeferred"/>,
+        /// #688 follow-up) is also honoured here so positioner paths that
+        /// reactivate a previously-hidden ghost (e.g. zone re-entry after
+        /// distance-LOD hide) cannot bypass the gate and SetActive(true)
+        /// on a ghost whose Re-Fly anchor offset has not yet resolved.
+        /// The gate's value is set by the END of the previous frame's
+        /// <c>RefreshReFlyAnchorActivationGate</c> call, so the predicate
+        /// reads at most one-frame-stale gate state — acceptable because
+        /// the gate is monotone-like at session boundaries.
+        /// </para>
         /// </summary>
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
-            return state == null || !state.deferVisibilityUntilPlaybackSync;
+            if (state == null) return true;
+            if (state.deferVisibilityUntilPlaybackSync) return false;
+            if (state.externalActivationDeferred) return false;
+            return true;
         }
 
         /// <summary>
@@ -17308,16 +17324,20 @@ namespace Parsek
 
         /// <summary>
         /// Returns true when the active Re-Fly target has trajectory data
-        /// the per-frame anchor model can sample — a captured pre-Re-Fly
-        /// snapshot (in-place path) or at least one Absolute /
-        /// Relative-with-shadow track section. OrbitalCheckpoint-only
-        /// recordings deliberately return false because
-        /// <see cref="TrySampleRecordedAbsoluteWorld"/> rejects checkpoint
-        /// sections (no body-fixed lat/lon/alt frames to sample), so
-        /// gating on a checkpoint-only target would hold the ghost hidden
-        /// every frame the offset query returns
-        /// <c>recorded-pos-unavailable</c>. Pure read-only helper exposed
-        /// for unit-test coverage of the safety-net branch.
+        /// the per-frame anchor model can sample. The predicate must
+        /// match <see cref="TrySampleRecordedAbsoluteWorld"/>'s real data
+        /// contract: an Absolute section needs at least one entry in
+        /// <see cref="TrackSection.frames"/>, a Relative section needs at
+        /// least one entry in <see cref="TrackSection.absoluteFrames"/>
+        /// (the v7 shadow), and OrbitalCheckpoint sections never
+        /// satisfy the sampler. Without this contract match, the gate
+        /// would stay raised forever for recordings whose section list
+        /// looks plausible but is structurally unsampleable (e.g. a
+        /// legacy v6 Relative section with no shadow, or an Absolute
+        /// section whose frames list was never populated by
+        /// repair/splice paths) — leaving the ghost permanently
+        /// invisible. Pure read-only helper exposed for unit-test
+        /// coverage of the safety-net branch.
         /// </summary>
         internal static bool HasResolvableReFlyAnchorData(ReFlySessionMarker marker)
         {
@@ -17326,15 +17346,37 @@ namespace Parsek
             Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
             if (reFlyRec == null)
                 return false;
+            // Prefer the captured snapshot when present and sampleable.
             if (!string.IsNullOrEmpty(marker.SessionId)
-                && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
+                && HasSampleableTrackSection(reFlyRec.PreReFlyAnchorTrackSections))
                 return true;
-            if (reFlyRec.TrackSections == null || reFlyRec.TrackSections.Count == 0)
+            // Otherwise the live recording's track sections must be
+            // sampleable (HasPreReFlyAnchorTrajectory only confirms a
+            // snapshot exists; it doesn't guarantee its sections sample
+            // cleanly, so callers must still check via this helper).
+            return HasSampleableTrackSection(reFlyRec.TrackSections);
+        }
+
+        /// <summary>
+        /// Mirrors <see cref="TrySampleRecordedAbsoluteWorld"/>'s
+        /// section-acceptance rule: returns true iff
+        /// <paramref name="sections"/> contains at least one section
+        /// whose underlying frame list (Absolute frames or Relative
+        /// absolute-shadow frames) is non-empty.
+        /// </summary>
+        internal static bool HasSampleableTrackSection(List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count == 0)
                 return false;
-            for (int i = 0; i < reFlyRec.TrackSections.Count; i++)
+            for (int i = 0; i < sections.Count; i++)
             {
-                ReferenceFrame frame = reFlyRec.TrackSections[i].referenceFrame;
-                if (frame == ReferenceFrame.Absolute || frame == ReferenceFrame.Relative)
+                TrackSection s = sections[i];
+                if (s.referenceFrame == ReferenceFrame.Absolute
+                    && s.frames != null && s.frames.Count > 0)
+                    return true;
+                if (s.referenceFrame == ReferenceFrame.Relative
+                    && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
                     return true;
             }
             return false;

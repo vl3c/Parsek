@@ -653,6 +653,27 @@ namespace Parsek
             clone.SpawnSuppressedByRewindReason = source.SpawnSuppressedByRewindReason;
             clone.SpawnSuppressedByRewindUT = source.SpawnSuppressedByRewindUT;
 
+            // #688 follow-up: preserve the captured pre-Re-Fly anchor
+            // trajectory snapshot. Repair / splice paths that DeepClone a
+            // recording (e.g. the active-tree refresh in ParsekScenario)
+            // would otherwise silently drop the snapshot, breaking the
+            // per-frame anchor for every other ghost in the active Re-Fly
+            // tree. The lists are cloned to keep the clone independent of
+            // the source. ApplyPersistenceArtifactsFrom intentionally does
+            // NOT copy these (they're [NonSerialized] live-session state),
+            // so the explicit copy here is the only way the snapshot
+            // survives a clone.
+            clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
+            clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
+                ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
+                : null;
+            clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
+                ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
+                : null;
+            clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
+                ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
+                : null;
+
             return clone;
         }
 
