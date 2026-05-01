@@ -75,6 +75,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
+- Downgraded a benign in-place Re-Fly marker-rebuild warning from WARN to VERBOSE.
 - Hardened `UnfinishedFlightClassifier.HasStashedResolvedSlot` to reject slots that are both stashed and sealed.
 - Continued refactor-4 (Pass 4) with a behavior-neutral `LedgerOrchestrator` extraction for vessel recovery-funds pairing and rollout cost/adoption helpers. Existing orchestrator wrappers, constants, log tags/text, dedup formats, KSC sequence allocation, and build-cost residual emission stay in place while the moved logic lives in focused helper classes.
 - Continued refactor-4 (Pass 3) with a behavior-neutral `PostWalkActionReconciler` extraction: post-walk reconciliation classification, live-coverage filtering, event matching, coalesced aggregation, comparison, and dump diagnostics now live behind unchanged `LedgerOrchestrator` wrappers while shared commit-window helpers and de-duplication state stay in `LedgerOrchestrator`.
