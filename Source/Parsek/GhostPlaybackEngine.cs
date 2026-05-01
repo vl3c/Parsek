@@ -76,6 +76,7 @@ namespace Parsek
         private int frameSkipExternalVesselSuppressed;
         private int frameSkipSessionSuppressed;
         private int frameSkipSupersededByRelation;
+        private int frameSkipSpawnSuppressedDeadOnArrival;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -278,6 +279,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.SupersededByRelation:
                     frameSkipSupersededByRelation++;
                     break;
+                case GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival:
+                    frameSkipSpawnSuppressedDeadOnArrival++;
+                    break;
             }
         }
 
@@ -296,7 +300,8 @@ namespace Parsek
                 || counters.playbackDisabled > 0
                 || counters.externalVesselSuppressed > 0
                 || counters.sessionSuppressed > 0
-                || counters.supersededByRelation > 0;
+                || counters.supersededByRelation > 0
+                || counters.spawnSuppressedDeadOnArrival > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -306,7 +311,8 @@ namespace Parsek
                 "skips[beforeActivation={3} anchorMissing={4} loopSyncFailed={5} " +
                 "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
-                "sessionSuppressed={12} supersededByRelation={13}] active={14}",
+                "sessionSuppressed={12} supersededByRelation={13} " +
+                "spawnSuppressedDeadOnArrival={14}] active={15}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -321,6 +327,7 @@ namespace Parsek
                 counters.externalVesselSuppressed,
                 counters.sessionSuppressed,
                 counters.supersededByRelation,
+                counters.spawnSuppressedDeadOnArrival,
                 counters.active);
         }
 
@@ -342,6 +349,7 @@ namespace Parsek
                 externalVesselSuppressed = frameSkipExternalVesselSuppressed,
                 sessionSuppressed = frameSkipSessionSuppressed,
                 supersededByRelation = frameSkipSupersededByRelation,
+                spawnSuppressedDeadOnArrival = frameSkipSpawnSuppressedDeadOnArrival,
                 active = ghostStates.Count
             };
         }
@@ -841,6 +849,7 @@ namespace Parsek
             frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
             frameSkipSupersededByRelation = 0;
+            frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -907,6 +916,40 @@ namespace Parsek
 
             if (state == null)
             {
+                // #688 follow-up: chain-segment dead-on-arrival suppression.
+                // A chain successor whose section is already past its
+                // effective end at the moment of first-spawn would build
+                // its mesh at the recorded-start coords, render for a few
+                // frames at a position discontinuous from the previous
+                // chain segment's last frame, then be destroyed by the
+                // stale-past-end cleanup at the bottom of the loop.
+                // Players see this as a one-frame Probe ghost flash on
+                // the booster's destruction segment. Mirror the same
+                // predicate the cleanup uses so the spawn is skipped
+                // entirely; the fall-through past-end handler below this
+                // branch still fires the PlaybackCompleted event so
+                // consumers (camera transfer, debris spawn, milestone
+                // logging) see the lifecycle they expect.
+                bool deadOnArrivalPastEnd = ctx.currentUT > traj.EndUT
+                    || ctx.currentUT > f.chainEndUT;
+                bool deadOnArrivalNotHeld = IsGhostHeld == null || !IsGhostHeld(i);
+                if (deadOnArrivalPastEnd && deadOnArrivalNotHeld)
+                {
+                    CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
+                    ParsekLog.VerboseRateLimited(
+                        "Engine",
+                        "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj?.VesselName ?? "?")
+                        + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
+                        + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " chainEndUT=" + f.chainEndUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " (past-end handler will still fire completion)",
+                        5.0);
+                    return false;
+                }
+
                 // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
                 // land every eligible ghost's visual build on a single frame.
                 if (!TryReserveSpawnSlot(i, "first-spawn"))
@@ -3487,6 +3530,7 @@ namespace Parsek
             frameSkipExternalVesselSuppressed = 0;
             frameSkipSessionSuppressed = 0;
             frameSkipSupersededByRelation = 0;
+            frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.

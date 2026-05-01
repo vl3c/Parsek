@@ -253,7 +253,8 @@ namespace Parsek.Tests
                 externalVesselSuppressed = 12,
                 sessionSuppressed = 13,
                 supersededByRelation = 14,
-                active = 15
+                spawnSuppressedDeadOnArrival = 15,
+                active = 16
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -273,7 +274,8 @@ namespace Parsek.Tests
             Assert.Contains("externalVesselSuppressed=12", message);
             Assert.Contains("sessionSuppressed=13", message);
             Assert.Contains("supersededByRelation=14", message);
-            Assert.Contains("active=15", message);
+            Assert.Contains("spawnSuppressedDeadOnArrival=15", message);
+            Assert.Contains("active=16", message);
         }
 
         [Fact]
@@ -282,6 +284,13 @@ namespace Parsek.Tests
             var counters = new GhostPlaybackFrameCounters { active = 3 };
 
             Assert.False(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
+        }
+
+        [Fact]
+        public void FrameSummary_EmitsWhenSpawnSuppressedDeadOnArrivalNonZero()
+        {
+            var counters = new GhostPlaybackFrameCounters { spawnSuppressedDeadOnArrival = 1 };
+            Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
         }
 
         [Fact]
