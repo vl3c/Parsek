@@ -9,10 +9,10 @@ namespace Parsek
     /// §7.17 / §7.43 / §10.4): commits a re-fly session's supersede relations
     /// for the subtree rooted at the marker's supersede target, falling back
     /// to <c>OriginChildRecordingId</c> for legacy markers,
-    /// and flips the provisional's <see cref="MergeState"/> to either
-    /// <see cref="MergeState.Immutable"/> (Landed / stable) or
-    /// <see cref="MergeState.CommittedProvisional"/> (Crashed — still
-    /// re-flyable).
+    /// and flips the provisional's <see cref="MergeState"/> according to
+    /// the Unfinished Flights safety policy: safe retry slots stay
+    /// <see cref="MergeState.CommittedProvisional"/>, while closed or
+    /// career/world-changing outcomes become <see cref="MergeState.Immutable"/>.
     ///
     /// <para>
     /// This commit step is what "hides the origin subtree from ERS" — it
@@ -38,6 +38,15 @@ namespace Parsek
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
         private const string LedgerSwapTag = "LedgerSwap";
+        private const char WorldActionCacheKeySeparator = '\u001f';
+
+        private static readonly object worldActionSafetyCacheLock = new object();
+        private static readonly Dictionary<string, WorldActionSafetyCacheEntry> worldActionSafetyCache
+            = new Dictionary<string, WorldActionSafetyCacheEntry>(StringComparer.Ordinal);
+        private static object worldActionSafetyCacheScenarioIdentity;
+        private static int worldActionSafetyCacheLedgerVersion = int.MinValue;
+        private static int worldActionSafetyCacheStoreVersion = int.MinValue;
+        private static int worldActionSafetyCacheSupersedeVersion = int.MinValue;
 
         /// <summary>
         /// Idempotent: appends supersede relations for every id in the
@@ -299,6 +308,7 @@ namespace Parsek
                 ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: true);
 
             provisional.MergeState = classification.NewState;
+            ApplyAutoSealAfterSafetyClose(classification, provisional, scenario);
 
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
@@ -312,6 +322,8 @@ namespace Parsek
                 $"rp={(classification.ClassifierResolvedSlot ? classification.RewindPointId ?? "<no-rp>" : "<none>")} " +
                 $"focusSlot={(classification.ClassifierResolvedSlot ? classification.FocusSlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
                 $"classifierReason={classification.ClassifierReason ?? "<none>"} " +
+                $"autoSeal={classification.AutoSealSlot} " +
+                $"autoSealReason={classification.AutoSealReason ?? "<none>"} " +
                 $"priorTarget={priorTarget ?? "<none>"}");
 
             if (preserveMarker) return;
@@ -392,6 +404,47 @@ namespace Parsek
             public int SlotListIndex;
             public string RewindPointId;
             public int FocusSlotIndex;
+            public RewindPoint RewindPoint;
+            public ChildSlot Slot;
+            public bool AutoSealSlot;
+            public string AutoSealReason;
+        }
+
+        private enum ReFlyCloseReasonKind
+        {
+            None,
+            ClassifierClosed,
+            RecordingAction,
+            UnsafeClassifierReason,
+        }
+
+        private struct ReFlyCloseReason
+        {
+            public ReFlyCloseReasonKind Kind;
+            public string Detail;
+
+            public bool HasValue => Kind != ReFlyCloseReasonKind.None;
+
+            public string ToLogString()
+            {
+                switch (Kind)
+                {
+                    case ReFlyCloseReasonKind.ClassifierClosed:
+                        return "classifierClosed:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.RecordingAction:
+                        return "recordingAction:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.UnsafeClassifierReason:
+                        return "unsafeClassifierReason:" + (Detail ?? "<none>");
+                    default:
+                        return null;
+                }
+            }
+        }
+
+        private struct WorldActionSafetyCacheEntry
+        {
+            public bool HasAction;
+            public string ActionSummary;
         }
 
         private static MergeStateClassification ClassifyMergeStateOrThrow(
@@ -428,7 +481,11 @@ namespace Parsek
                     provisional, slot, rp, false, out classifierReason,
                     treeContext: null, allowNotCommitted: true);
 
-                result.NewState = classifierQualifies
+                ReFlyCloseReason closeReason;
+                bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(
+                    provisional, classifierQualifies, classifierReason,
+                    out closeReason);
+                result.NewState = keepSlotOpen
                     ? MergeState.CommittedProvisional
                     : MergeState.Immutable;
                 result.ClassifierReason = classifierReason;
@@ -437,6 +494,14 @@ namespace Parsek
                 result.SlotListIndex = slotListIndex;
                 result.RewindPointId = rp.RewindPointId;
                 result.FocusSlotIndex = rp.FocusSlotIndex;
+                result.RewindPoint = rp;
+                result.Slot = slot;
+                if (ShouldAutoSealReFlySlotAfterMerge(
+                    provisional, classifierQualifies, closeReason))
+                {
+                    result.AutoSealSlot = true;
+                    result.AutoSealReason = closeReason.ToLogString();
+                }
                 return result;
             }
 
@@ -471,6 +536,396 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        internal static bool IsTerminalFailureReFlyOutcome(Recording rec)
+        {
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            TerminalState? terminal = terminalRec?.TerminalStateValue;
+            if (!terminal.HasValue) return false;
+            if (terminal.Value == TerminalState.Destroyed)
+                return true;
+            return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal.Value != TerminalState.Boarded;
+        }
+
+        private static bool ShouldKeepReFlySlotOpenAfterMerge(
+            Recording rec,
+            bool classifierQualifies,
+            string classifierReason,
+            out ReFlyCloseReason closeReason)
+        {
+            closeReason = default(ReFlyCloseReason);
+            if (!classifierQualifies)
+            {
+                if (TryBuildRecordingActionCloseReason(
+                        classifierReason, out closeReason))
+                    return false;
+
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.ClassifierClosed,
+                    Detail = classifierReason,
+                };
+                return false;
+            }
+
+            string actionSummary;
+            if (TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            {
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.RecordingAction,
+                    Detail = actionSummary,
+                };
+                return false;
+            }
+
+            if (IsTerminalFailureReFlyOutcome(rec))
+                return true;
+
+            if (!IsSafeStableRetryClassifierReason(classifierReason))
+            {
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.UnsafeClassifierReason,
+                    Detail = classifierReason,
+                };
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ShouldAutoSealReFlySlotAfterMerge(
+            Recording rec,
+            bool classifierQualifies,
+            ReFlyCloseReason closeReason)
+        {
+            if (!closeReason.HasValue)
+                return false;
+            if (closeReason.Kind == ReFlyCloseReasonKind.RecordingAction)
+                return true;
+            if (classifierQualifies)
+                return true;
+
+            if (closeReason.Kind != ReFlyCloseReasonKind.ClassifierClosed)
+                return false;
+
+            if (string.Equals(closeReason.Detail, "downstreamBp",
+                    StringComparison.Ordinal))
+                return true;
+            if (string.Equals(closeReason.Detail, "stableTerminal",
+                    StringComparison.Ordinal))
+                return IsHardSafetyTerminal(rec);
+
+            return false;
+        }
+
+        private static bool TryBuildRecordingActionCloseReason(
+            string classifierReason,
+            out ReFlyCloseReason closeReason)
+        {
+            closeReason = default(ReFlyCloseReason);
+            if (string.IsNullOrEmpty(classifierReason)
+                || !classifierReason.StartsWith(
+                    UnfinishedFlightClassifier.RecordingActionReasonPrefix,
+                    StringComparison.Ordinal))
+                return false;
+
+            closeReason = new ReFlyCloseReason
+            {
+                Kind = ReFlyCloseReasonKind.RecordingAction,
+                Detail = classifierReason.Substring(
+                    UnfinishedFlightClassifier.RecordingActionReasonPrefix.Length),
+            };
+            return true;
+        }
+
+        private static bool IsHardSafetyTerminal(Recording rec)
+        {
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            TerminalState? terminal = terminalRec?.TerminalStateValue;
+            if (!terminal.HasValue)
+                return false;
+
+            return terminal.Value == TerminalState.Recovered
+                || terminal.Value == TerminalState.Docked
+                || terminal.Value == TerminalState.Boarded;
+        }
+
+        private static bool IsSafeStableRetryClassifierReason(string classifierReason)
+        {
+            return string.Equals(classifierReason, "stableLeafUnconcluded",
+                    StringComparison.Ordinal)
+                || string.Equals(classifierReason, "stashedStableLeaf",
+                    StringComparison.Ordinal);
+        }
+
+        internal static bool TryFindRecordingScopedWorldAction(
+            Recording rec,
+            out string actionSummary)
+        {
+            actionSummary = null;
+            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
+            if (cacheKey == null)
+                return false;
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            WorldActionSafetyCacheEntry cached;
+            if (TryGetCachedWorldActionSafetyVerdict(
+                    cacheKey, scenario, out cached))
+            {
+                actionSummary = cached.ActionSummary;
+                return cached.HasAction;
+            }
+
+            var computed = ComputeRecordingScopedWorldAction(rec);
+            CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
+            actionSummary = computed.ActionSummary;
+            return computed.HasAction;
+        }
+
+        private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
+            Recording rec)
+        {
+            var result = new WorldActionSafetyCacheEntry();
+            var recordingIds = CollectRecordingIdsForSafetyGate(rec);
+            if (recordingIds.Count == 0)
+                return result;
+
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null || string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+                if (!recordingIds.Contains(action.RecordingId))
+                    continue;
+                if (!IsWorldStateChangingRecordingAction(action, actions))
+                    continue;
+
+                result.HasAction = true;
+                result.ActionSummary = action.Type + ":" + (action.ActionId ?? "<no-action-id>");
+                return result;
+            }
+
+            return result;
+        }
+
+        private static bool TryGetCachedWorldActionSafetyVerdict(
+            string cacheKey,
+            ParsekScenario scenario,
+            out WorldActionSafetyCacheEntry entry)
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                EnsureWorldActionSafetyCacheCurrent(scenario);
+                return worldActionSafetyCache.TryGetValue(cacheKey, out entry);
+            }
+        }
+
+        private static void CacheWorldActionSafetyVerdict(
+            string cacheKey,
+            ParsekScenario scenario,
+            WorldActionSafetyCacheEntry entry)
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                EnsureWorldActionSafetyCacheCurrent(scenario);
+                worldActionSafetyCache[cacheKey] = entry;
+            }
+        }
+
+        internal static void ResetWorldActionSafetyCacheForTesting()
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                worldActionSafetyCache.Clear();
+                worldActionSafetyCacheScenarioIdentity = null;
+                worldActionSafetyCacheLedgerVersion = int.MinValue;
+                worldActionSafetyCacheStoreVersion = int.MinValue;
+                worldActionSafetyCacheSupersedeVersion = int.MinValue;
+            }
+        }
+
+        private static void EnsureWorldActionSafetyCacheCurrent(
+            ParsekScenario scenario)
+        {
+            int supersedeVersion = !object.ReferenceEquals(null, scenario)
+                ? scenario.SupersedeStateVersion
+                : 0;
+            if (ReferenceEquals(worldActionSafetyCacheScenarioIdentity, scenario)
+                && worldActionSafetyCacheLedgerVersion == Ledger.StateVersion
+                && worldActionSafetyCacheStoreVersion == RecordingStore.StateVersion
+                && worldActionSafetyCacheSupersedeVersion == supersedeVersion)
+                return;
+
+            worldActionSafetyCache.Clear();
+            worldActionSafetyCacheScenarioIdentity = scenario;
+            worldActionSafetyCacheLedgerVersion = Ledger.StateVersion;
+            worldActionSafetyCacheStoreVersion = RecordingStore.StateVersion;
+            worldActionSafetyCacheSupersedeVersion = supersedeVersion;
+        }
+
+        private static string BuildWorldActionSafetyCacheKey(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+
+            return rec.RecordingId
+                + WorldActionCacheKeySeparator
+                + (rec.SupersedeTargetId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + (rec.TreeId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + (rec.ChainId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + rec.ChainBranch.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static HashSet<string> CollectRecordingIdsForSafetyGate(Recording rec)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            AddRecordingId(ids, rec);
+            AddRecordingId(ids, rec?.SupersedeTargetId);
+
+            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            AddRecordingId(ids, terminalRec);
+
+            AddMatchingChainRecordingIds(ids, rec, RecordingStore.CommittedRecordings);
+            for (int i = 0; i < RecordingStore.CommittedTrees.Count; i++)
+            {
+                var tree = RecordingStore.CommittedTrees[i];
+                if (tree?.Recordings == null) continue;
+                AddMatchingChainRecordingIds(ids, rec, tree.Recordings.Values);
+            }
+            AddSupersedeLineageRecordingIds(
+                ids, ParsekScenario.Instance?.RecordingSupersedes);
+
+            return ids;
+        }
+
+        private static void AddRecordingId(HashSet<string> ids, Recording rec)
+        {
+            if (ids == null || rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+            ids.Add(rec.RecordingId);
+        }
+
+        private static void AddRecordingId(HashSet<string> ids, string recordingId)
+        {
+            if (ids == null || string.IsNullOrEmpty(recordingId))
+                return;
+            ids.Add(recordingId);
+        }
+
+        private static void AddMatchingChainRecordingIds(
+            HashSet<string> ids,
+            Recording anchor,
+            IEnumerable<Recording> candidates)
+        {
+            if (ids == null || anchor == null || candidates == null)
+                return;
+            if (string.IsNullOrEmpty(anchor.ChainId))
+                return;
+
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (!string.Equals(candidate.ChainId, anchor.ChainId,
+                        StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != anchor.ChainBranch)
+                    continue;
+                if (!string.IsNullOrEmpty(anchor.TreeId)
+                    && !string.IsNullOrEmpty(candidate.TreeId)
+                    && !string.Equals(candidate.TreeId, anchor.TreeId,
+                        StringComparison.Ordinal))
+                    continue;
+
+                ids.Add(candidate.RecordingId);
+            }
+        }
+
+        private static void AddSupersedeLineageRecordingIds(
+            HashSet<string> ids,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (ids == null || supersedes == null || supersedes.Count == 0)
+                return;
+
+            bool added;
+            do
+            {
+                added = false;
+                for (int i = 0; i < supersedes.Count; i++)
+                {
+                    var rel = supersedes[i];
+                    if (rel == null
+                        || string.IsNullOrEmpty(rel.OldRecordingId)
+                        || string.IsNullOrEmpty(rel.NewRecordingId))
+                        continue;
+                    if (!ids.Contains(rel.NewRecordingId)
+                        || ids.Contains(rel.OldRecordingId))
+                        continue;
+
+                    ids.Add(rel.OldRecordingId);
+                    added = true;
+                }
+            }
+            while (added);
+        }
+
+        internal static bool IsWorldStateChangingRecordingAction(
+            GameAction action,
+            IReadOnlyList<GameAction> sameTimelineActions)
+        {
+            if (action == null || string.IsNullOrEmpty(action.RecordingId))
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                    return false;
+            }
+
+            if (TombstoneEligibility.IsEligible(action))
+                return false;
+
+            GameAction pairedDeathAction;
+            if (TombstoneEligibility.TryPairBundledRepPenalty(
+                    action, sameTimelineActions, out pairedDeathAction))
+                return false;
+
+            return true;
+        }
+
+        private static void ApplyAutoSealAfterSafetyClose(
+            MergeStateClassification classification,
+            Recording provisional,
+            ParsekScenario scenario)
+        {
+            if (!classification.AutoSealSlot || classification.Slot == null
+                || object.ReferenceEquals(null, scenario))
+                return;
+
+            if (classification.Slot.Sealed)
+                return;
+
+            classification.Slot.Sealed = true;
+            classification.Slot.SealedRealTime =
+                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            scenario.BumpSupersedeStateVersion();
+            ParsekLog.Info(Tag,
+                $"Auto-sealed re-fly slot={classification.SlotListIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"rec={provisional?.RecordingId ?? "<no-id>"} " +
+                $"rp={classification.RewindPoint?.RewindPointId ?? "<no-rp>"} " +
+                $"terminal={DescribeTerminalForLogs(provisional)} " +
+                $"reason={classification.AutoSealReason ?? "<none>"}");
         }
 
         private static bool TryResolveSlotForMergeClassification(
