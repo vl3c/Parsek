@@ -781,16 +781,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CompensateTransferredWatchAngles_RawWorldDirectionStateStillProjectsForChainTransfers()
+        public void CompensateTransferredWatchAngles_RawWorldDirectionStateProjectsOntoNewTargetBasis()
         {
-            // Regression guard for chain transfers (TransferWatchToNextSegment):
-            // those still pass HasWorldOrbitDirection=true through to the
-            // apply path so the camera continues to point in the same world
-            // direction across the within-frame auto-handoff. If the W->W fix
-            // accidentally generalized to chain transfers, this assertion
-            // (preserved-direction within 0.999 cosine of the captured world
-            // vector) would fail because the camera would re-apply the raw
-            // captured (pitch, hdg) in the new target's basis instead.
+            // Function-level regression guard for the HasWorldOrbitDirection
+            // branch of CompensateTransferredWatchAngles. No production caller
+            // currently passes a raw world-direction state through (switch and
+            // chain-transfer apply paths both call MakeWatchCameraStateTargetRelative
+            // first), but the branch must keep its "decompose world direction
+            // onto destination basis" contract so future callers that opt in
+            // see preserved-direction-within-0.999-cosine behaviour.
             Vector3 worldOrbitDirection = new Vector3(0.2f, -0.8f, 0.5f).normalized;
             var state = new WatchCameraTransitionState
             {
@@ -814,7 +813,60 @@ namespace Parsek.Tests
 
             Assert.True(
                 Vector3.Dot(worldOrbitDirection, resolvedWorldDirection) > 0.999f,
-                $"Chain-transfer path should still preserve world orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+                $"World-direction branch should preserve world orbit direction, got {resolvedWorldDirection} from ({newPitch}, {newHeading})");
+        }
+
+        [Fact]
+        public void CompensateTransferredWatchAngles_ChainTransferBoundary_PreservesCapturedLocalAngles()
+        {
+            // Regression guard for the chain-transfer apply path
+            // (TransferWatchToNextSegment): the captured WorldOrbitDirection
+            // is computed from KSP's flightCamera.pivotRotation, which is the
+            // body-relative-upright frame, NOT the horizon proxy the camera is
+            // composing camPitch/camHdg against. Passing that direction through
+            // produces visually surprising local angles even on a same-frame
+            // handoff. TransferWatchToNextSegment now strips the world-direction
+            // and applies the captured (pitch, hdg) directly relative to the
+            // next ghost's horizon proxy.
+            //
+            // Bug snapshot from logs/2026-05-01_1712_camera-mode-still-broken/:
+            // user clicked rec #7 with the camera at (pitch=19.8, hdg=-8.0)
+            // on a horizon proxy with basis fwd=(-0.5,0,-0.9) up=(-0.9,0,0.5)
+            // right=(0,-1,0); seven seconds later the chain auto-followed to
+            // rec #10 with a near-identical horizon proxy basis, but the camera
+            // jumped to (pitch=-4.6, hdg=-105.1) because the captured
+            // WorldOrbitDirection of (0.2,1.0,0.2) (≈ world up, derived from
+            // KSP's pivot frame) decomposed onto the destination basis to
+            // (-1.0,-0.1,-0.3) — a left-and-back near-horizontal angle.
+            // Use raw Quaternion components rather than Quaternion.LookRotation
+            // because the test runner is xUnit-on-net472 (no Unity engine ECalls).
+            // Two arbitrary distinct rotations stand in for the source horizon
+            // proxy and the next ghost's horizon proxy — the contract being
+            // tested is "captured (pitch, hdg) returned verbatim regardless of
+            // destination basis", which holds for any rotation pair.
+            var captured = new WatchCameraTransitionState
+            {
+                Distance = 36.6f,
+                Pitch = 19.8f,
+                Heading = -8.0f,
+                Mode = WatchCameraMode.HorizonLocked,
+                HasTargetRotation = true,
+                TargetRotation = new Quaternion(0.1f, 0.7f, 0.2f, 0.7f),
+                HasWorldOrbitDirection = true,
+                WorldOrbitDirection = new Vector3(0.2f, 1.0f, 0.2f).normalized
+            };
+
+            WatchCameraTransitionState targetRelative =
+                WatchModeController.MakeWatchCameraStateTargetRelative(captured);
+
+            Quaternion newGhostHorizonProxyRotation =
+                new Quaternion(0.11f, 0.69f, 0.21f, 0.69f);
+            var (newPitch, newHeading) = WatchModeController.CompensateTransferredWatchAngles(
+                targetRelative,
+                newGhostHorizonProxyRotation);
+
+            Assert.Equal(19.8f, newPitch);
+            Assert.Equal(-8.0f, newHeading);
         }
 
         [Fact]
