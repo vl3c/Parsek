@@ -116,11 +116,17 @@ namespace Parsek.Tests
             var survivor = Ledger.Actions.Single(a =>
                 a.Type == GameActionType.FundsSpending &&
                 a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
-            Assert.Equal(ProductionUtFirst, survivor.UT);
+            // Cluster invariant: surviving row's UT is always the minimum of
+            // the cluster's UTs. ProductionUtSecond is strictly smaller than
+            // ProductionUtFirst (revert rolled the clock back ~40 ms), so the
+            // write-time gate swaps the surviving row's UT/DedupKey/Sequence
+            // to the relaunch values before dropping the new write.
+            Assert.Equal(ProductionUtSecond, survivor.UT);
             Assert.Equal(ProductionCost, survivor.FundsSpent);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
-                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout"));
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout") &&
+                l.Contains("swapped surviving row to relaunch UT"));
         }
 
         /// <summary>
@@ -175,6 +181,24 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// 60 s game-time-warp gap regression pin. Same craft, same site,
+        /// same cost, two rollouts 70 s apart — outside the dedup window so
+        /// both must be kept. Original PR review's [nit] about warping a
+        /// real second launch into the gate is the reason this is pinned
+        /// alongside the +0.5 s sentinel above.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_SeventySecondGap_BothKept()
+        {
+            RecordRollout(ut: 100.0, cost: 5000.0);
+            RecordRollout(ut: 170.0, cost: 5000.0);
+
+            Assert.Equal(2, CountUnadoptedRollouts());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout"));
+        }
+
+        /// <summary>
         /// Two rollouts of the same vessel within the window but with materially
         /// different costs (e.g. user added/removed parts between launches) must
         /// stay separate.
@@ -186,6 +210,96 @@ namespace Parsek.Tests
             RecordRollout(ut: 100.5, cost: 7500.0);
 
             Assert.Equal(2, CountUnadoptedRollouts());
+        }
+
+        /// <summary>
+        /// Gap 2 regression: when the new write has a strictly smaller UT
+        /// than the existing row (revert-relaunch with a measurable clock
+        /// rollback), the surviving row's UT/DedupKey/Sequence must be
+        /// updated in place to the relaunch values. Without this, downstream
+        /// adoption (TryAdoptRolloutAction's 0.5 s startUT cap) and Reconcile
+        /// (maxUT cutoff) would treat the surviving row as belonging to the
+        /// pre-revert timeline that never happened.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_NewWriteSmallerUT_SurvivorUTUpdatedInPlace()
+        {
+            const double t1 = 1000.0;
+            const double rollback = 1.0;
+            RecordRollout(t1, ProductionCost);
+            var beforeKey = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild).DedupKey;
+
+            // Relaunch with a 1 s clock rollback (well outside adoption's
+            // 0.5 s window; load-time repair would otherwise be the only
+            // recourse without the in-place update).
+            RecordRollout(t1 - rollback, ProductionCost);
+
+            Assert.Equal(1, CountUnadoptedRollouts());
+            var survivor = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal(t1 - rollback, survivor.UT);
+            Assert.NotEqual(beforeKey, survivor.DedupKey);
+            Assert.Contains((t1 - rollback).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                survivor.DedupKey);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("swapped surviving row to relaunch UT"));
+        }
+
+        /// <summary>
+        /// Gap 2 + adoption interaction: even with a multi-second clock
+        /// rollback (well outside <c>TryAdoptRolloutAction</c>'s 0.5 s
+        /// post-startUT cap), the in-place UT update keeps adoption viable.
+        /// Sequence: write rollout A at T1 — adopt it — revert and relaunch
+        /// at T1 - 5 (the write-time gate drops B and updates A's UT to
+        /// T1 - 5). A new recording starting at T1 - 4.6 (within the 0.5 s
+        /// cap of the updated UT) must still be able to find the
+        /// already-adopted row by UT proximity if it tried to re-adopt it
+        /// (and conversely, a recalc/reconcile pass running with maxUT below
+        /// T1 must not prune the survivor as a future-dated row).
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_AdoptedRowUTUpdatedAfterRevert_StillFindableByLagWindow()
+        {
+            const double t1 = 1000.0;
+            // Pre-revert launch + adoption.
+            RecordRollout(t1, ProductionCost);
+            var rec = new Recording
+            {
+                RecordingId = "rec-A",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: t1 + 0.1, rec);
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-A", adopted.RecordingId);
+
+            // Revert + relaunch with a 5 s clock rollback. The write-time
+            // gate must NOT collapse this into the adopted row (adopted
+            // rollouts are not duplicate candidates — see the existing
+            // OnVesselRolloutSpending_AdoptedRolloutDoesNotBlockNewWrite test
+            // which exercises this property). The new emission lands as a
+            // fresh unadopted row.
+            RecordRollout(t1 - 5.0, ProductionCost);
+            int adoptedCount = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                !string.IsNullOrEmpty(a.RecordingId));
+            int unadoptedCount = CountUnadoptedRollouts();
+            Assert.Equal(1, adoptedCount);
+            Assert.Equal(1, unadoptedCount);
+
+            // Crucial: the adopted row's UT was NOT mutated by the relaunch
+            // write (the gate rejected it as a duplicate of the recording
+            // adoption only when both rows are unadopted). The relaunch row
+            // is a fresh unadopted candidate available for a new recording
+            // to adopt.
+            Assert.Equal(t1, adopted.UT);
         }
 
         /// <summary>
@@ -373,16 +487,18 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The repair pass must skip adopted rollouts (RecordingId set). An
-        /// adopted row is the recording's authoritative cost line; collapsing
-        /// it under a sibling unadopted row would corrupt the recording's
-        /// effective ledger state.
+        /// The repair pass must skip adopted rollouts whose source recording
+        /// is unknown (RecordingStore lookup returns null). Without a
+        /// recording we cannot reconstruct the rollout-adoption context for
+        /// the adopted row, so the safe default is to leave it untouched.
         /// </summary>
         [Fact]
-        public void RepairDuplicateRolloutActions_AdoptedActionsUntouched()
+        public void RepairDuplicateRolloutActions_AdoptedActionsUntouched_WhenRecordingUnknown()
         {
             // Adopted: RecordingId set, DedupKey null (matches TryAdoptRolloutAction's
-            // post-adoption shape).
+            // post-adoption shape). RecordingStore is empty so the resolver
+            // returns a default context for "rec-adopted" and the row is
+            // skipped.
             Ledger.AddAction(new GameAction
             {
                 UT = 100.0,
@@ -408,6 +524,200 @@ namespace Parsek.Tests
             Assert.Equal(2, Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsSpending &&
                 a.FundsSpendingSource == FundsSpendingSource.VesselBuild));
+        }
+
+        /// <summary>
+        /// Gap 1 regression: the canonical adopted+unadopted scenario the PR
+        /// review flagged. A recording adopts the original launch's rollout
+        /// (clearing its DedupKey), the player reverts and re-launches, and a
+        /// fresh unadopted rollout lands beside it. The original PR's repair
+        /// pass skipped both rows because its <c>IsUnadoptedRolloutAction</c>
+        /// filter rejected the adopted anchor — the double-charge stayed.
+        /// After the fix, the adopted row is the cluster survivor and the
+        /// unadopted duplicate is dropped.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_AdoptedSurvivesUnadoptedDuplicate()
+        {
+            // Pre-adoption rollout in the production cluster shape (PID/site
+            // match the recording about to adopt it).
+            RecordRollout(ProductionUtFirst, ProductionCost);
+
+            // Stage the recording in CommittedRecordings so the repair pass's
+            // resolver can find it from the action's RecordingId.
+            var rec = new Recording
+            {
+                RecordingId = "rec-adopted",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-adopted", startUT: ProductionUtFirst + 0.1, rec);
+            Assert.NotNull(adopted);
+
+            // Inject the relaunch-side unadopted row directly so it bypasses
+            // the write-time gate (which would otherwise correctly drop it
+            // before the repair pass ever ran).
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 50,
+                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+            });
+
+            int adoptedBefore = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                !string.IsNullOrEmpty(a.RecordingId));
+            int unadoptedBefore = CountUnadoptedRollouts();
+            Assert.Equal(1, adoptedBefore);
+            Assert.Equal(1, unadoptedBefore);
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(1, removed);
+            // Adopted survivor remains; unadopted duplicate is gone.
+            int adoptedAfter = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                !string.IsNullOrEmpty(a.RecordingId));
+            int unadoptedAfter = CountUnadoptedRollouts();
+            Assert.Equal(1, adoptedAfter);
+            Assert.Equal(0, unadoptedAfter);
+            // The adopted row keeps its identity (RecordingId, ActionId, UT
+            // unchanged — no payload swap from the discarded row).
+            var survivor = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal("rec-adopted", survivor.RecordingId);
+            Assert.Equal(adopted.ActionId, survivor.ActionId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RepairDuplicateRolloutActions: removing duplicate rollout") &&
+                l.Contains("adopted anchor wins"));
+        }
+
+        /// <summary>
+        /// Gap 1 symmetric case: same as above but the adopted row sits at a
+        /// higher index (i.e. the anchor in the outer loop is the unadopted
+        /// row). The repair pass must still keep the adopted row and discard
+        /// the unadopted anchor.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_AdoptedAtHigherIndexStillSurvives()
+        {
+            // Inject the unadopted row first so it lives at a smaller index
+            // than the adopted row (anchor in the outer loop).
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 1,
+                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+            });
+            // Now stage the adopted row at a higher index.
+            var rec = new Recording
+            {
+                RecordingId = "rec-adopted",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                RecordingId = "rec-adopted",
+                Sequence = 2,
+                DedupKey = null,
+            });
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(1, removed);
+            int adoptedAfter = Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                !string.IsNullOrEmpty(a.RecordingId));
+            int unadoptedAfter = CountUnadoptedRollouts();
+            Assert.Equal(1, adoptedAfter);
+            Assert.Equal(0, unadoptedAfter);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RepairDuplicateRolloutActions: removing duplicate rollout") &&
+                l.Contains("adopted candidate wins"));
+        }
+
+        /// <summary>
+        /// Gap 1 edge case: two adopted rollouts that happen to match the
+        /// dedup criteria. Real-world this should be impossible (two
+        /// recordings cannot both adopt the same launch row), but the repair
+        /// pass must not silently steal a recording's authoritative cost
+        /// line. Both rows stay and a WARN surfaces the anomaly.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_TwoAdoptedRollouts_KeptWithWarn()
+        {
+            var recA = new Recording
+            {
+                RecordingId = "rec-A",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            var recB = new Recording
+            {
+                RecordingId = "rec-B",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                RecordingId = "rec-A",
+                Sequence = 1,
+                DedupKey = null,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                RecordingId = "rec-B",
+                Sequence = 2,
+                DedupKey = null,
+            });
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("two adopted rollouts match within window — keeping both"));
         }
 
         /// <summary>
