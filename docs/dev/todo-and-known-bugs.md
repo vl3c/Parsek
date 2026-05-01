@@ -47,6 +47,7 @@ Regression coverage: `Bug687Tests.cs` (xUnit pure pieces — `ShouldBlockSpawnFo
 ## Done - v0.9.1 UF stash/seal fixes
 
 - ~~Sealing a stashed Unfinished Flight could delete the rewind-point quicksave before the sealed slot reached `persistent.sfs`, leaving a ghost STASH row with disabled Fly after Rewind-to-Launch or quickload.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` (`09:31:59.815` Seal click through `09:32:35.380` disabled Re-Fly). Fix: Seal now forces a persistent save after setting `slot.Sealed=true` and before RP reaping, defers RP file deletion if that save fails, and load-time sweep seals/reaps persistent RPs whose quicksave file is already missing so older inconsistent saves converge. The sweep skips the active Re-Fly marker's RP and session-provisional RPs, and reports only missing-file RPs it actually cleaned.
+- ~~`UnfinishedFlightClassifier.HasStashedResolvedSlot` treated sealed stashed slots as open stash slots, relying on downstream `TryQualify(considerSealed: true)` callers to reject them later.~~ Source: hardening follow-up from `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` after the seal/load inconsistency exposed a sealed-vs-stashed boundary. Fix: the helper now treats `Stashed && Sealed` as closed, matching the RP reaper rule that sealed wins.
 
 ## Done - v0.9.1 in-place Re-Fly STASH cleanup
 
