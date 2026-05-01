@@ -40,39 +40,43 @@ User-facing complaint: "I have to keep checking the Parsek Career window before 
 - **Reserved kerbal** — a `ProtoCrewMember` that `KerbalsModule.ShouldFilterFromCrewDialog(name)` returns true for. This already covers reserved (slot owner stand-ins) and retired kerbals; for the Astronaut Complex overlay we want the same predicate plus a separate "will be hired at UT" predicate sourced from a new Kerbals helper.
 - **Decorate vs hide** — for VAB/SPH crew dialogs we *hide* reserved kerbals (existing behavior); for Astronaut Complex we *decorate* them. The player wants to see the roster they actually have; an invisible kerbal in their own roster is confusing.
 - **Click-block** — the existing pattern from `TechResearchPatch`: a Harmony prefix returns `false` and shows `CommittedActionDialog.ShowBlocked` with the committed UT. We extend the pattern to two more action types in this PR.
-- **Live UT cutoff** — `Planetarium.GetUniversalTime()` at the moment the screen renders. Committed-future overlays are decorated when `event.ut > liveUT`.
+- **Unreplayed-event predicate** — the actual source of truth for "should the overlay decorate this row". Equals `MilestoneStore`'s existing `LastReplayedEventIndex + 1 .. Events.Count` slice intersected with `GameStateStore.IsEventVisibleToCurrentTimeline`. **NOT** a `event.ut > liveUT` filter — `LastReplayedEventIndex` already accounts for past-but-not-yet-replayed cases (e.g. timeline trims, recording purges). Using a UT cutoff here would silently desync overlays from `TechResearchPatch` / `FacilityUpgradePatch` / the new patches, which all use the unreplayed predicate.
+- **Live UT (display only)** — `Planetarium.GetUniversalTime()` at render time. Used in the tooltip text (`"Will unlock at UT 12345"`) but never as a filter on the overlay set.
 
 ---
 
 ## 3. Mental model
 
-The data is already present in two stores. The patcher writes the *terminal* state to KSP singletons. The patches block the *future* slice. The overlays paint that same future slice on top of stock UI.
+Two parallel stores hold the truth, and the overlay must read both:
+
+- `Ledger.Actions` — the converted action list. `KspStatePatcher` writes the **terminal** state of these actions into KSP singletons (R&D, Funds, Reputation, ProgressTracking, ContractSystem). After every recalc, the singletons reflect the end of the timeline.
+- `MilestoneStore.Milestones[*].Events[*]` — the raw recorded `GameStateEvent`s. Each milestone tracks `LastReplayedEventIndex`; the slice from `LastReplayedEventIndex + 1` to the end is the **unreplayed-and-still-visible** slice. The existing click-blocks (`TechResearchPatch` / `FacilityUpgradePatch`) read this slice via `MilestoneStore.GetCommittedTechIds()` etc. — that is the source of truth this PR mirrors.
+
+Note: `CrewHired` round-trips into `Ledger` (via `GameActions/GameStateEventConverter.cs:172`), but `CrewRemoved` does **not** — the converter explicitly returns `null` for it (`GameStateEventConverter.cs:219-224`). That means `FutureRetired` data is available only from `MilestoneStore`, not from `Ledger`. The plan reads everything overlay-related from `MilestoneStore` for consistency, never from `Ledger.Actions` directly.
 
 ```
-                         past (UT < liveUT)        future (UT > liveUT)
-  Ledger / MilestoneStore  ─────────────┬─────────────────────┐
-                                        │                     │
-                                        ▼                     ▼
-     KspStatePatcher ───────────►  KSP singletons        (no patcher writes;
-       (writes terminal             (R&D, Funds,          terminal includes them
-        state, fires                 Reputation,          but the live UT cursor
-        GameEvents)                  ProgressTracking,    has not advanced past)
-                                     ContractSystem)
-                                                              │
-                                                              │
-   ┌─────────────────────── this PR adds: ─────────────────────┤
-   │                                                          │
-   │  TechResearchPatch ◄─ existing click-block ──┐           │
-   │  FacilityUpgradePatch ◄─ existing click-block┤           │
-   │  ContractAcceptPatch ◄─ NEW click-block ─────┤           │
-   │  KerbalHirePatch ◄─ NEW click-block ─────────┤           │
-   │                                              │           │
-   │  StockUiOverlayController ◄── reads ─────────┘   ───────►│
-   │    - decorates R&D nodes                                 │
-   │    - decorates Astronaut Complex rows                    │
-   │    - decorates Mission Control rows                      │
-   └──────────────────────────────────────────────────────────┘
+   ┌─ MilestoneStore (raw events, unreplayed slice = source of truth for overlays + click-blocks) ─┐
+   │                                                                                                │
+   │  GetCommittedTechIds()           ◄── existing, used by TechResearchPatch                       │
+   │  GetCommittedFacilityUpgrades()  ◄── existing, used by FacilityUpgradePatch                    │
+   │  GetCommittedContractAcceptIds() ◄── NEW, used by ContractAcceptPatch + Mission Control overlay│
+   │  GetCommittedKerbalHireNames()   ◄── NEW, used by KerbalHirePatch + Astronaut overlay          │
+   │  GetCommittedKerbalRetireNames() ◄── NEW, used by Astronaut overlay only                       │
+   │                                                                                                │
+   └────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                          │                            │
+                                ┌─────────┘                            └────────┐
+                                ▼                                               ▼
+                    ┌──────────────────────┐                       ┌──────────────────────┐
+                    │   Click-block patches │                       │ StockUiOverlayController│
+                    │   (refuse the click)  │                       │ (decorate stock rows) │
+                    └──────────────────────┘                       └──────────────────────┘
+                                ▲                                               ▲
+                                │                                               │
+                                └───────  same predicate, no UT filter   ───────┘
 ```
+
+Critical invariant: **overlay set == click-block set**. If a row gets decorated, clicking it gets blocked. If a row does not get decorated, clicking it is allowed. The implementation enforces this by reading the same `MilestoneStore` helper from both sides — never adding a UT filter to one side without the other.
 
 The overlay is a thin presentation layer; it never mutates ledger state or KSP singletons. Click-blocks are the only mutators added by this PR, and they only refuse player actions — they do not invent new ones.
 
@@ -110,7 +114,11 @@ internal static HashSet<string> GetCommittedKerbalRetireNames()
 
 Each helper logs at `Verbose` when it returns a non-empty set, matching the existing pattern in `GetCommittedTechIds()`.
 
-**Verified before plan publication:** the event types already exist — `GameStateEventType.CrewHired` (value 8), `CrewRemoved` (9), and `CrewStatusChanged` (10) — and are emitted with `key = crew.name` from `GameStateRecorder.cs:779` and converted by `GameActions/GameStateEventConverter.cs:172`. The new helpers are pure read-only queries over `MilestoneStore`; no enum or converter changes are needed.
+**Verified before plan publication:**
+- `GameStateEventType.CrewHired` (value 8), `CrewRemoved` (9), and `CrewStatusChanged` (10) all exist in `Source/Parsek/GameStateEvent.cs:17-19`.
+- `GameStateRecorder.cs:779` emits `CrewHired` with `key = crew.name`. `GameStateRecorder.cs:823` emits `CrewRemoved` with `key = crew.name`.
+- Only `CrewHired` is converted to a ledger action (`Source/Parsek/GameActions/GameStateEventConverter.cs:172` → `ConvertCrewHired`). `CrewRemoved` falls into the "intentionally not converted" group at `GameStateEventConverter.cs:219-224` and `ConvertEvent` returns `null`. **This is fine for our use case** — the new `GetCommittedKerbalRetireNames()` helper reads `MilestoneStore` directly (the raw `GameStateEvent` slice), which is also where `GetCommittedTechIds()` reads from. We do not need ledger-side coverage for the FutureRetired overlay.
+- No enum or converter changes are required by this PR.
 
 ### 4.2 Overlay view model
 
@@ -127,14 +135,21 @@ internal readonly struct TechNodeOverlayMark
 internal readonly struct ApplicantOverlayMark
 {
     public string KerbalName;
-    public ApplicantOverlayKind Kind;          // Reserved | FutureHired | FutureRetired
-    public double CommittedUt;                 // NaN for "Reserved" (active stand-in)
+    public ApplicantOverlayKind Kind;          // ReservedActive | ReservedRetired | FutureHired | FutureRetired
+    public double CommittedUt;                 // NaN for the two Reserved* kinds (live stand-ins, no committed UT)
 }
-internal enum ApplicantOverlayKind { Reserved, FutureHired, FutureRetired }
+internal enum ApplicantOverlayKind
+{
+    ReservedActive,    // KerbalsModule slot owner currently has a live stand-in
+    ReservedRetired,   // KerbalsModule retired/displaced stand-in (still managed)
+    FutureHired,       // GameStateEventType.CrewHired in the unreplayed slice
+    FutureRetired      // GameStateEventType.CrewRemoved in the unreplayed slice
+}
 
 internal readonly struct ContractOverlayMark
 {
-    public Guid ContractGuid;
+    public string ContractGuidKey;             // raw event key string, exact same shape the recorder writes
+                                                // (contract.ContractGuid.ToString() — default "D" form, with hyphens)
     public ContractOverlayKind Kind;           // FutureAccepted | FutureCompleted | FutureFailed
     public double CommittedUt;
 }
@@ -143,9 +158,20 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 
 `CommittedRecordingId` is included so the overlay can show "from recording '<name>'" in the tooltip when known. Uses `RecordingStore.GetById(rid)?.DisplayName` with a raw-id fallback.
 
-### 4.3 Persisted state
+### 4.3 Persisted state and refresh trigger
 
-**None.** All overlay state is transient. The buildings are short-lived screens; rebuilding the marks on `onGUI*Spawn` is cheap and avoids cache-invalidation bugs.
+**No persisted state.** All overlay state is transient.
+
+**Caching policy:** marks are built **on `onGUI*Spawn`** and held until `…Despawn`. They are NOT rebuilt per OnGUI frame (the §13 review caught this — per-OnGUI walks would be three full passes over `MilestoneStore.Milestones[*].Events[k..]` per frame at 60Hz, too expensive at hundreds of milestones).
+
+**Refresh trigger** (replaces the original `Ledger.StateVersion` polling proposal): the controller subscribes to `LedgerOrchestrator.OnTimelineDataChanged` (the same event the Career window uses — see `career-state-window.md` §5.6). When that fires AND the relevant building is currently open, the controller calls `RebuildAllVisible()` on the next OnGUI frame.
+
+`OnTimelineDataChanged` is the right signal because the overlay's source-of-truth predicate depends on three things, all of which fire `OnTimelineDataChanged`:
+1. `Ledger.Actions` mutated (commits, reverts, recalculations).
+2. `MilestoneStore.LastReplayedEventIndex` advanced (replay finished a tagged event).
+3. `GameStateStore.IsEventVisibleToCurrentTimeline` flipped (recording timeline visibility changed via `RecordingStore` mutations).
+
+If a future change adds a fourth signal that is not yet routed through `OnTimelineDataChanged`, the overlay would go stale until the building is reopened — that is the correct fallback behavior, but worth flagging in code review as a contract.
 
 ### 4.4 What we explicitly do NOT add
 
@@ -159,19 +185,20 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 
 ### 5.1 Tech tree overlay (R&D building)
 
-**Hook:** subscribe to `GameEvents.onGUIRnDComplexSpawn` and `…Despawn` from a new `KSPAddon(GameScenes.SPACECENTER, false)` MonoBehaviour `StockUiOverlayController`.
+**Hook:** subscribe to `RDController.OnRDTreeSpawn` (the `EventData<RDController>` event that fires after `RDController.Instance` is populated) and `RDController.OnRDTreeDespawn`. This is preferred over `GameEvents.onGUIRnDComplexSpawn` because it fires after the controller has its `nodes` list ready — no one-frame retry, no null check race.
+
+If `OnRDTreeSpawn` does not exist in the running KSP version (defensive — verify during implementation by reading the decompiled `Assembly-CSharp.dll`), fall back to `GameEvents.onGUIRnDComplexSpawn` plus a one-frame delay before reading `RDController.Instance.nodes`.
 
 **On spawn:**
 
 1. Build a `Dictionary<string, TechNodeOverlayMark>` from `MilestoneStore.GetCommittedTechIds()`. For each id, call `MilestoneStore.FindCommittedEvent(GameStateEventType.TechResearched, id)` to get the UT and recording id.
-2. Wait one frame for `RDController.Instance` to populate (it instantiates nodes on its own `Start`). If `RDController.Instance == null` after one frame, abort with one `Warn` and try again on the next `onGUIRnDComplexSpawn`.
-3. Walk `RDController.Instance.nodes` (a `List<RDNode>` field on the controller). For each `RDNode` whose `tech.techID` is in our marks dict, attach a child `GameObject` named `Parsek_TechOverlay` under the node's transform. Attach a `MonoBehaviour` `TechOverlayBadge` that draws a small clock-icon + tooltip ("Committed at UT 12345 — recording 'Mun Lander v3'"). The badge listens for pointer enter/exit to flip the tooltip.
+2. Walk `RDController.Instance.nodes` (a `List<RDNode>` field on the controller, verified by decompile). For each `RDNode` whose `tech.techID` is in our marks dict, attach a child `GameObject` named `Parsek_TechOverlay` under the node's transform. Attach a `MonoBehaviour` `TechOverlayBadge` that draws a small clock-icon + tooltip ("Committed at UT 12345 — recording 'Mun Lander v3'"). The badge listens for pointer enter/exit to flip the tooltip, and null-checks its parent transform on `Update` so a stock-side re-layout (filter button click) does not leave dangling MonoBehaviours.
 
 **On despawn:** destroy every child `GameObject` named `Parsek_TechOverlay` under the R&D root, no leaks across re-opens.
 
 **Click-block:** unchanged. `TechResearchPatch` already blocks. Overlay just makes the block predictable.
 
-**Refresh trigger:** if `Ledger.StateVersion` changes while the screen is open (rare but possible if a recording is committed via the Parsek main window in another scene before R&D closes), rebuild the marks dict on the next OnGUI frame. We poll `Ledger.StateVersion` once per frame inside the controller's `Update()`.
+**Refresh while open:** see §4.3 — `LedgerOrchestrator.OnTimelineDataChanged` triggers `RebuildAllVisible()`.
 
 ### 5.2 Astronaut Complex overlay
 
@@ -180,16 +207,25 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 **On spawn:**
 
 1. Build an `applicantMarks` dict by walking `HighLogic.CurrentGame.CrewRoster.Crew` and `…Applicants` (and `…Tourist` if the player ever sees them in this list).
-2. For each name, classify:
-   - **Reserved** if `KerbalsModule.ShouldFilterFromCrewDialog(name)` is true AND no future hire event exists. Tooltip: "Reserved by Parsek for slot 'Bob Kerman'".
+2. For each name, classify (priority order — first match wins so FutureHired beats Reserved):
    - **FutureHired** if `MilestoneStore.GetCommittedKerbalHireNames()` contains the name (sourced from `GameStateEventType.CrewHired`). Tooltip: "Will be hired at UT 12345 — recording '...'".
-   - **FutureRetired** if `MilestoneStore.GetCommittedKerbalRetireNames()` contains the name (sourced from `GameStateEventType.CrewRemoved`). Same shape as FutureHired but the badge color is muted.
-3. Find the panel's `UIList` that drives the applicants column. The Astronaut Complex UI is `KSP.UI.Screens.AstronautComplex`; its applicants are rendered into a `KerbalListItem` per row inside a `UIList` accessible via `crewListController` (or whatever the field is named — to be confirmed during implementation; look in `BaseCrewAssignmentDialog.AddAvailItem` for the parallel call).
-4. For each `KerbalListItem` whose `pcm.name` matches an entry in `applicantMarks`, attach a child `Parsek_KerbalOverlay` GameObject with a small badge. Color/icon varies by `ApplicantOverlayKind`.
+   - **FutureRetired** if `MilestoneStore.GetCommittedKerbalRetireNames()` contains the name (sourced from `GameStateEventType.CrewRemoved`). Tooltip with UT, badge color muted.
+   - **ReservedActive** if `KerbalsModule.IsManaged(name)` AND there is a live stand-in (use the existing `KerbalsModule.GetActiveOccupant(slotOwnerName)` — non-null means active). Tooltip: "Reserved by Parsek for slot '<slotOwner>'".
+   - **ReservedRetired** if `KerbalsModule.IsManaged(name)` AND no active stand-in (i.e. the kerbal is in the retired/displaced set). Tooltip: "Retired stand-in (managed by Parsek)".
+   - **No match** — skip. (`KerbalsModule.ShouldFilterFromCrewDialog` is the union of ReservedActive + ReservedRetired and is what VAB/SPH uses to *hide* — for the Astronaut Complex we want a finer split so the tooltip can explain which case it is. Confirm `IsManaged` + `GetActiveOccupant` together produce this split during implementation; if not, add a `KerbalsModule.GetReservationKind(name)` helper.)
+3. Find the panel's `UIList` that drives the applicants column. The Astronaut Complex UI is `KSP.UI.Screens.AstronautComplex`; its applicants are rendered into a `KSP.UI.CrewListItem` per row (verified by decompile — note the type name is `CrewListItem`, not `KerbalListItem`). The list is accessed via private fields on `AstronautComplex`; the implementation must reflect them, named like `availableCrewList` / `assignedCrewList` (verify exact names during Phase 4 by reading the decompiled assembly). Wrap the reflection in a one-shot warn-on-failure helper following the `KspStatePatcher.protoTechNodes` pattern (see `Source/Parsek/GameActions/KspStatePatcher.cs:439-474`).
+4. For each `CrewListItem` row, derive the kerbal name. `CrewListItem` exposes `GetName() : string` publicly; **no public `ProtoCrewMember` accessor** (verified by decompile). v1 strategy: use `GetName()` for matching. The kerbal name in stock KSP `CrewRoster` is unique within a save (no two `ProtoCrewMember`s can share `name`), so name-based matching is safe. Locale risk: `GetName()` returns the display name which IS the same as `pcm.name` in stock KSP; if a localization mod changes that, the matching breaks (one Verbose log; overlay simply does not draw — fail-soft).
+5. For each `CrewListItem` whose `GetName()` matches an entry in `applicantMarks`, attach a child `Parsek_KerbalOverlay` GameObject under the row transform with a small badge. Color/icon varies by `ApplicantOverlayKind`.
 
 **On despawn:** strip every `Parsek_KerbalOverlay` child under the Astronaut Complex root.
 
-**Click-block** (NEW patch `KerbalHirePatch`): Harmony prefix on the hire-button callback. The KSP API surface is `KSP.UI.Screens.AstronautComplex.HireApplicant(ProtoCrewMember pcm)` (or the equivalent — confirm during implementation by reading the decompiled `Assembly-CSharp.dll`). If `pcm.name` is in `MilestoneStore.GetCommittedKerbalHireNames()`, return `false` and show `CommittedActionDialog.ShowBlocked("Cannot hire \"" + pcm.name + "\"", "This kerbal is already committed on your timeline at UT …", "")`. Mirrors `TechResearchPatch`.
+**Click-block** (NEW patch `KerbalHirePatch`): Harmony prefix on `KerbalRoster.HireApplicant(ProtoCrewMember ap)` (verified entry point via decompile — the Astronaut Complex's private `HireRecruit(UIList fromlist, UIList tolist, UIListItem listItem)` calls into this, as does any modded auto-hire path). The patch:
+1. Bypasses if `GameStateRecorder.IsReplayingActions == true` (mirrors `TechResearchPatch.cs:18-23`) — Parsek's own recalc/replay must be allowed to add kerbals back.
+2. If `ap.name` is in `MilestoneStore.GetCommittedKerbalHireNames()`, looks up the committed UT via `MilestoneStore.FindCommittedEvent(GameStateEventType.CrewHired, ap.name)`, then returns `false` and shows `CommittedActionDialog.ShowBlocked("Cannot hire \"" + ap.name + "\"", "This kerbal is already committed on your timeline at UT …", "")`. Mirrors `TechResearchPatch`.
+
+Why patching `KerbalRoster.HireApplicant` (and not the Astronaut Complex UI handler) is correct: it's scene-agnostic (resolves E14 — modded Flight-scene Astronaut Complex still gets the click-block), it's the single funnel the stock UI + every mod's auto-hire goes through, and it has a stable signature across KSP versions (private UI internals are not stable).
+
+**Name uniqueness:** `ProtoCrewMember.name` is globally unique inside `HighLogic.CurrentGame.CrewRoster` — KSP refuses to add a second roster entry with the same name. So `ap.name` is a safe matching key.
 
 **No filter on Astronaut Complex** — unlike VAB/SPH, the player keeps seeing the kerbal. The overlay tells the story; the click-block enforces the rule.
 
@@ -199,13 +235,18 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 
 **On spawn:**
 
-1. Build a `Dictionary<Guid, ContractOverlayMark>` from `MilestoneStore.GetCommittedContractAcceptIds()`. For each Guid, call `FindCommittedEvent(GameStateEventType.ContractAccepted, guid.ToString("N"))` (or whichever key shape `GameStateEventConverter` uses; verify during implementation) for UT + recording id.
-2. Walk `ContractSystem.Instance.Contracts`; for each contract whose `ContractGuid` is in our marks dict, attach a `Parsek_ContractOverlay` GameObject under the row that the Mission Control window renders for that contract.
+1. Build a `Dictionary<string, ContractOverlayMark>` keyed by the **raw event key string** from `MilestoneStore.GetCommittedContractAcceptIds()`. The recorder writes the key as `contract.ContractGuid.ToString()` (default "D" form with hyphens — verified at `Source/Parsek/GameStateRecorder.cs:413, 522, 553, 583, 608`). `MilestoneStore.FindCommittedEvent` does an ordinal string compare on `key`, so the overlay must use the SAME string shape — never `ToString("N")` (no-hyphen form). For each entry, call `FindCommittedEvent(GameStateEventType.ContractAccepted, keyString)` for UT + recording id.
+2. Walk `ContractSystem.Instance.Contracts`; for each contract, compute `contract.ContractGuid.ToString()` and look it up in the marks dict. Match → attach a `Parsek_ContractOverlay` GameObject under the row that the Mission Control window renders for that contract.
 3. The overlay text reads "Will be accepted at UT 12345 — recording '...'". If the contract is also already in the player's Active list (rare race: it was accepted live then re-emerged in a future commit), suppress the badge with one Verbose log.
 
 **On despawn:** strip every `Parsek_ContractOverlay`.
 
-**Click-block** (NEW patch `ContractAcceptPatch`): Harmony prefix on `Contracts.Contract.Accept()`. If `__instance.ContractGuid` is in `GetCommittedContractAcceptIds()`, return `false` and `CommittedActionDialog.ShowBlocked`.
+**Click-block** (NEW patch `ContractAcceptPatch`): Harmony prefix on `Contracts.Contract.Accept()`. The patch:
+1. Bypasses if `GameStateRecorder.IsReplayingActions == true`.
+2. Computes `keyString = __instance.ContractGuid.ToString()` (default "D" form, matching the recorder).
+3. If `keyString` is in `GetCommittedContractAcceptIds()`, looks up UT via `FindCommittedEvent(GameStateEventType.ContractAccepted, keyString)`, then returns `false` and `CommittedActionDialog.ShowBlocked`.
+
+**Helper return type contract:** `GetCommittedContractAcceptIds()` returns `HashSet<string>` (raw event keys), NOT `HashSet<Guid>`. This avoids `Guid.TryParse` per-call work and mirrors the existing `GetCommittedTechIds` / `GetCommittedFacilityUpgrades` shape. Anywhere downstream needs a real `Guid`, parse at the boundary with one Verbose log on failure.
 
 **Why both overlay AND click-block:** they answer different questions for the player. The overlay says "this is happening on your timeline already, don't waste your offered-slot quota"; the click-block enforces it if they click anyway.
 
@@ -215,17 +256,19 @@ No production code changes. We add an in-game test that:
 
 1. Captures `Funding.Instance.Funds`, `ResearchAndDevelopment.Instance.Science`, `Reputation.Instance.reputation` before and after a synthetic `LedgerOrchestrator.RecalculateAndPatch()`.
 2. Asserts the values match `FundsModule.GetAvailableFunds()` / `ScienceModule.GetAvailableScience()` / `ReputationModule.GetRunningRep()`.
-3. Asserts `CurrencyWidgetsApp.Instance` exists and that its widgets reflect the new values via reflection (the widgets are private fields on the app; we read them rather than the public API to verify the screen, not the singleton).
+3. Asserts that exactly one `OnFundsChanged` / `OnScienceChanged` / `OnReputationChanged` `GameEvents` fires per delta during the patch (subscribe a counter inside the test, assert the count). This is the public contract that `CurrencyWidgetsApp` listens to; if those fire correctly the bar is correct.
 
-Test lives in `InGameTests/RuntimeTests.cs` (Category = "ResourceTopBar", Scene = `GameScenes.SPACECENTER`).
+The test deliberately does NOT reflect on `CurrencyWidgetsApp`'s private widget fields — that contract is brittle across KSP patches. If the events fire and the singletons hold the right values, the widget being out of sync would be a stock-KSP bug, not Parsek's bug.
+
+Test lives in `Source/Parsek/InGameTests/RuntimeTests.cs` (Category = "ResourceTopBar", Scene = `GameScenes.SPACECENTER`).
 
 ### 5.5 Cross-screen: shared overlay infrastructure
 
-A single `StockUiOverlayController` singleton (a `KSPAddon(GameScenes.SPACECENTER, false)` plus a sibling `KSPAddon(GameScenes.FLIGHT, false)` if the player can open R&D from in-flight via mods — for v1 SPACECENTER only) owns:
+A single `StockUiOverlayController` singleton (a `KSPAddon(GameScenes.SPACECENTER, false)`; v1 is SPACECENTER-only — see §10) owns:
 
-- Subscriptions to all six `onGUI*Spawn` / `…Despawn` events.
-- A small `OverlayBadge` MonoBehaviour shared by all three screens, parameterized by icon + tooltip text.
-- A `RebuildAllVisible()` method called on `Ledger.StateVersion` change.
+- Subscriptions to: `RDController.OnRDTreeSpawn` / `OnRDTreeDespawn`, `GameEvents.onGUIAstronautComplexSpawn` / `…Despawn`, `GameEvents.onGUIMissionControlSpawn` / `…Despawn`, `LedgerOrchestrator.OnTimelineDataChanged`.
+- A small `OverlayBadge` MonoBehaviour shared by all three screens, parameterized by icon + tooltip text. The badge `Update()` null-checks its parent transform; if the parent is destroyed (stock-side re-layout), it self-destroys with one Verbose log.
+- A `RebuildAllVisible()` method called when `OnTimelineDataChanged` fires AND a tracked screen is currently open. If no tracked screen is open, the call is a no-op (one Verbose log).
 
 The badge prefab is built in code (no asset bundle). It uses `Texture2D` from `GameDatabase.Instance.GetTexture("Parsek/Textures/clock_overlay", false)` with a code-only fallback (a `Texture2D.whiteTexture` tinted via `GUI.color`) so the feature still works if the texture is missing during early dev.
 
@@ -250,7 +293,9 @@ Persisted via `ParsekSettings` exactly like the existing toggles. Both toggles t
 - ParsekScenario, GameStateRecorder, sidecars — no changes.
 - The `MilestoneStore` storage shape — only new query helpers; no new `Milestone` fields.
 
-**No serialized-enum changes.** Verified `GameStateEventType.CrewHired` and `CrewRemoved` already exist and are wired through the recorder and converter. No save-format risk in this PR.
+**No serialized-enum changes.** Verified `GameStateEventType.CrewHired` and `CrewRemoved` already exist and are emitted by the recorder. (Only `CrewHired` is converted to a ledger action — see §4.1 verified note.) No save-format risk in this PR.
+
+**Post-Change Checklist** (CLAUDE.md): N/A. No new persisted fields, no new enum values, no `ParsekScenario.OnSave/OnLoad` change, no test-generator change. The two new `ParsekSettings` boolean fields are the only new persisted state, and `ParsekSettingsPersistence` is already round-tripped per the existing test pattern.
 
 ---
 
@@ -260,11 +305,16 @@ Subsystem tag `"StockUiOverlay"` for the controller, `"ContractAcceptPatch"` and
 
 | Decision point | Level | Line |
 |---|---|---|
-| Controller initialised | Info | `"StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl spawns"` |
-| R&D spawn handler entered | Verbose | `"StockUiOverlay: R&D spawn — building tech marks ledger version={Ledger.StateVersion}"` |
+| Controller initialised | Info | `"StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl spawns + LedgerOrchestrator.OnTimelineDataChanged"` |
+| `OnTimelineDataChanged` fired, no tracked screen open | Verbose | `"StockUiOverlay: timeline changed but no tracked screen open — RebuildAllVisible no-op"` |
+| `OnTimelineDataChanged` fired, screen open → rebuild scheduled | Verbose | `"StockUiOverlay: timeline changed — scheduling RebuildAllVisible for {screen}"` |
+| R&D spawn handler entered | Verbose | `"StockUiOverlay: R&D spawn — building tech marks committedTechCount={n}"` |
 | R&D mark count | Info | `"StockUiOverlay: R&D decorated nodeCount={n} of total={t}"` |
-| R&D `RDController.Instance` null after one frame | Warn | `"StockUiOverlay: R&D spawn — RDController.Instance still null after one frame; will retry on next spawn"` |
-| Astronaut spawn handler entered | Verbose | `"StockUiOverlay: Astronaut spawn — building applicant marks reserved={r} futureHired={fh} futureRetired={fr}"` |
+| R&D `RDController.Instance.nodes` reflection failure (KSP API drift) | Warn (one-shot per session) | `"StockUiOverlay: RDController.nodes reflection failed — tech overlays disabled this session ({detail})"` |
+| AstronautComplex private list-field reflection failure (KSP API drift) | Warn (one-shot per session) | `"StockUiOverlay: AstronautComplex list-field reflection failed — applicant overlays disabled this session ({detail})"` |
+| `CrewListItem.GetName()` returns name not in roster (locale mod / mismatch) | Verbose (rate-limited per row) | `"StockUiOverlay: applicant row name '{n}' not found in CrewRoster — overlay skipped"` |
+| Badge parent transform destroyed (stock-side re-layout) | Verbose | `"StockUiOverlay: {screen} badge self-destruct, parent gone — name={n}"` |
+| Astronaut spawn handler entered | Verbose | `"StockUiOverlay: Astronaut spawn — building applicant marks reservedActive={ra} reservedRetired={rr} futureHired={fh} futureRetired={fre}"` |
 | Astronaut applicant decoration applied | Verbose (rate-limited per name) | `"StockUiOverlay: applicant decorated name={n} kind={k} ut={ut}"` |
 | Mission Control spawn handler entered | Verbose | `"StockUiOverlay: MissionControl spawn — building contract marks futureAcceptedCount={n}"` |
 | Mission Control row not found for committed contract | Verbose (rate-limited per Guid) | `"StockUiOverlay: MissionControl committed contract not present in current Contracts list guid={g} — likely already-active suppression"` |
@@ -287,8 +337,9 @@ Subsystem tag `"StockUiOverlay"` for the controller, `"ContractAcceptPatch"` and
 - **`GetCommittedKerbalHireNames_PastEvent_NotIncluded`** — `LastReplayedEventIndex >= eventIdx`. Fails if the cursor is off-by-one.
 - **`GetCommittedKerbalHireNames_FutureEvent_Included`** — single future event. Fails if `IsEventVisibleToCurrentTimeline` filtering breaks future visibility.
 - **`GetCommittedKerbalHireNames_HiddenByTimelineFilter_NotIncluded`** — event in a milestone that is hidden by the abandoned-branch filter. Fails if the helper bypasses `IsEventVisibleToCurrentTimeline`.
-- **`GetCommittedContractAcceptIds_ParsesGuids`** — three events, two valid Guid keys + one malformed. Expect two-Guid result + one Verbose `Guid.TryParse failed` log.
+- **`GetCommittedContractAcceptIds_ReturnsRawKeyStrings`** — three events with three contract Guid keys (default "D" form). Expect three-string result, no parsing performed inside the helper. Fails if the helper accidentally calls `Guid.TryParse` (which would silently drop modded contracts that use a non-standard key shape).
 - **`GetCommittedContractAcceptIds_LogsCount`** — log-assertion test on the non-empty Verbose line.
+- **`GetCommittedContractAcceptIds_KeyShapeMatchesRecorder`** — write a synthetic event with `key = Guid.NewGuid().ToString()` (default "D" form, with hyphens, matching `GameStateRecorder.cs:413`). Assert the helper returns it; assert that `MilestoneStore.FindCommittedEvent(GameStateEventType.ContractAccepted, key)` round-trips. Guards against the `ToString("N")` bug that the design review flagged.
 
 ### 8.2 `StockUiOverlayControllerTests.cs` — pure logic
 
@@ -303,13 +354,17 @@ The controller has Unity dependencies, so we test only the pure-helper layer (ma
 
 ### 8.3 `ContractAcceptPatchTests.cs` and `KerbalHirePatchTests.cs`
 
-Mirror `TechResearchPatchTests.cs` (existing). One test per:
+`TechResearchPatchTests.cs` does NOT currently exist (verified). The test pattern is therefore new — established by Phase 2 of this PR for both new patches. Pattern:
 
-- Allows accept/hire when not committed.
-- Blocks when committed; pops the dialog (assert via `CommittedActionDialog.ShowBlocked` test sink).
-- Bypasses block when `GameStateRecorder.IsReplayingActions == true`.
-- Logs the block at Info with the UT.
-- Logs the bypass at Verbose during replay.
+- **Test sink:** `CommittedActionDialog.ShowBlocked` directly calls Unity's `PopupDialog.SpawnPopupDialog`, so it cannot be unit-tested. Instead, assert on the `ParsekLog.Info("CommittedAction", "Blocked action: …")` log line that `ShowBlocked` emits at the top of its body (see `Source/Parsek/CommittedActionDialog.cs:17-19`). This is the canonical project pattern for verifying patch behavior — see `RewindLoggingTests.cs` for the ParsekLog test-sink setup.
+- **Optional small refactor (Phase 2):** if log-only assertions feel weak, introduce an injectable `internal static Action<string, string, string> TestHook` on `CommittedActionDialog` that the dialog invokes before falling through to `PopupDialog.SpawnPopupDialog`. Only do this if the log assertions miss something during Phase 2 implementation; do not add it speculatively.
+
+One test per:
+
+- Allows accept/hire when not committed (no log line, return value `true`).
+- Blocks when committed; asserts a `ParsekLog.Info("CommittedAction", "Blocked action: ...")` line and a `ParsekLog.Info("ContractAcceptPatch"|"KerbalHirePatch", "blocking ...")` line (which the patches emit before calling `ShowBlocked`).
+- Bypasses block when `GameStateRecorder.IsReplayingActions == true`; asserts the bypass Verbose log.
+- Confirms the `IsManaged` predicate matches the same name set the overlay uses (so overlay set == click-block set per the §3 invariant).
 
 ### 8.4 Settings round-trip test
 
@@ -317,7 +372,16 @@ Mirror `TechResearchPatchTests.cs` (existing). One test per:
 
 ### 8.5 Edge-case tests (matching §9)
 
-One test per edge case in the table below; named after the E-id.
+One test per edge case where the case is unit-testable, named after the E-id. Tests live in `MilestoneStoreOverlayHelperTests.cs` or `StockUiOverlayControllerTests.cs` depending on the surface.
+
+Edge cases that require a live Unity / KSP harness move to the in-game test list in §8.6 (or to manual verification in §10):
+
+- **E5** (KSP API drift, `RDController.nodes` reflection failure) — manual verification: stub the reflection lookup to return null in a Phase 4 dev build, confirm the one-shot Warn fires and tech overlays simply do not draw. Not a unit test (would require mocking reflection).
+- **E6** (mid-display panel rebuild) — covered by the in-game `OverlaysClearedOnDespawn` test plus the `OnTimelineDataChanged`-driven rebuild path (§4.3); no dedicated unit test.
+- **E13** (KSP renames `KerbalRoster.HireApplicant`) — manual verification: temporarily rename the Harmony target in a dev build, confirm the patch logs a Warn and the overlay continues to draw (decoupled).
+- **E14** (Flight-scene Astronaut Complex from a mod) — covered by the design (`KerbalRoster.HireApplicant` is scene-agnostic); manual verification only if a Flight-scene mod is installed.
+
+All other E-cases (E1–E4, E7–E12, E15–E18) get a dedicated unit test.
 
 ### 8.6 In-game tests (`RuntimeTests.cs`)
 
@@ -337,20 +401,22 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 |---|---|---|---|
 | E1 | Sandbox mode | Controller still runs but every `MilestoneStore` query returns empty; no overlays drawn; no patch firing. | Sandbox has no committed timeline. |
 | E2 | Science mode | Same as Career for tech / kerbal hire / facilities. Contracts overlay no-ops because `ContractSystem.Instance` is null in Science. | Mirrors stock UI gating. |
-| E3 | Player opens R&D before Parsek's `LedgerOrchestrator` finishes early-load seeding | First `onGUIRnDComplexSpawn` finds an empty marks dict; no decoration. The first ledger-version bump after seeding triggers `RebuildAllVisible()`. | Cold-start race; documented; no silent crash. |
-| E4 | A committed-future tech node is unlocked by replaying its source recording while the R&D screen is open | `Ledger.StateVersion` bumps, `RebuildAllVisible()` strips the overlay on the next frame because the event is now past-replayed. | Overlay should disappear automatically. |
-| E5 | `RDController.Instance.nodes` field is renamed in a KSP update | One Warn at controller init; no decorations; no crash. | We use reflection with a single-shot warn (mirrors `KspStatePatcher.protoTechNodes` pattern). |
-| E6 | Stock KSP UI rebuilds the panel mid-display (e.g. tier filter button) | Our overlay GameObjects are children of the panel rows. When KSP rebuilds, the children go with the parents; the next frame's `RebuildAllVisible()` (triggered via a fast 30Hz poll on the panel root's child count) repaints. | Cheap poll; well below the cost of a new RDNode click. |
+| E3 | Player opens R&D before Parsek's `LedgerOrchestrator` finishes early-load seeding | First `OnRDTreeSpawn` finds an empty marks dict; no decoration. The first `OnTimelineDataChanged` after seeding triggers `RebuildAllVisible()` if the screen is still open. | Cold-start race; documented; no silent crash. |
+| E4 | A committed-future tech node is unlocked by replaying its source recording while the R&D screen is open | `OnTimelineDataChanged` fires, `RebuildAllVisible()` strips the overlay on the next frame because the event's milestone has now advanced past `LastReplayedEventIndex`. | Overlay should disappear automatically. |
+| E5 | `RDController.Instance.nodes` field is renamed in a KSP update | Reflection returns null; one-shot per-session Warn fires; no decorations on R&D for the rest of the session; no crash. Covered by manual verification (see §8.5). | We use reflection with a single-shot warn (mirrors `KspStatePatcher.protoTechNodes` pattern at `GameActions/KspStatePatcher.cs:439-474`). |
+| E6 | Stock KSP UI rebuilds the panel mid-display (e.g. tier filter button) | Our overlay GameObjects are children of the panel rows. When KSP rebuilds, the children go with the parents. There is no per-frame poll; the next legitimate `OnTimelineDataChanged` (or the next building reopen) repaints. **Acceptable v1 limitation:** if no ledger event fires between filter-button click and the player closing the screen, the overlay stays missing on the surviving rows until reopen. Documented; revisit only if playtesting flags it. | Per-frame polling for visual repaint was rejected for cost reasons (§4.3). |
 | E7 | Two committed-future events for the same key (e.g. tech researched twice in two recordings) | Mark uses the **earliest** UT; tooltip notes `(+N more committed)`. | Correct: the player will hit the earliest first. |
 | E8 | The committed event references a recording that has since been deleted | `RecordingStore.GetById(rid)` returns null; tooltip degrades to `"Committed at UT 12345"` without the recording name. One Verbose log. | Defensive. |
 | E9 | A contract whose Guid is committed-future-accepted is no longer in `ContractSystem.Instance.Contracts` (KSP regenerated the offered list) | Suppress the overlay with one Verbose log. | The player will not see this offer; nothing to decorate. |
 | E10 | Player has the overlay setting off | Controller still subscribes to events but skips decoration; click-blocks remain (separate setting). | Decoupled toggles. |
 | E11 | Click-blocks setting off | Patches no-op (return true) with a Verbose `"feature disabled by ParsekSettings"` log. | Lets the player accept the consequence consciously. |
 | E12 | `ContractAcceptPatch` fires during an internal stock-KSP `Contract.Accept` triggered by another mod's contract auto-accept | If `IsReplayingActions == false` and the Guid is committed, we still block. The mod loses the auto-accept. **Documented limitation**; no v1 escape hatch. | Better than silently desyncing the ledger. Worst case: player toggles off click-blocks. |
-| E13 | KSP renames the kerbal-hire entry-point method between versions | `KerbalHirePatch.TargetMethod()` returns null; Harmony skips the patch with one Warn (matches `CrewDialogFilterPatch` pattern). Overlay still draws. | Defensive against KSP API drift. |
-| E14 | Astronaut Complex is opened from inside Flight via a mod | Controller is registered for `SPACECENTER` only in v1; the Flight-scene overlay does not draw. **Acceptable v1 limitation.** Click-blocks still fire (Harmony patches are scene-agnostic). | Most players open the Astronaut Complex from KSC; covering Flight too means a second `KSPAddon(GameScenes.FLIGHT, false)` later. |
-| E15 | Player accepts a contract live, then commits a recording that contains a `ContractAccepted` for the same Guid (impossible but defensive) | Overlay suppresses (E9 path) when the contract is already in `Active` state. Click-block does not fire because the contract is no longer offered. Ledger walk handles the duplicate via `ContractsModule`'s existing accept-idempotence. | Triple-defended. |
+| E13 | KSP renames `KerbalRoster.HireApplicant` (or `Contract.Accept`) between versions | `KerbalHirePatch.TargetMethod()` (or `[HarmonyPatch]` attribute) fails; Harmony skips the patch with one Warn (matches `CrewDialogFilterPatch.cs:32-37` pattern). Overlay still draws (decoupled from the patch). Click-block silently disabled until manual verification — see §8.5. | Defensive against KSP API drift. |
+| E14 | Astronaut Complex is opened from inside Flight via a mod | The overlay does not draw (controller is `KSPAddon(GameScenes.SPACECENTER, false)`). **The click-block still fires** because `KerbalHirePatch` patches `KerbalRoster.HireApplicant`, which is scene-agnostic — confirmed by the same Harmony-patch model that `TechResearchPatch` and `FacilityUpgradePatch` use today. **Acceptable v1 limitation** for the visual; the safety property holds. | The decoupling between overlay (scene-bound) and click-block (scene-agnostic) is intentional. |
+| E15 | Player accepts a contract live, then commits a recording that contains a `ContractAccepted` for the same Guid (rare, defensive) | Overlay suppresses (E9 path) when the contract is already in `Active` state. Click-block does not fire because the contract is no longer offered. Ledger walk handles the duplicate via `ContractsModule`'s existing accept-idempotence. | Triple-defended. |
 | E16 | Overlay GameObjects accumulate after many open/close cycles (leak) | The `OverlaysClearedOnDespawn` in-game test guards against this. The despawn handler logs the strip count so a leak surfaces as `stripped=0 stripped=0 stripped=0` despite open cycles. | Observability over silent correctness. |
+| E17 | A future-hired kerbal name collides with a kerbal that is already in `CrewRoster.Crew` (e.g. `CrewRoster` already has Bob Kerman, and a committed-future recording also names "Bob Kerman" — possible because KSP picks names from a small pool) | The overlay would decorate the already-hired Bob's row in `CrewRoster.Crew`, with a tooltip "Will be hired at UT 12345". This is misleading. **v1 mitigation:** when classifying applicant marks, exclude any name already in `CrewRoster.Crew` from `FutureHired` (the player has *already* hired this kerbal; the future event is redundant). One Verbose log. The click-block is moot because the row is in Crew, not Applicants — `KerbalRoster.HireApplicant` would only be called for an Applicant. | Stock KSP refuses to add two roster entries with the same name (verified §5.2 click-block note); the future hire event would never actually fire on top of an existing roster entry. Hiding the misleading badge keeps the visual honest. |
+| E18 | Overlay set drifts from click-block set (e.g. someone adds a new filter to the overlay path but forgets the click-block) | Failure mode: player sees a normal-looking row, clicks, gets blocked. Or the inverse: row decorated, player ignores it, click goes through. **Both are bugs** per the §3 invariant. **Mitigation:** a unit test in `StockUiOverlayControllerTests.cs` that constructs a synthetic milestone and asserts that the same name set is returned by both the overlay's helper and the click-block's predicate. Future filters added to one side must update the test. | Catches the most likely regression pattern for this feature. |
 
 ---
 
@@ -372,22 +438,27 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 - `Source/Parsek/StockUiOverlayController.cs` — controller MonoBehaviour + `KSPAddon(GameScenes.SPACECENTER, false)`.
 - `Source/Parsek/OverlayBadge.cs` — small shared MonoBehaviour for the badge visual.
 - `Source/Parsek/Patches/ContractAcceptPatch.cs` — Harmony prefix on `Contracts.Contract.Accept()`.
-- `Source/Parsek/Patches/KerbalHirePatch.cs` — Harmony prefix on the Astronaut Complex hire entry point (exact target TBD during implementation).
+- `Source/Parsek/Patches/KerbalHirePatch.cs` — Harmony prefix on `KerbalRoster.HireApplicant(ProtoCrewMember)` (verified entry point — see §5.2).
 - `Source/Parsek.Tests/MilestoneStoreOverlayHelperTests.cs` — coverage for the new `MilestoneStore` helpers.
 - `Source/Parsek.Tests/StockUiOverlayControllerTests.cs` — pure-helper coverage.
 - `Source/Parsek.Tests/ContractAcceptPatchTests.cs`.
 - `Source/Parsek.Tests/KerbalHirePatchTests.cs`.
 
 **Modified:**
-- `Source/Parsek/MilestoneStore.cs` — three new query helpers (§4.1).
+- `Source/Parsek/MilestoneStore.cs` — three new query helpers (§4.1). File at top of `Source/Parsek/`, not under `GameActions/`.
 - `Source/Parsek/Patches/TechResearchPatch.cs` — gate on the new "click-blocks" setting.
 - `Source/Parsek/Patches/FacilityUpgradePatch.cs` — gate on the new "click-blocks" setting.
 - `Source/Parsek/UI/SettingsWindowUI.cs` — two new checkboxes.
-- `Source/Parsek/ParsekSettings.cs` + `ParsekSettingsPersistence.cs` — two new boolean fields with default `true`, round-tripped.
+- `Source/Parsek/ParsekSettings.cs` + `Source/Parsek/ParsekSettingsPersistence.cs` — two new boolean fields with default `true`, round-tripped.
 - `Source/Parsek/InGameTests/RuntimeTests.cs` — five new `[InGameTest]` methods.
 - `Source/Parsek.Tests/ParsekSettingsRoundTripTests.cs` — two new round-trip cases.
 - `docs/dev/todo-and-known-bugs.md` — new entry for the feature; mark related items as covered.
-- `CHANGELOG.md` — `Unreleased` entry: "Stock R&D, Astronaut Complex, and Mission Control screens now flag actions that pending recordings have already committed; double-clicking is blocked with a clear message. Top resources bar reflects the ledger after every recalc (verified by a new in-game test)."
+- `CHANGELOG.md` — `Unreleased` entry, one line per project convention: "Stock R&D, Astronaut Complex, and Mission Control screens now flag and block actions that pending recordings already committed."
+
+**File path notes** (response to review feedback that flagged path mistakes earlier in this doc):
+- `GameStateRecorder.cs`, `MilestoneStore.cs`, `KerbalsModule.cs`, `GameStateEvent.cs` all live at `Source/Parsek/<file>.cs` (top of tree).
+- `GameStateEventConverter.cs` and `KspStatePatcher.cs` live under `Source/Parsek/GameActions/`.
+- All Harmony patches live under `Source/Parsek/Patches/`.
 
 **Not touched** (to reiterate): `Ledger`, `RecalculationEngine`, all eight resource modules (the new `MilestoneStore` helpers do not change module surface), `KspStatePatcher`, `CrewDialogFilterPatch`, save format, sidecars, the Parsek Career window.
 
@@ -440,12 +511,13 @@ Total expected: 6 commits, ~10–12 files touched, fits in one PR.
 1. **Master toggle wording.** Proposed: "Show committed-future overlays in stock UI" and "Block player actions that conflict with committed timeline". Want shorter? More explicit?
 2. **Badge visual.** Proposed: a small clock icon top-right of the row, hover for tooltip. Alternatives: a colored side stripe, a faded-out row with a banner. I'd default to the clock icon and tighten in a follow-up if playtest finds it unclear.
 3. **Recording-name in tooltip.** Worth showing the source recording's display name, or is "Committed at UT 12345" enough? My default: include the name when known, fall back to UT-only.
-4. **Should the click-block on contracts also fire when a mod auto-accepts a contract?** v1 says yes (E12). If you want a per-mod escape hatch, I would design that as a separate setting.
-5. **Astronaut Complex / Flight-scene support (E14).** v1 is SPACECENTER-only. Want me to include a Flight-scene `KSPAddon` in Phase 4? Adds maybe 20 lines.
 
 None of these block implementation; defaults are listed for each.
 
-**Resolved before publication:** `GameStateEventType.CrewHired` and `CrewRemoved` are already in the enum (`GameStateEvent.cs:17-18`) and emitted by `GameStateRecorder.cs:779`. Phase 1 has no enum-extension contingency.
+**Resolved during review:**
+- `GameStateEventType.CrewHired` (8) and `CrewRemoved` (9) already exist in `Source/Parsek/GameStateEvent.cs:17-18`. Only `CrewHired` round-trips through the converter; `CrewRemoved` reads directly from `MilestoneStore` (see §4.1 verified note).
+- Mod auto-accept of contracts: handled by patching `Contracts.Contract.Accept()` directly, which is the funnel both stock UI and modded auto-accept go through. Behavior intentional (E12); no per-mod escape hatch in v1 — toggle off the master click-block setting if needed.
+- Flight-scene Astronaut Complex (modded only): handled by E14 — `KerbalHirePatch` patches `KerbalRoster.HireApplicant` which is scene-agnostic. No Flight-scene `KSPAddon` needed in v1; the overlay decoration just does not draw in Flight (the click-block still fires).
 
 ---
 
