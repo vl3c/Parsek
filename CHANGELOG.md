@@ -62,6 +62,7 @@ All notable changes to Parsek are documented here.
 ### Log Hygiene
 
 - Collapsed `TreeDestruction.AreAllLeavesTerminal` per-leaf verbose diagnostics into one counted summary per call, downgraded the routine `Extrapolator` NullSolver patched-conic fallback from WARN to verbose, and corrected non-NullSolver snapshot-failure WARN text to say the live-orbit fallback is skipped.
+- New `[PlaybackTrace]` per-frame log line for the 5-second window after each structural separation event during ghost playback. On by default; no toggle. Reports the rendered ghost world position, the active TrackSection (index, UT range, reference frame), and the metres / m/s travelled since the previous trace frame, plus a `sectionCrossed` marker on section-boundary frames. Gated on `TrajectoryPointFlags.StructuralEventSnapshot` (set on the recorder's structural-event snapshot points: joint breaks, RP seams) so the trace only fires around decouples and stays silent during cruise. Designed for diagnosing visual wobble / jitter at separation — file the ghost-id and UT range from the trace lines into a bug report and the source of the discontinuity (sparse sample, section-boundary handoff, anchor offset) is recoverable from one log file.
 
 ### Enhancements
 
