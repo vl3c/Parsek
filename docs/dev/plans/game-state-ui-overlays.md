@@ -92,10 +92,18 @@ Three new helpers, mirroring the existing `GetCommittedTechIds()` shape (one pas
 
 ```csharp
 // MilestoneStore additions
-internal static HashSet<Guid> GetCommittedContractAcceptIds()
+internal static HashSet<string> GetCommittedContractAcceptIds()
 {
-    // GameStateEventType.ContractAccepted, key = Contract.ContractGuid.ToString()
-    // returns Guids parsed from the key (Guid.TryParse, skip on parse failure with one Verbose log)
+    // GameStateEventType.ContractAccepted, key = contract.ContractGuid.ToString()
+    // (default "D" form with hyphens, as written by GameStateRecorder.cs:413/522/553/583/608).
+    // Returns the RAW key strings — do NOT parse to Guid here. Two reasons:
+    //   1. MilestoneStore.FindCommittedEvent does an exact ordinal string compare on `key`,
+    //      so the consumer must round-trip the same string shape the recorder wrote.
+    //   2. Parsing-and-reformatting would silently drop modded contracts that happen to
+    //      use a non-Guid-shaped key. Keep the raw string; let the patch boundary parse
+    //      to Guid only if it actually needs the typed value.
+    // See §5.3 for the consumer-side string-key contract and §8.1 for the
+    // GetCommittedContractAcceptIds_KeyShapeMatchesRecorder test that pins this down.
 }
 
 internal static HashSet<string> GetCommittedKerbalHireNames()
@@ -347,11 +355,13 @@ Subsystem tag `"StockUiOverlay"` for the controller, `"ContractAcceptPatch"` and
 
 ### 8.2 `StockUiOverlayControllerTests.cs` — pure logic
 
-The controller has Unity dependencies, so we test only the pure-helper layer (mark building) directly. Wrap the existing predicate calls in `internal static BuildTechMarks(MilestoneStore source, double liveUt) → Dictionary<string, TechNodeOverlayMark>` so it's directly testable.
+The controller has Unity dependencies, so we test only the pure-helper layer (mark building) directly. Wrap the existing predicate calls in `internal static BuildTechMarks(MilestoneStore source) → Dictionary<string, TechNodeOverlayMark>` so it's directly testable. **No `liveUt` parameter** — the helper's filter is `LastReplayedEventIndex + 1 .. Events.Count` intersected with `IsEventVisibleToCurrentTimeline`, never a UT cutoff (see §2 terminology, §3 invariant). A past-but-still-unreplayed event must be marked, exactly so it stays in lockstep with the click-block.
 
 - **`BuildTechMarks_EmptyStore_EmptyDict`** — zero entries.
-- **`BuildTechMarks_FutureEvent_PopulatedWithUtAndRecordingId`** — single future event with a `recordingId` carries through to the mark.
-- **`BuildTechMarks_PastEvent_NotIncluded`** — past event filtered out.
+- **`BuildTechMarks_UnreplayedEvent_PopulatedWithUtAndRecordingId`** — single unreplayed event (any UT, including past-relative-to-liveUT) with a `recordingId` carries through to the mark. Fails if the helper accidentally introduces a UT cutoff (the bug a reviewer caught).
+- **`BuildTechMarks_AlreadyReplayedEvent_NotIncluded`** — event is at or before `LastReplayedEventIndex` for its milestone. Excluded. Fails if the cursor is off-by-one.
+- **`BuildTechMarks_HiddenByTimelineFilter_NotIncluded`** — event in a milestone hidden by `IsEventVisibleToCurrentTimeline`. Excluded. Fails if the helper bypasses the visibility filter.
+- **`BuildTechMarks_PastUnreplayedEvent_StillIncluded`** — explicit guard: event UT is far below an arbitrary `liveUt`, but `LastReplayedEventIndex` has not advanced past it (e.g. a recording was committed but its replay hasn't run yet). The mark MUST be present so the click-block and the overlay stay in lockstep. Fails the day someone reintroduces a UT cutoff.
 - **`BuildApplicantMarks_PrefersFutureHiredOverReserved`** — when both predicates fire, FutureHired wins (it carries a UT; Reserved does not).
 - **`BuildContractMarks_AlreadyActive_SuppressedWithLog`** — current `ContractSystem.Instance.Contracts` contains the same Guid in `Active` state; the controller suppresses the overlay and logs.
 - **`BuildContractMarks_LogsSuppressionCountAtVerbose`** — log-assertion test.
@@ -368,7 +378,7 @@ One test per:
 - Allows accept/hire when not committed (no log line, return value `true`).
 - Blocks when committed; asserts a `ParsekLog.Info("CommittedAction", "Blocked action: ...")` line and a `ParsekLog.Info("ContractAcceptPatch"|"KerbalHirePatch", "blocking ...")` line (which the patches emit before calling `ShowBlocked`).
 - Bypasses block when `GameStateRecorder.IsReplayingActions == true`; asserts the bypass Verbose log.
-- Confirms the `IsManaged` predicate matches the same name set the overlay uses (so overlay set == click-block set per the §3 invariant).
+- **Invariant test (§3, scoped to the four action types with both sides):** the click-block predicate must use **exactly** the helper that the matching overlay reads — `KerbalHirePatch` against `GetCommittedKerbalHireNames()` (NOT `IsManaged`, which is the union of ReservedActive + ReservedRetired and is overlay-only — including reserved-only kerbals in the click-block would break the §3 scope and prevent the player from re-hiring a Parsek-reserved kerbal that has no future-hire commitment). `ContractAcceptPatch` against `GetCommittedContractAcceptIds()`. Test: build a synthetic milestone containing a `CrewHired` and a separate `KerbalsModule` reservation for an unrelated name, assert the patch blocks the first and ignores the second.
 
 ### 8.4 Settings round-trip test
 
@@ -420,7 +430,7 @@ These are the riskiest gaps in unit-test coverage; they exercise the Unity-side 
 | E15 | Player accepts a contract live, then commits a recording that contains a `ContractAccepted` for the same Guid (rare, defensive) | Overlay suppresses (E9 path) when the contract is already in `Active` state. Click-block does not fire because the contract is no longer offered. Ledger walk handles the duplicate via `ContractsModule`'s existing accept-idempotence. | Triple-defended. |
 | E16 | Overlay GameObjects accumulate after many open/close cycles (leak) | The `OverlaysClearedOnDespawn` in-game test guards against this. The despawn handler logs the strip count so a leak surfaces as `stripped=0 stripped=0 stripped=0` despite open cycles. | Observability over silent correctness. |
 | E17 | A future-hired kerbal name appears in `CrewRoster.Crew` or `CrewRoster.Tourist` (because the future hire already played back, OR the same kerbal entered as a tourist via a rescue contract that the recording then "regularized" to Crew via a second hire event) | KSP guarantees `ProtoCrewMember.name` uniqueness within `CrewRoster` (verified §5.2 click-block note), so the future event and the live entry refer to the same kerbal by identity. Decorating the row with "Will be hired at UT 12345" is therefore truthful but redundant — the player has already done it (Crew) or is about to via a non-applicant path (Tourist). **v1 mitigation:** when classifying applicant marks, exclude any name already in `CrewRoster.Crew` OR `CrewRoster.Tourist` from `FutureHired`. One Verbose log per excluded name. The click-block is moot because `KerbalRoster.HireApplicant` is only called from the Applicants list, never Crew/Tourist. | Stock KSP's roster-name uniqueness guarantees the future event refers to the same kerbal identity; suppressing the redundant badge keeps the visual honest without changing safety. |
-| E18 | Overlay set drifts from click-block set (e.g. someone adds a new filter to the overlay path but forgets the click-block) | Failure mode: player sees a normal-looking row, clicks, gets blocked. Or the inverse: row decorated, player ignores it, click goes through. **Both are bugs** per the §3 invariant. **Mitigation:** a unit test in `StockUiOverlayControllerTests.cs` that constructs a synthetic milestone and asserts that the same name set is returned by both the overlay's helper and the click-block's predicate. Future filters added to one side must update the test. | Catches the most likely regression pattern for this feature. |
+| E18 | Overlay set drifts from click-block set (e.g. someone adds a new filter to the overlay path but forgets the click-block, or vice versa) | Failure mode: player sees a normal-looking row, clicks, gets blocked. Or the inverse: row decorated, player ignores it, click goes through. **Both are bugs** per the §3 invariant. **Mitigation:** four pairwise unit tests in `StockUiOverlayControllerTests.cs`, one per action type that has both sides — tech / facility / contract accept / kerbal hire. Each test builds a synthetic milestone and asserts the **same** `MilestoneStore` helper return value drives both the overlay mark and the click-block predicate. Specifically: (a) `BuildTechMarks` keys equal `GetCommittedTechIds()` exactly; (b) `BuildFacilityMarks` keys equal `GetCommittedFacilityUpgrades()` exactly; (c) `BuildContractMarks` keys equal `GetCommittedContractAcceptIds()` exactly; (d) `BuildApplicantMarks` filtered to `Kind == FutureHired` (only) yields a name set equal to `GetCommittedKerbalHireNames()` exactly. **The other applicant kinds (`ReservedActive`, `ReservedRetired`, `FutureRetired`) are overlay-only by design and MUST NOT appear in any click-block predicate** — including them would block legitimate re-hires of Parsek-reserved kerbals or be no-ops with no callable click-block surface. Future filters added to one side must update the matching test. | Catches the most likely regression pattern for this feature without conflating overlay-only telemetry with click-block enforcement. |
 
 ---
 
