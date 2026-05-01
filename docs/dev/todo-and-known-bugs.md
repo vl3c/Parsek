@@ -71,6 +71,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TODO - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
+
+- An autosave (or quicksave) taken inside the FLIGHT scene while the post-destruction tree merge dialog is stashed loses the pending tree from the saved `persistent.sfs`. Sidecar files survive on disk (the new `CleanOrphanFiles` guard preserves them and the `OnSave: writing 0 RECORDING_TREE nodes but disk has N stranded sidecar` warn surfaces it), so a quickload that follows the autosave drops the recording's metadata even though the bulk data is intact. Source: `logs/2026-05-01_2208_investigate/KSP.log` lines 9920-9932 — at 21:50:01.489 `ShowPostDestructionTreeMergeDialog` stashed `R0` as pending (`pend.tree=f46ba80a:Finalized`), at 21:50:02.613 KSP autosaved while still in FLIGHT and `committedRecordings=0/committedTrees=0`, and the warn fired with 1 stranded sidecar. The recovery path was the user's prior 21:49:10 quicksave taken before the crash.
+
+**Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
+
+**Fix sketch:** either serialize the pending-tree slot as a `RECORDING_TREE` ConfigNode marked with an `isPending=True` (mirror of the `isActive=True` branch), or extend `SafetyNetAutoCommitPending` to also fire in FLIGHT when the dialog is stashed and the scene is awaiting the post-results transition. The first option preserves the player's option to revert; the second commits without dialog, which the player did not consent to. Prefer option 1.
+
+**Status:** OPEN. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
+
+---
+
 ## TODO - Relative frame decouple distance overflow
 
 - `logs/2026-05-01_1545_optimizer-merge-investigation/KSP.log` logged `RELATIVE mode exited` with `dist=1.79e+308m` immediately after the decouple at UT 279.53. This did not affect the reported playback because the chain was classified Absolute by the time it played, but the double.MaxValue-like displacement points to a degenerate relative-frame distance calculation at the decouple boundary.

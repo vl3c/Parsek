@@ -25,6 +25,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Snapshots the auto-assigned-standalone-group dict for non-destructive in-game
+        /// test fixtures (see <see cref="RecordingStoreTestSnapshot"/>). Returns a copy
+        /// that <see cref="RestoreAutoAssignedStandaloneGroupsForTesting"/> writes back.
+        /// </summary>
+        internal static Dictionary<string, string> SnapshotAutoAssignedStandaloneGroupsForTesting()
+        {
+            return new Dictionary<string, string>(
+                autoAssignedStandaloneGroupsByRecordingId, StringComparer.Ordinal);
+        }
+
+        internal static void RestoreAutoAssignedStandaloneGroupsForTesting(
+            Dictionary<string, string> snapshot)
+        {
+            autoAssignedStandaloneGroupsByRecordingId.Clear();
+            if (snapshot == null) return;
+            foreach (var kvp in snapshot)
+                autoAssignedStandaloneGroupsByRecordingId[kvp.Key] = kvp.Value;
+        }
+
+        /// <summary>
         /// Auto-groups tree recordings under a unique group name.
         /// Debris recordings get a "Debris" subgroup under the main group.
         /// Uses GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
