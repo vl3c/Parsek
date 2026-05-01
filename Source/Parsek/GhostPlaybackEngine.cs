@@ -930,6 +930,9 @@ namespace Parsek
                 // branch still fires the PlaybackCompleted event so
                 // consumers (camera transfer, debris spawn, milestone
                 // logging) see the lifecycle they expect.
+                // traj is non-null per the loop's earlier guard at the
+                // entry to UpdatePlayback's per-trajectory iteration; the
+                // surface area below uses it directly.
                 bool deadOnArrivalPastEnd = ctx.currentUT > traj.EndUT
                     || ctx.currentUT > f.chainEndUT;
                 bool deadOnArrivalNotHeld = IsGhostHeld == null || !IsGhostHeld(i);
@@ -940,7 +943,7 @@ namespace Parsek
                         "Engine",
                         "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
                         "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj?.VesselName ?? "?")
+                        + " \"" + (traj.VesselName ?? "?")
                         + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
                         + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
                         + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)

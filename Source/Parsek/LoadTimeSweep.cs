@@ -82,11 +82,12 @@ namespace Parsek
                 // so the gate's forcedFlag tracking stays consistent if
                 // OnLoad fires inside an already-loaded flight scene.
                 ReFlyRevertButtonGate.Apply("LoadTimeSweep:invalid-marker");
-                // #688 follow-up: drop the captured pre-Re-Fly anchor
-                // trajectory snapshot for the dead session so the persisted
-                // PRE_REFLY_ANCHOR node does not survive into the next save.
-                SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(
-                    clearedMarkerSessionId);
+                // #688 follow-up: snapshots tagged with the cleared session
+                // id are picked up by SweepOrphanPreReFlyAnchorSnapshots at
+                // the end of this same Sweep pass — no targeted clear here
+                // (it would double-log the same recording). The orphan
+                // sweep treats any snapshot whose sessionId differs from
+                // the live marker (now null) as orphan and clears it.
             }
             else if (markerValid)
             {

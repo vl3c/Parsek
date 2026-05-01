@@ -7,17 +7,20 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the Re-Fly tree anchor lock helpers in
-    /// <see cref="ParsekFlight"/>. The lock translates ghost positions in the
-    /// active Re-Fly tree by a constant world-space delta so the recorded
-    /// trajectory aligns with the live player at session start and the
-    /// ghost continues along its own original recorded path independent of
-    /// the player's later movement.
+    /// <see cref="ParsekFlight"/>. The lock translates ghost positions in
+    /// the active Re-Fly tree by the per-frame offset
+    /// <c>live_active_world(now) - recorded_active_world(currentUT)</c> so
+    /// each ghost sits at its recorded relative offset from where the live
+    /// vessel actually is. The active recording's role is purely to define
+    /// inter-vessel relative geometry; its absolute world coordinates are
+    /// not the source of truth.
     ///
     /// <para>
     /// These tests exercise the parts that don't require a live KSP
     /// runtime: the recording-id → tree-id resolution path that decides
-    /// which ghost positions get translated. The lazy delta-compute path
-    /// and per-frame translation are covered by the in-game test in
+    /// which ghost positions get translated, the activation-gate decision
+    /// rule, the snapshot lifecycle, and the codec round-trip. The
+    /// per-frame offset compute itself is covered by the in-game test in
     /// <c>RuntimeTests</c>.
     /// </para>
     /// </summary>
@@ -96,7 +99,9 @@ namespace Parsek.Tests
         public void TrySampleRecordedAbsoluteWorld_NullRec_ReturnsFalse()
         {
             Vector3d worldPos;
-            Assert.False(ParsekFlight.TrySampleRecordedAbsoluteWorld(null, 0.0, out worldPos));
+            Assert.False(ParsekFlight.TrySampleRecordedAbsoluteWorld((Recording)null, 0.0, out worldPos));
+            Assert.False(ParsekFlight.TrySampleRecordedAbsoluteWorld(
+                (List<TrackSection>)null, 0.0, out worldPos));
         }
 
         [Fact]
