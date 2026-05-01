@@ -176,6 +176,14 @@ The player Seals a slot via the per-row Seal button. The seal flips `slot.Sealed
 
 The reaper (§6.5) treats `slot.Sealed == true` as equivalent-to-Immutable for close-eligibility, BUT requires the effective recording to be in a committed MergeState (Immutable or CommittedProvisional). NotCommitted is unconditional no-reap regardless of Sealed — defends against load-time race states where a journal finisher rolled MergeState back to NotCommitted while the slot's Sealed bit is still on disk.
 
+### 4.5 Tree-branching parent that ends Destroyed
+
+A tree-branching split can capture a RewindPoint with both the continuing parent vessel and the new side-off child as controllable slots without closing the parent's Recording row. In that model, the parent keeps flying under the same `RecordingId` after the BranchPoint, so `Recording.ParentBranchPointId` and `Recording.ChildBranchPointId` can both stay empty even though the RP slot's `OriginChildRecordingId` points at the parent. If the parent later ends `Destroyed`, it is still an unfinished flight: destruction is conclusive and focus exclusion does not apply.
+
+Resolution order is part of the contract. `UnfinishedFlightClassifier.TryResolveRewindPointForRecording` first walks the legacy child/parent BranchPoint links so chain-continuation recordings keep their existing precedence. Only after those walks fail does it scan live RewindPoints and call `EffectiveState.ResolveRewindPointSlotIndexForRecording` to match by slot origin id. `TryQualify` labels this fallback `side=origin-only` when the matched RP is justified by the slot origin rather than by a parent/child BranchPoint match. The log line therefore distinguishes the new tree-branching-parent path from the existing `side=active-parent-child` chain-continuation parent and regular `side=child` branches.
+
+The downstream-BranchPoint guard is naturally a no-op for this shape because the still-open parent is its own chain tip and has no `ChildBranchPointId`. The controllable gate still applies through the RP slot and `rec.IsDebris`, so debris breakup rows do not become Re-Fly candidates merely because they share a parent id. Site B-1 merge classification uses the same origin-slot idea against the marker's supersede target for separate provisional re-flights; in-place continuations keep their existing terminal-kind fallback policy.
+
 ---
 
 ## 5. Data Model

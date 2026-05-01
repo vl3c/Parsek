@@ -515,11 +515,9 @@ namespace Parsek
 
             string parentBp = provisional.ParentBranchPointId;
             string childBp = provisional.ChildBranchPointId;
-            if (string.IsNullOrEmpty(parentBp) && string.IsNullOrEmpty(childBp))
-            {
-                rejectReason = "noParentBp";
-                return false;
-            }
+            bool hasBranchLink =
+                !string.IsNullOrEmpty(parentBp)
+                || !string.IsNullOrEmpty(childBp);
 
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
             {
@@ -554,8 +552,70 @@ namespace Parsek
                 return true;
             }
 
+            if (!IsInPlaceContinuation(marker, provisional)
+                && TryResolveSlotByOriginTarget(
+                    marker,
+                    targetRec,
+                    scenario,
+                    supersedes,
+                    out rp,
+                    out slotListIndex))
+            {
+                return true;
+            }
+
+            if (!hasBranchLink)
+            {
+                rejectReason = "noParentBp";
+                return false;
+            }
+
             rejectReason = matchedRp ? "noMatchingMarkerTargetSlot" : "noMatchingRP";
             return false;
+        }
+
+        private static bool TryResolveSlotByOriginTarget(
+            ReFlySessionMarker marker,
+            Recording targetRec,
+            ParsekScenario scenario,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
+            if (targetRec == null
+                || object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null)
+                return false;
+
+            string markerRpId = marker?.RewindPointId;
+            if (!string.IsNullOrEmpty(markerRpId))
+            {
+                for (int i = 0; i < scenario.RewindPoints.Count; i++)
+                {
+                    var candidate = scenario.RewindPoints[i];
+                    if (candidate == null) continue;
+                    if (!string.Equals(candidate.RewindPointId, markerRpId, StringComparison.Ordinal))
+                        continue;
+
+                    int resolved = EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                        candidate, targetRec, supersedes);
+                    if (resolved < 0)
+                        return false;
+
+                    rp = candidate;
+                    slotListIndex = resolved;
+                    return true;
+                }
+            }
+
+            return UnfinishedFlightClassifier.TryResolveRewindPointByOriginSlot(
+                targetRec,
+                scenario.RewindPoints,
+                supersedes,
+                out rp,
+                out slotListIndex);
         }
 
         private static bool RequiresSlotAwareMergeClassification(Recording rec)
