@@ -9,6 +9,14 @@
 Source/Parsek/RecordingStore.cs
 Source/Parsek/EffectiveState.cs
 
+# RecordingStoreTestSnapshot is the non-destructive snapshot/restore helper
+# that in-game tests wrap their fixtures in (replacing the destructive
+# ResetForTesting() pattern that wiped player saves on 2026-05-01). It owns
+# raw reads of CommittedRecordings/CommittedTrees because it is part of the
+# storage-owner test surface — supersede-aware filtering would corrupt the
+# round-trip the snapshot exists to provide. No ledger reads.
+Source/Parsek/RecordingStoreTestSnapshot.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 

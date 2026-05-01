@@ -69,15 +69,51 @@ namespace Parsek
             // KspStatePatcher re-applied it from the surviving ledger row, so no
             // funds were silently dropped — the second write would be the
             // double-charge.
+            //
+            // Cluster invariant: the surviving row's UT is always the minimum of
+            // the cluster's UTs, regardless of write order or adoption state. The
+            // load-time repair pass at <see cref="RepairDuplicateRolloutActions"/>
+            // upholds the same invariant. When the new write has the strictly
+            // smaller UT (revert-relaunch with a clock rollback >0 ms), the
+            // surviving row's UT/DedupKey/Sequence are mutated in place to match
+            // the relaunch timeline. Without that mutation, downstream consumers
+            // — most importantly <see cref="TryAdoptRolloutAction"/>'s 0.5 s
+            // post-startUT cap — would skip the surviving row because its UT is
+            // still in the original (now-rolled-back) timeline.
             if (TryFindDuplicateRolloutAction(ut, cost, context, Ledger.Actions, out GameAction existing))
             {
-                ParsekLog.Info(Tag,
-                    $"OnVesselRolloutSpending: skipping duplicate rollout — existing " +
-                    $"unadopted rollout matches (existingUT={existing.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                    $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
-                    $"deltaUT={(ut - existing.UT).ToString("F3", CultureInfo.InvariantCulture)}s, " +
-                    $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
-                    $"existingDedupKey={existing.DedupKey ?? "(null)"})");
+                if (ut < existing.UT)
+                {
+                    double oldUT = existing.UT;
+                    string oldDedupKey = existing.DedupKey;
+                    int oldSequence = existing.Sequence;
+
+                    existing.UT = ut;
+                    existing.DedupKey = BuildRolloutDedupKey(ut, context);
+                    existing.Sequence = allocateKscSequence();
+
+                    Ledger.BumpStateVersion();
+
+                    ParsekLog.Info(Tag,
+                        $"OnVesselRolloutSpending: skipping duplicate rollout — swapped surviving row to relaunch UT " +
+                        $"(oldUT={oldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaUT={(ut - oldUT).ToString("F3", CultureInfo.InvariantCulture)}s, " +
+                        $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
+                        $"oldDedupKey={oldDedupKey ?? "(null)"}, " +
+                        $"newDedupKey={existing.DedupKey}, " +
+                        $"oldSequence={oldSequence}, newSequence={existing.Sequence})");
+                }
+                else
+                {
+                    ParsekLog.Info(Tag,
+                        $"OnVesselRolloutSpending: skipping duplicate rollout — kept existing row " +
+                        $"(existingUT={existing.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"deltaUT={(ut - existing.UT).ToString("F3", CultureInfo.InvariantCulture)}s, " +
+                        $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
+                        $"existingDedupKey={existing.DedupKey ?? "(null)"})");
+                }
                 return;
             }
 
@@ -179,72 +215,194 @@ namespace Parsek
 
         /// <summary>
         /// Load-time repair pass for already-corrupted saves: scans the in-memory
-        /// ledger for clusters of unadopted VesselRollout actions that share the
-        /// same logical rollout context (PID-or-name+site, near-equal cost, UT
-        /// within <see cref="RolloutDuplicateWindowSeconds"/>) and collapses each
-        /// cluster down to its earliest member. Idempotent — a second invocation
+        /// ledger for clusters of VesselRollout actions that share the same
+        /// logical rollout context (PID-or-name+site, near-equal cost, UT within
+        /// <see cref="RolloutDuplicateWindowSeconds"/>) and collapses each
+        /// cluster down to a single survivor. Idempotent — a second invocation
         /// on a healthy ledger is a no-op. Returns the number of actions removed
         /// so callers can suppress chatty logs when nothing changed. The single
-        /// INFO line summarising the dedup is emitted only when at least one
-        /// action was removed.
+        /// INFO line summarising each dedup is emitted only when an action was
+        /// removed.
         ///
-        /// <para>Only operates on actions whose <see cref="GameAction.RecordingId"/>
-        /// is null/empty: an adopted rollout (RecordingId set) is the recording's
-        /// authoritative cost row and a sibling unadopted row pointing at the same
-        /// vessel is a different bug (e.g. failed adoption) that this pass must
-        /// not silently swallow. Driven by callers that own the Ledger mutator
-        /// surface (<see cref="LedgerOrchestrator.OnKspLoad"/>) — the
-        /// <paramref name="removeAt"/> callback abstracts the removal so this
-        /// helper can stay in the rollout-adoption file and tests can assert
-        /// against an in-memory list.</para>
+        /// <para>Cluster invariant: the surviving row's UT is always the
+        /// minimum of the cluster's UTs, regardless of write order or adoption
+        /// state — same invariant as the write-time gate at
+        /// <see cref="TryFindDuplicateRolloutAction"/>.</para>
+        ///
+        /// <para>Adoption-state matrix for a matching pair (anchor, candidate):
+        /// <list type="bullet">
+        ///   <item><description><b>Both unadopted</b> — keep the anchor; if
+        ///   the candidate's UT is strictly smaller, first swap the anchor's
+        ///   payload (UT/DedupKey/Sequence/ActionId) onto the candidate's data
+        ///   so the survivor still reflects the relaunch timeline that
+        ///   actually happened (mirrors the production case where the
+        ///   revert-relaunch row landed with a smaller UT due to a clock
+        ///   rollback).</description></item>
+        ///   <item><description><b>Anchor adopted, candidate unadopted</b> —
+        ///   the adopted row is the recording's authoritative cost line; drop
+        ///   the unadopted candidate. If the candidate has the earlier UT,
+        ///   move the adopted row's UT/Sequence to that relaunch timestamp,
+        ///   but do not rewrite the adopted row's ActionId (nothing references
+        ///   the unadopted ActionId — adoption never claimed it, no tombstone
+        ///   exists for FundsSpending(VesselBuild), and FundsModule's
+        ///   per-ActionId rate-limit cache is recomputed from scratch on the
+        ///   next recalc).</description></item>
+        ///   <item><description><b>Anchor unadopted, candidate adopted</b> —
+        ///   same rule applied symmetrically: keep the adopted candidate as
+        ///   the cluster survivor, move its UT/Sequence to the unadopted
+        ///   anchor's earlier timestamp when needed, and drop the unadopted
+        ///   anchor. Done by marking the anchor index for removal and breaking
+        ///   out of the inner scan since the anchor is dead.</description></item>
+        ///   <item><description><b>Both adopted</b> — rare; would mean two
+        ///   recordings independently adopted rollouts for the same logical
+        ///   vessel within the dedup window. Keep both rows untouched and
+        ///   emit a WARN — collapsing here would silently steal a
+        ///   recording's authoritative cost line and the safer behaviour is
+        ///   to surface the anomaly for investigation.</description></item>
+        /// </list></para>
+        ///
+        /// <para>Driven by callers that own the Ledger mutator surface
+        /// (<see cref="LedgerOrchestrator.OnKspLoad"/>) — the
+        /// <paramref name="removeAt"/> callback abstracts the removal and the
+        /// <paramref name="resolveAdoptedContext"/> callback resolves the
+        /// rollout context for an adopted row from its
+        /// <see cref="GameAction.RecordingId"/> (adopted rows have no DedupKey
+        /// to parse, so the context lives on the recording itself). Tests can
+        /// assert against an in-memory list with a stub resolver.</para>
         /// </summary>
         internal static int RepairDuplicateRolloutActions(
             System.Collections.Generic.IList<GameAction> actions,
-            Action<int> removeAt)
+            Action<int> removeAt,
+            Func<string, RolloutAdoptionContext> resolveAdoptedContext = null)
         {
             if (actions == null || removeAt == null) return 0;
 
             int removed = 0;
-            // Walk highest index first so removeAt() does not invalidate the
-            // surviving outer index. Each "kept" action becomes the anchor; later
-            // (smaller-index, earlier-UT) entries that match it stay; later
-            // (larger-index, later-UT) entries that match it get reaped.
-            // Implementation: for each action i (low-to-high), scan j>i for a
-            // duplicate; if found, mark j for removal. Then collapse.
             var toRemove = new System.Collections.Generic.List<int>();
             var alreadyMarked = new System.Collections.Generic.HashSet<int>();
             for (int i = 0; i < actions.Count; i++)
             {
                 if (alreadyMarked.Contains(i)) continue;
                 var anchor = actions[i];
-                if (!IsUnadoptedRolloutAction(anchor)) continue;
+                if (!IsRolloutAction(anchor)) continue;
 
-                var anchorContext = ParseRolloutAdoptionContext(anchor.DedupKey);
-                if (anchorContext.IsLegacyBareKey) continue;
-                if (!CanMatchRolloutAdoptionContext(anchorContext)) continue;
+                bool anchorAdopted = !string.IsNullOrEmpty(anchor.RecordingId);
+                RolloutAdoptionContext anchorContext;
+                if (!TryResolveRolloutContextForRow(anchor, resolveAdoptedContext, out anchorContext))
+                    continue;
 
                 for (int j = i + 1; j < actions.Count; j++)
                 {
                     if (alreadyMarked.Contains(j)) continue;
                     var candidate = actions[j];
-                    if (!IsUnadoptedRolloutAction(candidate)) continue;
+                    if (!IsRolloutAction(candidate)) continue;
                     if (Math.Abs(candidate.UT - anchor.UT) > RolloutDuplicateWindowSeconds) continue;
                     if (Math.Abs(candidate.FundsSpent - anchor.FundsSpent) > RolloutDuplicateCostEpsilon) continue;
 
-                    var candidateContext = ParseRolloutAdoptionContext(candidate.DedupKey);
+                    bool candidateAdopted = !string.IsNullOrEmpty(candidate.RecordingId);
+                    RolloutAdoptionContext candidateContext;
+                    if (!TryResolveRolloutContextForRow(candidate, resolveAdoptedContext, out candidateContext))
+                        continue;
+
                     if (!RolloutDuplicateMatches(anchorContext, candidateContext)) continue;
 
-                    // Reap the duplicate at index j. Earliest-UT preference: when
-                    // the candidate's UT is strictly less than the anchor's, swap
-                    // the anchor's payload onto the candidate's data first
-                    // (mirrors the production case where the revert-relaunch row
-                    // landed with a smaller UT due to clock rollback). Swapping
-                    // the payload (UT, DedupKey, Sequence, ActionId) keeps the
-                    // anchor's index stable so previously-marked siblings stay
-                    // reaped, and reflects the legitimate rollout in the user's
-                    // current timeline. The pre-swap "removedUT" is captured here
-                    // so the log line shows the row that physically went away
-                    // even when the swap re-points the anchor at the smaller UT.
+                    if (anchorAdopted && candidateAdopted)
+                    {
+                        // Two recordings claim the same logical rollout within
+                        // the dedup window — this should not happen on a
+                        // healthy timeline. Keep both rows; surface the
+                        // anomaly for investigation rather than silently
+                        // hijacking either recording's cost line.
+                        ParsekLog.Warn(Tag,
+                            $"RepairDuplicateRolloutActions: two adopted rollouts match within window — keeping both " +
+                            $"(anchorRecordingId={anchor.RecordingId}, candidateRecordingId={candidate.RecordingId}, " +
+                            $"anchorUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"candidateUT={candidate.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"cost={candidate.FundsSpent:F1}, context={FormatRolloutAdoptionContext(anchorContext)})");
+                        continue;
+                    }
+
+                    if (anchorAdopted && !candidateAdopted)
+                    {
+                        // Anchor (adopted) survives; drop the unadopted candidate.
+                        // Preserve the cluster minimum-UT invariant, but do
+                        // NOT rewrite ActionId because the adopted row's
+                        // ActionId is the recording's authoritative reference
+                        // and the unadopted ActionId has no consumers.
+                        double anchorOldUT = anchor.UT;
+                        int anchorOldSequence = anchor.Sequence;
+                        bool adoptedTimestampMoved = false;
+                        if (candidate.UT < anchor.UT)
+                        {
+                            anchor.UT = candidate.UT;
+                            anchor.Sequence = candidate.Sequence;
+                            adoptedTimestampMoved = true;
+                        }
+
+                        ParsekLog.Info(Tag,
+                            $"RepairDuplicateRolloutActions: removing duplicate rollout — adopted anchor wins " +
+                            $"(removedUT={candidate.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"keptUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"oldKeptUT={anchorOldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"keptRecordingId={anchor.RecordingId}, " +
+                            $"cost={candidate.FundsSpent:F1}, " +
+                            $"context={FormatRolloutAdoptionContext(anchorContext)}, " +
+                            $"removedDedupKey={candidate.DedupKey ?? "(null)"}, " +
+                            $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
+                            $"oldSequence={anchorOldSequence}, newSequence={anchor.Sequence})");
+
+                        alreadyMarked.Add(j);
+                        toRemove.Add(j);
+                        removed++;
+                        continue;
+                    }
+
+                    if (!anchorAdopted && candidateAdopted)
+                    {
+                        // Candidate (adopted) survives; drop the unadopted anchor.
+                        // The anchor is dead — break out of the inner scan; the
+                        // outer loop will continue at i+1 and skip the now-marked
+                        // index. Symmetric to the previous branch: preserve
+                        // the cluster minimum-UT invariant, but never rewrite
+                        // the candidate's ActionId.
+                        double candidateOldUT = candidate.UT;
+                        int candidateOldSequence = candidate.Sequence;
+                        bool adoptedTimestampMoved = false;
+                        if (anchor.UT < candidate.UT)
+                        {
+                            candidate.UT = anchor.UT;
+                            candidate.Sequence = anchor.Sequence;
+                            adoptedTimestampMoved = true;
+                        }
+
+                        ParsekLog.Info(Tag,
+                            $"RepairDuplicateRolloutActions: removing duplicate rollout — adopted candidate wins " +
+                            $"(removedUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"keptUT={candidate.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"oldKeptUT={candidateOldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"keptRecordingId={candidate.RecordingId}, " +
+                            $"cost={anchor.FundsSpent:F1}, " +
+                            $"context={FormatRolloutAdoptionContext(candidateContext)}, " +
+                            $"removedDedupKey={anchor.DedupKey ?? "(null)"}, " +
+                            $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
+                            $"oldSequence={candidateOldSequence}, newSequence={candidate.Sequence})");
+
+                        alreadyMarked.Add(i);
+                        toRemove.Add(i);
+                        removed++;
+                        break;
+                    }
+
+                    // Both unadopted: existing earliest-UT preference. When the
+                    // candidate's UT is strictly less than the anchor's, swap
+                    // the anchor's payload onto the candidate's data first so
+                    // the surviving row reflects the relaunch timeline that
+                    // actually happened. Swapping (UT, DedupKey, Sequence,
+                    // ActionId) keeps the anchor's index stable so
+                    // previously-marked siblings stay reaped. Because both
+                    // rows are unadopted, the discarded ActionId has no
+                    // consumers — there is no tombstone for VesselRollout
+                    // and adoption never claimed it.
                     double removedUT = candidate.UT;
                     string removedDedupKey = candidate.DedupKey;
                     if (candidate.UT < anchor.UT)
@@ -271,7 +429,8 @@ namespace Parsek
                 }
             }
 
-            // Remove highest index first.
+            // Remove highest index first so removeAt() does not invalidate
+            // earlier indices in the same batch.
             toRemove.Sort();
             for (int k = toRemove.Count - 1; k >= 0; k--)
                 removeAt(toRemove[k]);
@@ -279,14 +438,54 @@ namespace Parsek
             return removed;
         }
 
-        private static bool IsUnadoptedRolloutAction(GameAction a)
+        /// <summary>
+        /// Resolves the rollout context for an action at scan time. Adopted
+        /// rows have <see cref="GameAction.DedupKey"/> = null (cleared during
+        /// adoption) so their context must come from the source recording via
+        /// the <paramref name="resolveAdoptedContext"/> callback. Unadopted
+        /// rows carry the structured key inline.
+        /// </summary>
+        private static bool TryResolveRolloutContextForRow(
+            GameAction action,
+            Func<string, RolloutAdoptionContext> resolveAdoptedContext,
+            out RolloutAdoptionContext context)
+        {
+            context = default(RolloutAdoptionContext);
+            if (action == null) return false;
+
+            if (string.IsNullOrEmpty(action.RecordingId))
+            {
+                if (string.IsNullOrEmpty(action.DedupKey)) return false;
+                context = ParseRolloutAdoptionContext(action.DedupKey);
+                if (context.IsLegacyBareKey) return false;
+                return CanMatchRolloutAdoptionContext(context);
+            }
+
+            // Adopted row: derive the context from the source recording.
+            if (resolveAdoptedContext == null) return false;
+            context = resolveAdoptedContext(action.RecordingId);
+            return CanMatchRolloutAdoptionContext(context);
+        }
+
+        /// <summary>
+        /// True for any <c>FundsSpending(VesselBuild)</c> action whose dedup
+        /// metadata is well-formed enough to participate in duplicate
+        /// detection. Adopted rows have no DedupKey so the prefix check is
+        /// skipped for them — the context resolver will source their
+        /// rollout-adoption context from the recording instead.
+        /// </summary>
+        private static bool IsRolloutAction(GameAction a)
         {
             if (a == null) return false;
             if (a.Type != GameActionType.FundsSpending) return false;
             if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) return false;
-            if (!string.IsNullOrEmpty(a.RecordingId)) return false;
-            if (string.IsNullOrEmpty(a.DedupKey)) return false;
-            if (!a.DedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal)) return false;
+            // Unadopted rows must carry a structured rollout-prefixed key.
+            if (string.IsNullOrEmpty(a.RecordingId))
+            {
+                if (string.IsNullOrEmpty(a.DedupKey)) return false;
+                if (!a.DedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal))
+                    return false;
+            }
             return true;
         }
 
