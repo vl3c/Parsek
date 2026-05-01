@@ -2076,9 +2076,6 @@ namespace Parsek
             if (traj.SurfacePos.HasValue)
             {
                 positioner.PositionAtSurface(index, traj, state);
-                state.lastInterpolatedBodyName = traj.SurfacePos.Value.body;
-                state.lastInterpolatedAltitude = traj.SurfacePos.Value.altitude;
-                state.lastInterpolatedVelocity = Vector3.zero;
                 return;
             }
 

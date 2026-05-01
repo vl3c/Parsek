@@ -665,7 +665,7 @@ namespace Parsek
                         science = before.science + (after.science - before.science) * tf,
                         reputation = before.reputation + (after.reputation - before.reputation) * tf,
                         // Phase 7: lerp clearance between adjacent points; if either
-                        // is NaN (legacy / non-SurfaceMobile) the result is NaN and
+                        // is NaN (legacy / non-surface) the result is NaN and
                         // playback falls through to the legacy altitude path.
                         recordedGroundClearance = before.recordedGroundClearance
                             + (after.recordedGroundClearance - before.recordedGroundClearance) * t
