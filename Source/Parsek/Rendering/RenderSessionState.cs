@@ -731,13 +731,20 @@ namespace Parsek.Rendering
             }
 
             // Guard 3: resolve the parent BranchPoint via the supplied tree
-            // lookup. A missing parent BP is the orphan-marker case described
-            // in §15 / log L14 — we Warn (HR-9) and bail.
+            // lookup. Launch-root in-place continuations intentionally have no
+            // parent BP; other missing-parent markers are the orphan-marker
+            // case described in §15 / log L14, so we Warn (HR-9) and bail.
             RecordingTreeContext context = treeLookup != null
                 ? treeLookup(rOrigin.RecordingId)
                 : default;
             if (context.ParentBranchPoint == null)
             {
+                if (IsInPlaceContinuationMarker(marker))
+                {
+                    InstallEmptyInPlaceContinuationSession(marker, rOrigin);
+                    return;
+                }
+
                 ParsekLog.Warn("Pipeline-Anchor",
                     $"RebuildFromMarker: orphan-marker-no-parent-branchpoint " +
                     $"originRecordingId={rOrigin.RecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
@@ -1151,6 +1158,36 @@ namespace Parsek.Rendering
                     PrimaryRecordingIdsInternal.Clear();
                 }
             }
+        }
+
+        private static bool IsInPlaceContinuationMarker(ReFlySessionMarker marker)
+        {
+            return marker != null
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && string.Equals(
+                    marker.OriginChildRecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal);
+        }
+
+        private static void InstallEmptyInPlaceContinuationSession(
+            ReFlySessionMarker marker, Recording rOrigin)
+        {
+            lock (Lock)
+            {
+                Anchors.Clear();
+                PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
+                s_currentSessionId = marker.SessionId;
+                ResetSessionDedupSetsLocked();
+            }
+
+            ParsekLog.Verbose("Pipeline-Anchor",
+                $"RebuildFromMarker: in-place continuation: parent BP intentionally null " +
+                $"originRecordingId={rOrigin?.RecordingId ?? "<no-id>"} sessionId={marker.SessionId ?? "<no-id>"}");
+            ParsekLog.Info("Pipeline-Session",
+                $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
+                $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
+                $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
         }
 
         private static List<RecordingTree> ResolveTreesForPropagator(

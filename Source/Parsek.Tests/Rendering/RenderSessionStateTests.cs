@@ -331,7 +331,7 @@ namespace Parsek.Tests.Rendering
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess-orphan",
-                ActiveReFlyRecordingId = rOrigin.RecordingId,
+                ActiveReFlyRecordingId = "active-refly",
                 OriginChildRecordingId = rOrigin.RecordingId
             };
 

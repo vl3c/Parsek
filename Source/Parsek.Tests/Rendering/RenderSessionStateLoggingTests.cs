@@ -264,7 +264,7 @@ namespace Parsek.Tests.Rendering
                 new ReFlySessionMarker
                 {
                     SessionId = "sOR",
-                    ActiveReFlyRecordingId = rOrigin.RecordingId,
+                    ActiveReFlyRecordingId = "active-refly",
                     OriginChildRecordingId = rOrigin.RecordingId
                 },
                 new List<Recording> { rOrigin },
@@ -279,6 +279,33 @@ namespace Parsek.Tests.Rendering
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[Parsek][INFO][Pipeline-Anchor]")
                 && l.Contains("orphan-marker-no-parent-branchpoint"));
+        }
+
+        [Fact]
+        public void InPlaceContinuationMissingParentBranchPoint_LogsVerboseNotWarn()
+        {
+            var rOrigin = MakeRecording("orig", 50, (0, 0, 70));
+
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sIP",
+                    ActiveReFlyRecordingId = rOrigin.RecordingId,
+                    OriginChildRecordingId = rOrigin.RecordingId
+                },
+                new List<Recording> { rOrigin },
+                _ => new RecordingTreeContext(null, null),
+                _ => new Vector3d(1, 2, 3));
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Pipeline-Anchor]")
+                && l.Contains("orphan-marker"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Pipeline-Session]")
+                && l.Contains("Clear: reason=orphan-marker-no-parent-branchpoint"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Pipeline-Anchor]")
+                && l.Contains("in-place continuation: parent BP intentionally null"));
         }
     }
 }
