@@ -12,6 +12,26 @@ namespace Parsek
     {
         private const string Tag = "TerrainCorrect";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        internal const double DefaultTailLiftRampSeconds = 30.0;
+        internal const double TailLiftMinAbsDeltaMeters = 2.0;
+
+        internal readonly struct TailLiftPlan
+        {
+            public readonly bool Active;
+            public readonly double TerminalUT;
+            public readonly double RampStartUT;
+            public readonly double TerrainDelta;
+
+            internal TailLiftPlan(double terminalUT, double rampStartUT, double terrainDelta)
+            {
+                Active = true;
+                TerminalUT = terminalUT;
+                RampStartUT = rampStartUT;
+                TerrainDelta = terrainDelta;
+            }
+
+            internal static TailLiftPlan Inactive => default(TailLiftPlan);
+        }
 
         // ComputeCorrectedAltitude removed (#309): the terrain-relative clearance
         // model ("currentTerrain + (recordedAlt - recordedTerrain)") buries any
@@ -34,6 +54,54 @@ namespace Parsek
         {
             double minAlt = terrainHeight + minClearance;
             return ghostAltitude < minAlt ? minAlt : ghostAltitude;
+        }
+
+        internal static TailLiftPlan BuildTailLiftPlan(
+            TerminalState? terminalState,
+            double terrainHeightAtEnd,
+            double currentTerrainAtEnd,
+            double terminalUT,
+            double rampSeconds,
+            double minDeltaMeters)
+        {
+            if (!terminalState.HasValue)
+                return TailLiftPlan.Inactive;
+
+            TerminalState ts = terminalState.Value;
+            bool isSurfaceTerminal = ts == TerminalState.Landed
+                || ts == TerminalState.Splashed
+                || ts == TerminalState.Recovered;
+            if (!isSurfaceTerminal)
+                return TailLiftPlan.Inactive;
+
+            if (double.IsNaN(terrainHeightAtEnd) || double.IsNaN(currentTerrainAtEnd))
+                return TailLiftPlan.Inactive;
+
+            if (rampSeconds <= 0.0)
+                return TailLiftPlan.Inactive;
+
+            double delta = currentTerrainAtEnd - terrainHeightAtEnd;
+            if (System.Math.Abs(delta) < minDeltaMeters)
+                return TailLiftPlan.Inactive;
+
+            return new TailLiftPlan(terminalUT, terminalUT - rampSeconds, delta);
+        }
+
+        internal static double EvaluateTailLift(double pointUT, in TailLiftPlan plan)
+        {
+            if (!plan.Active)
+                return 0.0;
+            if (pointUT >= plan.TerminalUT)
+                return plan.TerrainDelta;
+            if (pointUT <= plan.RampStartUT)
+                return 0.0;
+
+            double span = plan.TerminalUT - plan.RampStartUT;
+            if (span <= 0.0)
+                return pointUT >= plan.TerminalUT ? plan.TerrainDelta : 0.0;
+
+            double fraction = (pointUT - plan.RampStartUT) / span;
+            return plan.TerrainDelta * fraction;
         }
 
         /// <summary>
