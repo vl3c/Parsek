@@ -80,6 +80,10 @@ Pre-feature saves with legacy live RPs whose Orbiting siblings are Immutable do 
 
 Every predicate gate emits a `[UnfinishedFlights] Verbose` line with a structured reason. The reaper logs sealed-slot-contributing counts. Site A and Site B-1 emit `[UnfinishedFlights] Info` on promotion with the resolved slot+RP. Seal accept/cancel logs. A KSP.log reader can reconstruct why every row appeared or didn't, and what the Seal action did to each slot. See §10.
 
+### 2.8 Career ledger is sticky across Seal and supersede
+
+Unfinished Flights is a recording/slot affordance, not a career-ledger rewrite. Seal closes only the `ChildSlot` (see §4.4); it must not prune ledger actions, stored game-state events, or Effective Ledger Set (`EffectiveState.ComputeELS`) input. Re-fly merge appends supersede relations for ERS/ghost visibility and may append narrow action tombstones only for kerbal death/lost assignment actions plus their paired reputation penalty (see `SupersedeCommit.CommitTombstones`). Science, milestones, contract completions, funds/rep rewards (except the rep penalty bundled with a kerbal death, above), facility upgrades, strategies, tech research, and spendings from superseded recordings remain in ELS. A later re-fly may append new actions, but duplicate or once-ever credit is resolved by the recalculation modules, not by deleting the old action. This avoids paradoxes where KSP will not re-emit sticky career progress after the old recording is superseded.
+
 ---
 
 ## 3. Terminology
