@@ -38,6 +38,15 @@ namespace Parsek
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
         private const string LedgerSwapTag = "LedgerSwap";
+        private const char WorldActionCacheKeySeparator = '\u001f';
+
+        private static readonly object worldActionSafetyCacheLock = new object();
+        private static readonly Dictionary<string, WorldActionSafetyCacheEntry> worldActionSafetyCache
+            = new Dictionary<string, WorldActionSafetyCacheEntry>(StringComparer.Ordinal);
+        private static object worldActionSafetyCacheScenarioIdentity;
+        private static int worldActionSafetyCacheLedgerVersion = int.MinValue;
+        private static int worldActionSafetyCacheStoreVersion = int.MinValue;
+        private static int worldActionSafetyCacheSupersedeVersion = int.MinValue;
 
         /// <summary>
         /// Idempotent: appends supersede relations for every id in the
@@ -401,6 +410,43 @@ namespace Parsek
             public string AutoSealReason;
         }
 
+        private enum ReFlyCloseReasonKind
+        {
+            None,
+            ClassifierClosed,
+            RecordingAction,
+            UnsafeClassifierReason,
+        }
+
+        private struct ReFlyCloseReason
+        {
+            public ReFlyCloseReasonKind Kind;
+            public string Detail;
+
+            public bool HasValue => Kind != ReFlyCloseReasonKind.None;
+
+            public string ToLogString()
+            {
+                switch (Kind)
+                {
+                    case ReFlyCloseReasonKind.ClassifierClosed:
+                        return "classifierClosed:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.RecordingAction:
+                        return "recordingAction:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.UnsafeClassifierReason:
+                        return "unsafeClassifierReason:" + (Detail ?? "<none>");
+                    default:
+                        return null;
+                }
+            }
+        }
+
+        private struct WorldActionSafetyCacheEntry
+        {
+            public bool HasAction;
+            public string ActionSummary;
+        }
+
         private static MergeStateClassification ClassifyMergeStateOrThrow(
             ReFlySessionMarker marker,
             Recording provisional,
@@ -435,7 +481,7 @@ namespace Parsek
                     provisional, slot, rp, false, out classifierReason,
                     treeContext: null, allowNotCommitted: true);
 
-                string closeReason;
+                ReFlyCloseReason closeReason;
                 bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(
                     provisional, classifierQualifies, classifierReason,
                     out closeReason);
@@ -454,7 +500,7 @@ namespace Parsek
                     provisional, classifierQualifies, closeReason))
                 {
                     result.AutoSealSlot = true;
-                    result.AutoSealReason = closeReason;
+                    result.AutoSealReason = closeReason.ToLogString();
                 }
                 return result;
             }
@@ -507,19 +553,27 @@ namespace Parsek
             Recording rec,
             bool classifierQualifies,
             string classifierReason,
-            out string closeReason)
+            out ReFlyCloseReason closeReason)
         {
-            closeReason = null;
+            closeReason = default(ReFlyCloseReason);
             if (!classifierQualifies)
             {
-                closeReason = "classifierClosed:" + (classifierReason ?? "<none>");
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.ClassifierClosed,
+                    Detail = classifierReason,
+                };
                 return false;
             }
 
             string actionSummary;
             if (TryFindRecordingScopedWorldAction(rec, out actionSummary))
             {
-                closeReason = "recordingAction:" + actionSummary;
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.RecordingAction,
+                    Detail = actionSummary,
+                };
                 return false;
             }
 
@@ -528,7 +582,11 @@ namespace Parsek
 
             if (!IsSafeStableRetryClassifierReason(classifierReason))
             {
-                closeReason = "unsafeClassifierReason:" + (classifierReason ?? "<none>");
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.UnsafeClassifierReason,
+                    Detail = classifierReason,
+                };
                 return false;
             }
 
@@ -538,24 +596,20 @@ namespace Parsek
         private static bool ShouldAutoSealReFlySlotAfterMerge(
             Recording rec,
             bool classifierQualifies,
-            string closeReason)
+            ReFlyCloseReason closeReason)
         {
-            if (string.IsNullOrEmpty(closeReason))
+            if (!closeReason.HasValue)
                 return false;
             if (classifierQualifies)
                 return true;
 
-            const string classifierClosedPrefix = "classifierClosed:";
-            if (!closeReason.StartsWith(classifierClosedPrefix,
-                    StringComparison.Ordinal))
+            if (closeReason.Kind != ReFlyCloseReasonKind.ClassifierClosed)
                 return false;
 
-            string classifierReason = closeReason.Substring(
-                classifierClosedPrefix.Length);
-            if (string.Equals(classifierReason, "downstreamBp",
+            if (string.Equals(closeReason.Detail, "downstreamBp",
                     StringComparison.Ordinal))
                 return true;
-            if (string.Equals(classifierReason, "stableTerminal",
+            if (string.Equals(closeReason.Detail, "stableTerminal",
                     StringComparison.Ordinal))
                 return IsHardSafetyTerminal(rec);
 
@@ -587,9 +641,32 @@ namespace Parsek
             out string actionSummary)
         {
             actionSummary = null;
+            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
+            if (cacheKey == null)
+                return false;
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            WorldActionSafetyCacheEntry cached;
+            if (TryGetCachedWorldActionSafetyVerdict(
+                    cacheKey, scenario, out cached))
+            {
+                actionSummary = cached.ActionSummary;
+                return cached.HasAction;
+            }
+
+            var computed = ComputeRecordingScopedWorldAction(rec);
+            CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
+            actionSummary = computed.ActionSummary;
+            return computed.HasAction;
+        }
+
+        private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
+            Recording rec)
+        {
+            var result = new WorldActionSafetyCacheEntry();
             var recordingIds = CollectRecordingIdsForSafetyGate(rec);
             if (recordingIds.Count == 0)
-                return false;
+                return result;
 
             var actions = Ledger.Actions;
             for (int i = 0; i < actions.Count; i++)
@@ -602,11 +679,71 @@ namespace Parsek
                 if (!IsWorldStateChangingRecordingAction(action, actions))
                     continue;
 
-                actionSummary = action.Type + ":" + (action.ActionId ?? "<no-action-id>");
-                return true;
+                result.HasAction = true;
+                result.ActionSummary = action.Type + ":" + (action.ActionId ?? "<no-action-id>");
+                return result;
             }
 
-            return false;
+            return result;
+        }
+
+        private static bool TryGetCachedWorldActionSafetyVerdict(
+            string cacheKey,
+            ParsekScenario scenario,
+            out WorldActionSafetyCacheEntry entry)
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                EnsureWorldActionSafetyCacheCurrent(scenario);
+                return worldActionSafetyCache.TryGetValue(cacheKey, out entry);
+            }
+        }
+
+        private static void CacheWorldActionSafetyVerdict(
+            string cacheKey,
+            ParsekScenario scenario,
+            WorldActionSafetyCacheEntry entry)
+        {
+            lock (worldActionSafetyCacheLock)
+            {
+                EnsureWorldActionSafetyCacheCurrent(scenario);
+                worldActionSafetyCache[cacheKey] = entry;
+            }
+        }
+
+        private static void EnsureWorldActionSafetyCacheCurrent(
+            ParsekScenario scenario)
+        {
+            int supersedeVersion = !object.ReferenceEquals(null, scenario)
+                ? scenario.SupersedeStateVersion
+                : 0;
+            if (ReferenceEquals(worldActionSafetyCacheScenarioIdentity, scenario)
+                && worldActionSafetyCacheLedgerVersion == Ledger.StateVersion
+                && worldActionSafetyCacheStoreVersion == RecordingStore.StateVersion
+                && worldActionSafetyCacheSupersedeVersion == supersedeVersion)
+                return;
+
+            worldActionSafetyCache.Clear();
+            worldActionSafetyCacheScenarioIdentity = scenario;
+            worldActionSafetyCacheLedgerVersion = Ledger.StateVersion;
+            worldActionSafetyCacheStoreVersion = RecordingStore.StateVersion;
+            worldActionSafetyCacheSupersedeVersion = supersedeVersion;
+        }
+
+        private static string BuildWorldActionSafetyCacheKey(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+
+            return rec.RecordingId
+                + WorldActionCacheKeySeparator
+                + (rec.SupersedeTargetId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + (rec.TreeId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + (rec.ChainId ?? string.Empty)
+                + WorldActionCacheKeySeparator
+                + rec.ChainBranch.ToString(CultureInfo.InvariantCulture);
         }
 
         private static HashSet<string> CollectRecordingIdsForSafetyGate(Recording rec)
@@ -705,7 +842,7 @@ namespace Parsek
 
         internal static bool IsWorldStateChangingRecordingAction(
             GameAction action,
-            IReadOnlyList<GameAction> sameTimelineActions = null)
+            IReadOnlyList<GameAction> sameTimelineActions)
         {
             if (action == null || string.IsNullOrEmpty(action.RecordingId))
                 return false;

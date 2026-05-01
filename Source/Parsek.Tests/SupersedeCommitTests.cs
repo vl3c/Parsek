@@ -718,6 +718,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindRecordingScopedWorldAction_CacheInvalidatesOnLedgerMutation()
+        {
+            var rec = Rec("rec_cache", "tree_1");
+
+            string summary;
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_cache",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_cache",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_cache", summary);
+
+            Ledger.ResetForTesting();
+
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+        }
+
+        [Fact]
+        public void TryFindRecordingScopedWorldAction_CacheInvalidatesOnSupersedeMutation()
+        {
+            var rec = Rec("rec_new", "tree_1");
+            var scenario = InstallScenario(Marker("rec_old", "rec_new"));
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_sci_old",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_old",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            });
+
+            string summary;
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+
+            scenario.RecordingSupersedes.Add(Rel("rec_old", "rec_new"));
+            scenario.BumpSupersedeStateVersion();
+
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_old", summary);
+        }
+
+        [Fact]
         public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceAction_AutoSeals()
         {
             const string bpId = "bp_stage";
