@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 group rewind button surfacing
+
+- ~~Recordings whose mission group showed the legacy `R` rewind button did not surface that same action to parent or ancestor groups.~~ Source: `logs/2026-05-01_1706_rewind-group-surface/`; the Recordings table group header used `FindGroupMainRecordingIndex` for both watch/status metadata and the Rewind/Forward column. That picked the earliest non-debris descendant, then called `ShouldShowLegacyRewindButton` only on that single recording. If a parent folder's chosen main row was not the rewind owner, the folder rendered no `R` even though a descendant mission group or row did.
+
+**Fix:** group Forward still targets the main future launch row, but group Rewind now resolves through `FindGroupLegacyRewindRecordingIndex`, which scans descendants and chooses the earliest recording that would draw row-level legacy `R`. This preserves row-level owner suppression for tree branches and Unfinished Flight rows while letting parent and ancestor groups expose the same launch rewind action as their eligible child.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done - v0.9.1 optimizer chain FX/camera transfer
 
 - ~~Optimizer-split chain continuations lost running engine/RCS visual state, and watch-mode auto-follow could hard-flip camera mode at the atmosphere boundary.~~ Source: `logs/2026-05-01_1545_optimizer-merge-investigation/`; the Kerbal X Probe re-fly was split into several chain segments, but `RecordingOptimizer.SplitAtSection` only forwarded permanent visual events into the continuation segment, so an engine that was firing before the split had no `EngineIgnited`/`EngineThrottle` seed in the next segment. During the same handoff, `WatchModeController.ResolveSwitchCameraStateForGhost` re-ran altitude-based mode selection and flipped Horizon-locked to Free above Kerbin's 70 km atmosphere cap, then back again just below it. Fix: split-time transient seeding now reconstructs engine and RCS state up to the split UT, inserts running-engine/RCS seeds into newly split continuation segments, and emits known idle-engine shutdown sentinels to preserve the orphan-auto-start guard. Chain auto-follow transfers now pass a preserve-mode flag and suppress the follow-up per-frame auto-mode selection for that transferred watch session, so only fresh watch entry and explicit recording switches auto-derive camera mode from altitude.

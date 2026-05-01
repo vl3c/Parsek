@@ -750,12 +750,13 @@ namespace Parsek.Tests
             Assert.DoesNotContain("sameBody", helperBlock);
             Assert.DoesNotContain("inRange", helperBlock);
 
-            int groupStart = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", StringComparison.Ordinal);
+            int groupStart = uiSrc.IndexOf("// Rewind / Forward button. Forward still targets", StringComparison.Ordinal);
             int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
             string groupBlock = uiSrc.Substring(groupStart, groupEnd - groupStart);
 
             Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
-            Assert.Contains("RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("FindGroupLegacyRewindRecordingIndex(descendants, committed, now)", groupBlock);
+            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
             Assert.DoesNotContain("canWatch", groupBlock);
             Assert.DoesNotContain("hasGhost", groupBlock);
             Assert.DoesNotContain("sameBody", groupBlock);
@@ -877,7 +878,7 @@ namespace Parsek.Tests
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
             int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
-            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Forward button — targets main recording", groupWatchStart, StringComparison.Ordinal);
+            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Forward button. Forward still targets", groupWatchStart, StringComparison.Ordinal);
             string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
@@ -1158,6 +1159,33 @@ namespace Parsek.Tests
             // Index 5 is out of range, should be skipped without crash
             Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(
                 new HashSet<int> { 0, 5 }, committed));
+        }
+
+        [Fact]
+        public void FindGroupLegacyRewindRecordingIndex_SkipsMainWithoutRewindAndReturnsEligibleDescendant()
+        {
+            var earlierMain = MakeRec(100, 200, "Earlier main");
+            var rewindOwner = MakeRec(300, 400, "Later rewind owner");
+            rewindOwner.RewindSaveFileName = "parsek_rw_later";
+            var committed = new List<Recording> { earlierMain, rewindOwner };
+
+            int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
+                new HashSet<int> { 0, 1 }, committed, now: 500.0);
+
+            Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void FindGroupLegacyRewindRecordingIndex_FutureRewindOwner_ReturnsNegativeOne()
+        {
+            var futureOwner = MakeRec(300, 400, "Future rewind owner");
+            futureOwner.RewindSaveFileName = "parsek_rw_future";
+            var committed = new List<Recording> { futureOwner };
+
+            int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
+                new HashSet<int> { 0 }, committed, now: 100.0);
+
+            Assert.Equal(-1, result);
         }
 
         // ── GetGroupStatus ──

@@ -2076,44 +2076,42 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            // Rewind / Forward button — targets main recording
-            // (per-recording row already logs enable/disable transitions for the same recording)
-            if (mainIdx >= 0)
+            // Rewind / Forward button. Forward still targets the group's main
+            // recording because "next launch" is a group-level time affordance.
+            // Rewind targets the earliest descendant that would draw a row-level
+            // legacy R so parent folders surface the same action as their
+            // child mission group.
+            if (mainIdx >= 0 && now < committed[mainIdx].StartUT)
             {
                 var mainRec = committed[mainIdx];
-                bool isFuture = now < mainRec.StartUT;
-                bool hasRewindSave = !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(mainRec));
                 bool isRecording = parentUI.InFlightMode && flight.IsRecording;
 
-                if (isFuture)
+                string ffReason;
+                bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
+                GUI.enabled = canFF;
+                string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
+                if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                 {
-                    string ffReason;
-                    bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
-                    GUI.enabled = canFF;
-                    string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
-                    if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
-                    {
-                        ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{mainIdx} \"{mainRec.VesselName}\"");
-                        ShowFastForwardConfirmation(mainRec);
-                    }
-                    GUI.enabled = true;
+                    ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{mainIdx} \"{mainRec.VesselName}\"");
+                    ShowFastForwardConfirmation(mainRec);
                 }
-                else if (ShouldShowLegacyRewindButton(mainRec, now))
+                GUI.enabled = true;
+            }
+            else
+            {
+                int rewindIdx = FindGroupLegacyRewindRecordingIndex(descendants, committed, now);
+                if (rewindIdx >= 0)
                 {
-                    // Mirror of the per-row gate. Group's main recording must
-                    // be the rewind owner — tree roots are the typical case.
-                    // If the group's main happens to be a non-owner branch
-                    // (rare, but possible for a group whose root is hidden or
-                    // pruned), suppress the Rewind button here too so the column
-                    // doesn't render a redundant duplicate.
+                    var rewindRec = committed[rewindIdx];
+                    bool isRecording = parentUI.InFlightMode && flight.IsRecording;
                     string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(mainRec, out rewindReason, isRecording: isRecording);
+                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
                     string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
                     if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
                     {
-                        ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{mainIdx} \"{mainRec.VesselName}\"");
-                        ShowRewindConfirmation(mainRec);
+                        ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                        ShowRewindConfirmation(rewindRec);
                     }
                     GUI.enabled = true;
                 }
@@ -2121,10 +2119,6 @@ namespace Parsek
                 {
                     GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
                 }
-            }
-            else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
 
             // Group rows do not expose aggregate Re-Fly actions. Stash/Fly/Seal
@@ -3954,6 +3948,33 @@ namespace Parsek
                 var rec = committed[idx];
                 if (rec.IsDebris) continue;
                 if (rec.StartUT < bestUT)
+                {
+                    bestUT = rec.StartUT;
+                    bestIdx = idx;
+                }
+            }
+            return bestIdx;
+        }
+
+        /// <summary>
+        /// Returns the committed-list index of the earliest descendant whose row
+        /// would render the legacy Rewind-to-launch button. Used by group
+        /// headers so parent and ancestor groups surface the same R affordance
+        /// as an eligible child row, even when the group's earliest non-debris
+        /// "main" recording is not the rewind owner.
+        /// </summary>
+        internal static int FindGroupLegacyRewindRecordingIndex(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed, double now)
+        {
+            int bestIdx = -1;
+            double bestUT = double.MaxValue;
+            foreach (int idx in descendants)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec == null) continue;
+                if (!ShouldShowLegacyRewindButton(rec, now)) continue;
+                if (rec.StartUT < bestUT || (rec.StartUT == bestUT && (bestIdx < 0 || idx < bestIdx)))
                 {
                     bestUT = rec.StartUT;
                     bestIdx = idx;
