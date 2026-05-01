@@ -776,6 +776,8 @@ namespace Parsek
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
         private TrajectoryPlaybackFlags[] cachedFlags;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
+        private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
+            new Dictionary<string, TerrainCorrector.TailLiftPlan>();
 
         #endregion
 
@@ -1748,6 +1750,7 @@ namespace Parsek
             // and on body switches; stale bucket values would yield wrong
             // ground clearances at the destination scene's lat/lon.
             Parsek.Rendering.TerrainCacheBuckets.Clear();
+            InvalidateTailLiftPlanCache();
 
             // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
             // F5/F9 quickloads (UT regresses across the transition) and
@@ -15749,12 +15752,14 @@ namespace Parsek
             // so the points reaching here are always Absolute-frame body-
             // fixed lat/lon/alt. The explicit argument is the P2-1 safety
             // gate at the helper.
-            double effectiveAltBefore = ResolvePhase7EffectiveAltitude(
+            double effectiveAltBefore = ResolveEffectiveAltitudeWithTailLift(
                 bodyBefore, before.latitude, before.longitude, before.altitude,
-                before.recordedGroundClearance, ReferenceFrame.Absolute);
-            double effectiveAltAfter = ResolvePhase7EffectiveAltitude(
+                before.recordedGroundClearance, ReferenceFrame.Absolute,
+                before.ut, recordingId);
+            double effectiveAltAfter = ResolveEffectiveAltitudeWithTailLift(
                 bodyAfter, after.latitude, after.longitude, after.altitude,
-                after.recordedGroundClearance, ReferenceFrame.Absolute);
+                after.recordedGroundClearance, ReferenceFrame.Absolute,
+                after.ut, recordingId);
 
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, effectiveAltBefore);
@@ -16197,12 +16202,14 @@ namespace Parsek
                 : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
             if (object.ReferenceEquals(body, null)) return false;
 
-            double altBefore = ResolvePhase7EffectiveAltitude(
+            double altBefore = ResolveEffectiveAltitudeWithTailLift(
                 body, before.latitude, before.longitude, before.altitude,
-                before.recordedGroundClearance, ReferenceFrame.Absolute);
-            double altAfter = ResolvePhase7EffectiveAltitude(
+                before.recordedGroundClearance, ReferenceFrame.Absolute,
+                before.ut, recordingId);
+            double altAfter = ResolveEffectiveAltitudeWithTailLift(
                 body, after.latitude, after.longitude, after.altitude,
-                after.recordedGroundClearance, ReferenceFrame.Absolute);
+                after.recordedGroundClearance, ReferenceFrame.Absolute,
+                after.ut, recordingId);
             Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
             Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
             Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
@@ -16753,9 +16760,10 @@ namespace Parsek
             // helper still NaN-fall-throughs on legacy/non-surface
             // points; the explicit Absolute argument is the P2-1 safety
             // gate against any future caller routing a Relative point here.
-            double effectiveAltitude = ResolvePhase7EffectiveAltitude(
+            double effectiveAltitude = ResolveEffectiveAltitudeWithTailLift(
                 body, point.latitude, point.longitude, point.altitude,
-                point.recordedGroundClearance, ReferenceFrame.Absolute);
+                point.recordedGroundClearance, ReferenceFrame.Absolute,
+                point.ut, recordingId);
 
             Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, effectiveAltitude);
@@ -16786,6 +16794,147 @@ namespace Parsek
                 interpolatedRot = sanitized,
                 reFlyTreeOffset = singlePointReFlyTreeOffset,
             });
+        }
+
+        internal static void InvalidateTailLiftPlanCache()
+        {
+            s_tailLiftPlanCache.Clear();
+        }
+
+        internal static double ResolveEffectiveAltitudeWithTailLift(
+            CelestialBody body, double latitude, double longitude,
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame, double pointUT, string recordingId)
+        {
+            double phase7 = ResolvePhase7EffectiveAltitude(
+                body, latitude, longitude, recordedAltitude,
+                recordedGroundClearance, referenceFrame);
+
+            // Phase 7 owns finite-clearance points. Tail-lift only fills the
+            // atmospheric/legacy NaN-clearance gap on Absolute-frame payloads.
+            if (referenceFrame != ReferenceFrame.Absolute)
+                return phase7;
+            if (!double.IsNaN(recordedGroundClearance))
+                return phase7;
+            if (string.IsNullOrEmpty(recordingId))
+                return phase7;
+
+            TerrainCorrector.TailLiftPlan plan = ResolveTailLiftPlan(recordingId, body);
+            return phase7 + TerrainCorrector.EvaluateTailLift(pointUT, in plan);
+        }
+
+        private static TerrainCorrector.TailLiftPlan ResolveTailLiftPlan(
+            string recordingId, CelestialBody body)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return TerrainCorrector.TailLiftPlan.Inactive;
+
+            TerrainCorrector.TailLiftPlan cached;
+            if (s_tailLiftPlanCache.TryGetValue(recordingId, out cached))
+                return cached;
+
+            Recording rec = ResolveRecordingById(recordingId);
+            if (rec == null || rec.Points == null || rec.Points.Count == 0
+                || object.ReferenceEquals(body, null))
+            {
+                TerrainCorrector.TailLiftPlan inactive = TerrainCorrector.TailLiftPlan.Inactive;
+                s_tailLiftPlanCache[recordingId] = inactive;
+                LogTailLiftInactive(recordingId, rec, ResolveTailLiftInactiveReason(rec, body, double.NaN),
+                    double.NaN, double.NaN);
+                return inactive;
+            }
+
+            TrajectoryPoint lastPt = rec.Points[rec.Points.Count - 1];
+            double currentTerrain = Parsek.Rendering.TerrainCacheBuckets.GetCachedSurfaceHeight(
+                body, lastPt.latitude, lastPt.longitude);
+            TerrainCorrector.TailLiftPlan plan = TerrainCorrector.BuildTailLiftPlan(
+                rec.TerminalStateValue,
+                rec.TerrainHeightAtEnd,
+                currentTerrain,
+                lastPt.ut,
+                TerrainCorrector.DefaultTailLiftRampSeconds,
+                TerrainCorrector.TailLiftMinAbsDeltaMeters);
+
+            s_tailLiftPlanCache[recordingId] = plan;
+            if (plan.Active)
+                LogTailLiftActive(recordingId, rec, plan, currentTerrain);
+            else
+                LogTailLiftInactive(recordingId, rec,
+                    ResolveTailLiftInactiveReason(rec, body, currentTerrain),
+                    currentTerrain,
+                    currentTerrain - rec.TerrainHeightAtEnd);
+            return plan;
+        }
+
+        private static string ResolveTailLiftInactiveReason(
+            Recording rec, CelestialBody body, double currentTerrain)
+        {
+            if (rec == null)
+                return "recording-missing";
+            if (rec.Points == null || rec.Points.Count == 0)
+                return "no-points";
+            if (object.ReferenceEquals(body, null))
+                return "body-missing";
+            if (!rec.TerminalStateValue.HasValue)
+                return "terminal-missing";
+
+            TerminalState terminal = rec.TerminalStateValue.Value;
+            if (terminal != TerminalState.Landed
+                && terminal != TerminalState.Splashed
+                && terminal != TerminalState.Recovered)
+                return "non-surface-terminal";
+            if (double.IsNaN(rec.TerrainHeightAtEnd))
+                return "recorded-terrain-nan";
+            if (double.IsNaN(currentTerrain))
+                return "current-terrain-nan";
+
+            double delta = currentTerrain - rec.TerrainHeightAtEnd;
+            if (System.Math.Abs(delta) < TerrainCorrector.TailLiftMinAbsDeltaMeters)
+                return "delta-below-threshold";
+            return "inactive";
+        }
+
+        private static void LogTailLiftActive(
+            string recordingId, Recording rec,
+            TerrainCorrector.TailLiftPlan plan, double currentTerrain)
+        {
+            string vesselName = rec != null && !string.IsNullOrEmpty(rec.VesselName)
+                ? rec.VesselName
+                : "?";
+            double rampSeconds = plan.TerminalUT - plan.RampStartUT;
+            ParsekLog.Verbose("Pipeline-Terrain",
+                string.Format(CultureInfo.InvariantCulture,
+                    "TailLift active: rec={0} vessel='{1}' delta={2}m terminalUT={3:R} " +
+                    "rampSec={4:F1} (recTerrain={5:F1} curTerrain={6:F1})",
+                    recordingId,
+                    vesselName,
+                    plan.TerrainDelta.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture),
+                    plan.TerminalUT,
+                    rampSeconds,
+                    rec != null ? rec.TerrainHeightAtEnd : double.NaN,
+                    currentTerrain));
+        }
+
+        private static void LogTailLiftInactive(
+            string recordingId, Recording rec, string reason,
+            double currentTerrain, double delta)
+        {
+            string vesselName = rec != null && !string.IsNullOrEmpty(rec.VesselName)
+                ? rec.VesselName
+                : "?";
+            string key = "tail-lift-inactive-" + recordingId + "-" + reason;
+            ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                key,
+                string.Format(CultureInfo.InvariantCulture,
+                    "TailLift inactive: rec={0} vessel='{1}' reason={2} delta={3}m " +
+                    "(recTerrain={4:F1} curTerrain={5:F1})",
+                    recordingId,
+                    vesselName,
+                    reason,
+                    delta.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture),
+                    rec != null ? rec.TerrainHeightAtEnd : double.NaN,
+                    currentTerrain),
+                30.0);
         }
 
         /// <summary>

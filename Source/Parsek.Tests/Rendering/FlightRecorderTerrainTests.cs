@@ -28,12 +28,16 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            ParsekFlight.InvalidateTailLiftPlanCache();
             TerrainCacheBuckets.ResetForTesting();
             fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
         }
 
         public void Dispose()
         {
+            RecordingStore.ResetForTesting();
+            ParsekFlight.InvalidateTailLiftPlanCache();
             TerrainCacheBuckets.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -242,6 +246,68 @@ namespace Parsek.Tests.Rendering
                 referenceFrame: ReferenceFrame.Absolute);
 
             Assert.Equal(203.0, effective);
+        }
+
+        [Fact]
+        public void ResolveEffectiveAltitudeWithTailLift_NaNClearance_AddsRampLift()
+        {
+            Recording rec = CreateTailLiftRecording("tail_lift_active");
+            RecordingStore.AddCommittedInternal(rec);
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+            double effective = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                fakeKerbin, 1.0, 2.0,
+                recordedAltitude: 100.0,
+                recordedGroundClearance: double.NaN,
+                referenceFrame: ReferenceFrame.Absolute,
+                pointUT: 85.0,
+                recordingId: rec.RecordingId);
+
+            Assert.Equal(106.0, effective);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("TailLift active")
+                && l.Contains(rec.RecordingId));
+        }
+
+        [Fact]
+        public void ResolveEffectiveAltitudeWithTailLift_FiniteClearance_DoesNotAddRampLift()
+        {
+            Recording rec = CreateTailLiftRecording("tail_lift_finite_clearance");
+            RecordingStore.AddCommittedInternal(rec);
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+            double effective = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                fakeKerbin, 1.0, 2.0,
+                recordedAltitude: 100.0,
+                recordedGroundClearance: 1.5,
+                referenceFrame: ReferenceFrame.Absolute,
+                pointUT: 85.0,
+                recordingId: rec.RecordingId);
+
+            Assert.Equal(113.5, effective);
+            Assert.DoesNotContain(logLines, l => l.Contains("TailLift active"));
+        }
+
+        private static Recording CreateTailLiftRecording(string recordingId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = "TailLift Test",
+                TerminalStateValue = TerminalState.Landed,
+                TerrainHeightAtEnd = 100.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                bodyName = "Kerbin",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                recordedGroundClearance = double.NaN
+            });
+            return rec;
         }
     }
 }
