@@ -386,6 +386,108 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CurrentFormatTrajectorySidecar_OrbitOnlyPredictedTailAfterAtmosphericSections_FallsBackToFlatBinaryAndRoundTrips()
+        {
+            const double t0 = 42.500000000001044;
+            const double t1 = 56.600000000003249;
+            const double t2 = 91.426190490723116;
+            const double terminalUT = 767.36510226897826;
+
+            var p0 = new TrajectoryPoint
+            {
+                ut = t0,
+                latitude = -0.09,
+                longitude = -74.97,
+                altitude = 2287.47,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(151.76f, 3.58f, 259.77f),
+                bodyName = "Kerbin"
+            };
+            var p1 = new TrajectoryPoint
+            {
+                ut = t1,
+                latitude = -0.08,
+                longitude = -74.80,
+                altitude = 5300.0,
+                rotation = new Quaternion(0.1f, 0.0f, 0.0f, 0.99f),
+                velocity = new Vector3(300f, 50f, 900f),
+                bodyName = "Kerbin"
+            };
+            var p2 = new TrajectoryPoint
+            {
+                ut = t2,
+                latitude = -0.03,
+                longitude = -74.10,
+                altitude = 25000.0,
+                rotation = new Quaternion(0.2f, 0.0f, 0.0f, 0.98f),
+                velocity = new Vector3(600f, -20f, 1600f),
+                bodyName = "Kerbin"
+            };
+
+            var original = new Recording
+            {
+                RecordingId = "orbit-only-predicted-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                ExplicitEndUT = terminalUT,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            original.Points.AddRange(new[] { p0, p1, p2 });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = t0,
+                endUT = t1,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p0, p1 },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = t1,
+                endUT = t2,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p1, p2 },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.OrbitSegments.Add(MakeOrbitSegment(t2, 400.0, isPredicted: true));
+            original.OrbitSegments.Add(MakeOrbitSegment(400.0, terminalUT, isPredicted: true));
+
+            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                original, original.TrackSections, allowRelativeSections: true));
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+
+            string path = Path.Combine(tempDir, "orbit-only-predicted-tail.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("WriteBinaryTrajectoryFile") &&
+                l.Contains("sectionAuthoritative=False") &&
+                l.Contains("predictedOrbitSegments=2"));
+
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("ReadBinaryTrajectoryFile") &&
+                l.Contains("used flat fallback path"));
+            AssertSemanticTrajectoryEqual(original, restored);
+            Assert.All(restored.OrbitSegments, seg => Assert.True(seg.isPredicted));
+        }
+
+        [Fact]
         public void V4BinaryTrajectorySidecar_WithPredictedSegments_UpgradesToV5AndPreservesFlag()
         {
             var legacy = new Recording
