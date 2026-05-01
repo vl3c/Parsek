@@ -2487,27 +2487,66 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the Parsek/Recordings/ directory path for the currently-active save
+        /// (or the test override). Returns null if no save context is available or the
+        /// directory does not exist. Does not create the directory.
+        /// </summary>
+        internal static string ResolveRecordingsDirectoryForCurrentSave()
+        {
+            if (!string.IsNullOrEmpty(CleanOrphanFilesDirectoryOverrideForTesting))
+                return Path.GetFullPath(CleanOrphanFilesDirectoryOverrideForTesting);
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+                return null;
+            return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+        }
+
+        /// <summary>
+        /// Returns the set of distinct recording IDs whose sidecar files (.prec,
+        /// _vessel.craft, _ghost.craft, .pann, plus the .txt readable variants) exist
+        /// in the recordings directory. Excludes legacy / transient artifacts (.pcrf,
+        /// .tmp / .stage / .bak suffixes) — only IDs corresponding to "live" sidecar
+        /// files are returned. Used by both <see cref="CleanOrphanFiles"/>'s safety
+        /// guard and <c>ParsekScenario.OnSave</c>'s stranded-sidecar warn.
+        /// </summary>
+        internal static HashSet<string> CollectSidecarIdsOnDisk()
+        {
+            var ids = new HashSet<string>();
+            string dir = ResolveRecordingsDirectoryForCurrentSave();
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                return ids;
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch { return ids; }
+            AddSidecarIdsFromFiles(files, ids);
+            return ids;
+        }
+
+        private static void AddSidecarIdsFromFiles(string[] files, HashSet<string> ids)
+        {
+            for (int i = 0; i < files.Length; i++)
+            {
+                string fileName = Path.GetFileName(files[i]);
+                if (IsTransientSidecarArtifactFile(fileName) || IsLegacySidecarFile(fileName))
+                    continue;
+                string id = ExtractRecordingIdFromFileName(fileName);
+                if (!string.IsNullOrEmpty(id))
+                    ids.Add(id);
+            }
+        }
+
+        /// <summary>
         /// Deletes orphaned sidecar files in the Parsek/Recordings/ directory that don't
         /// correspond to any known recording ID. Called after all recordings and trees are loaded.
         /// </summary>
         internal static void CleanOrphanFiles()
         {
-            // Resolve without creating — don't create an empty directory just to scan it
-            string recordingsDir;
-            if (!string.IsNullOrEmpty(CleanOrphanFilesDirectoryOverrideForTesting))
+            string recordingsDir = ResolveRecordingsDirectoryForCurrentSave();
+            if (string.IsNullOrEmpty(recordingsDir))
             {
-                recordingsDir = Path.GetFullPath(CleanOrphanFilesDirectoryOverrideForTesting);
-            }
-            else
-            {
-                string root = KSPUtil.ApplicationRootPath ?? "";
-                string saveFolder = HighLogic.SaveFolder ?? "";
-                if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-                {
-                    ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
-                    return;
-                }
-                recordingsDir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
+                return;
             }
             if (!Directory.Exists(recordingsDir))
             {
@@ -2531,6 +2570,26 @@ namespace Parsek
             {
                 ParsekLog.Warn("RecordingStore", $"CleanOrphanFiles: failed to list directory: {ex.Message}");
                 return;
+            }
+
+            // Safety guard: refuse to delete when scenario reports zero known recording IDs
+            // but the disk has live sidecar-shaped recording IDs. This is the "load lost its
+            // tree state" pattern — deleting now turns a recoverable accident (the .sfs tree
+            // metadata may still live in quicksave.sfs or a .bak) into permanent bulk-data
+            // loss. The OnSave-side warn pairs with this guard to flag the originating fault.
+            if (knownIds.Count == 0)
+            {
+                var diskIds = new HashSet<string>();
+                AddSidecarIdsFromFiles(files, diskIds);
+                if (diskIds.Count > 0)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"CleanOrphanFiles: REFUSING to delete — scenario reports 0 known recording IDs " +
+                        $"but disk has {diskIds.Count} sidecar-shaped recording ID(s) ({files.Length} file(s) total). " +
+                        $"This usually means the scenario load lost its tree state. Sidecars preserved so the " +
+                        $"save can be restored from quicksave.sfs or a backup. Investigate before next save.");
+                    return;
+                }
             }
 
             ParsekLog.Verbose("RecordingStore",

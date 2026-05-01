@@ -651,7 +651,7 @@ namespace Parsek
         /// can resume recording instead of finalizing the mission (see
         /// <c>docs/dev/plans/quickload-resume-recording.md</c>).
         /// </summary>
-        private static void SaveTreeRecordings(ConfigNode node)
+        internal static void SaveTreeRecordings(ConfigNode node)
         {
             node.RemoveNodes("RECORDING_TREE");
             var committedTrees = RecordingStore.CommittedTrees;
@@ -686,6 +686,26 @@ namespace Parsek
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
 
             SaveActiveTreeIfAny(node);
+
+            // Stranded-sidecar diagnostic: if SaveActiveTreeIfAny did not add an in-flight
+            // RECORDING_TREE either, we are about to write an .sfs with zero RECORDING_TREE
+            // nodes. When the recordings directory still holds live sidecar IDs that warns
+            // of a state-management bug — the next OnLoad would read 0 trees and
+            // CleanOrphanFiles' safety guard will refuse the deletion (preserving recovery
+            // options), but the bug itself needs investigation. This is a diagnostic only;
+            // we don't refuse the save (KSP scenario contracts make that fragile).
+            int treeNodeCount = node.GetNodes("RECORDING_TREE").Length;
+            if (treeNodeCount == 0)
+            {
+                var diskIds = RecordingStore.CollectSidecarIdsOnDisk();
+                if (diskIds.Count > 0)
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"OnSave: writing 0 RECORDING_TREE nodes but disk has {diskIds.Count} stranded sidecar " +
+                        $"recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles " +
+                        $"safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.");
+                }
+            }
         }
 
         /// <summary>
