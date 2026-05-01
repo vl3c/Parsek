@@ -2367,7 +2367,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
                     "Merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -2459,7 +2459,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
                     "Deferred merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -8988,7 +8988,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
                     "Deferred merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -9172,7 +9172,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Parsek - Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
                     "Deferred merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
