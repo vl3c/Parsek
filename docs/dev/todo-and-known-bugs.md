@@ -19,6 +19,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 forced-exit booster ghost orbit tail
+
+- ~~A first-tree `Kerbal X Probe` booster ghost could remain visible but frozen in mid-air after Rewind when the original flight was exited with forced Go To Space Center while the booster was still flying.~~ Source: `logs/2026-05-01_2344_kerbal-x-not-sealed/`; recording `90f164b7c86542c0b4b77c761de480ad` was scene-exit finalized with `appendedSegments=2`, `terminal=Destroyed`, and `terminalUT=767.4`, but the subsequent merge logged `flatSync=track-sections` and rewrote the sidecar as `sectionAuthoritative=True` with `orbitSegments=0`. The `.prec.txt` retained only atmospheric track sections through UT `91.426`, while the `.sfs` metadata still kept `explicitEndUT=767.365`, so playback after Rewind considered the ghost active at UT `124.23` / `379.71` but resolved `activeFrame=none` and reused the same root position.
+
+**Fix:** `TrajectoryTextSidecarCodec.FindSafeOrbitSegmentSuffixStart` now accepts a monotonic orbit suffix starting at index 0 when rebuilt section payloads contain no checkpoint orbit segments. That lets `FlatTrajectoryExtendsTrackSectionPayload` and `SessionMerger.SyncMergedFlatTrajectory` preserve orbit-only predicted tails instead of rebuilding flat orbit data to empty. The writer then uses flat fallback storage for this shape, keeping the predicted `OrbitSegment`s aligned with the later destroyed terminal UT. Headless regressions cover both direct sidecar round-trip and `SessionMerger.MergeTree` preserving the orbit-only predicted tail.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 revert double-rollout charge
 
 - ~~Reverting a flight to launch and re-flying the same craft charged the rollout cost twice in Parsek's career ledger, even though stock KSP refunds the rollout on revert and re-charges on the new launch (net: one charge).~~ Source: `logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld` recorded two `FundsSpending(VesselBuild)` rows for vessel R1 (pid 3442693372, site Launch Pad, cost 8320.001) at UTs 728.21980… and 728.17980…, ~40 ms apart. The two rows had the same vessel/pid/site/cost but different UTs because the revert rolled the in-game clock back, so the existing UT-embedded `dedupKey` (e.g. `rollout:728.21980712880259|pid=3442693372|site=Launch%20Pad|vessel=R1`) never collided across emissions. KSP refunded the original deduction during the revert, but Parsek's `KspStatePatcher` re-applied it from the surviving ledger row, then the relaunch's `OnVesselRolloutSpending` added a second row, leaving the user out 8320 funds.
