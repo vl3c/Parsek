@@ -69,6 +69,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- Added MilestoneStore helpers for committed contract accepts and kerbal hire/retire events.
 - Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Fly` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
 - Spawnable stable terminal Rewind Point leaves (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`) that are still backed by an RP can now be Stashed from the Recordings table. Stashed slots appear under Unfinished Flights with the same `Fly` and `Seal` actions without changing the recording's merge state; recovered, docked, boarded, downstream-interacting, and recording-action-bearing outcomes stay closed because they changed career state or another vessel, while clean stable re-flights can remain open until the player Seals or a later safety-gated outcome closes them.
 - Timeline Unfinished Flight rows now show `Fly` and `Seal` directly at the separation point, with shorter `Unfinished Flight: <vessel>` row text. Timeline now has a dedicated `Re-Fly` filter for those `Fly` / `Seal` rows, separate from the existing `Rewind/FF` filter. `Stash` remains a Recordings-table management action only.
