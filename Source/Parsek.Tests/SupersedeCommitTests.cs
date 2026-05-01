@@ -600,7 +600,7 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
         }
@@ -712,7 +712,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
         }
@@ -850,7 +850,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=stableLeafUnconcluded")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
         }
@@ -903,7 +903,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=crashed")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
         }

@@ -558,6 +558,10 @@ namespace Parsek
             closeReason = default(ReFlyCloseReason);
             if (!classifierQualifies)
             {
+                if (TryBuildRecordingActionCloseReason(
+                        classifierReason, out closeReason))
+                    return false;
+
                 closeReason = new ReFlyCloseReason
                 {
                     Kind = ReFlyCloseReasonKind.ClassifierClosed,
@@ -600,6 +604,8 @@ namespace Parsek
         {
             if (!closeReason.HasValue)
                 return false;
+            if (closeReason.Kind == ReFlyCloseReasonKind.RecordingAction)
+                return true;
             if (classifierQualifies)
                 return true;
 
@@ -614,6 +620,26 @@ namespace Parsek
                 return IsHardSafetyTerminal(rec);
 
             return false;
+        }
+
+        private static bool TryBuildRecordingActionCloseReason(
+            string classifierReason,
+            out ReFlyCloseReason closeReason)
+        {
+            closeReason = default(ReFlyCloseReason);
+            if (string.IsNullOrEmpty(classifierReason)
+                || !classifierReason.StartsWith(
+                    UnfinishedFlightClassifier.RecordingActionReasonPrefix,
+                    StringComparison.Ordinal))
+                return false;
+
+            closeReason = new ReFlyCloseReason
+            {
+                Kind = ReFlyCloseReasonKind.RecordingAction,
+                Detail = classifierReason.Substring(
+                    UnfinishedFlightClassifier.RecordingActionReasonPrefix.Length),
+            };
+            return true;
         }
 
         private static bool IsHardSafetyTerminal(Recording rec)

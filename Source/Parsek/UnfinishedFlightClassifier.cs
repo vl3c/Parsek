@@ -11,6 +11,7 @@ namespace Parsek
     internal static class UnfinishedFlightClassifier
     {
         private const string Tag = "UnfinishedFlights";
+        internal const string RecordingActionReasonPrefix = "recordingAction:";
 
         internal static bool Qualifies(
             Recording rec,
@@ -146,11 +147,11 @@ namespace Parsek
                 // real rewind route of its own. Crash/debris bookkeeping BPs do
                 // not suppress the older playable split.
                 return TerminalOutcomeQualifiesInternal(
-                    recId, chainTip, slot, rp, out reason, branchSide);
+                    rec, recId, chainTip, slot, rp, out reason, branchSide);
             }
 
             return TerminalOutcomeQualifiesInternal(
-                recId, chainTip, slot, rp, out reason, branchSide);
+                rec, recId, chainTip, slot, rp, out reason, branchSide);
         }
 
         internal static bool TerminalOutcomeQualifies(
@@ -160,10 +161,11 @@ namespace Parsek
         {
             string reason;
             return TerminalOutcomeQualifiesInternal(
-                chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
+                null, chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null);
         }
 
         private static bool TerminalOutcomeQualifiesInternal(
+            Recording rec,
             string recId,
             Recording chainTip,
             ChildSlot slot,
@@ -182,6 +184,10 @@ namespace Parsek
 
             if (terminal.Value == TerminalState.Destroyed)
             {
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
+                    return false;
+
                 reason = "crashed";
                 LogVerdict(true, recId, reason, WithBranchSide("terminal=Destroyed", branchSide));
                 return true;
@@ -191,9 +197,14 @@ namespace Parsek
             {
                 if (terminal.Value != TerminalState.Boarded)
                 {
+                    string detail = WithBranchSide(
+                        $"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide);
+                    if (TryRejectRecordingScopedWorldAction(
+                        rec, recId, out reason, detail))
+                        return false;
+
                     reason = "strandedEva";
-                    LogVerdict(true, recId, reason,
-                        WithBranchSide($"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide));
+                    LogVerdict(true, recId, reason, detail);
                     return true;
                 }
 
@@ -207,11 +218,15 @@ namespace Parsek
             {
                 int stashedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
                 int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
+                string detail = WithBranchSide(
+                    $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
+                    branchSide);
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, detail))
+                    return false;
+
                 reason = "stashedStableLeaf";
-                LogVerdict(true, recId, reason,
-                    WithBranchSide(
-                        $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
-                        branchSide));
+                LogVerdict(true, recId, reason, detail);
                 return true;
             }
 
@@ -259,11 +274,15 @@ namespace Parsek
             if (terminal.Value == TerminalState.Orbiting
                 || terminal.Value == TerminalState.SubOrbital)
             {
+                string detail = WithBranchSide(
+                    $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
+                    branchSide);
+                if (TryRejectRecordingScopedWorldAction(
+                    rec, recId, out reason, detail))
+                    return false;
+
                 reason = "stableLeafUnconcluded";
-                LogVerdict(true, recId, reason,
-                    WithBranchSide(
-                        $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
-                        branchSide));
+                LogVerdict(true, recId, reason, detail);
                 return true;
             }
 
@@ -273,6 +292,26 @@ namespace Parsek
                     $"slot={slotListIndex} focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}",
                     branchSide));
             return false;
+        }
+
+        private static bool TryRejectRecordingScopedWorldAction(
+            Recording rec,
+            string recId,
+            out string reason,
+            string detail)
+        {
+            reason = null;
+            if (rec == null)
+                return false;
+
+            string actionSummary;
+            if (!SupersedeCommit.TryFindRecordingScopedWorldAction(
+                    rec, out actionSummary))
+                return false;
+
+            reason = RecordingActionReasonPrefix + actionSummary;
+            LogVerdict(false, recId, reason, detail);
+            return true;
         }
 
         internal static bool TryResolveStashableRewindPointForRecording(
@@ -377,7 +416,7 @@ namespace Parsek
             string actionSummary;
             if (SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out actionSummary))
             {
-                reason = "recordingAction:" + actionSummary;
+                reason = RecordingActionReasonPrefix + actionSummary;
                 rp = null;
                 slotListIndex = -1;
                 return false;
