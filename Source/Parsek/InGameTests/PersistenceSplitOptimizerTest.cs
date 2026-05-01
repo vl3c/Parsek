@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -60,6 +61,12 @@ namespace Parsek.InGameTests
         public void RealAscentReentry_ProducesPerPhaseChain_InGame()
         {
             RecordingStore.SuppressLogging = true;
+            // Capture pre-test ID set BEFORE snapshot.Capture so we can compute the
+            // delta after RunOptimizationPass and clean up the orphan sidecars the
+            // optimizer's flush leaves behind for both the explicit synthetic id and
+            // any random split-half ids the optimizer invents.
+            var preIds = new HashSet<string>(
+                RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
             var snapshot = RecordingStoreTestSnapshot.Capture();
             int baselineCount = RecordingStore.CommittedRecordings.Count;
             // RunOptimizationPass walks the global committedRecordings list and mutates
@@ -77,6 +84,7 @@ namespace Parsek.InGameTests
                     "from a fresh save, or rely on RecordingOptimizerTests xUnit coverage.");
             }
 
+            HashSet<string> sidecarsToCleanup = null;
             try
             {
                 const string recId = "rec_persistence_smoke_ascent_reentry";
@@ -121,6 +129,12 @@ namespace Parsek.InGameTests
                 RecordingStore.RunOptimizationPass();
                 int finalCount = RecordingStore.CommittedRecordings.Count;
 
+                // Compute synthetic-id delta IMMEDIATELY after the optimizer pass so a
+                // failed assertion below still cleans up sidecars in finally.
+                sidecarsToCleanup = new HashSet<string>(
+                    RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
+                sidecarsToCleanup.ExceptWith(preIds);
+
                 int chainGrowth = finalCount - initialCount;
                 InGameAssert.IsTrue(chainGrowth >= 3,
                     $"Persistence predicate should produce at least 3 splits for the canonical " +
@@ -135,6 +149,14 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(baselineCount, RecordingStore.CommittedRecordings.Count,
                     "Snapshot/restore should reinstate the player's live committed-recording count " +
                     "after the synthetic test recording is removed.");
+                // Reference-shallow snapshot.Restore cannot undo the sidecar files the
+                // optimizer flushed for synthetic + split-half recordings. Clean them up
+                // explicitly so the player's saves/<save>/Parsek/Recordings/ doesn't
+                // accumulate orphan .prec / .pann / *.craft / *.txt files per test run.
+                if (sidecarsToCleanup != null && sidecarsToCleanup.Count > 0)
+                {
+                    PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIds(sidecarsToCleanup);
+                }
             }
         }
 
@@ -143,6 +165,12 @@ namespace Parsek.InGameTests
         public void EccentricGrazing_StaysOneSegment_InGame()
         {
             RecordingStore.SuppressLogging = true;
+            // Capture pre-test ID set BEFORE snapshot.Capture so we can compute the
+            // delta after RunOptimizationPass and clean up the orphan sidecars the
+            // optimizer's flush leaves behind. (Even when this shape produces no chain
+            // growth, the synthetic recording itself still gets flushed.)
+            var preIds = new HashSet<string>(
+                RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
             var snapshot = RecordingStoreTestSnapshot.Capture();
             int baselineCount = RecordingStore.CommittedRecordings.Count;
             // See RealAscentReentry_ProducesPerPhaseChain_InGame above and the class-level
@@ -157,6 +185,7 @@ namespace Parsek.InGameTests
                     "from a fresh save, or rely on RecordingOptimizerTests xUnit coverage.");
             }
 
+            HashSet<string> sidecarsToCleanup = null;
             try
             {
                 const string recId = "rec_persistence_smoke_grazing";
@@ -189,6 +218,12 @@ namespace Parsek.InGameTests
                 RecordingStore.RunOptimizationPass();
                 int finalCount = RecordingStore.CommittedRecordings.Count;
 
+                // Compute synthetic-id delta IMMEDIATELY after the optimizer pass so a
+                // failed assertion below still cleans up sidecars in finally.
+                sidecarsToCleanup = new HashSet<string>(
+                    RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
+                sidecarsToCleanup.ExceptWith(preIds);
+
                 InGameAssert.AreEqual(initialCount, finalCount,
                     $"Eccentric grazing recording produced unexpected chain expansion " +
                     $"(initial={initialCount}, final={finalCount}). The persistence predicate " +
@@ -200,6 +235,14 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(baselineCount, RecordingStore.CommittedRecordings.Count,
                     "Snapshot/restore should reinstate the player's live committed-recording count " +
                     "after the synthetic test recording is removed.");
+                // Reference-shallow snapshot.Restore cannot undo the sidecar files the
+                // optimizer flushed for synthetic + split-half recordings. Clean them up
+                // explicitly so the player's saves/<save>/Parsek/Recordings/ doesn't
+                // accumulate orphan .prec / .pann / *.craft / *.txt files per test run.
+                if (sidecarsToCleanup != null && sidecarsToCleanup.Count > 0)
+                {
+                    PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIds(sidecarsToCleanup);
+                }
             }
         }
 
