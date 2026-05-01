@@ -208,9 +208,11 @@ public class ChildSlot
 
     /// <summary>
     /// True when the player invoked the per-row Stash action on this slot,
-    /// promoting a default-excluded stable terminal leaf into Unfinished
-    /// Flights. Excluded only when the slot is Sealed or the structural
-    /// classifier closes it (for example boarded EVA / downstream BP).
+    /// promoting a safe default-excluded stable terminal leaf into Unfinished
+    /// Flights. Only spawnable stable terminals (Landed/Splashed/Orbiting/
+    /// SubOrbital) qualify; Recovered, Docked, Boarded, and downstream
+    /// branch outcomes remain closed because they changed career state or
+    /// another world object.
     ///
     /// Default false; legacy saves load with false. Stash is only possible
     /// while the backing RewindPoint still exists; it does not resurrect

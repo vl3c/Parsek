@@ -459,17 +459,20 @@ has a synthetic runtime fixture that validates stable-leaf group membership,
 route resolution, Seal's non-mutating slot close, and last-seal RP reap without
 requiring a hand-authored save.
 
-v2 follow-up: stable terminal leaves that the default predicate excluded can now
-be manually Stashed from the Recordings table while their Rewind Point still
-exists. Stash sets `ChildSlot.Stashed`/`StashedRealTime`, leaves the recording and
+v2 follow-up: spawnable stable terminal leaves (`Landed`, `Splashed`, `Orbiting`,
+`SubOrbital`) that the default predicate excluded can now be manually Stashed
+from the Recordings table while their Rewind Point still exists. `Recovered`,
+`Docked`, and `Boarded` outcomes remain closed because they imply career
+recovery, docking/merge absorption, or crew/vessel transfer into another world
+object. Stash sets `ChildSlot.Stashed`/`StashedRealTime`, leaves the recording and
 `MergeState` unchanged, makes the row appear under Unfinished Flights with the
 same `Fly` and `Seal` actions, and makes `RewindPointReaper` treat an unsealed
-stashed `Immutable` slot as still open. Stash does not resurrect already-reaped
-RP quicksaves; all-closed stable splits can still disappear before the player
-has a slot to stash. Under the existing B2-A in-place re-fly policy, the merge
-confirmation clears `ChildSlot.Stashed` before forcing the recording `Immutable`
-so an in-place Stashed re-fly closes and reaps like other in-place stable-leaf
-commits.
+stashed `Immutable` slot as still open only while the classifier still qualifies
+that terminal. Stash does not resurrect already-reaped RP quicksaves; all-closed
+stable splits can still disappear before the player has a slot to stash. Under
+the existing B2-A in-place re-fly policy, the merge confirmation clears
+`ChildSlot.Stashed` before forcing the recording `Immutable` so an in-place
+Stashed re-fly closes and reaps like other in-place stable-leaf commits.
 
 Diagnostics follow-up: Settings -> Diagnostics now shows live RP breakdown
 counts next to total rewind-point quicksave disk usage: crashed-open,
