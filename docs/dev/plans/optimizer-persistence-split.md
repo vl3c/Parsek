@@ -136,10 +136,12 @@ transition from `prev = sections[s-1]` to `next = sections[s]`):
                                                                        ExoPropulsive.
 2. If env class unchanged AND body unchanged:→ not a boundary, skip
 3. If body changed:                          → split  (#251 unchanged)
-4. If prev or next is Surface (class 2):     → split  (already gated upstream
-                                                       by Vessel.Situations +
-                                                       debounce — keep
-                                                       always-meaningful)
+4. If prev or next is Surface (class 2):     → if a brief Atmospheric/Approach
+                                               run is bracketed by Surface on
+                                               both sides, suppress as a
+                                               surface graze; otherwise split
+                                               (Surface remains meaningful by
+                                               default)
 5. If prev or next is ExoPropulsive:         → split  (engine firing at the
                                                        crossing — direct
                                                        gameplay event,
@@ -151,15 +153,29 @@ The seam check is step 1 — a hard "always wins" override regardless of
 env class on either side. The contract for `IsBoundarySeam` is "this section
 is a recorder bookkeeping artifact, never a split candidate, full stop." The
 later sections (§5, §13, todo #632) are written to that contract; placing
-the seam check below body-change or Surface short-circuits would silently
+the seam check below body-change or the Surface branch would silently
 narrow the contract for any future producer that sets the flag across one of
 those transitions. Producer C today only emits seams on a loaded→on-rails
 transition where the body and Surface state cannot change at the seam, but
 the ordering must stay correct for future producers that might.
 
-Body change, Surface, and ExoPropulsive remain hard short-circuits for the
-non-seam path. Only the otherwise-noisy `Atmospheric ↔ ExoBallistic` and
-`Approach ↔ ExoBallistic` pairs reach the persistence predicate.
+Body change remains a hard short-circuit for the non-seam path: surface on
+Kerbin followed by surface on Mun is a real phase change, never a graze.
+Surface remains a default split because the recorder's surface detection is
+already gated by `Vessel.Situations` plus debounce, but it now has one narrow
+carveout before accepting `SurfaceInvolved`: `Surface → [brief Atmospheric or
+Approach run] → Surface` is suppressed as a surface graze. The carveout uses
+the same bracket-walk mechanics as §3.1 and the same `K = 120 s` threshold,
+and `SurfaceMobile` / `SurfaceStationary` compare equal because
+`SplitEnvironmentClass` collapses both to class 2.
+
+The surface carveout deliberately does not suppress the inverse shape
+`Atmospheric/Approach → [brief Surface run] → Atmospheric/Approach`; an initial
+touchdown/bounce can still establish the surface segment, and a later brief
+parachute descent bracketed by Surface folds into that segment. ExoPropulsive
+remains a hard short-circuit after the Surface branch. Only the otherwise-noisy
+`Atmospheric ↔ ExoBallistic` and `Approach ↔ ExoBallistic` pairs reach the
+generic persistence predicate in step 6.
 
 ### 3.1 Persistence predicate
 
@@ -224,6 +240,14 @@ why the collapse-walk is required.
 
 If either bracket condition holds, the boundary is a graze pattern → suppress.
 Otherwise → split.
+
+The Surface step reuses the same two bracket walks with a filter: the brief run
+must be `Atmospheric` (class 0) or `Approach` (class 3), and the bracket class
+on both sides must be `Surface` (class 2). This is what suppresses a landing
+bounce shape such as
+`SurfaceMobile → Atmospheric[brief] → SurfaceMobile → SurfaceStationary`
+without suppressing ordinary reentry (`Exo → Atmospheric → Surface`) or
+body-change landings.
 
 **Bounded walk cost.** The walk is per-boundary O(M) where M is the
 length of the same-split-class run. Cumulative cost across all
@@ -353,20 +377,21 @@ persistence predicate.
 ## 4. Worked examples
 
 Predicate traces walk the §3 ordering top-down (seam → not-a-boundary →
-body → Surface → ExoPropulsive → persistence) and use the collapse-walk
-semantics of §3.1.
+body → Surface default / surface graze → ExoPropulsive → persistence) and use
+the collapse-walk semantics of §3.1.
 
 | Recording shape (sections) | Boundaries (s) | Predicate trace | Result |
 |---|---|---|---|
-| `Surface,Atmo[long],Exo[long]` | s=1 (Sur→Atm), s=2 (Atm→Exo) | s=1: Surface short-circuit. s=2: forward walk stops at s+1 (no more sections); next is long, no bracket. Backward walk stops at prev=Atmo (s-2=Surface, different class); prev is long, no bracket. | both split ✓ |
+| `Surface,Atmo[long],Exo[long]` | s=1 (Sur→Atm), s=2 (Atm→Exo) | s=1: Surface default split because the Atmo run is long and not bracketed by Surface. s=2: forward walk stops at s+1 (no more sections); next is long, no bracket. Backward walk stops at prev=Atmo (s-2=Surface, different class); prev is long, no bracket. | both split ✓ |
 | `Surface,Atmo[long],Exo[long]` (LKO ascent, engines on at 70 km) | s=2 (Atm→ExoPropulsive) | ExoPropulsive short-circuit. | split ✓ |
 | `Surface,Atmo[long],Exo[long]` (LKO ascent, coast through 70 km) | s=2 (Atm→ExoBallistic) | persistence predicate; both runs long. | split ✓ (the case PR #625 broke) |
-| `Exo[long],Atmo[medium],Surface[long]` (passive deorbit reentry) | s=1 (Exo→Atm), s=2 (Atm→Sur) | s=1: forward walk through Atmo run stops at Surface (class 2). bracketIdx=Surface, class 2 ≠ prev class 1. No bracket. Backward walk: prev=Exo[long] not brief. s=2: Surface short-circuit. | both split ✓ (the other case PR #625 broke) |
+| `Exo[long],Atmo[medium],Surface[long]` (passive deorbit reentry) | s=1 (Exo→Atm), s=2 (Atm→Sur) | s=1: forward walk through Atmo run stops at Surface (class 2). bracketIdx=Surface, class 2 ≠ prev class 1. No bracket. Backward walk: prev=Exo[long] not brief. s=2: Surface branch sees the Atmo run is bracketed by Exo, not Surface, so it splits. | both split ✓ (the other case PR #625 broke) |
+| `SurfaceMobile[1.78s],Atmo[10.48s],Atmo[2.08s],SurfaceMobile[4.3s],SurfaceStationary[7.56s]` (landing bounce + parachute descent + touchdown) | s=1, s=3 (s=2 and s=4 are same split class) | s=1: Surface step's forward walk collapses the two Atmo sections (12.56s<K) → bracket=Surface class 2, suppress. s=3: Surface step's backward walk collapses the same Atmo run → bracket=Surface class 2, suppress. SurfaceMobile and SurfaceStationary both class 2. | both suppress ✓ (one surface landing segment) |
 | `Exo[long],Atmo[40s],Exo[long],Atmo[40s],Exo[long]` (eccentric Pe grazing) | s=1, s=2, s=3, s=4 | s=1: forward walk through Atmo[40s] → bracket=Exo, class 1 = prev class 1. Forward bracket → suppress. s=2: backward walk through Atmo[40s] → bracket=Exo (s=0), class 1 = next class 1. Backward bracket → suppress. s=3, s=4: symmetric. | all suppress ✓ (the S16 case) |
 | `Exo[long],Atmo[60s],Exo[long]` (single aerobrake pass) | s=1, s=2 | s=1: forward walk → Exo bracket, suppress. s=2: backward walk → Exo bracket, suppress. | both suppress ✓ |
 | **`Exo[long],Atmo[20s],Atmo[20s_forced_break],Exo[long]`** (vessel-switch seam mid-graze) | s=1, s=3 (s=2 is Atmo→Atmo, not an env-class boundary) | s=1: forward walk through both Atmo sections (cumDur=40s<K) → bracket=Exo[long], class 1 = prev class 1. Forward bracket → suppress. s=3: backward walk through both Atmo sections (cumDur=40s<K) → bracket=Exo (s=0), class 1 = next class 1. Backward bracket → suppress. | both suppress ✓ (collapse-walk handles forced same-env breaks) |
 | **`Exo[long],ExoPropulsive[5s burn],ExoBallistic[5s coast],Atmo[20s graze],Exo[long]`** (thrust toggles before a graze) | s=3 and s=4 are env-class boundaries (s=1,2 are intra-class 1↔1) | s=3 (ExoBallistic→Atmo): forward walk through Atmo[20s] (next is Exo class 1, walk stops) → bracket=Exo (s=4), class 1 = prev class 1. Forward bracket → suppress. s=4 (Atmo→ExoBallistic): backward walk through Atmo[20s] (sections[s-2]=ExoBallistic class 1, walk stops) → bracket=ExoBallistic (s=2), class 1 = next class 1. Backward bracket → suppress. | both suppress ✓ |
-| `Surface,Atmo[long],Exo[40s],Atmo[long],Surface` (Karman-line tourist hop, ≤150 km apogee) | s=1, s=2, s=3, s=4 | s=1, s=4: Surface short-circuit. s=2: forward walk through Exo[40s] → bracket=Atmo, class 0 = prev class 0. Forward bracket → suppress. s=3: backward walk → bracket=Atmo, class 0 = next class 0. Backward bracket → suppress. | s=1,4 split; s=2,3 suppress ✓ |
+| `Surface,Atmo[long],Exo[40s],Atmo[long],Surface` (Karman-line tourist hop, ≤150 km apogee) | s=1, s=2, s=3, s=4 | s=1, s=4: Surface default split (Atmo runs are long, so not surface grazes). s=2: forward walk through Exo[40s] → bracket=Atmo, class 0 = prev class 0. Forward bracket → suppress. s=3: backward walk → bracket=Atmo, class 0 = next class 0. Backward bracket → suppress. | s=1,4 split; s=2,3 suppress ✓ |
 | `Surface,Atmo[long],Exo[300s],Atmo[long],Surface` (real suborbital arc with sustained apogee) | s=1, s=2, s=3, s=4 | s=2: forward walk cumDur=300s>K, no forward bracket. Backward walk: prev=Atmo[long] not brief. s=3: prev=Exo[300s] not brief. | all split ✓ |
 | **`Exo[long],Atmo[40s],Atmo[40s_break],Atmo[40s_break],Exo[long]`** (cumulative-too-long) | s=1, s=4 | s=1: forward walk through three Atmo sections, cumDur=120s. cumDur < K is FALSE (strict <). No forward bracket. s=4: symmetric. | both split ✓ (sustained Atmo run is a real phase) |
 | `Kerbin Atmo,Mun ExoBallistic` (SOI traversal mid-coast, body change) | s=1 | body change short-circuit. | split ✓ (#251) |
@@ -415,7 +440,7 @@ if (prev.isBoundarySeam || next.isBoundarySeam)
     return false;   // bookkeeping artifact, never split here
 ```
 
-It precedes the body-change short-circuit, the Surface short-circuit, and
+It precedes the body-change short-circuit, the Surface branch, and
 the ExoPropulsive short-circuit. See §3 for the rationale: the contract
 for `IsBoundarySeam` is "this section is a recorder bookkeeping artifact,
 never a split candidate, full stop." Today's Producer-C cannot emit seams
@@ -492,7 +517,7 @@ whole point of the change. Any code that pins the binary format version
 elsewhere (e.g. a probe / signature byte) needs a parallel update; the
 implementation phase audits the call sites.
 
-**Test #25 (binary round-trip) is mandatory**, not conditional. See §9.3.
+**The binary round-trip test in §9.3 is mandatory**, not conditional.
 
 ### 5.4 Why a flag, not a heuristic
 
@@ -561,10 +586,11 @@ suppression-counter line is the right shape; reuse it.
                                           (ExoPropulsiveAtCrossing)
                                           (PersistedPhaseChange)
 
-[Parsek][VERBOSE][Optimizer] Split suppressed: rec=<id> evaluated=<n>
-                                                grazeForward=<x> grazeBackward=<y>
-                                                seamSkipped=<z>
-                                                splittableButRejected=<w>
+[Parsek][VERBOSE][Optimizer] Split summary: rec=<id> evaluated=<n>
+                                             grazeForward=<x> grazeBackward=<y>
+                                             surfaceGrazeForward=<sf> surfaceGrazeBackward=<sb>
+                                             seamSkipped=<z>
+                                             splittableButRejected=<w>
 ```
 
 Discriminator enum (replaces the PR #625 `SplitBoundaryReason` shape):
@@ -579,6 +605,8 @@ internal enum SplitBoundaryReason
     PersistedPhaseChange,               // persistence predicate accepted
     SuppressedGrazeForward,             // forward bracket fired (clause A)
     SuppressedGrazeBackward,            // backward bracket fired (clause B)
+    SuppressedSurfaceGrazeForward,      // Surface -> brief Atmo/Approach -> Surface
+    SuppressedSurfaceGrazeBackward,     // Surface -> brief Atmo/Approach -> Surface
     SuppressedBoundarySeam              // §5 — Producer-C seam flag set
 }
 ```
@@ -613,11 +641,11 @@ section.
 Each test specifies exactly which clause (A, B, both, or neither) is
 expected to fire, and what regression it guards against.
 
-1. **`Persistence_AscentLongAtmoLongExo_Splits`** — `Surface,Atmo[300],Exo[600]`. Both s=1 (Surface short-circuit) and s=2 (no bracket either side, both long) split. **Guards** the "engine-off coast through 70 km" regression that PR #625 caused.
-2. **`Persistence_DeorbitLongExoMediumAtmoLongSurface_Splits`** — `Exo[1800],Atmo[120],Surface[60]`. s=1 splits (forward neighbour is Surface, class 2 ≠ Exo class 1, no bracket); s=2 Surface short-circuit. **Guards** the passive-deorbit regression.
+1. **`Persistence_AscentLongAtmoLongExo_Splits`** — `Surface,Atmo[300],Exo[600]`. Both s=1 (Surface default split; Atmo is long and not bracketed by Surface) and s=2 (no bracket either side, both long) split. **Guards** the "engine-off coast through 70 km" regression that PR #625 caused.
+2. **`Persistence_DeorbitLongExoMediumAtmoLongSurface_Splits`** — `Exo[1800],Atmo[120],Surface[60]`. s=1 splits (forward neighbour is Surface, class 2 ≠ Exo class 1, no bracket); s=2 Surface default split because the Atmo run is bracketed by Exo, not Surface. **Guards** the passive-deorbit regression.
 3. **`Persistence_EccentricGrazing_4Crossings_AllSuppress`** — `Exo[1500],Atmo[40],Exo[1500],Atmo[40],Exo[1500]`. All 4 boundaries suppressed via clause A or B. **Guards** the S16 chain-explosion case.
 4. **`Persistence_AerobrakeSinglePass_BothBoundariesSuppress`** — `Exo[1000],Atmo[60],Exo[1000]`. s=1 suppress (clause A); s=2 suppress (clause B). **Guards** the "single aerobrake = single segment" intent.
-5. **`Persistence_KarmanLineHop_ExoBracketed_SuppressesExoSplits`** — `Surface,Atmo[300],Exo[40],Atmo[200],Surface`. s=1,4 Surface short-circuit; s=2 suppress (clause A, forward neighbour Atmo); s=3 suppress (clause B, backward neighbour Atmo). **Guards** sub-orbital tourist hop intent.
+5. **`Persistence_KarmanLineHop_ExoBracketed_SuppressesExoSplits`** — `Surface,Atmo[300],Exo[40],Atmo[200],Surface`. s=1,4 Surface default split because the Atmo runs are long; s=2 suppress (clause A, forward neighbour Atmo); s=3 suppress (clause B, backward neighbour Atmo). **Guards** sub-orbital tourist hop intent.
 6. **`Persistence_RealSuborbitalArc_LongApogee_AllSplit`** — `Surface,Atmo[300],Exo[300],Atmo[200],Surface` with K=120. s=2 splits (next 300>K); s=3 splits (prev 300>K). **Guards** that K=120 doesn't suppress real suborbital arcs.
 7. **`Persistence_BoundarySeam_NotASplitCandidate`** — `Loaded[long,Exo],Absolute[1 frame,Atmo,seam=true]`. s=1 not a candidate (seam short-circuit, §5). **Guards** the Producer-C path.
 8. **`Persistence_BoundarySeamFlagOnEitherSide_NotASplitCandidate`** — symmetric variant where the *previous* section has `isBoundarySeam=true`. Symmetric short-circuit. **Guards** the bidirectional flag check.
@@ -625,16 +653,17 @@ expected to fire, and what regression it guards against.
 10. **`Persistence_BodyChange_SameEnvClass_Splits_RegressionOf251`** — Kerbin `ExoBallistic`,Mun `ExoBallistic`. #251 short-circuit. **Guards** SOI traversal stays a split.
 11. **`Persistence_BodyChange_AndClassChange_NoBracket_Splits`** — Kerbin `ExoBallistic`,Mun `Atmospheric`. Body change short-circuits before persistence predicate runs. **Guards** the predicate ordering — body change beats env class.
 12. **`Persistence_ApproachExoGrazing_BothSuppress`** — Mun `Exo[1000],Approach[40],Exo[1000]`. Approach↔Exo goes through the same gate as Atmo↔Exo (eccentric Mun grazing case). **Guards** the airless-body-graze symmetric coverage.
-13. **`Persistence_ApproachToSurface_AlwaysSplits`** — Mun `Approach[60],Surface`. s=1 Surface short-circuit. **Guards** the Surface bucket isn't accidentally squeezed by the predicate.
-14. **`Persistence_EndOfRecording_BriefNextNoFollowup_Splits`** — `Exo[1500],Atmo[40,EOR]` (only 2 sections, recording ends in Atmo). s=1 falls through to split (no s+1 to bracket-match, conservative default). **Guards** the §3.3 edge-of-recording rule.
-15. **`Persistence_EndOfRecording_BriefNextWithSeamFlag_Suppressed`** — same as 14 but with `isBoundarySeam=true` on the brief Atmo. Seam short-circuit. **Guards** the §5 explicit override of the §3.3 fallback.
-16. **`Persistence_BoundaryAtIndexOne_NoBackwardLookup_DoesntCrash`** — recording with sections `[Atmo[300],Exo[600]]`, boundary at s=1. `s-2 < 0` so clause B can't fire; only clause A is evaluated. **Guards** array-index safety on minimal recordings.
-17. **`Persistence_BriefSectionWithMinimalDuration_Suppresses`** — recording with a single 0.4 s middle section bracketed by long same-class neighbours. Predicate suppresses via collapse-walk clause A or B (the single brief section is the entire run). **Guards** that the algorithm correctly handles minimum-duration brief sections.
-18. **`Persistence_ForcedBreakSameEnvMidGraze_CollapseWalkSuppresses`** — `Exo[1500],Atmo[20s],Atmo[20s],Exo[1500]`. Two adjacent same-`SegmentEnvironment` Atmo sections (vessel-switch / source-change forced break). s=1 (Exo→Atmo): forward walk through both Atmo sections (cumDur=40s<K), bracket=Exo class 1=prev class 1, suppress. s=2 (Atmo→Atmo) is not an env-class boundary, skipped. s=3 (Atmo→Exo): backward walk through both Atmo sections, bracket=Exo (s=0)=next class, suppress. **Guards** the same-`SegmentEnvironment` forced-break case the §3.2 collapse-walk fixes — a single-step bracket would land on the seam-split half and split both boundaries.
-19. **`Persistence_ThrustToggleAdjacentToGraze_CollapseWalkSuppresses`** — `ExoBallistic[1500],ExoPropulsive[5s],ExoBallistic[5s],Atmo[20s],ExoBallistic[1500]`. ExoBallistic↔ExoPropulsive seams at s=1 and s=2 are intra-class (both class 1, `envChanged=false`). s=3 (ExoBallistic→Atmo, env-class boundary): forward walk through Atmo[20s] alone (next is Exo class 1, walk stops), bracket=Exo class 1=prev class 1, suppress. s=4 (Atmo→ExoBallistic, env-class boundary): backward walk through Atmo[20s] alone (sections[s-2]=ExoBallistic class 1, walk stops), bracket=ExoBallistic (s=2), class 1=next class 1, suppress. **Guards** that ExoBallistic↔ExoPropulsive thrust-toggle seams within an Exo run don't disrupt the bracket — both env-class boundaries (s=3 and s=4) suppress correctly because the bracket section's split class still equals the long Exo run's class even though the immediate `prev`/`s-2` neighbour is the brief intra-class fragment.
-20. **`Persistence_CumulativeRunBeyondK_Splits`** — `Exo[1500],Atmo[40s],Atmo[40s],Atmo[40s],Exo[1500]`. Three same-`SegmentEnvironment` Atmo sections (multiple forced breaks), cumDur=120s. cumDur < K is FALSE (strict `<`). s=1: forward walk cumDur=120s, no forward bracket, falls through to split. s=4: symmetric, split. **Guards** that the strict `<` cumulative-duration check works correctly at the K boundary — a sustained Atmo run is a real phase, not a graze.
-21. **`Persistence_AggregateSuppressionLog_FiresOncePerRecording`** — log-assertion test: 4 grazing boundaries in one recording → exactly one `Split suppressed: rec=…` aggregate line, no per-boundary suppression spam. **Guards** the CLAUDE.md "Batch counting convention" pattern.
-22. **`Persistence_AcceptanceLog_EmitsDiscriminator`** — log-assertion test: one accepted Atmo→Exo (long, long) → one `Split candidate (PersistedPhaseChange): …` line. **Guards** that the new acceptance reason is wired into the log.
+13. **`Persistence_ApproachToSurface_AlwaysSplits`** — Mun `Approach[60],Surface`. s=1 Surface default split because the Approach run is not bracketed by Surface. **Guards** the Surface bucket isn't accidentally squeezed by the predicate.
+14. **Surface-graze follow-up coverage** — `SurfaceMobile[1.78],Atmo[10.48],Atmo[2.08],SurfaceMobile[4.3],SurfaceStationary[7.56]` suppresses both surface-bracketed Atmo boundaries and logs `surfaceGrazeForward=1 surfaceGrazeBackward=1`; `Surface,Atmo[>K],Surface` still splits; surface body changes still split; `Exo,Atmo,Surface` reentry still splits because the Atmo run is not bracketed by Surface; `Surface,Approach,Surface` suppresses by the same rule.
+15. **`Persistence_EndOfRecording_BriefNextNoFollowup_Splits`** — `Exo[1500],Atmo[40,EOR]` (only 2 sections, recording ends in Atmo). s=1 falls through to split (no s+1 to bracket-match, conservative default). **Guards** the §3.3 edge-of-recording rule.
+16. **`Persistence_EndOfRecording_BriefNextWithSeamFlag_Suppressed`** — same as 15 but with `isBoundarySeam=true` on the brief Atmo. Seam short-circuit. **Guards** the §5 explicit override of the §3.3 fallback.
+17. **`Persistence_BoundaryAtIndexOne_NoBackwardLookup_DoesntCrash`** — recording with sections `[Atmo[300],Exo[600]]`, boundary at s=1. `s-2 < 0` so clause B can't fire; only clause A is evaluated. **Guards** array-index safety on minimal recordings.
+18. **`Persistence_BriefSectionWithMinimalDuration_Suppresses`** — recording with a single 0.4 s middle section bracketed by long same-class neighbours. Predicate suppresses via collapse-walk clause A or B (the single brief section is the entire run). **Guards** that the algorithm correctly handles minimum-duration brief sections.
+19. **`Persistence_ForcedBreakSameEnvMidGraze_CollapseWalkSuppresses`** — `Exo[1500],Atmo[20s],Atmo[20s],Exo[1500]`. Two adjacent same-`SegmentEnvironment` Atmo sections (vessel-switch / source-change forced break). s=1 (Exo→Atmo): forward walk through both Atmo sections (cumDur=40s<K), bracket=Exo class 1=prev class 1, suppress. s=2 (Atmo→Atmo) is not an env-class boundary, skipped. s=3 (Atmo→Exo): backward walk through both Atmo sections, bracket=Exo (s=0)=next class, suppress. **Guards** the same-`SegmentEnvironment` forced-break case the §3.2 collapse-walk fixes — a single-step bracket would land on the seam-split half and split both boundaries.
+20. **`Persistence_ThrustToggleAdjacentToGraze_CollapseWalkSuppresses`** — `ExoBallistic[1500],ExoPropulsive[5s],ExoBallistic[5s],Atmo[20s],ExoBallistic[1500]`. ExoBallistic↔ExoPropulsive seams at s=1 and s=2 are intra-class (both class 1, `envChanged=false`). s=3 (ExoBallistic→Atmo, env-class boundary): forward walk through Atmo[20s] alone (next is Exo class 1, walk stops), bracket=Exo class 1=prev class 1, suppress. s=4 (Atmo→ExoBallistic, env-class boundary): backward walk through Atmo[20s] alone (sections[s-2]=ExoBallistic class 1, walk stops), bracket=ExoBallistic (s=2), class 1=next class 1, suppress. **Guards** that ExoBallistic↔ExoPropulsive thrust-toggle seams within an Exo run don't disrupt the bracket — both env-class boundaries (s=3 and s=4) suppress correctly because the bracket section's split class still equals the long Exo run's class even though the immediate `prev`/`s-2` neighbour is the brief intra-class fragment.
+21. **`Persistence_CumulativeRunBeyondK_Splits`** — `Exo[1500],Atmo[40s],Atmo[40s],Atmo[40s],Exo[1500]`. Three same-`SegmentEnvironment` Atmo sections (multiple forced breaks), cumDur=120s. cumDur < K is FALSE (strict `<`). s=1: forward walk cumDur=120s, no forward bracket, falls through to split. s=4: symmetric, split. **Guards** that the strict `<` cumulative-duration check works correctly at the K boundary — a sustained Atmo run is a real phase, not a graze.
+22. **`Persistence_AggregateSuppressionLog_FiresOncePerRecording`** — log-assertion test: 4 grazing boundaries in one recording → exactly one `Split summary: rec=…` aggregate line, no per-boundary suppression spam. **Guards** the CLAUDE.md "Batch counting convention" pattern.
+23. **`Persistence_AcceptanceLog_EmitsDiscriminator`** — log-assertion test: one accepted Atmo→Exo (long, long) → one `Split candidate (PersistedPhaseChange): …` line. **Guards** that the new acceptance reason is wired into the log.
 
 ### 9.2 Integration tests — round-trip through `RunOptimizationPass`
 
@@ -642,9 +671,9 @@ Extend the existing `RecordingStoreTests` patterns (the test class touching
 `RecordingStore` static state already has `[Collection("Sequential")]`) to
 end-to-end-verify chain shape:
 
-23. **`OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain`** — synthetic recording: `Surface, Atmo[long], ExoBallistic[long], Atmo[medium], Surface`. After `RunOptimizationPass`, chain has 4 segments (surface-launch / atmo-ascent / exo-orbit / atmo-reentry-and-landing). Each has its own `SegmentPhase`.
-24. **`OptimizationPass_EccentricGrazing_StaysOneSegment`** — synthetic recording: 4 atmo↔exo oscillations, no Surface. After pass, chain length 1 (no splits).
-25. **`OptimizationPass_ProducerCSeam_NotSplit_NoChainGrowth`** — synthetic recording with the seam-flag Producer-C shape. After pass, single recording (no chain expansion).
+24. **`OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain`** — synthetic recording: `Surface, Atmo[long], ExoBallistic[long], Atmo[medium], Surface`. After `RunOptimizationPass`, chain has 4 segments (surface-launch / atmo-ascent / exo-orbit / atmo-reentry-and-landing). Each has its own `SegmentPhase`.
+25. **`OptimizationPass_EccentricGrazing_StaysOneSegment`** — synthetic recording: 4 atmo↔exo oscillations, no Surface. After pass, chain length 1 (no splits).
+26. **`OptimizationPass_ProducerCSeam_NotSplit_NoChainGrowth`** — synthetic recording with the seam-flag Producer-C shape. After pass, single recording (no chain expansion).
 
 ### 9.3 Serialization round-trip (mandatory)
 
@@ -654,17 +683,17 @@ recording with `RecordingFormatVersion >= 2`). A single-codec test would
 let the binary codec silently drop the flag and Producer-C seams would
 split again after reload — exactly the bug this plan fixes.
 
-26. **`TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec`** — write a recording with a seam-flagged section through `TrajectoryTextSidecarCodec`, load, verify the flag survives. **Guards** the text codec sparse-field write/read path.
-27. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyTextLoad`** — load a text-codec recording without the `seam` key, verify `isBoundarySeam == false`. **Guards** forward-tolerance for legacy text recordings.
-28. **`TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec`** — **mandatory.** Write through `TrajectorySidecarBinary` at `binaryVersion = BoundarySeamFlagBinaryVersion`, read back, verify flag survives. **Guards** the binary codec positional write/read path — without this test, a regression in binary version gating would silently drop the flag on every save and the bug-fix property would not hold.
-29. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyBinaryLoad`** — write a recording at `binaryVersion = 7`, read with the new code, verify `isBoundarySeam == false` and that the next field (`anchorVesselId`) deserializes at the correct offset. **Guards** the binary version-gate read path — catches the worst-case regression where a v7 reader on a v8 file would desynchronize positionally.
+27. **`TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec`** — write a recording with a seam-flagged section through `TrajectoryTextSidecarCodec`, load, verify the flag survives. **Guards** the text codec sparse-field write/read path.
+28. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyTextLoad`** — load a text-codec recording without the `seam` key, verify `isBoundarySeam == false`. **Guards** forward-tolerance for legacy text recordings.
+29. **`TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec`** — **mandatory.** Write through `TrajectorySidecarBinary` at `binaryVersion = BoundarySeamFlagBinaryVersion`, read back, verify flag survives. **Guards** the binary codec positional write/read path — without this test, a regression in binary version gating would silently drop the flag on every save and the bug-fix property would not hold.
+30. **`TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyBinaryLoad`** — write a recording at `binaryVersion = 7`, read with the new code, verify `isBoundarySeam == false` and that the next field (`anchorVesselId`) deserializes at the correct offset. **Guards** the binary version-gate read path — catches the worst-case regression where a v7 reader on a v8 file would desynchronize positionally.
 
 ### 9.4 In-game smoke test
 
 One `[InGameTest(Category = "Optimizer", Scene = GameScenes.FLIGHT)]` test in
 `Source/Parsek/InGameTests/RuntimeTests.cs` (or a new file under that dir):
 
-30. **`RealAscentReentry_ProducesPerPhaseChain_InGame`** — automate a stock craft launch through 70 km with engines firing through the boundary (forces ExoPropulsive → S3 short-circuit case), circularize, deorbit (passive coast through 70 km on the way down), parachute, land. After landing, call `RecordingStore.RunOptimizationPass()`. Assert the chain has at least 4 segments (pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing). **Guards** against future recorder changes that produce TrackSection boundary UTs the predicate doesn't expect.
+31. **`RealAscentReentry_ProducesPerPhaseChain_InGame`** — automate a stock craft launch through 70 km with engines firing through the boundary (forces ExoPropulsive → S3 short-circuit case), circularize, deorbit (passive coast through 70 km on the way down), parachute, land. After landing, call `RecordingStore.RunOptimizationPass()`. Assert the chain has at least 4 segments (pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing). **Guards** against future recorder changes that produce TrackSection boundary UTs the predicate doesn't expect.
 
 ### 9.5 Tests to remove / update
 
@@ -702,8 +731,8 @@ build` and `dotnet test` before the next is started.
   `TrackSections` list, which is `.prec` sidecar-serialized (not `.sfs`-
   serialized), so `ParsekScenario.OnSave/OnLoad` does not need an update.
   Note this in the commit message so reviewers don't need to re-derive it.
-- Tests: 26 (text round-trip), 27 (legacy text default), 28 (binary
-  round-trip — **mandatory**), 29 (legacy binary default + positional
+- Tests: 27 (text round-trip), 28 (legacy text default), 29 (binary
+  round-trip — **mandatory**), 30 (legacy binary default + positional
   desync check — **mandatory**).
 
 This phase changes serialized byte size for new recordings (the v8 binary
@@ -716,27 +745,30 @@ depends on them.
 ### Phase 2 — Persistence predicate in `RecordingOptimizer`
 
 - Add `BriefSectionMaxSeconds = 120.0` const (semantic name — see §3.1).
-- Add `SplitBoundaryReason` enum with the 8 values from §8.
+- Add `SplitBoundaryReason` enum with the values from §8.
 - Add helper `IsSplittableEnvOrBodyBoundary(rec, s, out reason)` that
-  encodes the §3 ordering (**seam → not-a-boundary → body → Surface →
-  ExoPropulsive → persistence**). The seam check is step 1, ahead of all
-  always-split short-circuits, per §3 / §5.2.
+  encodes the §3 ordering (**seam → not-a-boundary → body → Surface default /
+  surface graze → ExoPropulsive → persistence**). The seam check is step 1,
+  ahead of all split/suppress decisions, per §3 / §5.2.
 - Add helper `IsGrazePattern(rec, s, out grazeReason)` that implements
   the §3.1 (A) and (B) bracket clauses with the same-`SplitEnvironmentClass`
   collapse-walk (§3.2). The walk MUST collapse adjacent same-split-class
   sections, not just look at single-step neighbours — single-step lookup
-  misclassifies forced-break and thrust-toggle cases (see test #18, #19).
+  misclassifies forced-break and thrust-toggle cases (see test #19, #20).
+- Add helper `IsSurfaceGrazePattern(rec, s, out grazeReason)` that reuses the
+  same bracket-walk shape but only suppresses brief Atmospheric/Approach runs
+  bracketed by Surface on both sides.
 - Wire `FindSplitCandidatesForOptimizer` to call the helper, accumulate
   per-recording aggregate suppression counters, emit accept-side per-candidate
   Verbose log + aggregate suppression-counter Verbose log.
 - Leave `FindSplitCandidates` (legacy/test-only path) untouched — it keeps
   the pre-predicate "always split on env change" semantics, same as today.
-- Tests: 1–22 (unit + log assertions).
+- Tests: 1–23 (unit + log assertions).
 
 ### Phase 3 — Integration tests + closeout
 
-- Add tests 23, 24, 25 (round-trip through `RunOptimizationPass`).
-- Add in-game smoke test 30.
+- Add tests 24, 25, 26 (round-trip through `RunOptimizationPass`).
+- Add in-game smoke test 31.
 - Update `CHANGELOG.md` (`0.9.1 / Bug Fixes`, replacing the revert bullet
   with the redesign bullet). Call out the binary format bump (`v7 → v8`)
   and the upgrade-time effects (legacy Producer-C seam recordings will see
@@ -812,9 +844,9 @@ depends on them.
   >150 km cross the K threshold and do split — the §3.1 calibration table
   documents this; it is acceptable because a sustained Exo phase IS a real
   flight phase from the player's perspective.
-  **Mitigation:** logging; unit tests 1–22 cover the discriminator clauses
-  exhaustively (including the collapse-walk same-class cases via tests #18,
-  #19, #20); in-game smoke test 30 covers the end-to-end real-flight path.
+  **Mitigation:** logging; unit tests 1–23 cover the discriminator clauses
+  exhaustively (including the collapse-walk same-class cases via tests #19,
+  #20, #21); in-game smoke test 31 covers the end-to-end real-flight path.
 
 - **Risk:** the `IsBoundarySeam` flag is set on a section that *should* be a
   split candidate (e.g. a future producer mistakenly sets the flag).
