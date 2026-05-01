@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 optimizer surface-graze split suppression
+
+- ~~A landing bounce could make `RecordingOptimizer` split one landing into two adjacent `surface` chain segments.~~ Source: `logs/2026-05-01_1545_optimizer-merge-investigation/KSP.log` showed the trailing section pattern `SurfaceMobile[1.78s] -> Atmospheric[12.56s across two raw sections] -> SurfaceMobile[4.3s] -> SurfaceStationary[7.56s]`; after the merge pass had already run, the split pass accepted the second `Atmospheric -> SurfaceMobile` boundary at UT 695.80 as `SurfaceInvolved`, producing two same-phase surface recordings that would otherwise have passed `CanAutoMerge`.
+
+**Fix:** `RecordingOptimizer` now checks a surface-specific graze predicate inside the `SurfaceInvolved` branch before accepting the split. The new helper reuses the same bracket-walk model as the persistence predicate, treats `SurfaceMobile` and `SurfaceStationary` as the same class via `SplitEnvironmentClass`, and suppresses only brief `Atmospheric` or `Approach` runs bracketed by Surface on both sides. Body changes still short-circuit before the surface branch, long surface-bracketed Atmo/Approach runs still split, and ordinary `Exo -> Atmospheric -> Surface` reentries still split because the Atmo run is not bracketed by Surface. Optimizer summary logs now include `surfaceGrazeForward` / `surfaceGrazeBackward` counters.
+
+**Status:** CLOSED 2026-05-01.
+
+---
+
 ## Done - v0.9.1 active-recorder destruction terminal override
 
 - ~~An actively recorded vessel that exploded mid-flight could finalize its active tree leaf as `SubOrbital` instead of `Destroyed`.~~ Source: `logs/2026-05-01_1358_suborbital-vs-destroyed/KSP.log`; recording `f7c9225e422541bf8520205bd4bd65ee`, vessel pid `2708531065`, showed `OnVesselWillDestroy` at line 11432 and `Active vessel destroyed during recording` at line 11438, but the active leaf had no `vessel pid=... not found` finalizer log before line 11475 stamped `terminal=SubOrbital`. Diagnosis: KSP lazily kept the exploding vessel findable long enough for `FinalizeIndividualRecording` to take the live-vessel branch and map `FLYING`/`SUB_ORBITAL` through `RecordingTree.DetermineTerminalState`; `FlightRecorder.VesselDestroyedDuringRecording` was never passed into finalization, and `ApplyDestroyedFallback` had no production caller.
