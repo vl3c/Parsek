@@ -1239,6 +1239,32 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryClassifyRetractableLadderStateName(
+            string stateName, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (string.IsNullOrWhiteSpace(stateName))
+                return false;
+
+            string normalized = stateName.Trim();
+            if (string.Equals(normalized, "Extended", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Deployed", StringComparison.OrdinalIgnoreCase))
+            {
+                isDeployed = true;
+                return true;
+            }
+
+            if (string.Equals(normalized, "Retracted", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Stowed", StringComparison.OrdinalIgnoreCase))
+            {
+                isRetracted = true;
+                return true;
+            }
+
+            return false;
+        }
+
         internal static bool TryClassifyRetractableLadderState(
             PartModule ladderModule, out bool isDeployed, out bool isRetracted)
         {
@@ -1282,6 +1308,12 @@ namespace Parsek
             if ((sawExtendEvent || sawRetractEvent) &&
                 TryClassifyLadderStateFromEventActivity(
                     canExtend, canRetract, out isDeployed, out isRetracted))
+                return true;
+
+            string stateName;
+            if (TryGetModuleStringField(ladderModule, "StateName", out stateName) &&
+                TryClassifyRetractableLadderStateName(
+                    stateName, out isDeployed, out isRetracted))
                 return true;
 
             // Fallback: some module variants expose direct bool fields.
@@ -1774,6 +1806,31 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool TryGetModuleStringField(PartModule module, string fieldName, out string value)
+        {
+            value = null;
+            if (module == null || module.Fields == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            try
+            {
+                BaseField field = module.Fields[fieldName];
+                if (field == null)
+                    return false;
+
+                object raw = field.GetValue(module);
+                if (raw == null)
+                    return false;
+
+                value = raw.ToString();
+                return !string.IsNullOrWhiteSpace(value);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         internal static void ClassifyGearState(string stateString, out bool isDeployed, out bool isRetracted)

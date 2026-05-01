@@ -424,6 +424,45 @@ namespace Parsek.Tests
             Assert.False(ok);
         }
 
+        [Fact]
+        public void TryClassifyRetractableLadderStateName_Extended_IsDeployed()
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                "Extended", out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.True(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Fact]
+        public void TryClassifyRetractableLadderStateName_Retracted_IsRetracted()
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                " retracted ", out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.False(isDeployed);
+            Assert.True(isRetracted);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Extending")]
+        [InlineData("Retracting")]
+        [InlineData("Broken")]
+        public void TryClassifyRetractableLadderStateName_TransientOrUnknown_ReturnsFalse(
+            string stateName)
+        {
+            bool ok = FlightRecorder.TryClassifyRetractableLadderStateName(
+                stateName, out bool isDeployed, out bool isRetracted);
+
+            Assert.False(ok);
+            Assert.False(isDeployed);
+            Assert.False(isRetracted);
+        }
+
         #endregion
 
         #region ShouldSkipOrbitSegmentForAtmosphere
