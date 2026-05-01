@@ -17359,13 +17359,32 @@ namespace Parsek
             Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
             if (reFlyRec == null)
                 return false;
-            // Pick the SAME source list TryComputeReFlyRecordingAnchorOffset
-            // will sample from at this UT. No fall-through.
-            List<TrackSection> sampleSections = !string.IsNullOrEmpty(marker.SessionId)
-                && reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
-                ? reFlyRec.PreReFlyAnchorTrackSections
-                : reFlyRec.TrackSections;
-            return HasSampleableTrackSectionAtUT(sampleSections, currentUT);
+            return HasSampleableTrackSectionAtUT(
+                SelectReFlyAnchorSampleSections(reFlyRec, marker), currentUT);
+        }
+
+        /// <summary>
+        /// Single source of truth for which track-section list the per-
+        /// frame anchor sampler reads from. Both
+        /// <see cref="HasResolvableReFlyAnchorData"/> and
+        /// <see cref="TryComputeReFlyRecordingAnchorOffset"/> route
+        /// through this helper so the predicate-sampler contract cannot
+        /// drift apart again. When a captured pre-Re-Fly snapshot exists
+        /// for the active session the snapshot's track sections are
+        /// returned; otherwise the live recording's track sections are.
+        /// No fall-through — the live recording's post-trim extension is
+        /// the player's NEW flight data and anchoring to it would be
+        /// circular. Returns null when either input is null.
+        /// </summary>
+        private static List<TrackSection> SelectReFlyAnchorSampleSections(
+            Recording reFlyRec, ReFlySessionMarker marker)
+        {
+            if (reFlyRec == null || marker == null) return null;
+            // HasPreReFlyAnchorTrajectory short-circuits on a null/empty
+            // sessionId, so no extra string check is needed here.
+            if (reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId))
+                return reFlyRec.PreReFlyAnchorTrackSections;
+            return reFlyRec.TrackSections;
         }
 
         /// <summary>
@@ -17442,11 +17461,11 @@ namespace Parsek
             // sample post-spawn UTs. The frozen snapshot is captured by
             // RewindInvoker.CapturePreReFlyAnchorTrajectory before trim.
             // Sample directly from the field-resident track-section list
-            // instead of materializing a synthetic Recording — this is the
-            // per-frame, per-ghost hot path.
-            List<TrackSection> sampleSections = reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
-                ? reFlyRec.PreReFlyAnchorTrackSections
-                : reFlyRec.TrackSections;
+            // (not via a synthetic Recording wrapper) — this is the per-
+            // frame, per-ghost hot path. SelectReFlyAnchorSampleSections
+            // is the single source of truth shared with the gate's
+            // resolvability predicate.
+            List<TrackSection> sampleSections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
             if (!TrySampleRecordedAbsoluteWorld(sampleSections, currentUT, out Vector3d recordedPos)
                 || !IsFiniteVector3d(recordedPos))
             {
