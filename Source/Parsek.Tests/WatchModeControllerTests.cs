@@ -528,6 +528,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveSwitchCameraMode_PreserveMode_KeepsCurrentAcrossAtmosphereBoundary()
+        {
+            WatchCameraMode aboveAtmosphere = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000,
+                preserveMode: true);
+            WatchCameraMode belowAtmosphere = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.Free,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 250,
+                preserveMode: true);
+
+            Assert.Equal(WatchCameraMode.HorizonLocked, aboveAtmosphere);
+            Assert.Equal(WatchCameraMode.Free, belowAtmosphere);
+
+            WatchCameraMode normalAutoMode = WatchModeController.ResolveSwitchCameraMode(
+                WatchCameraMode.HorizonLocked,
+                userModeOverride: false,
+                hasAtmosphere: true,
+                atmosphereDepth: 70000,
+                altitude: 71000,
+                preserveMode: false);
+            Assert.Equal(WatchCameraMode.Free, normalAutoMode);
+        }
+
+        [Fact]
+        public void ShouldRunAutomaticWatchCameraModeSelection_SuppressedAfterChainTransfer()
+        {
+            Assert.True(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: false,
+                suppressAutoModeAfterChainTransfer: false));
+            Assert.False(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: true,
+                suppressAutoModeAfterChainTransfer: false));
+            Assert.False(WatchModeController.ShouldRunAutomaticWatchCameraModeSelection(
+                userModeOverride: false,
+                suppressAutoModeAfterChainTransfer: true));
+        }
+
+        [Fact]
         public void PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndCanonicalFraming()
         {
             var currentState = new WatchCameraTransitionState

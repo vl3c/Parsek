@@ -14,6 +14,7 @@ namespace Parsek
     {
         internal const double MaxEvaBoundaryGapSeconds = 2.0;
         internal const double MaxEvaBoundaryOverlapSeconds = 2.0;
+        private const double SplitSeedTimeEpsilon = 1e-6;
 
         /// <summary>
         /// Can two consecutive chain segments be auto-merged?
@@ -715,6 +716,7 @@ namespace Parsek
         internal static Recording SplitAtSection(Recording original, int sectionIndex)
         {
             double splitUT = original.TrackSections[sectionIndex].startUT;
+            List<PartEvent> transientStateSeeds = BuildTransientStateSeeds(original.PartEvents, splitUT);
 
             var second = new Recording();
 
@@ -786,9 +788,13 @@ namespace Parsek
             // 3. Partition PartEvents by UT
             PartitionPartEvents(original.PartEvents, second.PartEvents, splitUT);
 
-            // 3b. Forward permanent visual state events as seeds in the second half.
+            // 3b. Seed visual state at the split boundary. Permanent one-way events
+            // come first, followed by transient engine/RCS state at the same UT.
             // Events like ShroudJettisoned/FairingJettisoned in the first half represent
             // state at the split point — the second half's ghost needs them to render correctly.
+            // ForwardPermanentStateEvents inserts at the front, so run it after
+            // transient insertion to preserve permanent -> transient seed order.
+            InsertTransientStateSeeds(transientStateSeeds, second.PartEvents, splitUT);
             ForwardPermanentStateEvents(original.PartEvents, second.PartEvents, splitUT);
 
             // 4. Partition SegmentEvents by UT
@@ -1276,6 +1282,244 @@ namespace Parsek
             if (forwarded > 0)
                 ParsekLog.Info("Optimizer",
                     $"Forwarded {forwarded} permanent state event(s) as seeds at UT={splitUT:F1}");
+        }
+
+        internal static List<PartEvent> BuildTransientStateSeeds(List<PartEvent> partEvents, double splitUT)
+        {
+            var seeds = new List<PartEvent>();
+            if (partEvents == null || partEvents.Count == 0) return seeds;
+
+            var indexedEvents = new List<IndexedPartEvent>();
+            for (int i = 0; i < partEvents.Count; i++)
+            {
+                var evt = partEvents[i];
+                if (evt.ut - splitUT > SplitSeedTimeEpsilon) continue;
+                if (!IsTransientVisualStateEvent(evt.eventType)) continue;
+
+                indexedEvents.Add(new IndexedPartEvent
+                {
+                    Event = evt,
+                    OriginalIndex = i
+                });
+            }
+
+            if (indexedEvents.Count == 0) return seeds;
+
+            indexedEvents.Sort((a, b) =>
+            {
+                int byTime = a.Event.ut.CompareTo(b.Event.ut);
+                return byTime != 0 ? byTime : a.OriginalIndex.CompareTo(b.OriginalIndex);
+            });
+
+            var engineStates = new Dictionary<ulong, TransientPartState>();
+            var rcsStates = new Dictionary<ulong, TransientPartState>();
+
+            for (int i = 0; i < indexedEvents.Count; i++)
+            {
+                var evt = indexedEvents[i].Event;
+                ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+                switch (evt.eventType)
+                {
+                    case PartEventType.EngineIgnited:
+                        engineStates[key] = BuildTransientState(evt, active: true, value: evt.value);
+                        break;
+                    case PartEventType.EngineThrottle:
+                        UpdateThrottleState(engineStates, key, evt, activeWhenUnseen: evt.value > 0f);
+                        break;
+                    case PartEventType.EngineShutdown:
+                        engineStates[key] = BuildTransientState(evt, active: false, value: 0f);
+                        break;
+                    case PartEventType.RCSActivated:
+                        rcsStates[key] = BuildTransientState(evt, active: true, value: evt.value);
+                        break;
+                    case PartEventType.RCSThrottle:
+                        UpdateThrottleState(rcsStates, key, evt, activeWhenUnseen: evt.value > 0f);
+                        break;
+                    case PartEventType.RCSStopped:
+                        rcsStates[key] = BuildTransientState(evt, active: false, value: 0f);
+                        break;
+                }
+            }
+
+            int engineIgnitedSeeds = 0;
+            int engineShutdownSeeds = 0;
+            int rcsSeeds = 0;
+            var engineKeys = new List<ulong>(engineStates.Keys);
+            engineKeys.Sort();
+            for (int i = 0; i < engineKeys.Count; i++)
+            {
+                var state = engineStates[engineKeys[i]];
+                PartEventType eventType;
+                float value;
+                if (state.Active && state.Value > 0f)
+                {
+                    eventType = PartEventType.EngineIgnited;
+                    value = state.Value;
+                    engineIgnitedSeeds++;
+                }
+                else
+                {
+                    eventType = PartEventType.EngineShutdown;
+                    value = 0f;
+                    engineShutdownSeeds++;
+                }
+
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = eventType,
+                    partName = state.PartName,
+                    value = value,
+                    moduleIndex = state.ModuleIndex
+                });
+            }
+
+            var rcsKeys = new List<ulong>(rcsStates.Keys);
+            rcsKeys.Sort();
+            for (int i = 0; i < rcsKeys.Count; i++)
+            {
+                var state = rcsStates[rcsKeys[i]];
+                if (!state.Active) continue;
+
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = PartEventType.RCSActivated,
+                    partName = state.PartName,
+                    value = state.Value,
+                    moduleIndex = state.ModuleIndex
+                });
+                rcsSeeds++;
+            }
+
+            if (seeds.Count > 0)
+                ParsekLog.Info("Optimizer",
+                    $"Built {seeds.Count} transient state seed event(s) at UT={splitUT:F1} " +
+                    $"(enginesOn={engineIgnitedSeeds} engineSentinels={engineShutdownSeeds} rcsOn={rcsSeeds})");
+
+            return seeds;
+        }
+
+        private static void InsertTransientStateSeeds(
+            List<PartEvent> seeds, List<PartEvent> secondHalf, double splitUT)
+        {
+            if (seeds == null || seeds.Count == 0) return;
+            if (secondHalf == null) return;
+
+            int inserted = 0;
+            int skipped = 0;
+            for (int i = 0; i < seeds.Count; i++)
+            {
+                var seed = seeds[i];
+                if (HasBoundaryTransientEvent(secondHalf, seed, splitUT))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                secondHalf.Insert(inserted, seed);
+                inserted++;
+            }
+
+            if (inserted > 0 || skipped > 0)
+                ParsekLog.Info("Optimizer",
+                    $"Inserted {inserted} transient state seed event(s) at split UT={splitUT:F1} " +
+                    $"(skippedExistingBoundary={skipped})");
+        }
+
+        private static bool HasBoundaryTransientEvent(
+            List<PartEvent> events, PartEvent seed, double splitUT)
+        {
+            if (events == null) return false;
+
+            ulong seedKey = FlightRecorder.EncodeEngineKey(seed.partPersistentId, seed.moduleIndex);
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (Math.Abs(evt.ut - splitUT) > SplitSeedTimeEpsilon) continue;
+                if (!IsTransientVisualStateEvent(evt.eventType)) continue;
+                if (IsEngineVisualStateEvent(seed.eventType) != IsEngineVisualStateEvent(evt.eventType))
+                    continue;
+
+                ulong eventKey = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+                if (eventKey == seedKey)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsTransientVisualStateEvent(PartEventType type)
+        {
+            return IsEngineVisualStateEvent(type) || IsRcsVisualStateEvent(type);
+        }
+
+        private static bool IsEngineVisualStateEvent(PartEventType type)
+        {
+            return type == PartEventType.EngineIgnited
+                || type == PartEventType.EngineShutdown
+                || type == PartEventType.EngineThrottle;
+        }
+
+        private static bool IsRcsVisualStateEvent(PartEventType type)
+        {
+            return type == PartEventType.RCSActivated
+                || type == PartEventType.RCSStopped
+                || type == PartEventType.RCSThrottle;
+        }
+
+        private static void UpdateThrottleState(
+            Dictionary<ulong, TransientPartState> states,
+            ulong key,
+            PartEvent evt,
+            bool activeWhenUnseen)
+        {
+            TransientPartState state;
+            if (!states.TryGetValue(key, out state))
+                state = BuildTransientState(evt, activeWhenUnseen, evt.value);
+            else
+            {
+                state.PartPersistentId = evt.partPersistentId;
+                state.ModuleIndex = evt.moduleIndex;
+                state.PartName = evt.partName;
+                state.Value = evt.value;
+                if (!state.Active && evt.value > 0f)
+                    state.Active = true;
+            }
+
+            states[key] = state;
+        }
+
+        private static TransientPartState BuildTransientState(
+            PartEvent evt,
+            bool active,
+            float value)
+        {
+            return new TransientPartState
+            {
+                PartPersistentId = evt.partPersistentId,
+                ModuleIndex = evt.moduleIndex,
+                PartName = evt.partName,
+                Value = value,
+                Active = active
+            };
+        }
+
+        private struct IndexedPartEvent
+        {
+            public PartEvent Event;
+            public int OriginalIndex;
+        }
+
+        private struct TransientPartState
+        {
+            public uint PartPersistentId;
+            public int ModuleIndex;
+            public string PartName;
+            public float Value;
+            public bool Active;
         }
 
         private static void PartitionPartEvents(List<PartEvent> source,

@@ -105,6 +105,7 @@ namespace Parsek
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
         private bool userModeOverride;  // true when user pressed toggle; cleared on EnterWatchMode
+        private bool suppressAutoModeAfterChainTransfer;
         private bool hasRememberedFreeCameraState;
         private WatchCameraTransitionState rememberedFreeCameraState;
         private bool hasRememberedHorizonLockedCameraState;
@@ -1212,14 +1213,22 @@ namespace Parsek
             bool userModeOverride,
             bool hasAtmosphere,
             double atmosphereDepth,
-            double altitude)
+            double altitude,
+            bool preserveMode = false)
         {
-            if (userModeOverride)
+            if (preserveMode || userModeOverride)
                 return currentMode;
 
             return ShouldAutoHorizonLock(hasAtmosphere, atmosphereDepth, altitude)
                 ? WatchCameraMode.HorizonLocked
                 : WatchCameraMode.Free;
+        }
+
+        internal static bool ShouldRunAutomaticWatchCameraModeSelection(
+            bool userModeOverride,
+            bool suppressAutoModeAfterChainTransfer)
+        {
+            return !userModeOverride && !suppressAutoModeAfterChainTransfer;
         }
 
         internal static (float pitch, float heading) CompensateTransferredWatchAngles(
@@ -1276,7 +1285,8 @@ namespace Parsek
 
         private WatchCameraTransitionState ResolveSwitchCameraStateForGhost(
             WatchCameraTransitionState currentState,
-            GhostPlaybackState state)
+            GhostPlaybackState state,
+            bool preserveMode = false)
         {
             CelestialBody body = ResolveBody(state);
             bool hasAtmosphere = body != null && body.atmosphere;
@@ -1287,7 +1297,8 @@ namespace Parsek
                 currentState.UserModeOverride,
                 hasAtmosphere,
                 atmosphereDepth,
-                altitude);
+                altitude,
+                preserveMode);
             return currentState;
         }
 
@@ -1758,6 +1769,7 @@ namespace Parsek
 
             // Reset camera mode state for new watch session
             userModeOverride = false;
+            suppressAutoModeAfterChainTransfer = false;
             currentCameraMode = WatchCameraMode.Free; // auto-detect will set this on first frame
             ClearRememberedWatchCameraStates();
             lastLoggedHorizonVectorKey = null;
@@ -1803,6 +1815,7 @@ namespace Parsek
             watchCutoffConsecutiveFrames = 0;
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
+            suppressAutoModeAfterChainTransfer = false;
             ClearRememberedWatchCameraStates();
             lastLoggedWatchTargetMismatch = null;
             lastLoggedWatchFocusKey = null;
@@ -2234,6 +2247,7 @@ namespace Parsek
             if (TryCaptureActiveWatchCameraState(out var previousModeState))
                 RememberWatchCameraStateAsTargetRelative(previousModeState);
             userModeOverride = true;
+            suppressAutoModeAfterChainTransfer = false;
             currentCameraMode = nextMode;
             lastLoggedHorizonVectorKey = null;
 
@@ -2272,8 +2286,12 @@ namespace Parsek
             if (body != null)
                 UpdateHorizonProxyRotation(state, body);
 
-            // Auto-detect mode (unless user overrode)
-            if (!userModeOverride && body != null)
+            // Auto-detect mode (unless user overrode, or a chain transfer is
+            // deliberately preserving continuity across an atmosphere boundary).
+            if (ShouldRunAutomaticWatchCameraModeSelection(
+                    userModeOverride,
+                    suppressAutoModeAfterChainTransfer)
+                && body != null)
             {
                 bool shouldLock = ShouldAutoHorizonLock(
                     body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude);
@@ -2303,6 +2321,16 @@ namespace Parsek
                             currentCameraMode, state.lastInterpolatedAltitude,
                             state.lastInterpolatedBodyName));
                 }
+            }
+            else if (suppressAutoModeAfterChainTransfer && body != null)
+            {
+                ParsekLog.VerboseRateLimited("CameraFollow", "watch-chain-transfer-mode-preserved",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Watch camera auto-mode skipped after chain transfer: mode={0} alt={1:F0}m body={2}",
+                        currentCameraMode,
+                        state.lastInterpolatedAltitude,
+                        state.lastInterpolatedBodyName),
+                    minIntervalSeconds: 5.0);
             }
         }
 
@@ -2454,6 +2482,7 @@ namespace Parsek
             savedCameraHeading = preservedHeading;
             currentCameraMode = preservedCameraMode;
             userModeOverride = preservedModeOverride;
+            suppressAutoModeAfterChainTransfer = !preservedModeOverride;
             hasRememberedFreeCameraState = preservedHasRememberedFreeCameraState;
             rememberedFreeCameraState = preservedFreeCameraState;
             hasRememberedHorizonLockedCameraState = preservedHasRememberedHorizonLockedCameraState;
@@ -2466,7 +2495,7 @@ namespace Parsek
             bool restoredTransferCameraState = hasTransferCameraState
                 && TryApplySwitchedWatchCameraState(
                     gs,
-                    ResolveSwitchCameraStateForGhost(transferCameraState, gs),
+                    ResolveSwitchCameraStateForGhost(transferCameraState, gs, preserveMode: true),
                     logContext: "segment-apply");
             if (!restoredTransferCameraState)
                 ApplyCameraTarget(gs);
