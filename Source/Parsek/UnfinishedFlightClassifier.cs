@@ -367,6 +367,15 @@ namespace Parsek
                 return false;
             }
 
+            string actionSummary;
+            if (SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            {
+                reason = "recordingAction:" + actionSummary;
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
             reason = null;
             return true;
         }

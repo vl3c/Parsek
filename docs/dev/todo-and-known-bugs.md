@@ -49,13 +49,13 @@ Regression coverage: `Bug687Tests.cs` (xUnit pure pieces — `ShouldBlockSpawnFo
 - ~~Sealing a stashed Unfinished Flight could delete the rewind-point quicksave before the sealed slot reached `persistent.sfs`, leaving a ghost STASH row with disabled Fly after Rewind-to-Launch or quickload.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` (`09:31:59.815` Seal click through `09:32:35.380` disabled Re-Fly). Fix: Seal now forces a persistent save after setting `slot.Sealed=true` and before RP reaping, defers RP file deletion if that save fails, and load-time sweep seals/reaps persistent RPs whose quicksave file is already missing so older inconsistent saves converge. The sweep skips the active Re-Fly marker's RP and session-provisional RPs, and reports only missing-file RPs it actually cleaned.
 - ~~`UnfinishedFlightClassifier.HasStashedResolvedSlot` treated sealed stashed slots as open stash slots, relying on downstream `TryQualify(considerSealed: true)` callers to reject them later.~~ Source: hardening follow-up from `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log` after the seal/load inconsistency exposed a sealed-vs-stashed boundary. Fix: the helper now treats `Stashed && Sealed` as closed, matching the RP reaper rule that sealed wins.
 - ~~A stable leaf that was both stashable and the legacy Rewind-to-Launch owner rendered only `Stash`, hiding the launch rewind action on the same row.~~ Source: reproduction described from the STASH playtest path in `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log`; focus-slot stable Landed rows can own both affordances. Fix: the recordings table now uses separate Rewind and Re-Fly columns and grows the collapsed/Info-expanded default widths for the added column. Rewind/Forward remains in the Rewind column; stable-row `Stash | Seal` lives under Re-Fly, explicitly allowing the player to stash the slot for later or permanently close it in one confirmed Seal action without hiding launch rewind.
-- ~~Manual Stash was too permissive for world-interacting terminal outcomes.~~ Source: follow-up design audit of the STASH policy after the ledger/supersede investigation. `UnfinishedFlightClassifier.StashedTerminalQualifies` rejected `Destroyed` and boarded EVAs but still allowed `Recovered`, `Docked`, and non-EVA `Boarded` stable-terminal rows to be manually stashed. Those outcomes imply career recovery, vessel merge/absorption, or crew/vessel transfer into another world object, so re-flying them can create timeline paradoxes that the slot-level Stash affordance should not expose. Fix: manual Stash now allowlists only spawnable stable terminals (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`), reports `unsafeTerminal:<state>` for rejected stash attempts, and treats already-stashed unsafe terminal slots as closed for STASH membership/reaper purposes.
+- ~~Manual Stash was too permissive for world-interacting terminal outcomes and recording-linked career/world actions.~~ Source: follow-up design audit of the STASH policy after the ledger/supersede investigation. `UnfinishedFlightClassifier.StashedTerminalQualifies` rejected `Destroyed` and boarded EVAs but still allowed `Recovered`, `Docked`, and non-EVA `Boarded` stable-terminal rows to be manually stashed; the resolver also had no guard for stable recordings that had already run science or otherwise written career/world state to the ledger. Those outcomes imply career recovery, vessel merge/absorption, crew/vessel transfer into another world object, or committed resource/progression state, so re-flying them can create timeline paradoxes that the slot-level Stash affordance should not expose. Fix: manual Stash now allowlists only spawnable stable terminals (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`), rejects non-tombstoneable recording-linked game actions with `recordingAction:<type>:<actionId>`, reports `unsafeTerminal:<state>` for terminal rejections, and treats already-stashed unsafe terminal slots as closed for STASH membership/reaper purposes.
 - ~~In-place continuation Re-Fly merge emitted `[ERROR][Supersede] Site B-1 slot lookup failed` even though `provisional == origin == supersedeTarget` and the v0.9 terminalKind fallback produced the intended merge state.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log:15529`. Fix: the in-place continuation case keeps the fallback path but logs it at VERBOSE with an explicit reason; non-in-place slot-aware classification failures still error or abort as before.
 - ~~In-place continuation marker rebuild logged `[WARN][Pipeline-Anchor] orphan-marker-no-parent-branchpoint` twice and ran a no-op clear even though launch-root in-place continuations intentionally have no parent BranchPoint.~~ Source: `logs/2026-05-01_0938_investigate-stash-seal-uf/KSP.log:13153` and `:14478`. Fix: marker rebuild now detects `OriginChildRecordingId == ActiveReFlyRecordingId`, installs an empty session anchor map, and logs the intentional null parent BP at VERBOSE instead of WARN.
 
 ## Done - v0.9.1 in-place Re-Fly STASH cleanup
 
-- ~~In-place continuation Re-Fly of a Destroyed recording leaves the committed origin in STASH when the re-flight crashes again and a surviving piece lands.~~ Source: `logs/2026-04-30_2306_post-679-680-681-merge/`; origin `d5871b0dc3354e7094aa145ce1f0ac7a`, survivor `9078c3dcde9045cb8939d889aeeb8552`, session `sess_a72d601737884d33a309860260fba6ea`, surviving RP `rp_049304412955410185359b9ee1bf010d`. Diagnosis: the in-place merge path cleared the Re-Fly marker before running RP cleanup and skipped the session-RP promotion step used by the journaled merge path, so the session-provisional RP stayed unreapable and kept slot 0 mapped to the Destroyed origin. Fix: `MergeDialog.TryCommitReFlySupersede` now promotes session-created RPs after marker/state finalization succeeds and immediately before cleanup, using the local marker's session id, then the existing reaper removes any RP whose slots resolve to closed recordings; `SupersedeCommitTests.TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap` pins the RP promotion ordering, reaping, STASH-membership drop, and log evidence. The different-PID survivor still follows the existing side-off closure gate; supersede-row policy for session-created side-offs remains a separate follow-up.
+- ~~In-place continuation Re-Fly of a Destroyed recording could leave stale session-created RPs around because cleanup ran after the marker was cleared but before those RPs were promoted into normal reap eligibility.~~ Source: `logs/2026-04-30_2306_post-679-680-681-merge/`; origin `d5871b0dc3354e7094aa145ce1f0ac7a`, survivor `9078c3dcde9045cb8939d889aeeb8552`, session `sess_a72d601737884d33a309860260fba6ea`, surviving RP `rp_049304412955410185359b9ee1bf010d`. Diagnosis: the in-place merge path cleared the Re-Fly marker before running RP cleanup and skipped the session-RP promotion step used by the journaled merge path. Fix: `MergeDialog.TryCommitReFlySupersede` now promotes session-created RPs after marker/state finalization succeeds and immediately before cleanup, using the local marker's session id, then the existing reaper removes any RP whose slots resolve to closed recordings. Clean stable and terminal-failure slots deliberately remain open; safety-closed outcomes reap. `SupersedeCommitTests.TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap` and the stable/terminal in-place tests pin the promotion ordering, zero/one reaping behavior, STASH membership, and log evidence. The different-PID survivor still follows the existing side-off closure gate; supersede-row policy for session-created side-offs remains a separate follow-up.
 
 ## Done — v0.9.1 stage-separation ghost trajectory alignment
 
@@ -469,10 +469,11 @@ object. Stash sets `ChildSlot.Stashed`/`StashedRealTime`, leaves the recording a
 same `Fly` and `Seal` actions, and makes `RewindPointReaper` treat an unsealed
 stashed `Immutable` slot as still open only while the classifier still qualifies
 that terminal. Stash does not resurrect already-reaped RP quicksaves; all-closed
-stable splits can still disappear before the player has a slot to stash. Under
-the existing B2-A in-place re-fly policy, the merge confirmation clears
-`ChildSlot.Stashed` before forcing the recording `Immutable` so an in-place
-Stashed re-fly closes and reaps like other in-place stable-leaf commits.
+stable splits can still disappear before the player has a slot to stash. In-place
+Re-Fly merges now delegate to the same Site B-1 safety decision as fresh
+provisional merges: clean stable and terminal-failure continuations can remain
+`CommittedProvisional`, while hard safety closes become `Immutable`, auto-seal
+when appropriate, and reap once all slots are closed.
 
 Diagnostics follow-up: Settings -> Diagnostics now shows live RP breakdown
 counts next to total rewind-point quicksave disk usage: crashed-open,
@@ -480,13 +481,13 @@ stable-open, and sealed-pending. The split is monitoring only; TTL cleanup or a
 manual bulk-wipe action remains deferred because it needs a separate destructive
 cleanup policy.
 
-Site B-2 limitation: this PR preserves B2-A for in-place continuations. The
-in-place merge path may classify an unfinished outcome as
-`CommittedProvisional`, but immediately forces the same recording back to
-`Immutable` and reaps the RP because the merge confirmation is treated as the
-player's final commitment to that slot. It does not auto-seal the slot and does
-not create a fresh provisional; B2-B still requires a deeper recorder/merge
-rearchitecture.
+Site B-2 resolution: the in-place merge path no longer has a separate local
+force-Immutable policy. It preserves `CommittedProvisional` for clean stable and
+terminal-failure outcomes, and lets `SupersedeCommit` auto-seal hard safety
+closes such as Recovered/Docked/Boarded, downstream structural/world
+interaction, or non-tombstoneable recording-linked career/world actions. It
+still does not create a fresh provisional; deeper recorder/merge rearchitecture
+remains separate from the safety policy.
 
 ## 634. Re-fly chain extension wrote origin-rooted star supersede rows instead of linear prior-tip rows ~~done~~
 
