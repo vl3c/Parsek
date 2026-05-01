@@ -5157,13 +5157,15 @@ namespace Parsek
         internal static bool ApplyDestroyedFallback(
             bool wasDestroyed, Recording rec)
         {
+            if (rec == null) return false;
             if (!wasDestroyed) return false;
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;
             rec.TerminalStateValue = TerminalState.Destroyed;
             ParsekLog.Info("Flight",
-                $"Scene-exit fallback: vessel destroyed during recording — overriding TerminalState " +
+                $"Finalization override: active-recorder destruction override for " +
+                $"'{rec.RecordingId ?? "(null)"}' — overriding TerminalState " +
                 $"from {prev?.ToString() ?? "null"} to Destroyed");
             return true;
         }
@@ -10207,6 +10209,10 @@ namespace Parsek
         /// </summary>
         void FinalizeTreeRecordings(RecordingTree tree, double commitUT, bool isSceneExit)
         {
+            string activeRecordingId = tree?.ActiveRecordingId;
+            bool activeRecorderDestroyedDuringRecording =
+                recorder != null && recorder.VesselDestroyedDuringRecording;
+
             // 1. Stop and flush the active recorder
             if (recorder != null)
             {
@@ -10232,14 +10238,21 @@ namespace Parsek
                 tree,
                 commitUT,
                 isSceneExit,
-                rec => ResolveFinalizationCacheForRecording(tree, rec));
+                resolveFinalizationCache: rec => ResolveFinalizationCacheForRecording(tree, rec),
+                resolveDestroyedDuringRecording: rec =>
+                    activeRecorderDestroyedDuringRecording
+                    && !string.IsNullOrEmpty(activeRecordingId)
+                    && string.Equals(rec?.RecordingId, activeRecordingId, StringComparison.Ordinal));
         }
 
         internal static void FinalizeTreeRecordingsAfterFlush(
             RecordingTree tree,
             double commitUT,
             bool isSceneExit,
-            Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null)
+            Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null,
+            Func<Recording, bool> resolveDestroyedDuringRecording = null,
+            Func<uint, Vessel> findVesselByPid = null,
+            FinalizationLiveVesselAccess liveVesselAccess = null)
         {
             var sceneExitLifetimeExtendedIds = isSceneExit
                 ? new HashSet<string>(StringComparer.Ordinal)
@@ -10260,7 +10273,19 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
-                if (FinalizeIndividualRecording(recording, commitUT, isSceneExit, finalizationCache, tree)
+                bool vesselDestroyedDuringRecording =
+                    resolveDestroyedDuringRecording != null
+                    && resolveDestroyedDuringRecording(recording);
+
+                if (FinalizeIndividualRecording(
+                        recording,
+                        commitUT,
+                        isSceneExit,
+                        finalizationCache,
+                        tree,
+                        vesselDestroyedDuringRecording,
+                        findVesselByPid,
+                        liveVesselAccess)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(recording?.RecordingId))
                 {
@@ -10764,13 +10789,70 @@ namespace Parsek
                 "FinalizeTreeRecordings: re-snapshotted active effective leaf");
         }
 
+        internal sealed class FinalizationLiveVesselAccess
+        {
+            internal static readonly FinalizationLiveVesselAccess Default =
+                new FinalizationLiveVesselAccess();
+
+            private readonly Func<Vessel, bool> isFound;
+            private readonly Func<Vessel, TerminalState> determineTerminalState;
+            private readonly Action<Recording, Vessel> captureTerminalOrbit;
+            private readonly Action<Recording, Vessel> captureTerminalPosition;
+            private readonly Func<Vessel, ConfigNode> tryBackupSnapshot;
+            private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
+
+            internal FinalizationLiveVesselAccess(
+                Func<Vessel, bool> isFound = null,
+                Func<Vessel, TerminalState> determineTerminalState = null,
+                Action<Recording, Vessel> captureTerminalOrbit = null,
+                Action<Recording, Vessel> captureTerminalPosition = null,
+                Func<Vessel, ConfigNode> tryBackupSnapshot = null,
+                Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null)
+            {
+                this.isFound = isFound ?? (vessel => vessel != null);
+                this.determineTerminalState = determineTerminalState
+                    ?? (vessel => RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
+                this.captureTerminalOrbit = captureTerminalOrbit ?? ParsekFlight.CaptureTerminalOrbit;
+                this.captureTerminalPosition = captureTerminalPosition ?? ParsekFlight.CaptureTerminalPosition;
+                this.tryBackupSnapshot = tryBackupSnapshot ?? VesselSpawner.TryBackupSnapshot;
+                this.tryRefreshStableTerminalSnapshot =
+                    tryRefreshStableTerminalSnapshot ?? ParsekFlight.TryRefreshStableTerminalSnapshot;
+            }
+
+            internal bool IsFound(Vessel vessel) => isFound(vessel);
+
+            internal TerminalState DetermineTerminalState(Vessel vessel) =>
+                determineTerminalState(vessel);
+
+            internal void CaptureTerminalOrbit(Recording rec, Vessel vessel) =>
+                captureTerminalOrbit(rec, vessel);
+
+            internal void CaptureTerminalPosition(Recording rec, Vessel vessel) =>
+                captureTerminalPosition(rec, vessel);
+
+            internal ConfigNode TryBackupSnapshot(Vessel vessel) =>
+                tryBackupSnapshot(vessel);
+
+            internal bool TryRefreshStableTerminalSnapshot(
+                Recording rec,
+                Vessel vessel,
+                bool isSceneExit,
+                string logPrefix) =>
+                tryRefreshStableTerminalSnapshot(rec, vessel, isSceneExit, logPrefix);
+        }
+
         internal static bool FinalizeIndividualRecording(
             Recording rec,
             double commitUT,
             bool isSceneExit,
             RecordingFinalizationCache finalizationCache = null,
-            RecordingTree treeContext = null)
+            RecordingTree treeContext = null,
+            bool vesselDestroyedDuringRecording = false,
+            Func<uint, Vessel> findVesselByPid = null,
+            FinalizationLiveVesselAccess liveVesselAccess = null)
         {
+            var vesselAccess = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
+
             // Set ExplicitStartUT if not already set
             if (double.IsNaN(rec.ExplicitStartUT))
             {
@@ -10801,16 +10883,20 @@ namespace Parsek
             // disappears from the Unfinished Flights list (#224 follow-up).
             bool isLeaf = rec.ChildBranchPointId == null
                 || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext);
+            Func<uint, Vessel> vesselFinder = findVesselByPid ?? FlightRecorder.FindVesselByPid;
             Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
-                ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                ? vesselFinder(rec.VesselPersistentId)
                 : null;
+            // Headless tests may pass uninitialized Vessel stubs; use the access seam
+            // so Unity's overloaded == does not collapse them to null.
+            bool finalizeVesselFound = vesselAccess.IsFound(finalizeVessel);
             string restoredSceneExitReason = null;
             bool preserveRestoredSceneExitTerminalState =
                 isLeaf
                 && ShouldPreserveRestoredSceneExitTerminalState(
                     rec,
                     isSceneExit,
-                    vesselMissing: finalizeVessel == null,
+                    vesselMissing: !finalizeVesselFound,
                     out restoredSceneExitReason);
             bool sceneExitLifetimeExtended = false;
             bool sceneExitSuppliedSnapshots = false;
@@ -10818,7 +10904,7 @@ namespace Parsek
             bool cacheFinalizationApplied = false;
             bool cacheSuppliedTerminalOrbit = false;
 
-            if (isLeaf && rec.VesselPersistentId != 0 && finalizeVessel == null)
+            if (isLeaf && rec.VesselPersistentId != 0 && !finalizeVesselFound)
                 ParsekLog.Verbose("Flight",
                     $"FinalizeIndividualRecording: vessel pid={rec.VesselPersistentId} not found " +
                     $"for '{rec.RecordingId}' (isSceneExit={isSceneExit}) — re-snapshot will be skipped");
@@ -10863,7 +10949,7 @@ namespace Parsek
                     rec,
                     finalizationCache,
                     "FinalizeIndividualRecordingRepair",
-                    allowStale: finalizeVessel == null,
+                    allowStale: !finalizeVesselFound,
                     out _,
                     allowAlreadyFinalizedRepair: true))
             {
@@ -10874,18 +10960,18 @@ namespace Parsek
             // Determine terminal state for recordings that don't have one yet
             if (isLeaf && !rec.TerminalStateValue.HasValue)
             {
-                if (finalizeVessel != null)
+                if (finalizeVesselFound)
                 {
                     if (isSceneExit)
                         rec.SceneExitSituation = (int)finalizeVessel.situation;
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)finalizeVessel.situation, finalizeVessel);
-                    CaptureTerminalOrbit(rec, finalizeVessel);
-                    CaptureTerminalPosition(rec, finalizeVessel);
+                    rec.TerminalStateValue = vesselAccess.DetermineTerminalState(finalizeVessel);
+                    vesselAccess.CaptureTerminalOrbit(rec, finalizeVessel);
+                    vesselAccess.CaptureTerminalPosition(rec, finalizeVessel);
 
                     // Re-snapshot live vessels for Commit Flight path (fresh state)
                     if (!isSceneExit)
                     {
-                        ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(finalizeVessel);
+                        ConfigNode freshSnapshot = vesselAccess.TryBackupSnapshot(finalizeVessel);
                         if (freshSnapshot != null)
                         {
                             rec.VesselSnapshot = freshSnapshot;
@@ -10914,10 +11000,10 @@ namespace Parsek
                 else if (isSceneExit)
                 {
                     // Scene exit: vessel unloaded (alive) but not findable. Recordings
-                    // for truly destroyed vessels already have TerminalStateValue set by
-                    // DeferredDestructionCheck / ApplyDestroyedFallback before finalization.
-                    // Reaching here without a terminal state means the vessel was alive
-                    // when unloaded. Infer terminal state from the last trajectory point.
+                    // with a recorder-observed destruction event are overridden after this
+                    // terminal-assignment block. Reaching here without that flag means the
+                    // vessel was alive when unloaded. Infer terminal state from the last
+                    // trajectory point.
                     //
                     // PR #572 follow-up: skip the surface inference when the recording was
                     // just repaired from the committed tree this frame (the trajectory
@@ -10993,6 +11079,9 @@ namespace Parsek
                 }
             }
 
+            if (isLeaf && !preserveRestoredSceneExitTerminalState)
+                ApplyDestroyedFallback(vesselDestroyedDuringRecording, rec);
+
             // #289: Re-snapshot the vessel whenever the recording has reached a stable terminal
             // state (Landed/Splashed/Orbiting) AND the live vessel is still findable. Without
             // this, the snapshot's `sit` field stays stale from recording-start (FLYING/SUB_ORBITAL),
@@ -11008,11 +11097,15 @@ namespace Parsek
                 && !cacheFinalizationApplied
                 && isLeaf
                 && rec.TerminalStateValue.HasValue
-                && finalizeVessel != null)
+                && finalizeVesselFound)
             {
                 var ts = rec.TerminalStateValue.Value;
                 if (IsStableSpawnTerminal(ts))
-                    TryRefreshStableTerminalSnapshot(rec, finalizeVessel, isSceneExit, "FinalizeIndividualRecording");
+                    vesselAccess.TryRefreshStableTerminalSnapshot(
+                        rec,
+                        finalizeVessel,
+                        isSceneExit,
+                        "FinalizeIndividualRecording");
             }
 
             // Refresh terminal orbit for orbital leaf recordings even if a body was
@@ -11032,8 +11125,10 @@ namespace Parsek
                     preserveSceneExitTerminalOrbit
                     || preserveFinalizationCacheTerminalOrbit;
                 string bodyBeforeRefresh = rec.TerminalOrbitBody;
-                if (!sceneExitLifetimeExtended && !cacheFinalizationApplied && finalizeVessel != null)
-                    CaptureTerminalOrbit(rec, finalizeVessel);
+                if (!sceneExitLifetimeExtended
+                    && !cacheFinalizationApplied
+                    && finalizeVesselFound)
+                    vesselAccess.CaptureTerminalOrbit(rec, finalizeVessel);
                 else if (preserveFinalizerSuppliedTerminalOrbit)
                     ParsekLog.Verbose("Flight",
                         $"FinalizeIndividualRecording: preserving " +
@@ -11067,7 +11162,7 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"FinalizeIndividualRecording: backfilled TerminalOrbitBody={rec.TerminalOrbitBody} " +
                             $"for '{rec.RecordingId}' via orbit-segment fallback " +
-                            $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                            $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVesselFound}, " +
                             $"previousBody={bodyBeforeFallback ?? "(empty)"})");
                     }
                 }
@@ -11076,7 +11171,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Flight",
                         $"FinalizeIndividualRecording: terminal orbit refresh declined for '{rec.RecordingId}' " +
-                        $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVessel != null}, " +
+                        $"(terminal={rec.TerminalStateValue}, vesselFound={finalizeVesselFound}, " +
                         $"orbitSegments={rec.OrbitSegments?.Count ?? 0}) — TerminalOrbitBody remains empty");
                 }
             }
