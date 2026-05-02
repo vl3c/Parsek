@@ -4419,12 +4419,13 @@ namespace Parsek
                 "would produce an 'Unknown' 0s row with no playback value";
         }
 
-        // Why 50m: this gate uses propagated residual, not raw seed-live travel.
-        // KSP.log:10596 showed the pathological child seed had normal ~866m
-        // along-track travel over 0.5s but a ~270m radial/perpendicular miss after
-        // propagation. Healthy split seeds should land within a few metres of the
-        // live root over the coalescer window; 50m is intentionally below that
-        // captured failure while still leaving room for frame skew.
+        // Why 50m: controlled child recordings should start on the live root-part
+        // position at the split, while debris still uses the pre-captured seed.
+        // KSP.log:16288 in logs/2026-05-02_1132_pr708-refly-long-init-behind
+        // showed a controlled child seed 1118.66m behind the live root because the
+        // along-track propagated residual looked acceptable. Keep both checks:
+        // direct distance catches stale init points, propagated residual catches
+        // seeds that are close in time but off the live root path.
         internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
         internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
         // Production anchor lookup has a wider 1.0s search window, but authoring
@@ -4469,16 +4470,22 @@ namespace Parsek
             bool childHasController,
             bool liveVesselAvailable,
             bool capturedSeedAvailable,
+            double seedLiveRootDistanceMeters,
             double propagatedSeedLiveRootResidualMeters,
             double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
         {
             // Debris seeds remain excluded in this PR: the controlled child is the
             // user-visible Re-Fly stage, while debris needs a separate threshold policy.
-            return childHasController
-                && liveVesselAvailable
-                && capturedSeedAvailable
-                && IsFinite(propagatedSeedLiveRootResidualMeters)
-                && propagatedSeedLiveRootResidualMeters > toleranceMeters;
+            if (!childHasController || !liveVesselAvailable || !capturedSeedAvailable)
+                return false;
+
+            double threshold = Math.Max(0.0, toleranceMeters);
+            bool directSeedMissesLiveRoot =
+                IsFinite(seedLiveRootDistanceMeters) && seedLiveRootDistanceMeters > threshold;
+            bool propagatedSeedMissesLiveRoot =
+                IsFinite(propagatedSeedLiveRootResidualMeters) && propagatedSeedLiveRootResidualMeters > threshold;
+
+            return directSeedMissesLiveRoot || propagatedSeedMissesLiveRoot;
         }
 
         internal static double ComputeBreakupSeedPropagatedResidualMeters(
@@ -4728,6 +4735,7 @@ namespace Parsek
                 childHasController: true,
                 liveVesselAvailable: true,
                 capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: hasDistance ? seedLiveRootDistance : double.NaN,
                 propagatedSeedLiveRootResidualMeters: hasDistance ? propagatedSeedResidual : double.NaN);
 
             if (!preferLive)
@@ -4742,6 +4750,12 @@ namespace Parsek
                 return capturedPoint;
             }
 
+            bool directSeedMissesLiveRoot =
+                IsFinite(seedLiveRootDistance)
+                && seedLiveRootDistance > ControlledChildLiveSeedResidualToleranceMeters;
+            string replacementReason = directSeedMissesLiveRoot
+                ? "seed-misses-live-root"
+                : "propagated-seed-misses-live-root";
             ParsekLog.Info("Coalescer",
                 $"Controlled child initial seed replaced with live sample: pid={pid} " +
                 $"capturedUT={capturedPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
@@ -4749,7 +4763,7 @@ namespace Parsek
                 $"seedLiveRootDist={seedLiveRootDistance.ToString("F2", CultureInfo.InvariantCulture)}m " +
                 $"propagatedResidual={propagatedSeedResidual.ToString("F2", CultureInfo.InvariantCulture)}m " +
                 $"threshold={ControlledChildLiveSeedResidualToleranceMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
-                "source=decouple-callback reason=propagated-seed-misses-live-root");
+                $"source=live-root-part reason={replacementReason}");
             return livePoint;
         }
 
@@ -4926,16 +4940,17 @@ namespace Parsek
                         continue;
                     }
 
-                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
-                        ctrlSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
-
-                    // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     TrajectoryPoint? initialPoint = ResolveControlledChildInitialTrajectoryPoint(
                         pid,
                         breakupChildPoint,
                         childVessel,
                         Planetarium.GetUniversalTime());
                     initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
+
+                    var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
+                        ctrlSnap, initialPoint, parentGeneration: activeRec.Generation);
+
+                    // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;

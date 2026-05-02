@@ -89,7 +89,8 @@ Runtime gate:
 
 The prior logs showed two jarring data shapes independent of cycles:
 
-- A child seed with about `1060m` residual between seed point and live root because the seed UT and live-root UT were not aligned.
+- Fixed narrow case: `logs/2026-05-02_1132_pr708-refly-long-init-behind/` showed a controlled child seed `1118.66m` behind the live root at separation. Controlled child recordings now replace that stale coalescer seed with a one-time live root-part seed when the direct seed-to-root distance or propagated residual exceeds the 50 m gate. This does not add ongoing relative-to-live-vessel playback.
+- Remaining generic case: other child/debris boundary seeds can still be wrong if focus and anchor poses are sampled at different UTs.
 - A parent absolute section with only one point for about half a second, causing visible freeze while the child moves quickly.
 
 Target rule:
