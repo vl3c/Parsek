@@ -1466,29 +1466,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindRetryBlockingWorldAction_IgnoresMilestoneButStrictGateReportsIt()
-        {
-            var rec = Rec("rec_milestone", "tree_1");
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_milestone",
-                Type = GameActionType.MilestoneAchievement,
-                RecordingId = "rec_milestone",
-                UT = 12.0,
-                MilestoneId = "RecordsAltitude",
-                MilestoneFundsAwarded = 960.0f,
-                MilestoneRepAwarded = 1.0f,
-            });
-
-            string summary;
-            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
-            Assert.Equal("MilestoneAchievement:act_milestone", summary);
-
-            Assert.False(SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
-            Assert.Null(summary);
-        }
-
-        [Fact]
         public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceAction_AutoSeals()
         {
             const string bpId = "bp_stage";
@@ -1592,59 +1569,6 @@ namespace Parsek.Tests
                 && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
-        }
-
-        [Fact]
-        public void DestroyedTerminal_WithRecordingScopedMilestoneAction_KeepsOpen()
-        {
-            const string bpId = "bp_stage";
-            var origin = Rec("rec_origin", "tree_1");
-            InstallTree("tree_1",
-                new List<Recording> { origin },
-                new List<BranchPoint>());
-            var provisional = AddProvisional("rec_provisional", "tree_1",
-                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
-            provisional.ParentBranchPointId = bpId;
-            var marker = Marker("rec_origin", "rec_provisional");
-            var scenario = InstallScenario(marker);
-            var originSlot = new ChildSlot
-            {
-                SlotIndex = 1,
-                OriginChildRecordingId = "rec_origin",
-                Controllable = true,
-            };
-            scenario.RewindPoints.Add(new RewindPoint
-            {
-                RewindPointId = "rp_1",
-                BranchPointId = bpId,
-                FocusSlotIndex = 0,
-                ChildSlots = new List<ChildSlot>
-                {
-                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
-                    originSlot,
-                }
-            });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_milestone",
-                Type = GameActionType.MilestoneAchievement,
-                RecordingId = "rec_provisional",
-                UT = 12.0,
-                MilestoneId = "RecordsAltitude",
-                MilestoneFundsAwarded = 960.0f,
-                MilestoneRepAwarded = 1.0f,
-            });
-
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
-
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("classifierReason=crashed")
-                && l.Contains("autoSeal=False"));
         }
 
         [Fact]

@@ -373,7 +373,7 @@ namespace Parsek
                 return false;
 
             string actionSummary;
-            if (!SupersedeCommit.TryFindRetryBlockingWorldAction(
+            if (!SupersedeCommit.TryFindRecordingScopedWorldAction(
                     rec, out actionSummary))
                 return false;
 
@@ -482,7 +482,7 @@ namespace Parsek
             }
 
             string actionSummary;
-            if (SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out actionSummary))
+            if (SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out actionSummary))
             {
                 reason = RecordingActionReasonPrefix + actionSummary;
                 rp = null;

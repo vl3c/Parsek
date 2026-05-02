@@ -221,38 +221,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DestroyedWithRecordingScopedMilestoneAction_IsMember()
-        {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
-                parentBranchPointId: "bp_1", treeId: "tree_1");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_milestone_crash",
-                Type = GameActionType.MilestoneAchievement,
-                RecordingId = "rec_A",
-                UT = 12.0,
-                MilestoneId = "RecordsAltitude",
-                MilestoneFundsAwarded = 960.0f,
-                MilestoneRepAwarded = 1.0f,
-            });
-
-            ParsekLog.ResetRateLimitsForTesting();
-            logLines.Clear();
-            var members = UnfinishedFlightsGroup.ComputeMembers();
-
-            Assert.Single(members);
-            Assert.Equal("rec_A", members[0].RecordingId);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("rec=rec_A")
-                && l.Contains("reason=crashed"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:MilestoneAchievement:act_milestone_crash"));
-        }
-
-        [Fact]
         public void DestroyedWithOnlyTombstoneableKerbalDeathActions_IsMember()
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
