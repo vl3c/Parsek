@@ -66,7 +66,7 @@ The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus,
 
 ### 2.4 Predicate is shared; safety gates cap retry intent
 
-The STASH membership predicate is shared between Site A (original tree commit) and Site B-1 (re-fly merge classification) for diagnostics and crash/stranded-EVA detection. Manual Stash is the player's intent signal for a stable leaf, but retry intent is capped by hard safety gates: no recovered/docked/boarded terminal, no downstream structural/world interaction, and no recording-linked game action that changed career/world state. Safe stable retry reasons (`stableLeafUnconcluded`, `stashedStableLeaf`) stay `CommittedProvisional` after merge when those gates are clean. Terminal failure outcomes (`Destroyed`, or an EVA kerbal that did not board) also remain retryable unless the recording has a non-tombstoneable career/world action; tombstoneable kerbal-death ledger rows remain retryable because a successful re-fly can retire them and return the kerbal.
+The STASH membership predicate is shared between Site A (original tree commit) and Site B-1 (re-fly merge classification) for diagnostics and crash/stranded-EVA detection. Manual Stash is the player's intent signal for a stable leaf, but retry intent is capped by hard safety gates: no recovered/docked/boarded terminal, no downstream structural/world interaction, and no recording-linked game action that changed career/world state. Site A keeps `stableLeafUnconcluded` and `stashedStableLeaf` rows open in STASH so the player can come back to them — the original-tree commit does not represent player intent to conclude a slot. **Site B-1 (re-fly merge) is stricter:** the slot the player chose to Re-Fly is treated as the merge-time focus regardless of `RewindPoint.FocusSlotIndex`, and reaching a stable terminal on that slot now seals it, because the player explicitly engaged the slot to fly it themselves and the merge concludes that engagement. A Re-Fly that authors a structural branch point during the session (decouple / stage / undock / joint break / EVA) also seals on merge regardless of where the chain tip lands, since those are explicit player-driven shape mutations the player wants preserved. Terminal failure outcomes (`Destroyed`, or an EVA kerbal that did not board) remain retryable unless the recording has a non-tombstoneable career/world action; tombstoneable kerbal-death ledger rows remain retryable because a successful re-fly can retire them and return the kerbal. Background protection still applies for vessels the player merely controlled and then switched away from at scene exit (handled by Site A's natural-promotion path, which does not flow through the focus override). See §4.6 for the full Re-Fly auto-seal contract and §6.3 for the algorithm.
 
 ### 2.5 Layering: classifier owns the helpers, UI consumes
 
@@ -101,7 +101,7 @@ This section fixes the vocabulary. "Recording" (lowercase) is the concept; **Rec
 - **Prior tip** — the slot's current effective recording id at re-fly invocation time, before any new supersede relation has been appended for the current re-fly. Equals `slot.OriginChildRecordingId` on the first re-fly into a slot; equals the previous re-fly's recording id on chain extension.
 - **Site A** — `RecordingStore.ApplyRewindProvisionalMergeStates`. The MergeState-promotion call site that runs at original tree commit.
 - **Site B-1** — `SupersedeCommit.FlipMergeStateAndClearTransient`. The MergeState-promotion call site that runs at re-fly merge.
-- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. It no longer unconditionally forces every in-place outcome closed. It consumes Site B-1's safety decision: clean stable or safety-clean terminal-failure outcomes stay `CommittedProvisional`, while safety-closed outcomes inherit Site B-1's `Immutable` + auto-seal result and can be reaped.
+- **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. It consumes Site B-1's verdict: under the v0.9.1 auto-seal revision (§4.6), clean stable Re-Fly outcomes commit `Immutable` + auto-seal at Site B-1 and Site B-2 lets the reaper remove the RP. Safety-closed outcomes (recovered/docked/boarded, downstream interaction, world-action) follow the same path. Terminal-failure outcomes (`Destroyed`, non-boarded EVA) without a non-tombstoneable career/world action still stay `CommittedProvisional` so the player can retry the failure.
 
 ---
 
@@ -138,7 +138,7 @@ RewindPointReaper.IsReapEligible: 4 slots are CP (open) -> RP-1 stays alive.
 Recordings Manager Unfinished Flights group shows P1, P2, P3, P4 with Fly + Seal buttons.
 ```
 
-Player can pick any probe individually, hit Fly, rewind to the staging UT, and fly that probe to a real mission (land it, transfer it elsewhere, etc.). The other three probes ghost-play-back from their committed coast. Merge produces a re-fly that supersedes the original probe. If the new recording is a clean stable leaf, the slot can stay in STASH for another synchronization pass; if it recovers, docks, boards, creates a downstream structural/world interaction, or records a career/world action such as science or milestone credit, the safety gate auto-seals it. Destroyed/non-boarded-EVA outcomes stay CP for another retry unless they also contain a non-tombstoneable career/world action. If the player decides one probe is "done" before re-flying it, they hit Seal and the row drops.
+Player can pick any probe individually, hit Fly, rewind to the staging UT, and fly that probe to a real mission (land it, transfer it elsewhere, etc.). The other three probes ghost-play-back from their committed coast. Merge produces a re-fly that supersedes the original probe. **Per the v0.9.1 auto-seal revision (§4.6):** if the re-fly reaches a stable terminal (`Orbiting`, `SubOrbital`, `Landed`, `Splashed`, etc.) on the chosen slot, OR authors a structural branch point during the session (decouple / stage / undock / joint break / EVA), the merge commits `Immutable` and auto-seals the slot — the player engaged this slot to fly it themselves and the merge concludes that engagement. Recovers, docks, boards, downstream structural/world interaction, and recording-linked career/world actions all still trigger the existing safety-close path. Destroyed / non-boarded-EVA outcomes stay `CommittedProvisional` for another retry unless they also contain a non-tombstoneable career/world action. If the player decides one probe is "done" before re-flying it, they hit Seal and the row drops.
 
 ### 4.2 Focus exclusion: routine upper stages don't pollute the list
 
@@ -183,6 +183,32 @@ A tree-branching split can capture a RewindPoint with both the continuing parent
 Resolution order is part of the contract. `UnfinishedFlightClassifier.TryResolveRewindPointForRecording` first walks the legacy child/parent BranchPoint links so chain-continuation recordings keep their existing precedence. Only after those walks fail does it scan live RewindPoints and call `EffectiveState.ResolveRewindPointSlotIndexForRecording` to match by slot origin id, choosing the latest matching RP by UT when the same parent recording appears in multiple origin slots. `TryQualify` labels this fallback `side=origin-only` when the matched RP is justified by the slot origin rather than by a parent/child BranchPoint match. The log line therefore distinguishes the new tree-branching-parent path from the existing `side=active-parent-child` chain-continuation parent and regular `side=child` branches.
 
 The downstream-BranchPoint guard is naturally a no-op for this shape because the still-open parent is its own chain tip and has no `ChildBranchPointId`. The controllable gate still applies through the RP slot and `rec.IsDebris`, so debris breakup rows do not become Re-Fly candidates merely because they share a parent id. Site B-1 merge classification uses the same origin-slot idea against the marker's supersede target for separate provisional re-flights; in-place continuations keep their existing terminal-kind fallback policy.
+
+### 4.6 Re-Fly auto-seal contract (v0.9.1 revision)
+
+The original v1 design (§4.1, §6.3, §11.3) held that a clean stable Re-Fly outcome stayed `CommittedProvisional` so the player could keep synchronizing the slot against other recordings. Playtesting showed this conflicts with the player's mental model: when the player explicitly *picks a slot to Re-Fly* and *flies it themselves*, the merge concludes their engagement with that slot. Leaving the slot open meant a successful re-fly to orbit still showed up as Unfinished and offered a "Fly" button the player did not want. Worse, it caused confusion about whether the original or the re-flown timeline was authoritative.
+
+**Revised contract.** Site B-1 (re-fly merge) seals the slot — `Immutable` recording + `slot.Sealed=true` — when ANY of these is true:
+
+1. **Player-chosen slot reached a stable terminal** (`Orbiting`, `SubOrbital`, `Landed`, `Splashed`, plus the existing hard-safety set `Recovered` / `Docked` / `Boarded`). The player engaged the slot to fly it; the merge concludes the engagement.
+2. **Structural mutation during the session** — the Re-Fly authored a new `BranchPoint` of type `Breakup`, `Undock`, `EVA`, or `JointBreak` in the provisional's tree. Decouple, stage, undock, joint break, kerbal EVA — these are explicit player-driven shape mutations the player wants preserved, regardless of where the chain tip ends.
+3. **Recording-linked career/world action** — science, milestone, funds/rep, contract, facility, kerbal, strategy state. (Existing rule, unchanged.)
+4. **Downstream structural/world interaction** — the chain tip's `ChildBranchPointId` resolves to a deeper RP. (Existing rule, unchanged.)
+
+The slot **stays open** (`CommittedProvisional`, `slot.Sealed=false`) only on terminal-failure outcomes — `Destroyed`, or an EVA kerbal that did not board — so the player can retry the failure. Tombstoneable kerbal-death + bundled reputation penalty still keep the slot open because a successful retry retires those rows.
+
+**Site A is unaffected.** The original-tree-commit predicate that surfaces stable-leaf siblings into Unfinished Flights does not know about Re-Fly intent; it continues to promote `stableLeafUnconcluded` and `stashedStableLeaf` rows so the player can come back to them. The auto-seal revision lives entirely in the Re-Fly merge call site (Site B-1 / Site B-2). Background vessels the player merely controlled and then switched away from at scene exit still take the Site A path and stay re-flyable.
+
+**Mechanics.**
+
+- *Focus override.* `UnfinishedFlightClassifier.TryQualify` accepts an optional `int? focusSlotOverride`. `SupersedeCommit.ClassifyMergeStateOrThrow` populates it with the merge-time `slotListIndex`. Inside the classifier, the static-focus check (`slotListIndex == rp.FocusSlotIndex`) and the recording-scoped world-action gate fire first, so existing focus-slot and `recordingAction:*` paths are unchanged. If neither fires, the override path returns `reason=stableTerminalFocusSlot` whenever `slotListIndex == focusSlotOverride.Value` on a stable Orbiting / SubOrbital tip. The verdict log appends `focusSlot=N focusSlotOverride=M` so the source of the focus decision is greppable.
+- *`stableTerminalFocusSlot` auto-seals slot.* `SupersedeCommit.ShouldAutoSealReFlySlotAfterMerge` flips `slot.Sealed=true` for `closeReason.Detail == "stableTerminalFocusSlot"` on both the static-focus and override paths.
+- *Structural-mutation gate.* `SupersedeCommit.HasReFlySessionStructuralMutation(provisional, marker)` walks the provisional's tree (resolved via `marker.TreeId`) for any `BranchPoint` with `Type ∈ {Breakup, Undock, EVA, JointBreak}` whose `UT > rp.UT` (the resolved rewind-point UT, NOT `marker.InvokedUT` — the latter is the live UT at click time, typically much greater than rp.UT and would reject normal post-rewind decouples as if pre-rewind). The gate also excludes any BP whose id is in the marker's new `PreSessionBranchPointIds` baseline — a snapshot of every `BranchPoint.Id` in the tree at marker creation, persisted on the marker so `SpliceMissingCommittedRecordingsIntoLoadedTree` cannot smuggle pre-Re-Fly post-RP BPs back into the loaded tree and trip a false positive. Legacy markers with `PreSessionBranchPointIds=null` skip the gate conservatively. Detection fires inside `ShouldKeepReFlySlotOpenAfterMerge` after the existing `IsTerminalFailureReFlyOutcome` keep-open branch, so crashed retries are unaffected.
+- *Reachability under the focus override.* Once the override is in place, the structural-mutation gate is functionally only reachable when `qualifies=true` falls past `IsTerminalFailureReFlyOutcome` — which only happens for the `stashedStableLeaf` branch. Non-stashed Re-Fly targets reach `stableTerminalFocusSlot` via the override and exit at `!classifierQualifies` before the structural gate runs. The structural gate still earns its keep on stashed Re-Flies that decouple/stage/undock without reaching a stable focus tip.
+
+**What does NOT count as structural mutation.** Detection is on `BranchPointType`, not on `Recording.PartEvents`. Solar panel deploy, ladder extend, landing leg toggle, cargo bay open/close, control surface deflect, animation toggle, gear lower/raise — none of those author a `BranchPoint` and none of them auto-seal. Branch points are only authored when KSP changes vessel topology (decouple / stage / undock / joint break / EVA / dock / board / launch / terminal); only the structural-split subset closes the slot.
+
+**Reap consequence.** An auto-sealed slot may make its rewind point reap-eligible. `MergeDialog.TryCommitReFlySupersede`'s post-merge reap call deletes the RP's quicksave file when all slots in that RP are closed. A successful Re-Fly to stable orbit, or a Re-Fly that staged debris, cannot be re-flown again afterward — the on-disk file is gone. This is the intended outcome ("player is done with that line of flight") but is irreversible for that session.
 
 ---
 
@@ -341,9 +367,36 @@ ConfigNode key: `supersedeTargetId`, **always written** when the marker is persi
 
 `MarkerValidator.Validate` extends to weakly validate `SupersedeTargetId`: when non-null, must resolve in `RecordingStore.CommittedRecordings` or the matching pending tree; failure logs `[ReFlySession] Warn: Marker invalid field=SupersedeTargetId; clearing` and clears the field. Null is always valid.
 
-### 5.4 No new ConfigNode wrapper sections
+### 5.4 ReFlySessionMarker.PreSessionBranchPointIds (v0.9.1)
 
-This feature does not add any top-level sections under `ParsekScenario`. All three new fields are properties on existing persistent objects (`ChildSlot`, `RewindPoint`, `ReFlySessionMarker`).
+```csharp
+public class ReFlySessionMarker
+{
+    // ... existing fields ...
+
+    /// <summary>
+    /// Snapshot of every BranchPoint.Id present in the marker's tree at
+    /// the moment the marker was created. Consumed by
+    /// SupersedeCommit.HasReFlySessionStructuralMutation as a session-
+    /// local baseline so post-RP structural BPs that the load-time
+    /// SpliceMissingCommittedRecordingsIntoLoadedTree path re-grafts
+    /// back into the loaded tree are excluded from the gate. Without it,
+    /// any old structural BP from the original future would auto-seal
+    /// a stashed slot the player never mutated.
+    /// </summary>
+    public List<string> PreSessionBranchPointIds;
+}
+```
+
+Populated by a new `RewindInvoker.SnapshotTreeBranchPointIds(treeId)` helper called inline in marker construction (`AtomicMarkerWrite`). The list is small (typically 0-N branch points per tree) and cheap to capture once at session start.
+
+ConfigNode round-trip: a presence sentinel `preSessionBranchPointIdsPresent="true"` is written whenever the field is non-null, alongside repeated `preSessionBranchPointId` value entries. The sentinel is the difference between "post-fix marker on a tree that had no BPs at invocation" (field present, empty list — gate runs and treats every current BP as session-authored) and "legacy marker from before this field shipped" (field absent — gate conservatively skips). The reader populates the list only when the sentinel is set.
+
+Backward compatibility: legacy markers persisted before this field shipped load with `PreSessionBranchPointIds=null`; the structural-mutation gate skips on those markers so in-flight sessions at upgrade time preserve the pre-fix keep-open behavior on merge.
+
+### 5.5 No new ConfigNode wrapper sections
+
+This feature does not add any top-level sections under `ParsekScenario`. All four new fields are properties on existing persistent objects (`ChildSlot`, `RewindPoint`, `ReFlySessionMarker`).
 
 ---
 
@@ -473,7 +526,7 @@ for each rec in tree.Recordings:
 
 The existing v0.9 crash-only path is subsumed: `Qualifies` returns true for `terminal == Destroyed` regardless of focus.
 
-**Site B-1: re-fly merge classifier flip.** `SupersedeCommit.FlipMergeStateAndClearTransient` resolves the RP slot, evaluates the STASH predicate for diagnostics, then applies the merge-close gate:
+**Site B-1: re-fly merge classifier flip.** `SupersedeCommit.FlipMergeStateAndClearTransient` resolves the RP slot, evaluates the STASH predicate for diagnostics with the merge-time slot supplied as `focusSlotOverride` (§4.6), then applies the merge-close gate:
 
 ```
 // Slot resolution: walk supersedes from each slot's OriginChildRecordingId
@@ -495,9 +548,18 @@ if NOT TryResolveRewindPointForRecording(provisional, out rp, out slotIdx):
     return
 
 var slot = rp.ChildSlots[slotIdx]
+// focusSlotOverride: the slot the player chose to Re-Fly is the
+// merge-time focus regardless of rp.FocusSlotIndex. Inside the
+// classifier, slotListIndex == focusSlotOverride takes the
+// stableTerminalFocusSlot branch on Orbiting/SubOrbital tips, after
+// the existing static-focus and recording-scoped world-action checks
+// have run.
 bool qualifies = UnfinishedFlightClassifier.Qualifies(
-    provisional, slot, rp, considerSealed: false)
+    provisional, slot, rp, considerSealed: false,
+    focusSlotOverride: slotIdx)
 
+// Terminal failure: Destroyed or non-boarded EVA. Crashed retries
+// keep their existing keep-open path so the player can retry.
 bool terminalFailure =
     terminal == Destroyed
     OR (EvaCrewName != null AND terminal != Boarded)
@@ -506,29 +568,41 @@ bool hasUnsafeRecordingAction =
     HasRecordingScopedWorldAction(provisional)
     EXCEPT tombstoneable KerbalAssignment+Dead and bundled death ReputationPenalty
 
-bool cleanStableRetry =
-    classifierReason in { stableLeafUnconcluded, stashedStableLeaf }
+// Structural mutation during this Re-Fly session: any BranchPoint with
+// Type in {Breakup, Undock, EVA, JointBreak} authored at UT > rp.UT
+// AND not already in marker.PreSessionBranchPointIds (the snapshot
+// captured at marker creation, persisted on the marker, used to filter
+// out spliced-back pre-session BPs). See §4.6 and §6.6.
+bool hasStructuralMutation =
+    HasReFlySessionStructuralMutation(provisional, marker)
 
 bool keepOpen =
     qualifies
     AND NOT hasUnsafeRecordingAction
-    AND (terminalFailure OR cleanStableRetry)
+    AND terminalFailure                  // ONLY terminal failure keeps open
+    AND NOT hasStructuralMutation        // ... and no structural mutation
 
 provisional.MergeState = keepOpen
     ? CommittedProvisional
     : Immutable
 
-if (!keepOpen AND closeReason is a safety-close reason)
+// Auto-seal triggers: stableTerminalFocusSlot (player-chosen slot
+// reached stable terminal), structuralMutation (session authored a
+// new structural BP), recordingAction (any recording-linked career/
+// world action), downstreamBp (chain tip's child BP resolves to a
+// deeper RP), and the existing hard-safety terminals
+// (Recovered/Docked/Boarded).
+if (!keepOpen AND closeReason is an auto-seal reason)
     slot.Sealed = true
 
 log [Supersede] Info: provisional=<rid> mergeState=<state> qualifies=<b>
-    slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex>
+    slot=<slotIdx> rp=<rpId> focusSlot=<rp.FocusSlotIndex> focusSlotOverride=<slotIdx>
     classifierReason=<reason> autoSeal=<b> autoSealReason=<reason>
 ```
 
-This intentionally means a non-focus `Orbiting`/`SubOrbital` leaf can appear in STASH before the re-fly and remain there after a clean stable re-fly. Stable is not inherently final: an undocked probe parked in orbit, or a rover moved safely on the surface, can still be a useful synchronization point. The slot closes only when the re-fly crosses a hard safety gate. If the player runs science from the vehicle, earns funds/rep/milestone/contract credit, changes facilities/strategies, recovers, docks, boards, or creates a downstream structural/world interaction, the recording has affected the universe and future retry is blocked.
+Under the v0.9.1 auto-seal revision (§4.6), a `stableLeafUnconcluded` reason can no longer come out of Site B-1 because `focusSlotOverride: slotIdx` reroutes the player-chosen-slot Orbiting/SubOrbital path to `stableTerminalFocusSlot` and the `!keepOpen` branch. `stableLeafUnconcluded` still appears at Site A and from non-Re-Fly callers (UI display, reap eligibility), where the override is `null`. Stable retry-keep-open at merge time is therefore deliberately narrowed to terminal-failure outcomes (Destroyed, non-boarded EVA) without a non-tombstoneable career/world action. If the player wants the stable Re-Fly to remain re-flyable, they unstash via the manual STASH affordance from a separate slot — or they don't merge yet (Discard/Retry the Re-Fly).
 
-**Site B-2: in-place continuation merge handling.** `MergeDialog.TryCommitReFlySupersede` consumes Site B-1's result. Clean stable and safety-clean terminal-failure in-place outcomes stay `CommittedProvisional` and remain retryable. Safety-closed outcomes are already `Immutable` and auto-sealed, so the reaper can remove the RP when all slots are closed. Destroyed vessels and stranded/dead EVAs remain retryable from the same RP only while their ledger actions are limited to the tombstoneable kerbal-death carve-out.
+**Site B-2: in-place continuation merge handling.** `MergeDialog.TryCommitReFlySupersede` consumes Site B-1's result. Under the v0.9.1 revision, clean stable in-place outcomes commit `Immutable` + auto-seal at Site B-1, so Site B-2 lets the reaper remove the RP. Safety-closed outcomes follow the same path. Terminal-failure outcomes (`Destroyed`, non-boarded EVA) without a non-tombstoneable career/world action still stay `CommittedProvisional` and remain retryable from the same RP.
 
 ### 6.4 Closure-helper split + invocation linearization (PREREQUISITE)
 
@@ -741,10 +815,10 @@ Survivor V is FocusSlot, terminal Orbiting → not UF (focus exclusion). Player 
 Re-flown probe docks with another tree's station. Dock BP fires; probe-re-fly's chain TIP gets `ChildBranchPointId = dockBp.Id`. Per-RP leaf gate fails. Site B-1 sees the downstream structural/world interaction → `TerminalOutcomeQualifies` returns false → Immutable, auto-sealed. AppendRelations closure walk (rooted at SupersedeTargetId) is tree-scoped and halts at the mixed-parent BP; station's tree unaffected. ✓
 
 ### 7.13 Re-fly a stashed probe, end in Mun orbit
-Re-fly merge: Site B-1 sees Orbiting + non-focus, records `classifierReason=stableLeafUnconcluded`, then applies the safety gate. If the recording has no non-tombstoneable career/world action, the committed stable orbit stays `CommittedProvisional`, the slot remains open, and the player can re-fly from the same RP again to synchronize against other recordings. Supersede still appends `{priorTip -> provisional}` so the timeline points at the new recording. If the re-fly also ran science, earned milestone/funds/rep/contract credit, or otherwise recorded a career/world action, the gate commits `Immutable`, auto-seals the slot, and the row drops from STASH.
+Re-fly merge under the v0.9.1 auto-seal revision (§4.6): Site B-1 calls the classifier with `focusSlotOverride: slotIdx`. The chain tip is Orbiting and the slot the player chose to fly equals the override, so the classifier returns `classifierReason=stableTerminalFocusSlot`. `ShouldKeepReFlySlotOpenAfterMerge` exits at `!classifierQualifies` with `closeReason=ClassifierClosed/stableTerminalFocusSlot`; `MergeState=Immutable` and `slot.Sealed=true`. Supersede still appends `{priorTip -> provisional}` so the timeline points at the new recording. The row drops from STASH. The player intentionally engaged this slot to fly it; the merge concludes the engagement. If the player wants the stable-orbit retry to remain open, they don't merge — they Discard or Retry the Re-Fly. The variant where the re-fly also ran science / earned milestone / funds / rep / contract credit follows the same Immutable + auto-seal path through the existing `recordingAction:*` reason (the world-action gate fires before the focus override branch).
 
 ### 7.14 Re-fly an auto-included stable-leaf probe, end Landed
-Auto-included stable-leaf rows only cover `Orbiting` / `SubOrbital`; a non-stashed Landed outcome is a stable terminal that the predicate does not keep open, so it commits `Immutable`. Manual-Stash variant: if the player explicitly set `slot.Stashed`, the classifier reports `stashedStableLeaf` for diagnostics. A clean Landed rover can remain `CommittedProvisional` and stay in STASH; a Landed rover that ran science or otherwise recorded a non-tombstoneable career/world action commits `Immutable`, auto-seals, and can be reaped.
+The chain tip is Landed (a stable conclusion). Site B-1's classifier reaches the `terminal != Orbiting && terminal != SubOrbital` branch first and returns `stableTerminal` regardless of the focus override; `MergeState=Immutable`. Auto-seal of the slot fires only when `IsHardSafetyTerminal` is true (Recovered/Docked/Boarded) — a Landed leaf without a recording-linked world action keeps `slot.Sealed=false`, but the recording is Immutable so the row drops from UF. Recording-linked science / world actions still trigger `recordingAction:*` + auto-seal. Manual-Stash variant: a stashed slot Re-Fly to Landed routes through the same `stableTerminal` close reason on the chain tip.
 
 ### 7.15 Re-fly a stashed stranded EVA kerbal, succeed in reboarding
 Re-fly merge produces a Board BP. Provisional has `ChildBranchPointId = boardBp.Id`. `TerminalOutcomeQualifies` returns false (Boarded → kerbal branch returns false). Site B-1 → Immutable and auto-sealed. Stranded-kerbal-recovery path complete.
@@ -777,7 +851,10 @@ RP captures with explicit `FocusSlotIndex = -1` (player was focused on an unrela
 RP captures with `FocusSlotIndex = -1` (no focus involved). All sibling slots stay Immutable post-commit. No UF rows. RP reaps. Same outcome as legacy save case.
 
 ### 7.25 In-place re-fly merge ending Orbiting (Site B-2 behavior)
-Player drives a re-fly merge through `MergeDialog.TryCommitReFlySupersede` (in-place path). Site B-1 records the Orbiting + non-focus predicate reason. If the re-fly has no non-tombstoneable recording-linked career/world action, it stays `CommittedProvisional`; Site B-2 does not force a different state, and the RP remains available. If the re-fly ran science or otherwise changed career/world state, Site B-1 commits `Immutable` and auto-seals the slot; Site B-2 lets the reaper remove the RP when all sibling slots are also closed.
+Player drives a re-fly merge through `MergeDialog.TryCommitReFlySupersede` (in-place path). Under the v0.9.1 revision, Site B-1 sees Orbiting on the chain tip with `focusSlotOverride=slotIdx` matching the merge-time slot → `stableTerminalFocusSlot` → `Immutable` + `slot.Sealed=true`. Site B-2 does not override; it lets the reaper remove the RP when all sibling slots are closed. Recording-linked career/world actions still fire ahead of the focus override branch and auto-seal via `recordingAction:*` (unchanged).
+
+### 7.25b In-place re-fly merge after a session-authored decouple
+Player Re-Flies a stashed slot whose chain tip would normally qualify as `stashedStableLeaf` and stages debris during the session. The classifier's stashed branch fires before the focus check (so `qualifies=true`), but `HasReFlySessionStructuralMutation` finds the new `Breakup` BP authored at `UT > rp.UT` (and not in `marker.PreSessionBranchPointIds`). `ShouldKeepReFlySlotOpenAfterMerge` reaches the structural gate after `IsTerminalFailureReFlyOutcome` returns false → `closeReason.Kind=StructuralMutation` → `Immutable` + `slot.Sealed=true`. The verdict log emits `autoSealReason=structuralMutation:branchPoints=N spliceExcluded=M cutoffOrigin=rpUT baseline=K`. Pure-ablation part loss without spawning a sibling vessel does NOT trip this gate (no `BranchPoint` is authored).
 
 Destroyed / stranded-EVA in-place merges use the same gate: pure terminal failure, plus tombstoneable kerbal-death ledger rows, stays `CommittedProvisional`; any additional career/world action closes the slot.
 
@@ -835,7 +912,7 @@ The migration + behavior-change story splits into three notes that must be prese
 
 > **Stranded EVA kerbals: retroactive.** EVA kerbals who got stranded on a body in past missions DO appear in Unfinished Flights after the upgrade. Click Fly to attempt a rescue. (Why: stranded kerbals are unambiguous — you almost certainly want them back — unlike orbital siblings where intent is unclear.)
 
-> **Stable re-flights stay open only while safe.** If you Fly a STASH entry and merge a clean stable outcome (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`), Parsek can keep that retry slot open so you can synchronize it against other recordings. The slot closes when the re-fly reaches a recovered/docked/boarded terminal, creates a downstream structural/world interaction, or records a non-tombstoneable career/world action such as science, milestone/funds/rep, contract, facility, kerbal, or strategy state. Destroyed vessels and non-boarded EVA kerbals stay retryable unless they also changed career/world state beyond tombstoneable kerbal death.
+> **Re-Flying a STASH entry to a stable conclusion seals the slot (v0.9.1).** When you Fly a STASH entry and the merge commits the slot's chain tip at a stable terminal (`Orbiting`, `SubOrbital`, `Landed`, `Splashed`, plus the existing `Recovered`/`Docked`/`Boarded` set), Parsek seals that retry slot — the recording is `Immutable`, the row drops from Unfinished Flights, and the rewind point's quicksave is reaped on the next sweep. The same applies if the Re-Fly authors any structural shape change during the session (decouple, stage, undock, joint break, kerbal EVA — anything that creates a new sibling vessel). The intent: when you actively engage a slot to fly it yourself, the merge concludes that engagement. Destroyed vessels and non-boarded EVA kerbals still stay retryable for another attempt unless they also changed career/world state beyond tombstoneable kerbal death. Routine non-structural part actions like deploying solar panels, ladders, gear, or cargo bays do NOT count as structural mutation. If you want to keep a stable Re-Fly retryable, don't merge — Discard the Re-Fly and revisit the slot later.
 
 ### 9.3 v1+ saves on pre-v1 (v0.9.x) Parsek
 
@@ -849,17 +926,21 @@ Per §6.4 migration concern + §7.26: legacy star-shaped supersede portions in p
 
 ## 10. Risks
 
-- **Disk usage growth.** Stable-leaf RPs persist while they are offered in STASH and can remain open after clean stable re-flights. Crash/death retry RPs also persist until the player succeeds, hits a safety gate, or explicitly Seals them. Mitigation: the Settings → Diagnostics RP disk-usage line includes live crashed-open, stable-open, and sealed-pending RP buckets next to the byte/file total.
+- **Disk usage growth.** Stable-leaf RPs persist while they are offered in STASH (Site A keeps them open). Under the v0.9.1 auto-seal revision (§4.6), a *successful* Re-Fly merge now seals the slot and the RP becomes reap-eligible — so the disk-usage growth from this feature is bounded by un-Re-Flown rows and crash/death retries, not by repeated re-flies of the same slot. Crash/death retry RPs still persist until the player succeeds, hits a safety gate, or explicitly Seals them. Mitigation: the Settings → Diagnostics RP disk-usage line includes live crashed-open, stable-open, and sealed-pending RP buckets next to the byte/file total.
 
 - **Over-inclusion.** The simple terminal-state classifier surfaces some cases where the player meaningfully flew or didn't intend to leave a vessel and it ended Orbiting/SubOrbital (Mun-transfer-and-park, briefly-nudged-probe, deep-space probe carried by transfer stage and undocked there). The Seal button is the design's answer. **Do not re-introduce voluntary-action heuristics** — that path was explicitly rejected in R1-R3.
 
-- **Predicate-vs-merge policy confusion.** Site A's STASH-display predicate and Site B's post-merge policy share the classifier reason, but Site B adds the hard safety gate. Stable rows can be offered before the re-fly and clean stable rows can stay open after merge; unsafe terminal, downstream interaction, or non-tombstoneable career/world actions close them. Tests must pin both the diagnostic classifier reason and the merge result so this does not regress into accidental closure or paradox-prone re-fly exposure.
+- **Predicate-vs-merge policy confusion.** Site A's STASH-display predicate and Site B's post-merge policy share the classifier reason but compare against different focus signals. Site A uses the static `rp.FocusSlotIndex`, so non-focus stable leaves stay open. Site B-1 passes `focusSlotOverride: slotIdx` so the merge-time slot becomes the de-facto focus and a successful Re-Fly closes it. Tests must pin both the Site A classifier reason (`stableLeafUnconcluded` for non-Re-Fly callers) and the Site B merge result (`stableTerminalFocusSlot` + `Immutable` + auto-seal) so this contract does not regress into accidental closure or paradox-prone re-fly exposure.
+
+- **Irreversible RP reap on stable Re-Fly.** Site B-1 auto-seal makes the slot reap-eligible immediately at merge, so the post-merge sweep deletes the rewind-point quicksave file. A successful Re-Fly to stable orbit, or one that authored a structural BP, cannot be re-flown again afterward — the on-disk file is gone. This is intended behaviour ("player is done with that line of flight") but it removes the synchronization pass that the v1 design's keep-open contract was meant to enable. Players who want that retry path must Discard / Retry the Re-Fly instead of merging.
+
+- **Structural-mutation false-positive surface.** Detection scans tree branch points with `UT > rp.UT` and excludes `marker.PreSessionBranchPointIds` (the snapshot taken at marker creation). The session-local baseline closes the obvious false-positive vector — `SpliceMissingCommittedRecordingsIntoLoadedTree` re-grafting pre-Re-Fly post-RP BPs back into the loaded tree. The remaining surface is BPs authored after marker creation but before the player actually engaged the slot (e.g. an RP captured during a F5 quicksave that snapshotted a tree mid-stage). The marker is created synchronously with the RP load, so this is a narrow window; tests must pin the cutoff and baseline together to prevent regression.
 
 - **Reversal of v0.9 §7.31 stance.** v0.9 said "stable-end splits explicitly not in scope." v1 says some non-focus stable-end splits ARE in scope (Orbiting/SubOrbital non-focus, EVA-stranded). Focus-continuation stable terminals continue to NOT get a row, preserving the "your mission's upper stage didn't suddenly become unfinished" intuition. The CHANGELOG must be precise about what changed and what didn't.
 
 - **Focus-slot breakup-survivor with stable-orbit terminal still isn't auto-added to UF** (§7.11). Origin-only RP-slot resolution fixes tree-branching parent rows that are otherwise eligible, including crashed parents and non-focus Orbiting/SubOrbital parents. It deliberately does not bypass focus exclusion: a focus-slot survivor that reaches stable orbit is considered the player's continued mission unless they explicitly use v2 Stash while the backing RP still exists.
 
-- **Site B-2 in-place duplicate-row invariant.** The in-place path has no separate provisional, so an open clean-stable result means the recording remains its own effective slot target by design until the player Seals or a later re-fly hits a safety gate. Site B-1 owns that decision; Site B-2 preserves CP for clean stable and terminal-failure outcomes, and reaps only safety-closed `Immutable` outcomes.
+- **Site B-2 in-place duplicate-row invariant.** The in-place path has no separate provisional, so the recording remains its own effective slot target. Site B-1 owns the close/open decision under the v0.9.1 revision; Site B-2 lets the reaper clean up after stable Re-Fly outcomes (now `Immutable` + auto-sealed) and preserves CP only for terminal-failure outcomes that still allow retry.
 
 - **Legacy hybrid supersede graphs.** §7.26 — tolerated by the design but the §11 hybrid test must run green for confidence. If the walker behavior on hybrids differs from expectations, a migration sweep may need to be added back.
 
@@ -898,13 +979,15 @@ The implementation PR's pre-work must run that test against current `main` and d
 
 ### 11.3 Build-phase open question: Site B-2 in-place handling
 
-Resolved in implementation. `MergeDialog.TryCommitReFlySupersede`'s in-place path uses the same `Recording` instance as both the slot's effective recording AND the supersede target, so it delegates the close/open decision to Site B-1 instead of applying a second local policy. The chosen policy is:
+Originally resolved with a "clean stable stays open" policy. **Revised in v0.9.1 (§4.6).** `MergeDialog.TryCommitReFlySupersede`'s in-place path uses the same `Recording` instance as both the slot's effective recording AND the supersede target, so it delegates the close/open decision to Site B-1. The current policy is:
 
-- Clean stable outcomes (`stableLeafUnconcluded`, `stashedStableLeaf`) stay `CommittedProvisional`; Site B-2 preserves that state.
-- Safety-closed outcomes auto-seal in Site B-1 and commit `Immutable`; Site B-2 lets the reaper clean the RP.
-- Terminal failure outcomes (`Destroyed`, non-boarded EVA) stay `CommittedProvisional` unless they also carry non-tombstoneable career/world actions.
+- *Clean stable outcomes* on the player-chosen slot (`stableTerminalFocusSlot` via `focusSlotOverride`) commit `Immutable` + auto-seal at Site B-1; Site B-2 lets the reaper clean the RP.
+- *Structural-mutation* outcomes (any session-authored `Breakup`/`Undock`/`EVA`/`JointBreak` BP not in `marker.PreSessionBranchPointIds`) commit `Immutable` + auto-seal; Site B-2 lets the reaper clean the RP.
+- *Safety-closed* outcomes (Recovered/Docked/Boarded, downstream BP, recording-linked world action) commit `Immutable` + auto-seal; same reap path.
+- *Terminal-failure* outcomes (`Destroyed`, non-boarded EVA) without a non-tombstoneable career/world action stay `CommittedProvisional` so the player can retry.
+- *Stashed-slot Re-Fly* without structural mutation, world action, or hard-safety terminal stays `CommittedProvisional` via `stashedStableLeaf` because the stashed branch fires before the focus check.
 
-This keeps the conservative no-paradox behavior for recovered/docked/boarded, downstream structural/world interaction, and career/world-action outcomes while preserving clean stable retry and the original crash/death retry affordance.
+The previous "clean stable retry" affordance is removed in favour of the playtest-confirmed contract: a successful Re-Fly is the player concluding the slot, not a synchronization pass. Players who want the synchronization affordance Discard / Retry the Re-Fly instead of merging.
 
 ### 11.4 v2 Stash-from-not-UF affordance
 
