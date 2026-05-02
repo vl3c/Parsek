@@ -29,7 +29,7 @@ namespace Parsek
 
         /// <summary>
         /// Clears the deferred merge dialog flag and removes the input lock.
-        /// Called from every button callback.
+        /// Called from button callbacks and popup teardown paths.
         /// </summary>
         internal static void ClearPendingFlag(string reason = null)
         {
@@ -196,6 +196,8 @@ namespace Parsek
                 })
             };
 
+            // Order matters: DismissPopup may invoke the previous popup's
+            // OnDismiss handler, which clears the lock armed by LockInput.
             PopupDialog.DismissPopup(DialogName);
             LockInput();
             ParsekScenario.MergeDialogPending = true;
@@ -216,7 +218,7 @@ namespace Parsek
             {
                 popup.OnDismiss += () =>
                 {
-                    ClearPendingFlag("popup dismissed outside merge button callbacks");
+                    ClearPendingFlag("popup teardown");
                 };
             }
             else

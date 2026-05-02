@@ -39,7 +39,8 @@ namespace Parsek.Tests
 
             Assert.False(ParsekScenario.MergeDialogPending);
             Assert.Contains(logLines, line =>
-                line.Contains("[MergeDialog]")
+                line.Contains("[INFO]")
+                && line.Contains("[MergeDialog]")
                 && line.Contains("Cleared pending flag and input lock")
                 && line.Contains("reason='xunit cleanup'")
                 && line.Contains("wasPending=True"));
