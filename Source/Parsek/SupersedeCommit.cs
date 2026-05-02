@@ -980,6 +980,10 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        // Strict mode intentionally stays available as the tested ledger-safety
+        // contract below retry mode. STASH/Re-Fly retry callers should use
+        // TryFindRetryBlockingWorldAction so automatic consequence rows do not
+        // close terminal-failure retries by themselves.
         internal static bool TryFindRecordingScopedWorldAction(
             Recording rec,
             out string actionSummary)

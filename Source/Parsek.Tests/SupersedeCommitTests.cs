@@ -133,6 +133,23 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.ReputationInitial, false, false };
         }
 
+        [Fact]
+        public void RetryBlockingRecordingActionCases_CoverEveryGameActionType()
+        {
+            var covered = new HashSet<GameActionType>(
+                RetryBlockingRecordingActionCases()
+                    .Select(row => (GameActionType)row[0]));
+            var expected = new HashSet<GameActionType>(
+                Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>());
+            var missing = expected.Except(covered).ToList();
+            var extra = covered.Except(expected).ToList();
+
+            Assert.True(missing.Count == 0 && extra.Count == 0,
+                "RetryBlockingRecordingActionCases must classify every " +
+                "GameActionType. Missing=[" + string.Join(",", missing) +
+                "] Extra=[" + string.Join(",", extra) + "]");
+        }
+
         private static GameAction RecordingScopedAction(
             GameActionType type,
             string recordingId,
@@ -1563,6 +1580,27 @@ namespace Parsek.Tests
                 Assert.Equal(type + ":" + actionId, summary);
             else
                 Assert.Null(summary);
+        }
+
+        [Fact]
+        public void TryFindRetryBlockingWorldAction_SkipsAutomaticActionsUntilPlayerAction()
+        {
+            var rec = Rec("rec_mixed_actions", "tree_1");
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                rec.RecordingId,
+                "act_sci_earn"));
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceSpending,
+                rec.RecordingId,
+                "act_sci_spend"));
+
+            string summary;
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_earn", summary);
+
+            Assert.True(SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
+            Assert.Equal("ScienceSpending:act_sci_spend", summary);
         }
 
         [Fact]
