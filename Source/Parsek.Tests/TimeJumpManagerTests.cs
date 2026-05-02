@@ -26,6 +26,27 @@ namespace Parsek.Tests
         private static readonly double CircularMeanMotion =
             Math.Sqrt(KerbinGM / (CircularSMA * CircularSMA * CircularSMA));
 
+        private static string FindParsekSourceFile(string fileName)
+        {
+            string dir = System.IO.Directory.GetCurrentDirectory();
+            for (int i = 0; i < 8; i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", fileName);
+                if (System.IO.File.Exists(candidate))
+                    return candidate;
+
+                var parent = System.IO.Directory.GetParent(dir);
+                if (parent == null)
+                    break;
+
+                dir = parent.FullName;
+            }
+
+            throw new System.IO.FileNotFoundException(
+                "Could not locate Parsek source file from test working directory.",
+                fileName);
+        }
+
         public TimeJumpManagerTests()
         {
             RecordingStore.SuppressLogging = true;
@@ -35,11 +56,13 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
         }
 
         public void Dispose()
         {
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -527,6 +550,73 @@ namespace Parsek.Tests
                 suppressUntilFrame: 101);
 
             Assert.False(suppressedAfterTransient);
+        }
+
+        #endregion
+
+        #region Ledger recalculation
+
+        [Fact]
+        public void RecalculateLedgerAfterTimeJump_InvokesRecalculateHook()
+        {
+            string capturedJump = null;
+            double capturedCutoff = double.NaN;
+            int calls = 0;
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = (jump, cutoff) =>
+            {
+                capturedJump = jump;
+                capturedCutoff = cutoff;
+                calls++;
+            };
+
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("forward", 1234.5);
+
+            Assert.Equal(1, calls);
+            Assert.Equal("forward", capturedJump);
+            Assert.Equal(1234.5, capturedCutoff);
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation started") &&
+                l.Contains("jump=forward") &&
+                l.Contains("cutoffUT=1234.5"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation complete") &&
+                l.Contains("jump=forward") &&
+                l.Contains("cutoffUT=1234.5"));
+        }
+
+        [Fact]
+        public void RecalculateLedgerAfterTimeJump_CatchesAndLogsFailures()
+        {
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = (_, __) =>
+            {
+                throw new InvalidOperationException("boom");
+            };
+
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("epoch-shift", 9876.5);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation failed") &&
+                l.Contains("jump=epoch-shift") &&
+                l.Contains("cutoffUT=9876.5") &&
+                l.Contains("InvalidOperationException") &&
+                l.Contains("boom"));
+        }
+
+        [Fact]
+        public void ExecuteJumpPaths_CallRecalculateHelperWithTargetUt()
+        {
+            string source = System.IO.File.ReadAllText(
+                FindParsekSourceFile("TimeJumpManager.cs"));
+
+            Assert.Contains(
+                "RecalculateLedgerAfterTimeJump(\"epoch-shift\", targetUT);",
+                source);
+            Assert.Contains(
+                "RecalculateLedgerAfterTimeJump(\"forward\", targetUT);",
+                source);
         }
 
         #endregion

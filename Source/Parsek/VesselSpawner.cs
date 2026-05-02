@@ -23,6 +23,7 @@ namespace Parsek
         /// to prevent infinite retry loops (bug #110).
         /// </summary>
         internal const int MaxCollisionBlocks = 150;
+        internal const int TerminalOrbitSpawnSafetyScanSteps = 180;
 
         internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
         internal static ResolveBodyByNameDelegate BodyResolverForTesting;
@@ -1178,6 +1179,21 @@ namespace Parsek
                 return;
             }
 
+            if (rec.TerminalSpawnCannotSpawnSafely)
+            {
+                ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "Spawn skipped for #{0} ({1}): terminal orbit cannot spawn safely " +
+                    "reason={2} currentUT={3:R} propagatedAlt={4:R} safeAlt={5:R} periapsis={6:R}",
+                    index,
+                    rec.VesselName,
+                    rec.TerminalSpawnSafetyReasonCode ?? "(none)",
+                    rec.TerminalSpawnSafetyDecisionUT,
+                    rec.TerminalSpawnSafetyAltitude,
+                    rec.TerminalSpawnSafetySafeAltitude,
+                    rec.TerminalSpawnSafetyPeriapsisAltitude));
+                return;
+            }
+
             HashSet<string> excludeCrew = PrepareSnapshotForSpawn(rec, index);
 
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
@@ -1198,6 +1214,7 @@ namespace Parsek
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
             bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+            bool terminalSpawnWasDeferred = TerminalOrbitSpawnSafety.HasActiveHold(rec);
 
             // Resolve spawn position from snapshot or trajectory endpoint.
             var lastPt = rec.Points[rec.Points.Count - 1];
@@ -1246,10 +1263,28 @@ namespace Parsek
                         "(ut={2:F2}, body={3}, lat={4:F4}, lon={5:F4}, alt={6:F1}, speed={7:F1})",
                         index, rec.VesselName, spawnUT, body.name, spawnLat, spawnLon,
                         spawnAlt, orbitalSpawnVelocity.magnitude));
+
+                    if (!TryPassTerminalOrbitSpawnSafety(
+                        rec,
+                        index,
+                        body,
+                        orbitalSpawnOrbit,
+                        spawnUT,
+                        spawnAlt,
+                        out _))
+                    {
+                        return;
+                    }
                 }
                 else
                 {
-                    useRecordedTerminalOrbit = false;
+                    RejectUnresolvedTerminalOrbitSpawn(
+                        rec,
+                        index,
+                        body,
+                        spawnUT,
+                        spawnAlt);
+                    return;
                 }
             }
 
@@ -1384,6 +1419,19 @@ namespace Parsek
                         "{0} vessel spawn for #{1} ({2}) pid={3} lat={4:F4} lon={5:F4} alt={6:F1} terminal={7}",
                         pathLabel, index, rec.VesselName, rec.SpawnedVesselPersistentId,
                         spawnLat, spawnLon, spawnAlt, rec.TerminalStateValue));
+                    if (terminalSpawnWasDeferred && useRecordedTerminalOrbit)
+                    {
+                        ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                            "Terminal spawn succeeded after defer: rec={0} idx={1} vessel=\"{2}\" " +
+                            "pid={3} currentUT={4:F2} alt={5:F1}",
+                            rec.RecordingId ?? "(null)",
+                            index,
+                            rec.VesselName ?? "(null)",
+                            rec.SpawnedVesselPersistentId,
+                            spawnUT,
+                            spawnAlt));
+                    }
+                    TerminalOrbitSpawnSafety.Clear(rec);
                     ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
                     return;
                 }
@@ -1414,6 +1462,19 @@ namespace Parsek
                 ParsekLog.Info("Spawner",
                     $"Vessel spawn for #{index} ({rec.VesselName}) pid={rec.SpawnedVesselPersistentId} " +
                     $"sit={sit} lat={lat} lon={lon} alt={alt}");
+                if (terminalSpawnWasDeferred)
+                {
+                    ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                        "Terminal spawn succeeded after defer: rec={0} idx={1} vessel=\"{2}\" " +
+                        "pid={3} currentUT={4:F2} alt={5}",
+                        rec.RecordingId ?? "(null)",
+                        index,
+                        rec.VesselName ?? "(null)",
+                        rec.SpawnedVesselPersistentId,
+                        spawnUT,
+                        alt));
+                }
+                TerminalOrbitSpawnSafety.Clear(rec);
                 ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
             }
             else if (rec.SpawnAbandoned)
@@ -4241,6 +4302,354 @@ namespace Parsek
             return rec != null
                 && !string.IsNullOrEmpty(rec.TerminalOrbitBody)
                 && rec.TerminalOrbitSemiMajorAxis > 0.0;
+        }
+
+        internal static bool TryPassTerminalOrbitSpawnSafety(
+            Recording rec,
+            int index,
+            CelestialBody body,
+            Orbit orbit,
+            double currentUT,
+            double currentAltitude,
+            out TerminalOrbitSpawnSafetyDecision decision)
+        {
+            double atmosphereDepth = body != null && body.atmosphere
+                ? body.atmosphereDepth
+                : 0.0;
+            double periapsisAltitude = ComputeOrbitPeriapsisAltitude(orbit, body);
+            double apoapsisAltitude = ComputeOrbitApoapsisAltitude(orbit, body);
+            double pressure = TryGetAtmosphericPressure(body, currentAltitude);
+
+            decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude,
+                atmosphereDepth,
+                TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude,
+                apoapsisAltitude);
+
+            if (decision.Action == TerminalOrbitSpawnSafetyAction.DeferUntilSafe)
+            {
+                if (TryFindNextSafeTerminalOrbitSpawnUT(
+                    orbit,
+                    body,
+                    currentUT,
+                    decision.SafeAltitude,
+                    out double nextSafeUT,
+                    out double nextSafeAltitude))
+                {
+                    decision.NextSafeUT = nextSafeUT;
+                    decision.NextSafeAltitude = nextSafeAltitude;
+                    LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
+                    TerminalOrbitSpawnSafety.MarkDeferred(
+                        rec,
+                        decision,
+                        currentUT,
+                        nextSafeUT,
+                        pressure);
+                    ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                        "Terminal orbit spawn deferred: rec={0} idx={1} vessel=\"{2}\" " +
+                        "reason={3} currentUT={4:F2} nextSafeUT={5:F2} propagatedAlt={6:F1} " +
+                        "safeAlt={7:F1} atmosphereDepth={8:F1} periapsis={9:F1} pressure={10}",
+                        rec?.RecordingId ?? "(null)",
+                        index,
+                        rec?.VesselName ?? "(null)",
+                        decision.ReasonCode,
+                        currentUT,
+                        nextSafeUT,
+                        decision.CurrentAltitude,
+                        decision.SafeAltitude,
+                        decision.AtmosphereDepth,
+                        decision.PeriapsisAltitude,
+                        FormatOptionalDouble(pressure)));
+                    return false;
+                }
+
+                decision.Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely;
+                decision.ReasonCode = TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT;
+                decision.Reason = string.Format(CultureInfo.InvariantCulture,
+                    "propagated altitude {0:F1}m is below safe altitude {1:F1}m and no future safe UT was found",
+                    currentAltitude,
+                    decision.SafeAltitude);
+            }
+
+            LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
+
+            if (decision.Action == TerminalOrbitSpawnSafetyAction.CannotSpawnSafely)
+            {
+                TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, decision, currentUT, pressure);
+                ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "Cannot spawn terminal orbit safely: rec={0} idx={1} vessel=\"{2}\" " +
+                    "currentUT={3:F2} propagatedAlt={4:F1} safeAlt={5:F1} atmosphereDepth={6:F1} " +
+                    "periapsis={7:F1} apoapsis={8:F1} decision={9} reason={10} pressure={11}",
+                    rec?.RecordingId ?? "(null)",
+                    index,
+                    rec?.VesselName ?? "(null)",
+                    currentUT,
+                    decision.CurrentAltitude,
+                    decision.SafeAltitude,
+                    decision.AtmosphereDepth,
+                    decision.PeriapsisAltitude,
+                    decision.ApoapsisAltitude,
+                    decision.Action,
+                    decision.ReasonCode,
+                    FormatOptionalDouble(pressure)));
+                return false;
+            }
+
+            TerminalOrbitSpawnSafety.Clear(rec);
+            return true;
+        }
+
+        internal static void RejectUnresolvedTerminalOrbitSpawn(
+            Recording rec,
+            int index,
+            CelestialBody body,
+            double currentUT,
+            double fallbackAltitude)
+        {
+            double atmosphereDepth = body != null && body.atmosphere
+                ? body.atmosphereDepth
+                : 0.0;
+            double pressure = TryGetAtmosphericPressure(body, fallbackAltitude);
+            var decision = new TerminalOrbitSpawnSafetyDecision
+            {
+                Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                ReasonCode = TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed,
+                Reason = "recorded terminal orbit could not be resolved for current spawn UT",
+                CurrentAltitude = fallbackAltitude,
+                AtmosphereDepth = atmosphereDepth,
+                SafetyMargin = TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                SafeAltitude = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                    atmosphereDepth,
+                    TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters),
+                PeriapsisAltitude = double.NaN,
+                ApoapsisAltitude = double.NaN,
+                NextSafeUT = double.NaN,
+                NextSafeAltitude = double.NaN,
+            };
+
+            LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
+            TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, decision, currentUT, pressure);
+            ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Cannot spawn terminal orbit safely: rec={0} idx={1} vessel=\"{2}\" " +
+                "currentUT={3:F2} fallbackAlt={4:F1} safeAlt={5:F1} atmosphereDepth={6:F1} " +
+                "decision={7} reason={8} pressure={9}",
+                rec?.RecordingId ?? "(null)",
+                index,
+                rec?.VesselName ?? "(null)",
+                currentUT,
+                fallbackAltitude,
+                decision.SafeAltitude,
+                decision.AtmosphereDepth,
+                decision.Action,
+                decision.ReasonCode,
+                FormatOptionalDouble(pressure)));
+        }
+
+        private static void LogTerminalSpawnSafetyDecision(
+            Recording rec,
+            int index,
+            CelestialBody body,
+            double currentUT,
+            TerminalOrbitSpawnSafetyDecision decision,
+            double pressure)
+        {
+            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Terminal spawn safety decision: rec={0} idx={1} vessel=\"{2}\" body={3} " +
+                "decision={4} reason={5} currentUT={6:F2} propagatedAlt={7:F1} safeAlt={8:F1} " +
+                "atmosphereDepth={9:F1} margin={10:F1} periapsis={11:F1} apoapsis={12:F1} " +
+                "nextSafeUT={13} nextSafeAlt={14} pressure={15}",
+                rec?.RecordingId ?? "(null)",
+                index,
+                rec?.VesselName ?? "(null)",
+                body?.name ?? "(null)",
+                decision.Action,
+                decision.ReasonCode,
+                currentUT,
+                decision.CurrentAltitude,
+                decision.SafeAltitude,
+                decision.AtmosphereDepth,
+                decision.SafetyMargin,
+                decision.PeriapsisAltitude,
+                decision.ApoapsisAltitude,
+                FormatOptionalDouble(decision.NextSafeUT),
+                FormatOptionalDouble(decision.NextSafeAltitude),
+                FormatOptionalDouble(pressure)));
+        }
+
+        private static bool TryFindNextSafeTerminalOrbitSpawnUT(
+            Orbit orbit,
+            CelestialBody body,
+            double currentUT,
+            double safeAltitude,
+            out double nextSafeUT,
+            out double nextSafeAltitude)
+        {
+            nextSafeUT = double.NaN;
+            nextSafeAltitude = double.NaN;
+
+            if (orbit == null
+                || body == null
+                || !TerminalOrbitSpawnSafety.IsFinite(currentUT)
+                || !TerminalOrbitSpawnSafety.IsFinite(safeAltitude))
+            {
+                return false;
+            }
+
+            double period = TryGetOrbitPeriod(orbit, body);
+            if (!TerminalOrbitSpawnSafety.IsFinite(period) || period <= 0.0)
+                return false;
+
+            double step = Math.Max(period / TerminalOrbitSpawnSafetyScanSteps, 1.0);
+            double previousUT = currentUT;
+
+            for (int i = 1; i <= TerminalOrbitSpawnSafetyScanSteps; i++)
+            {
+                double candidateUT = currentUT + step * i;
+                if (!TryGetOrbitAltitudeAtUT(orbit, body, candidateUT, out double candidateAltitude))
+                    continue;
+
+                if (candidateAltitude >= safeAltitude)
+                {
+                    double lowUT = previousUT;
+                    double highUT = candidateUT;
+                    double highAlt = candidateAltitude;
+                    for (int b = 0; b < 18; b++)
+                    {
+                        double midUT = (lowUT + highUT) * 0.5;
+                        if (!TryGetOrbitAltitudeAtUT(orbit, body, midUT, out double midAlt))
+                            break;
+
+                        if (midAlt >= safeAltitude)
+                        {
+                            highUT = midUT;
+                            highAlt = midAlt;
+                        }
+                        else
+                        {
+                            lowUT = midUT;
+                        }
+                    }
+
+                    nextSafeUT = highUT;
+                    nextSafeAltitude = highAlt;
+                    return true;
+                }
+
+                previousUT = candidateUT;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetOrbitAltitudeAtUT(
+            Orbit orbit,
+            CelestialBody body,
+            double ut,
+            out double altitude)
+        {
+            altitude = double.NaN;
+            try
+            {
+                Vector3d worldPos = orbit.getPositionAtUT(ut);
+                if (!IsFinite(worldPos))
+                    return false;
+                altitude = body.GetAltitude(worldPos);
+                return TerminalOrbitSpawnSafety.IsFinite(altitude);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static double TryGetOrbitPeriod(Orbit orbit, CelestialBody body)
+        {
+            try
+            {
+                double period = orbit.period;
+                if (TerminalOrbitSpawnSafety.IsFinite(period) && period > 0.0)
+                    return period;
+            }
+            catch
+            {
+                // Fall through to Kepler period from elements.
+            }
+
+            try
+            {
+                double semiMajorAxis = orbit.semiMajorAxis;
+                double grav = body?.gravParameter ?? 0.0;
+                if (TerminalOrbitSpawnSafety.IsFinite(semiMajorAxis)
+                    && semiMajorAxis > 0.0
+                    && TerminalOrbitSpawnSafety.IsFinite(grav)
+                    && grav > 0.0)
+                {
+                    return 2.0 * Math.PI * Math.Sqrt(
+                        semiMajorAxis * semiMajorAxis * semiMajorAxis / grav);
+                }
+            }
+            catch
+            {
+                return double.NaN;
+            }
+
+            return double.NaN;
+        }
+
+        private static double ComputeOrbitPeriapsisAltitude(Orbit orbit, CelestialBody body)
+        {
+            if (orbit == null || body == null)
+                return double.NaN;
+
+            try
+            {
+                return orbit.semiMajorAxis * (1.0 - orbit.eccentricity) - body.Radius;
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
+        private static double ComputeOrbitApoapsisAltitude(Orbit orbit, CelestialBody body)
+        {
+            if (orbit == null || body == null)
+                return double.NaN;
+
+            try
+            {
+                if (orbit.eccentricity >= 1.0)
+                    return double.PositiveInfinity;
+
+                return orbit.semiMajorAxis * (1.0 + orbit.eccentricity) - body.Radius;
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
+        private static double TryGetAtmosphericPressure(CelestialBody body, double altitude)
+        {
+            if (body == null || !body.atmosphere)
+                return double.NaN;
+
+            try
+            {
+                return body.GetPressure(altitude);
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
+        private static string FormatOptionalDouble(double value)
+        {
+            return TerminalOrbitSpawnSafety.IsFinite(value)
+                ? value.ToString("R", CultureInfo.InvariantCulture)
+                : "n/a";
         }
 
         internal static double ComputeRecordedTerminalOrbitMeanAnomalyAtUT(

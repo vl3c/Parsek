@@ -12035,6 +12035,7 @@ namespace Parsek
                 // Mark recording as no longer having a live vessel
                 rec.VesselSpawned = false;
                 rec.SpawnedVesselPersistentId = 0;
+                TerminalOrbitSpawnSafety.Clear(rec);
             }
         }
 

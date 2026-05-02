@@ -1456,6 +1456,7 @@ namespace Parsek
                         recordings[i].SpawnAttempts = 0;
                         recordings[i].SpawnDeathCount = 0;
                         recordings[i].SpawnedVesselPersistentId = 0;
+                        TerminalOrbitSpawnSafety.Clear(recordings[i]);
 
                         recordings[i].LastAppliedResourceIndex = -1;
                     }
@@ -4848,6 +4849,7 @@ namespace Parsek
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
                     recordings[i].SpawnDeathCount = 0;
+                    TerminalOrbitSpawnSafety.Clear(recordings[i]);
                     ParsekLog.Info("Scenario",
                         $"Reconciled spawn state for recording #{i} \"{recordings[i].VesselName}\": " +
                         $"pid={oldPid} no longer in flightState — reset for re-spawn");
