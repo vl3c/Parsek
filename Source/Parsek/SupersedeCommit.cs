@@ -644,14 +644,34 @@ namespace Parsek
         /// session-tagged-recording scan would miss the most common
         /// structural events (visible in the playtest log as
         /// <c>Coalescer ProcessBreakupEvent: ... child created</c>).
-        /// Branch points authored before <c>marker.InvokedUT</c> belong
-        /// to the pre-rewind history and are excluded; non-structural
-        /// types (<see cref="BranchPointType.Dock"/>,
+        ///
+        /// <para>
+        /// The cutoff is the resolved rewind point's <c>UT</c>, NOT
+        /// <c>marker.InvokedUT</c>. <c>InvokedUT</c> is the live UT at
+        /// the moment the player clicked Re-Fly — typically much later
+        /// than the rewind point's UT, because the RP quicksave throws
+        /// the player back to an earlier saved state. A player who
+        /// clicked Re-Fly at UT=300, was rewound to UT=100, and then
+        /// decoupled at UT=150 must trip this gate; using
+        /// <c>marker.InvokedUT</c> would incorrectly reject that
+        /// branch point as "pre-rewind". If the marker's RP cannot be
+        /// resolved on the live scenario (defensive: should not happen
+        /// during a normal Re-Fly merge), the helper falls back to
+        /// <c>marker.InvokedUT</c> so the gate at least catches the
+        /// post-invocation tail.
+        /// </para>
+        ///
+        /// <para>
+        /// Non-structural branch-point types
+        /// (<see cref="BranchPointType.Dock"/>,
         /// <see cref="BranchPointType.Board"/>,
         /// <see cref="BranchPointType.Launch"/>,
-        /// <see cref="BranchPointType.Terminal"/>) are also excluded.
-        /// Caller is expected to gate by terminal kind (crashed / EVA
-        /// outcomes use the existing retry path before this check fires).
+        /// <see cref="BranchPointType.Terminal"/>) are excluded — they
+        /// either attach to a pre-existing vessel without creating a
+        /// new one, or mark tree boundaries. Caller is expected to gate
+        /// by terminal kind (crashed / EVA outcomes use the existing
+        /// retry path before this check fires).
+        /// </para>
         /// </summary>
         internal static bool HasReFlySessionStructuralMutation(
             Recording rec,
@@ -660,12 +680,16 @@ namespace Parsek
         {
             detail = null;
             if (rec == null || marker == null) return false;
-            if (!(marker.InvokedUT >= 0)) return false;
             if (string.IsNullOrEmpty(marker.TreeId)) return false;
             if (string.IsNullOrEmpty(rec.TreeId)) return false;
             if (!string.Equals(rec.TreeId, marker.TreeId,
                     StringComparison.Ordinal))
                 return false;
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            double? cutoffSource = TryResolveReFlyStructuralCutoffUT(
+                marker, scenario, out string cutoffOriginLabel);
+            if (!cutoffSource.HasValue) return false;
 
             RecordingTree tree = RecordingStore.CommittedTrees != null
                 ? RecordingStore.CommittedTrees.Find(t =>
@@ -676,12 +700,12 @@ namespace Parsek
             if (tree == null || tree.BranchPoints == null) return false;
 
             // A small UT slack absorbs floating-point round-trip drift
-            // between marker.InvokedUT and a branch-point UT that arose
-            // from the same physics frame. The rewind point itself does
-            // not author its own branch point at invokedUT, so this is
+            // between the resolved cutoff UT and a branch-point UT that
+            // arose from the same physics frame. The rewind point itself
+            // does not author its own branch point at its UT, so this is
             // exclusion-safe.
             const double UtSlackSeconds = 0.001;
-            double cutoff = marker.InvokedUT + UtSlackSeconds;
+            double cutoff = cutoffSource.Value + UtSlackSeconds;
 
             int matchedCount = 0;
             string firstBpId = null;
@@ -707,8 +731,56 @@ namespace Parsek
             detail = $"branchPoints={matchedCount.ToString(ic)}" +
                 $" firstBp={firstBpId ?? "<no-id>"}" +
                 $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
-                $" sinceUT={marker.InvokedUT.ToString("F2", ic)}";
+                $" sinceUT={cutoffSource.Value.ToString("F2", ic)}" +
+                $" cutoffOrigin={cutoffOriginLabel}";
             return true;
+        }
+
+        /// <summary>
+        /// Resolves the UT cutoff used by structural-mutation detection.
+        /// Prefers the marker's rewind point UT (where the player was
+        /// placed back to by the RP quicksave); falls back to
+        /// <c>marker.InvokedUT</c> if the RP cannot be located on the
+        /// live scenario. Returns null only when neither source supplies
+        /// a finite, non-negative UT.
+        /// </summary>
+        private static double? TryResolveReFlyStructuralCutoffUT(
+            ReFlySessionMarker marker,
+            ParsekScenario scenario,
+            out string originLabel)
+        {
+            originLabel = "<none>";
+            if (marker == null) return null;
+
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.RewindPoints != null
+                && !string.IsNullOrEmpty(marker.RewindPointId))
+            {
+                for (int i = 0; i < scenario.RewindPoints.Count; i++)
+                {
+                    var candidate = scenario.RewindPoints[i];
+                    if (candidate == null) continue;
+                    if (!string.Equals(candidate.RewindPointId,
+                            marker.RewindPointId, StringComparison.Ordinal))
+                        continue;
+                    if (double.IsNaN(candidate.UT)
+                        || double.IsInfinity(candidate.UT)
+                        || candidate.UT < 0)
+                        break;
+                    originLabel = "rpUT";
+                    return candidate.UT;
+                }
+            }
+
+            if (!double.IsNaN(marker.InvokedUT)
+                && !double.IsInfinity(marker.InvokedUT)
+                && marker.InvokedUT >= 0)
+            {
+                originLabel = "invokedUT";
+                return marker.InvokedUT;
+            }
+
+            return null;
         }
 
         private static bool IsStructuralBranchPointType(BranchPointType type)

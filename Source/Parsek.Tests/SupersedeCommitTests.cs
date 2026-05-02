@@ -575,6 +575,12 @@ namespace Parsek.Tests
             // Stashed slot so the classifier returns stashedStableLeaf
             // (qualifies=true) — the structural-mutation gate is what
             // closes the slot.
+            //
+            // Realistic timing: marker.InvokedUT (300) is the live UT when
+            // the player clicked Re-Fly; the RP loaded the player back to
+            // UT=100; the Breakup occurred at UT=150 during the Re-Fly.
+            // Detection must use rp.UT (100), not marker.InvokedUT (300).
+            const string rpId = "rp_stashed_struct_seal";
             const string bpId = "bp_stashed_struct_seal";
             const string breakupBpId = "bp_stashed_struct_seal_decouple";
             var origin = Rec("rec_origin", "tree_struct_stashed");
@@ -582,7 +588,7 @@ namespace Parsek.Tests
             {
                 Id = breakupBpId,
                 Type = BranchPointType.Breakup,
-                UT = 286.0,
+                UT = 150.0,
                 ChildRecordingIds = new List<string> { "rec_decoupled_debris" },
             };
             InstallTree("tree_struct_stashed",
@@ -594,7 +600,8 @@ namespace Parsek.Tests
             var marker = Marker("rec_origin", "rec_provisional");
             marker.SessionId = "sess_stashed_struct_seal";
             marker.TreeId = "tree_struct_stashed";
-            marker.InvokedUT = 284.5;
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 300.0;
             var scenario = InstallScenario(marker);
             var originSlot = new ChildSlot
             {
@@ -606,10 +613,10 @@ namespace Parsek.Tests
             };
             scenario.RewindPoints.Add(new RewindPoint
             {
-                RewindPointId = "rp_stashed_struct_seal",
+                RewindPointId = rpId,
                 BranchPointId = bpId,
                 FocusSlotIndex = 0,
-                UT = 284.5,
+                UT = 100.0,
                 ChildSlots = new List<ChildSlot>
                 {
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
@@ -628,7 +635,84 @@ namespace Parsek.Tests
                 && l.Contains("autoSeal=True")
                 && l.Contains("autoSealReason=structuralMutation:")
                 && l.Contains($"firstBp={breakupBpId}")
-                && l.Contains("firstType=Breakup"));
+                && l.Contains("firstType=Breakup")
+                && l.Contains("cutoffOrigin=rpUT"));
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_BreakupBetweenRpAndInvokedUT_DetectedViaRpUT()
+        {
+            // Regression for the cutoff source: marker.InvokedUT (300) is
+            // the live UT at the moment the player clicked Re-Fly, but the
+            // RP quicksave threw them back to UT=100. A decouple at UT=150
+            // during the Re-Fly is BEFORE marker.InvokedUT but AFTER
+            // rp.UT, and must trip the gate. Using marker.InvokedUT as the
+            // cutoff would miss this — the common case for any non-instant
+            // Re-Fly playthrough.
+            const string rpId = "rp_normal_timing";
+            var rec = Rec("rec_provisional", "tree_normal_timing");
+            var breakupBp = new BranchPoint
+            {
+                Id = "bp_normal_timing_decouple",
+                Type = BranchPointType.Breakup,
+                UT = 150.0,
+            };
+            InstallTree("tree_normal_timing",
+                new List<Recording> { rec },
+                new List<BranchPoint> { breakupBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_normal_timing";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 300.0;
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.NotNull(detail);
+            Assert.Contains("cutoffOrigin=rpUT", detail);
+            Assert.Contains("sinceUT=100.00", detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_RpMissingFromScenario_FallsBackToInvokedUT()
+        {
+            // Defensive: if the marker's RewindPointId no longer resolves
+            // on the live scenario (e.g. test fixture gap, or a future
+            // call site that runs after the RP has been reaped), fall
+            // back to marker.InvokedUT as the cutoff so the gate at least
+            // catches branch points authored after invocation. Detail
+            // string flags this with cutoffOrigin=invokedUT.
+            var rec = Rec("rec_provisional", "tree_no_rp");
+            var bp = new BranchPoint
+            {
+                Id = "bp_post_invoke",
+                Type = BranchPointType.JointBreak,
+                UT = 305.0,
+            };
+            InstallTree("tree_no_rp",
+                new List<Recording> { rec },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_no_rp";
+            marker.RewindPointId = "rp_not_in_scenario";
+            marker.InvokedUT = 300.0;
+            InstallScenario(marker);
+
+            string detail;
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.NotNull(detail);
+            Assert.Contains("cutoffOrigin=invokedUT", detail);
+            Assert.Contains("sinceUT=300.00", detail);
         }
 
         [Fact]
@@ -2116,12 +2200,10 @@ namespace Parsek.Tests
             }
 
             Assert.Equal(MergeState.Immutable, origin.MergeState);
-            // Slot.Sealed remains false: closing the slot via Immutable does
-            // not flip slot.Sealed (only hard-safety terminals + recording-
-            // scoped world actions do that). The slot is no longer
-            // The recording is Immutable AND auto-seal flipped
-            // probeSlot.Sealed=true via the stableTerminalFocusSlot
-            // close-reason path, so the slot can no longer be re-flown.
+            // Auto-seal fired: stableTerminalFocusSlot close-reason flips
+            // probeSlot.Sealed=true and stamps SealedRealTime, so the
+            // slot drops out of Unfinished Flights and cannot be
+            // re-flown again.
             Assert.True(probeSlot.Sealed);
             Assert.NotNull(probeSlot.SealedRealTime);
             Assert.Null(scenario.ActiveReFlySessionMarker);
