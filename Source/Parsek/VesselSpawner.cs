@@ -1278,7 +1278,13 @@ namespace Parsek
                 }
                 else
                 {
-                    useRecordedTerminalOrbit = false;
+                    RejectUnresolvedTerminalOrbitSpawn(
+                        rec,
+                        index,
+                        body,
+                        spawnUT,
+                        spawnAlt);
+                    return;
                 }
             }
 
@@ -4392,6 +4398,52 @@ namespace Parsek
 
             TerminalOrbitSpawnSafety.Clear(rec);
             return true;
+        }
+
+        internal static void RejectUnresolvedTerminalOrbitSpawn(
+            Recording rec,
+            int index,
+            CelestialBody body,
+            double currentUT,
+            double fallbackAltitude)
+        {
+            double atmosphereDepth = body != null && body.atmosphere
+                ? body.atmosphereDepth
+                : 0.0;
+            double pressure = TryGetAtmosphericPressure(body, fallbackAltitude);
+            var decision = new TerminalOrbitSpawnSafetyDecision
+            {
+                Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                ReasonCode = TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed,
+                Reason = "recorded terminal orbit could not be resolved for current spawn UT",
+                CurrentAltitude = fallbackAltitude,
+                AtmosphereDepth = atmosphereDepth,
+                SafetyMargin = TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                SafeAltitude = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                    atmosphereDepth,
+                    TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters),
+                PeriapsisAltitude = double.NaN,
+                ApoapsisAltitude = double.NaN,
+                NextSafeUT = double.NaN,
+                NextSafeAltitude = double.NaN,
+            };
+
+            LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
+            TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, decision, currentUT, pressure);
+            ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Cannot spawn terminal orbit safely: rec={0} idx={1} vessel=\"{2}\" " +
+                "currentUT={3:F2} fallbackAlt={4:F1} safeAlt={5:F1} atmosphereDepth={6:F1} " +
+                "decision={7} reason={8} pressure={9}",
+                rec?.RecordingId ?? "(null)",
+                index,
+                rec?.VesselName ?? "(null)",
+                currentUT,
+                fallbackAltitude,
+                decision.SafeAltitude,
+                decision.AtmosphereDepth,
+                decision.Action,
+                decision.ReasonCode,
+                FormatOptionalDouble(pressure)));
         }
 
         private static void LogTerminalSpawnSafetyDecision(

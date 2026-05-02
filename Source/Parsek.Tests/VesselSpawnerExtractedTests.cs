@@ -149,6 +149,36 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("missing VesselSnapshot"));
         }
 
+        [Fact]
+        public void RejectUnresolvedTerminalOrbitSpawn_MarksCannotSpawnSafely()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-terminal-unresolved",
+                VesselName = "Malformed Terminal Probe"
+            };
+
+            VesselSpawner.RejectUnresolvedTerminalOrbitSpawn(
+                rec,
+                index: 7,
+                body: null,
+                currentUT: 456.0,
+                fallbackAltitude: 25000.0);
+
+            Assert.True(rec.TerminalSpawnCannotSpawnSafely);
+            Assert.False(rec.TerminalSpawnSafetyDeferred);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed,
+                rec.TerminalSpawnSafetyReasonCode);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("Terminal spawn safety decision")
+                && l.Contains(TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("Cannot spawn terminal orbit safely")
+                && l.Contains(TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed));
+        }
+
         [Theory]
         [InlineData(0u, 0u, 0u, false)]
         [InlineData(777u, 777u, 0u, true)]

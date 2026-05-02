@@ -44,6 +44,7 @@ namespace Parsek
         internal const string ReasonNonFinitePeriapsis = "non-finite-periapsis";
         internal const string ReasonNoFutureSafeUT = "no-future-safe-ut";
         internal const string ReasonSpawnedVesselDied = "spawned-terminal-orbit-vessel-died";
+        internal const string ReasonTerminalOrbitResolutionFailed = "terminal-orbit-resolution-failed";
 
         internal static TerminalOrbitSpawnSafetyDecision Evaluate(
             double currentAltitude,
@@ -274,7 +275,7 @@ namespace Parsek
             double depth = IsFinite(atmosphereDepth) && atmosphereDepth > 0.0
                 ? atmosphereDepth
                 : 0.0;
-            double margin = IsFinite(safetyMargin) && safetyMargin > 0.0
+            double margin = depth > 0.0 && IsFinite(safetyMargin) && safetyMargin > 0.0
                 ? safetyMargin
                 : 0.0;
             return depth + margin;

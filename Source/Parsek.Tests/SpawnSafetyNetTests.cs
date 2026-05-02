@@ -1447,6 +1447,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TerminalOrbitSpawnSafety_AirlessLowOrbit_DoesNotApplyAtmosphereMargin()
+        {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 3000.0,
+                atmosphereDepth: 0.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 2500.0,
+                apoapsisAltitude: 12000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
+            Assert.Equal(0.0, decision.SafeAltitude, 10);
+        }
+
+        [Fact]
         public void TryGetPreferredRecordedOrbitSeedForSpawn_PrefersLastOrbitSegment()
         {
             var rec = new Recording
