@@ -601,6 +601,7 @@ namespace Parsek
             clone.ApplyPersistenceArtifactsFrom(source);
             clone.CopyStartLocationFrom(source);
             clone.VesselName = source.VesselName;
+            clone.MergeState = source.MergeState;
 
             clone.Points = source.Points != null
                 ? new List<TrajectoryPoint>(source.Points)

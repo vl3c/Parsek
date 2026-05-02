@@ -839,6 +839,7 @@ namespace Parsek
                 return false;
 
             int prunedRecordings = RemoveAttemptRecordingsFromTree(tree, attemptIds);
+            int prunedSessionBranchPoints = PruneSessionCreatedBranchPoints(tree, marker);
             if (tree.Recordings == null || tree.Recordings.Count == 0)
             {
                 // Expected unreachable in production: AddAttemptIdIfSafe protects
@@ -901,6 +902,7 @@ namespace Parsek
                 $"RestoreSanitizedPendingTreeIfDetached: restored committed tree " +
                 $"tree={tree.Id ?? "<none>"} recordings={tree.Recordings.Count} " +
                 $"prunedAttemptRecordings={prunedRecordings} " +
+                $"prunedSessionBranchPoints={prunedSessionBranchPoints} " +
                 $"groupRepairs={groupRepairs} " +
                 $"addedRecordings={addedRecordings} skippedExisting={skippedExisting} " +
                 $"dirtySaved={dirtySaved} dirtyFailed={dirtyFailed}");
@@ -936,6 +938,65 @@ namespace Parsek
             }
 
             return removed;
+        }
+
+        private static int PruneSessionCreatedBranchPoints(
+            RecordingTree tree,
+            ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.BranchPoints == null || tree.BranchPoints.Count == 0)
+                return 0;
+            if (marker == null || marker.PreSessionBranchPointIds == null)
+                return 0;
+
+            var preSessionIds = new HashSet<string>(
+                marker.PreSessionBranchPointIds,
+                System.StringComparer.Ordinal);
+            var removedIds = new HashSet<string>(System.StringComparer.Ordinal);
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id))
+                    continue;
+                if (preSessionIds.Contains(bp.Id))
+                    continue;
+                removedIds.Add(bp.Id);
+                tree.BranchPoints.RemoveAt(i);
+            }
+
+            if (removedIds.Count == 0)
+                return 0;
+
+            if (tree.Recordings != null)
+            {
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec == null)
+                        continue;
+
+                    bool changed = false;
+                    if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                        && removedIds.Contains(rec.ParentBranchPointId))
+                    {
+                        rec.ParentBranchPointId = null;
+                        changed = true;
+                    }
+                    if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                        && removedIds.Contains(rec.ChildBranchPointId))
+                    {
+                        rec.ChildBranchPointId = null;
+                        changed = true;
+                    }
+
+                    if (changed)
+                        rec.MarkFilesDirty();
+                }
+            }
+
+            ParsekLog.Verbose("MergeDialog",
+                $"PruneSessionCreatedBranchPoints: tree={tree.Id ?? "<none>"} " +
+                $"sess={marker.SessionId ?? "<none>"} removed={removedIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            return removedIds.Count;
         }
 
         private static void RemoveAttemptIds(
