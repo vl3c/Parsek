@@ -912,11 +912,15 @@ namespace Parsek
         {
             if (flatOrbitSegments == null
                 || rebuiltOrbitSegments == null
-                || rebuiltOrbitSegments.Count == 0
                 || flatOrbitSegments.Count < rebuiltOrbitSegments.Count)
             {
                 return -1;
             }
+
+            if (rebuiltOrbitSegments.Count == 0)
+                return OrbitSegmentSuffixIsMonotonicNonDecreasing(flatOrbitSegments, 0)
+                    ? 0
+                    : -1;
 
             double minStartUT = rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1].startUT;
             for (int start = rebuiltOrbitSegments.Count; start < flatOrbitSegments.Count; start++)

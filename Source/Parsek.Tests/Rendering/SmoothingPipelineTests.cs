@@ -147,6 +147,46 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void FitAndStorePerSection_ExoBallistic_DispatchLowersInertialFrame()
+        {
+            // Regression guard for the in-game Pipeline_Smoothing_NoJitterOnCoast
+            // contract: ExoBallistic controls are inertial-longitude. Consumers
+            // must resolve them through FrameTag dispatch, not direct body-fixed
+            // surface lookup.
+            const double startUT = 1000.0;
+            const double dutPerSample = 0.5;
+            var section = MakeSection(
+                SegmentEnvironment.ExoBallistic,
+                ReferenceFrame.Absolute,
+                frameCount: 10,
+                startUT: startUT,
+                dutPerSample: dutPerSample);
+            var rec = MakeRecording("rec-ball-dispatch", section);
+
+            TrajectoryMath.FrameTransform.WorldSurfacePositionForTesting =
+                (body, lat, lon, alt) => new Vector3d(lat, lon, alt);
+
+            SmoothingPipeline.FitAndStorePerSection(rec);
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline(
+                rec.RecordingId, 0, out var spline));
+            Assert.Equal((byte)1, spline.FrameTag);
+
+            double evalUT = startUT + dutPerSample;
+            TrajectoryPoint expectedBodyFixed = section.frames[1];
+            Vector3d rawSplineTuple = TrajectoryMath.CatmullRomFit.Evaluate(spline, evalUT);
+            Vector3d dispatched = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                spline.FrameTag,
+                rawSplineTuple.x, rawSplineTuple.y, rawSplineTuple.z,
+                fakeKerbin, evalUT,
+                rec.RecordingId, 0);
+
+            Assert.True(Math.Abs(rawSplineTuple.y - expectedBodyFixed.longitude) > 1.0);
+            Assert.InRange(Math.Abs(dispatched.x - expectedBodyFixed.latitude), 0.0, 0.0001);
+            Assert.InRange(Math.Abs(dispatched.y - expectedBodyFixed.longitude), 0.0, 0.0001);
+            Assert.InRange(Math.Abs(dispatched.z - expectedBodyFixed.altitude), 0.0, 0.01);
+        }
+
+        [Fact]
         public void FitAndStorePerSection_Atmospheric_NotFitted()
         {
             // What makes it fail: Phase 1 scoping creep — Atmospheric belongs

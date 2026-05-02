@@ -43,6 +43,16 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 ---
 
+## Done - v0.9.1 forced-exit booster ghost orbit tail
+
+- ~~A first-tree `Kerbal X Probe` booster ghost could remain visible but frozen in mid-air after Rewind when the original flight was exited with forced Go To Space Center while the booster was still flying.~~ Source: `logs/2026-05-01_2344_kerbal-x-not-sealed/`; recording `90f164b7c86542c0b4b77c761de480ad` was scene-exit finalized with `appendedSegments=2`, `terminal=Destroyed`, and `terminalUT=767.4`, but the subsequent merge logged `flatSync=track-sections` and rewrote the sidecar as `sectionAuthoritative=True` with `orbitSegments=0`. The `.prec.txt` retained only atmospheric track sections through UT `91.426`, while the `.sfs` metadata still kept `explicitEndUT=767.365`, so playback after Rewind considered the ghost active at UT `124.23` / `379.71` but resolved `activeFrame=none` and reused the same root position.
+
+**Fix:** `TrajectoryTextSidecarCodec.FindSafeOrbitSegmentSuffixStart` now accepts a monotonic orbit suffix starting at index 0 when rebuilt section payloads contain no checkpoint orbit segments. That lets `FlatTrajectoryExtendsTrackSectionPayload` and `SessionMerger.SyncMergedFlatTrajectory` preserve orbit-only predicted tails instead of rebuilding flat orbit data to empty. The writer then uses flat fallback storage for this shape, keeping the predicted `OrbitSegment`s aligned with the later destroyed terminal UT. Headless regressions cover both direct sidecar round-trip and `SessionMerger.MergeTree` preserving the orbit-only predicted tail.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 revert double-rollout charge
 
 - ~~Reverting a flight to launch and re-flying the same craft charged the rollout cost twice in Parsek's career ledger, even though stock KSP refunds the rollout on revert and re-charges on the new launch (net: one charge).~~ Source: `logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld` recorded two `FundsSpending(VesselBuild)` rows for vessel R1 (pid 3442693372, site Launch Pad, cost 8320.001) at UTs 728.21980… and 728.17980…, ~40 ms apart. The two rows had the same vessel/pid/site/cost but different UTs because the revert rolled the in-game clock back, so the existing UT-embedded `dedupKey` (e.g. `rollout:728.21980712880259|pid=3442693372|site=Launch%20Pad|vessel=R1`) never collided across emissions. KSP refunded the original deduction during the revert, but Parsek's `KspStatePatcher` re-applied it from the surviving ledger row, then the relaunch's `OnVesselRolloutSpending` added a second row, leaving the user out 8320 funds.
@@ -92,6 +102,18 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 - ~~A watched ghost recovered after landing could hold its raw final trajectory point instead of using surface-terminal terrain clearance, so terrain regeneration between the original landing and watch playback could make the ghost disappear inside the mountain.~~ Source: `logs/2026-05-01_1545_optimizer-merge-investigation/`; the watched `Kerbal X Probe` chain ended on recording `f94bc871712d4c079ffc61d4e9199df9`, which had `terminalState=Recovered`, a landed `TERMINAL_POSITION`, and `terrainHeightAtEnd=3049.3m`. The playback log showed the final watched segment near `15:42:13-15:42:16`, but `Recovered` was not included in the surface-terminal ghost clamp and the final `SurfaceStationary` tail only had clearance on the shared boundary point. Fix: `ParsekFlight.PositionAtPoint` applies immediate surface ghost clearance for `Recovered + SurfacePos` point-backed recordings, `PositionAtSurface` applies the same NaN fallback for surface-only recovered endpoints, `GhostPlaybackEngine` leaves clamped surface endpoint state intact, and foreground/background recording gates now persist `recordedGroundClearance` for `SurfaceStationary` sections as well as `SurfaceMobile` sections. This preserves timing while rendering endpoint hold as `current terrain + recorded clearance`; existing recordings with NaN stationary-tail clearance can still fall back to raw altitude during the final stationary section until endpoint hold begins, while recordings made after this fix carry clearance through the stationary tail. A visual-only cut/skip rule remains unnecessary unless a future repro proves PQS differs from the rendered collider mesh by more than the existing clamp can cover.
 
 **Status:** CLOSED 2026-05-01.
+
+---
+
+## TODO - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
+
+- An autosave (or quicksave) taken inside the FLIGHT scene while the post-destruction tree merge dialog is stashed loses the pending tree from the saved `persistent.sfs`. Sidecar files survive on disk (the new `CleanOrphanFiles` guard preserves them and the `OnSave: writing 0 RECORDING_TREE nodes but disk has N stranded sidecar` warn surfaces it), so a quickload that follows the autosave drops the recording's metadata even though the bulk data is intact. Source: `logs/2026-05-01_2208_investigate/KSP.log` lines 9920-9932 — at 21:50:01.489 `ShowPostDestructionTreeMergeDialog` stashed `R0` as pending (`pend.tree=f46ba80a:Finalized`), at 21:50:02.613 KSP autosaved while still in FLIGHT and `committedRecordings=0/committedTrees=0`, and the warn fired with 1 stranded sidecar. The recovery path was the user's prior 21:49:10 quicksave taken before the crash.
+
+**Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
+
+**Fix sketch:** either serialize the pending-tree slot as a `RECORDING_TREE` ConfigNode marked with an `isPending=True` (mirror of the `isActive=True` branch), or extend `SafetyNetAutoCommitPending` to also fire in FLIGHT when the dialog is stashed and the scene is awaiting the post-results transition. The first option preserves the player's option to revert; the second commits without dialog, which the player did not consent to. Prefer option 1.
+
+**Status:** OPEN. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
 
 ---
 
