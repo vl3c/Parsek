@@ -32,6 +32,11 @@ namespace Parsek
 
     internal static class IncompleteBallisticSceneExitFinalizer
     {
+        // This is not a sampling-cadence tolerance. It only admits the "fresh split"
+        // signature where the first authored sample and live fallback state land on
+        // effectively the same physics moment.
+        private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
+
         private static bool? flightGlobalsRuntimeAvailableForTesting;
         internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
 
@@ -515,6 +520,42 @@ namespace Parsek
                     extrapolated,
                     bodies,
                     ref result);
+
+                if (ShouldSuppressSubSurfaceDestroyedFromRecordedStart(
+                    recording,
+                    snapshot,
+                    startState,
+                    result,
+                    out TrajectoryPoint recordedPoint,
+                    out string recordedPointSource,
+                    out double recordedPointDeltaUT,
+                    out double recordingStartUT))
+                {
+                    ParsekLog.WarnRateLimited(
+                        "Extrapolator",
+                        "subsurface-destroyed-recorded-start-contradiction." + recordingId,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "TryFinalizeRecording: suppressing sub-surface Destroyed for '{0}' " +
+                            "because a fresh recorded surface point contradicts the live-orbit fallback " +
+                            "(snapshotFailure={1}, startUT={2:F3}, recordingStartUT={3:F3}, " +
+                            "pointUT={4:F3}, deltaUT={5:F3}, source={6}, recordedBody={7}, " +
+                            "liveBody={8}, recordedAlt={9:F1}, liveAlt={10:F1}, threshold={11:F1})",
+                            recordingId,
+                            snapshot.FailureReason,
+                            startState.ut,
+                            recordingStartUT,
+                            recordedPoint.ut,
+                            recordedPointDeltaUT,
+                            recordedPointSource ?? "(unknown)",
+                            recordedPoint.bodyName ?? "(null)",
+                            startState.bodyName ?? "(null)",
+                            recordedPoint.altitude,
+                            result.subSurfaceDestroyedAltitude,
+                            result.subSurfaceDestroyedThreshold),
+                        minIntervalSeconds: 30.0);
+                    return false;
+                }
             }
 
             if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
@@ -544,6 +585,170 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        private static bool ShouldSuppressSubSurfaceDestroyedFromRecordedStart(
+            Recording recording,
+            PatchedConicSnapshotResult snapshot,
+            BallisticStateVector startState,
+            IncompleteBallisticFinalizationResult result,
+            out TrajectoryPoint recordedPoint,
+            out string recordedPointSource,
+            out double recordedPointDeltaUT,
+            out double recordingStartUT)
+        {
+            recordedPoint = default(TrajectoryPoint);
+            recordedPointSource = null;
+            recordedPointDeltaUT = double.NaN;
+            recordingStartUT = double.NaN;
+
+            if (recording == null)
+                return false;
+            if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.NullSolver)
+                return false;
+            if (result.extrapolationFailureReason != ExtrapolationFailureReason.SubSurfaceStart)
+                return false;
+            if (!IsFinite(startState.ut))
+                return false;
+            if (!IsFinite(result.subSurfaceDestroyedAltitude)
+                || result.subSurfaceDestroyedAltitude > result.subSurfaceDestroyedThreshold)
+                return false;
+
+            recordingStartUT = recording.StartUT;
+            if (!IsFinite(recordingStartUT))
+                return false;
+
+            string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
+                ? result.subSurfaceDestroyedBodyName
+                : startState.bodyName;
+            if (!TryFindNearestRecordedSurfacePoint(
+                recording,
+                startState.ut,
+                bodyName,
+                result.subSurfaceDestroyedThreshold,
+                out recordedPoint,
+                out recordedPointSource,
+                out recordedPointDeltaUT))
+            {
+                return false;
+            }
+
+            if (recordedPointDeltaUT > SubSurfaceRecordedPointContradictionWindowSeconds)
+                return false;
+            if (Math.Abs(recordedPoint.ut - recordingStartUT)
+                > SubSurfaceRecordedPointContradictionWindowSeconds)
+                return false;
+
+            return true;
+        }
+
+        private static bool TryFindNearestRecordedSurfacePoint(
+            Recording recording,
+            double targetUT,
+            string bodyName,
+            double subSurfaceThreshold,
+            out TrajectoryPoint nearestPoint,
+            out string nearestSource,
+            out double nearestDeltaUT)
+        {
+            nearestPoint = default(TrajectoryPoint);
+            nearestSource = null;
+            nearestDeltaUT = double.NaN;
+
+            bool found = false;
+            double bestDelta = double.MaxValue;
+
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < recording.TrackSections.Count; i++)
+                {
+                    TrackSection section = recording.TrackSections[i];
+                    if (section.referenceFrame == ReferenceFrame.Absolute)
+                    {
+                        InspectRecordedSurfacePoints(
+                            section.frames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].frames",
+                            targetUT,
+                            bodyName,
+                            subSurfaceThreshold,
+                            ref found,
+                            ref bestDelta,
+                            ref nearestPoint,
+                            ref nearestSource);
+                    }
+                    else if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        InspectRecordedSurfacePoints(
+                            section.absoluteFrames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].absoluteFrames",
+                            targetUT,
+                            bodyName,
+                            subSurfaceThreshold,
+                            ref found,
+                            ref bestDelta,
+                            ref nearestPoint,
+                            ref nearestSource);
+                    }
+                }
+            }
+            else if (recording.Points != null)
+            {
+                InspectRecordedSurfacePoints(
+                    recording.Points,
+                    "Points",
+                    targetUT,
+                    bodyName,
+                    subSurfaceThreshold,
+                    ref found,
+                    ref bestDelta,
+                    ref nearestPoint,
+                    ref nearestSource);
+            }
+
+            if (!found)
+                return false;
+
+            nearestDeltaUT = bestDelta;
+            return true;
+        }
+
+        private static void InspectRecordedSurfacePoints(
+            IList<TrajectoryPoint> points,
+            string source,
+            double targetUT,
+            string bodyName,
+            double subSurfaceThreshold,
+            ref bool found,
+            ref double bestDelta,
+            ref TrajectoryPoint nearestPoint,
+            ref string nearestSource)
+        {
+            if (points == null || points.Count == 0)
+                return;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                TrajectoryPoint point = points[i];
+                if (!IsFinite(point.ut) || !IsFinite(point.altitude))
+                    continue;
+                if (!string.IsNullOrEmpty(bodyName)
+                    && !string.IsNullOrEmpty(point.bodyName)
+                    && !string.Equals(bodyName, point.bodyName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (point.altitude <= subSurfaceThreshold)
+                    continue;
+
+                double delta = Math.Abs(point.ut - targetUT);
+                if (!found || delta < bestDelta)
+                {
+                    found = true;
+                    bestDelta = delta;
+                    nearestPoint = point;
+                    nearestSource = source;
+                }
+            }
         }
 
         private static void PopulateSubSurfaceDestroyedDetails(
@@ -1007,6 +1212,11 @@ namespace Parsek
         {
             return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
                 || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static double Magnitude(Vector3d value)
