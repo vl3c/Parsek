@@ -339,16 +339,10 @@ namespace Parsek
             // call site that commits while still in flight.
             ReFlyRevertButtonGate.Apply("SupersedeCommit:marker-cleared");
 
-            // #688 follow-up: drop any captured pre-Re-Fly anchor trajectory
-            // snapshot now that the session is committed. The snapshot was
-            // only needed to feed the per-frame anchor offset while the live
-            // recording was being trimmed/extended; post-merge the recording's
-            // own data is final and the snapshot would otherwise linger in
-            // memory and in the .sfs as dead weight (the codec writes a
-            // full PRE_REFLY_ANCHOR node whenever HasPreReFlyAnchorTrajectory
-            // returns true). Idempotent — clears all recordings tagged with
-            // this session id, even though under the in-place contract only
-            // one recording carries a snapshot per session.
+            // Drop any captured pre-Re-Fly snapshots now that the session is
+            // committed. They are only needed while the live recording is
+            // being trimmed/extended or until merge-discard can restore the
+            // in-place original.
             ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 
             ParsekLog.Info(SessionTag,
@@ -366,17 +360,23 @@ namespace Parsek
                 {
                     var rec = recordings[i];
                     if (rec == null) continue;
-                    if (!string.Equals(
-                            rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal))
+                    bool anchorMatches = string.Equals(
+                        rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal);
+                    bool originalMatches = string.Equals(
+                        rec.PreReFlyOriginalSessionId, sessionId, StringComparison.Ordinal);
+                    if (!anchorMatches && !originalMatches)
                         continue;
-                    rec.ClearPreReFlyAnchorTrajectory();
+                    if (anchorMatches)
+                        rec.ClearPreReFlyAnchorTrajectory();
+                    if (originalMatches)
+                        rec.ClearPreReFlyOriginalRecording();
                     cleared++;
                 }
             }
             if (cleared > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"Cleared {cleared} pre-Re-Fly anchor snapshot(s) for sess={sessionId}");
+                    $"Cleared {cleared} pre-Re-Fly snapshot host(s) for sess={sessionId}");
             }
             return cleared;
         }

@@ -853,6 +853,8 @@ namespace Parsek
             List<TrajectoryPoint> priorPreReFlyAnchorPoints = null;
             List<OrbitSegment> priorPreReFlyAnchorOrbitSegments = null;
             List<TrackSection> priorPreReFlyAnchorTrackSections = null;
+            string priorPreReFlyOriginalSessionId = null;
+            Recording priorPreReFlyOriginalRecording = null;
             bool frozeOriginForInPlace = false;
             string priorOriginCreatingSessionId = null;
             string priorOriginProvisionalForRpId = null;
@@ -869,16 +871,19 @@ namespace Parsek
                     priorPreReFlyAnchorPoints = originChild.PreReFlyAnchorPoints;
                     priorPreReFlyAnchorOrbitSegments = originChild.PreReFlyAnchorOrbitSegments;
                     priorPreReFlyAnchorTrackSections = originChild.PreReFlyAnchorTrackSections;
+                    priorPreReFlyOriginalSessionId = originChild.PreReFlyOriginalSessionId;
+                    priorPreReFlyOriginalRecording = originChild.PreReFlyOriginalRecording;
                     priorOriginCreatingSessionId = originChild.CreatingSessionId;
                     priorOriginProvisionalForRpId = originChild.ProvisionalForRpId;
                     originChild.CapturePreReFlyAnchorTrajectory(sessionId);
+                    originChild.CapturePreReFlyOriginalRecording(sessionId);
                     frozeOriginForInPlace = true;
                     originChild.CreatingSessionId = sessionId;
                     originChild.ProvisionalForRpId = rp.RewindPointId;
                     taggedOriginForInPlace = true;
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
-                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata; pre-ReFly anchor trajectory frozen)");
+                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata; pre-ReFly snapshots frozen)");
 
                     CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
                     CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
@@ -939,8 +944,10 @@ namespace Parsek
                     originChild.PreReFlyAnchorPoints = priorPreReFlyAnchorPoints;
                     originChild.PreReFlyAnchorOrbitSegments = priorPreReFlyAnchorOrbitSegments;
                     originChild.PreReFlyAnchorTrackSections = priorPreReFlyAnchorTrackSections;
+                    originChild.PreReFlyOriginalSessionId = priorPreReFlyOriginalSessionId;
+                    originChild.PreReFlyOriginalRecording = priorPreReFlyOriginalRecording;
                     ParsekLog.Verbose(InvokeTag,
-                        $"AtomicMarkerWrite rollback: restored prior pre-Re-Fly anchor snapshot on " +
+                        $"AtomicMarkerWrite rollback: restored prior pre-Re-Fly snapshots on " +
                         $"origin={originChild.RecordingId ?? "<no-id>"} priorSess={priorPreReFlyAnchorSessionId ?? "<none>"}");
                 }
                 if (taggedOriginForInPlace && originChild != null)
