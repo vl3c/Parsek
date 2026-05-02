@@ -498,13 +498,18 @@ as Unfinished Flights.
 
 **Follow-up fix:** the finalizer keeps the normal `NullSolver` destroyed-vessel
 path, but rejects the sub-surface verdict when the recording itself has a fresh
-same-start surface point on the same body above the sub-surface threshold. The
-guard logs `suppressing sub-surface Destroyed` with the live altitude, recorded
-altitude, point source, and UT delta, then returns without mutating terminal
-state. Stale points still allow the intentional Destroyed classification, so
-real torn-down vessels remain covered. Regression coverage:
+same-start section-aware absolute surface point on the same body above the
+sub-surface threshold. Relative sections are checked via their `absoluteFrames`;
+flat `Recording.Points` are used only for sectionless legacy-style recordings so
+anchor-local relative offsets cannot masquerade as body altitude. The guard logs
+`suppressing sub-surface Destroyed` with the live altitude, recorded altitude,
+point source, and UT delta, then returns without mutating terminal state. Stale
+points, older recordings with a recent sample, body mismatches, and
+non-catastrophic fallback altitudes still allow the intentional Destroyed
+classification, so real torn-down vessels remain covered. Regression coverage:
 `TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed`
-and `_StaleRecordedPointStillClassifiesDestroyed`.
+and the adjacent stale, relative-frame, body-mismatch, older-recording, and
+threshold guard cases.
 
 ## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 
