@@ -292,6 +292,7 @@ namespace Parsek.Tests
                 VesselName = "Original Round Trip",
                 TreeId = "tree-original",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                MergeState = MergeState.CommittedProvisional,
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 200.0,
                 VesselSnapshot = MakeSnapshot("Original Vessel"),
@@ -323,6 +324,7 @@ namespace Parsek.Tests
             Assert.NotNull(restored);
             Assert.Equal("rec-original-roundtrip", restored.RecordingId);
             Assert.Equal("tree-original", restored.TreeId);
+            Assert.Equal(MergeState.CommittedProvisional, restored.MergeState);
             Assert.Equal(2, restored.Points.Count);
             Assert.Equal(200.0, restored.EndUT);
             Assert.Null(restored.ChildBranchPointId);

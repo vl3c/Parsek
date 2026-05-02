@@ -693,7 +693,7 @@ namespace Parsek.Tests
             const string originId = "rec-origin-inplace-detached-restore";
 
             var origin = MakeRecording(originId, treeId, 100.0, 260.0);
-            origin.MergeState = MergeState.Immutable;
+            origin.MergeState = MergeState.CommittedProvisional;
             origin.ExplicitStartUT = 100.0;
             origin.ExplicitEndUT = 260.0;
             origin.TrackSections.Add(new TrackSection
@@ -722,6 +722,20 @@ namespace Parsek.Tests
             origin.ExplicitEndUT = 130.0;
 
             var pendingTree = MakeTree(treeId, originId, origin);
+            pendingTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-preexisting",
+                Type = BranchPointType.Dock,
+                UT = 90.0,
+            });
+            pendingTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "attempt-child-bp",
+                Type = BranchPointType.JointBreak,
+                UT = 130.0,
+                ParentRecordingIds = new List<string> { originId },
+                ChildRecordingIds = new List<string> { "attempt-child-rec" },
+            });
             RecordingStore.StashPendingTree(pendingTree);
 
             var rp = new RewindPoint
@@ -745,6 +759,8 @@ namespace Parsek.Tests
                     sessionId, treeId, originId, originId),
             };
             scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
+            scenario.ActiveReFlySessionMarker.PreSessionBranchPointIds =
+                new List<string> { "bp-preexisting" };
             ParsekScenario.SetInstanceForTesting(scenario);
 
             MergeDialog.MergeDiscard(pendingTree);
@@ -756,6 +772,7 @@ namespace Parsek.Tests
             Assert.Equal(3, restored.Points.Count);
             Assert.Equal(260.0, restored.EndUT);
             Assert.Single(restored.TrackSections);
+            Assert.Equal(MergeState.CommittedProvisional, restored.MergeState);
             Assert.Null(restored.ChildBranchPointId);
             Assert.False(restored.VesselDestroyed);
             Assert.Null(restored.CreatingSessionId);
@@ -764,6 +781,11 @@ namespace Parsek.Tests
             Assert.False(restored.HasPreReFlyOriginalRecording(sessionId));
             Assert.False(rp.SessionProvisional);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            RecordingTree restoredTree = RecordingStore.CommittedTrees
+                .FirstOrDefault(t => t.Id == treeId);
+            Assert.NotNull(restoredTree);
+            Assert.Contains(restoredTree.BranchPoints, bp => bp.Id == "bp-preexisting");
+            Assert.DoesNotContain(restoredTree.BranchPoints, bp => bp.Id == "attempt-child-bp");
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("TrimInPlaceAttemptBackToOriginRewindPoint"));
             Assert.Contains(logLines, l =>
@@ -774,7 +796,12 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Re-Fly Attempt Discard")
-                && l.Contains("inPlaceOriginalRestored=True"));
+                && l.Contains("inPlaceOriginalRestored=True")
+                && l.Contains("restoredCommittedTree=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("RestoreSanitizedPendingTreeIfDetached")
+                && l.Contains("prunedSessionBranchPoints=1"));
         }
 
         // ================================================================
