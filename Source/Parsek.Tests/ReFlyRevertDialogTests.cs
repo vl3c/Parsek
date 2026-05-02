@@ -180,7 +180,7 @@ namespace Parsek.Tests
             public List<string> ScreenMessages = new List<string>();
         }
 
-        private static DiscardCaptures WireDiscardSeams()
+        private static DiscardCaptures WireDiscardSeams(bool wireScene = true)
         {
             var caps = new DiscardCaptures();
             RevertInterceptor.DiscardReFlyLoadGameForTesting = (rp, name) =>
@@ -189,12 +189,15 @@ namespace Parsek.Tests
                 caps.LoadGameTempName = name;
                 caps.LoadGameCalls++;
             };
-            RevertInterceptor.DiscardReFlyLoadSceneForTesting = (scene, facility) =>
+            if (wireScene)
             {
-                caps.SceneTarget = scene;
-                caps.SceneFacility = facility;
-                caps.SceneCalls++;
-            };
+                RevertInterceptor.DiscardReFlyLoadSceneForTesting = (scene, facility) =>
+                {
+                    caps.SceneTarget = scene;
+                    caps.SceneFacility = facility;
+                    caps.SceneCalls++;
+                };
+            }
             RevertInterceptor.ScreenMessagePostForTesting = msg => caps.ScreenMessages.Add(msg);
             return caps;
         }
@@ -307,6 +310,36 @@ namespace Parsek.Tests
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
             Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+        }
+
+        [Fact]
+        public void DiscardReFly_DispatchFailure_ConsumesBothSuppressions()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams(wireScene: false);
+            RevertInterceptor.DiscardReFlyDispatchSceneResultForTesting = (_, __) => false;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(1, caps.LoadGameCalls);
+            Assert.Equal(0, caps.SceneCalls);
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("scene dispatch failed; consumed tree scene-exit"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("scene dispatch failed; consumed active-tree"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("End reason=discardReFly")
+                && l.Contains("dispatched=false"));
         }
 
         [Fact]

@@ -302,6 +302,8 @@ namespace Parsek
         internal static bool PendingStashedThisTransition;
         private static bool suppressNextTreeSceneExitCommit;
         private static string suppressNextTreeSceneExitCommitReason;
+        private static bool suppressNextActiveTreeRestore;
+        private static string suppressNextActiveTreeRestoreReason;
 
         // Merged to timeline — these auto-playback during flight.
         //
@@ -1188,6 +1190,40 @@ namespace Parsek
 
         internal static bool NextTreeSceneExitCommitSuppressionArmedForTesting
             => suppressNextTreeSceneExitCommit;
+
+        /// <summary>
+        /// Arms a one-shot guard for the next saved active-tree restore pass.
+        /// Discard Re-Fly uses this after loading the origin RP save: the save can
+        /// still contain an isActive tree for quickload resume, but this load is an
+        /// intentional reset back to the RP, not a resume or merge candidate.
+        /// </summary>
+        internal static void ArmNextActiveTreeRestoreSuppression(string reason)
+        {
+            suppressNextActiveTreeRestore = true;
+            suppressNextActiveTreeRestoreReason =
+                string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
+            ParsekLog.Info("RecordingStore",
+                $"Armed next active-tree restore suppression reason='{suppressNextActiveTreeRestoreReason}'");
+        }
+
+        internal static bool TryConsumeNextActiveTreeRestoreSuppression(
+            string context,
+            out string reason)
+        {
+            reason = null;
+            if (!suppressNextActiveTreeRestore)
+                return false;
+
+            reason = suppressNextActiveTreeRestoreReason ?? "<unspecified>";
+            suppressNextActiveTreeRestore = false;
+            suppressNextActiveTreeRestoreReason = null;
+            ParsekLog.Info("RecordingStore",
+                $"Consumed active-tree restore suppression reason='{reason}' context={context ?? "<none>"}");
+            return true;
+        }
+
+        internal static bool NextActiveTreeRestoreSuppressionArmedForTesting
+            => suppressNextActiveTreeRestore;
 
         /// <summary>
         /// Commits the pending tree to the timeline.
@@ -2383,6 +2419,8 @@ namespace Parsek
             PendingStashedThisTransition = false;
             suppressNextTreeSceneExitCommit = false;
             suppressNextTreeSceneExitCommitReason = null;
+            suppressNextActiveTreeRestore = false;
+            suppressNextActiveTreeRestoreReason = null;
             ResetLegacyMergeStateMigrationForTesting();
         }
 

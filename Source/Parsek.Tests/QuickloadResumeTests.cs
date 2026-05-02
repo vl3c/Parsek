@@ -456,6 +456,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryRestoreActiveTreeNode_SuppressionWithNoActiveTree_ConsumesWithoutPending()
+        {
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.False(result);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.Null(RecordingStore.PendingTree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("no active tree node was present"));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_RewindInProgress_ConsumesSuppressionAndClearsResumeHint()
+        {
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.pendingActiveTreeResumeRewindSave = "stale_rw";
+            RewindContext.BeginRewind(123.4, default(BudgetSummary), 0, 0, 0);
+            RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.False(result);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.Null(ParsekScenario.pendingActiveTreeResumeRewindSave);
+            Assert.Null(RecordingStore.PendingTree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("rewind was already skipping restore"));
+        }
+
+        [Fact]
         public void TryRestoreActiveTreeNode_WithActiveTree_StashesAsLimbo()
         {
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
@@ -470,6 +507,34 @@ namespace Parsek.Tests
             Assert.NotNull(RecordingStore.PendingTree);
             Assert.Equal("Launching", RecordingStore.PendingTree.TreeName);
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_SuppressedByDiscardReFly_DoesNotStashOrDetachCommittedTree()
+        {
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeTreeNode = scenarioNode.AddNode("RECORDING_TREE");
+            var activeTree = MakeTree("tree_refly_guard", "Kerbal X", 2);
+            activeTree.Save(activeTreeNode);
+            activeTreeNode.AddValue("isActive", "True");
+
+            var committedTree = MakeTree("tree_refly_guard", "Kerbal X", 2);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.False(result);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.Null(RecordingStore.PendingTree);
+            Assert.Same(committedTree, Assert.Single(RecordingStore.CommittedTrees));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("suppressed saved active tree restore")
+                && l.Contains("not stashing pending-Limbo"));
+            Assert.DoesNotContain(logLines, l => l.Contains("removed committed tree"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Stashed pending tree"));
         }
 
         [Fact]
