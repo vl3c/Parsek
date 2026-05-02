@@ -587,7 +587,7 @@ namespace Parsek
             }
 
             string actionSummary;
-            if (TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            if (TryFindRetryBlockingWorldAction(rec, out actionSummary))
             {
                 closeReason = new ReFlyCloseReason
                 {
@@ -984,8 +984,26 @@ namespace Parsek
             Recording rec,
             out string actionSummary)
         {
+            return TryFindRecordingScopedWorldAction(
+                rec, ignoreMilestoneAchievements: false, out actionSummary);
+        }
+
+        internal static bool TryFindRetryBlockingWorldAction(
+            Recording rec,
+            out string actionSummary)
+        {
+            return TryFindRecordingScopedWorldAction(
+                rec, ignoreMilestoneAchievements: true, out actionSummary);
+        }
+
+        private static bool TryFindRecordingScopedWorldAction(
+            Recording rec,
+            bool ignoreMilestoneAchievements,
+            out string actionSummary)
+        {
             actionSummary = null;
-            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
+            string cacheKey = BuildWorldActionSafetyCacheKey(
+                rec, ignoreMilestoneAchievements);
             if (cacheKey == null)
                 return false;
 
@@ -998,14 +1016,16 @@ namespace Parsek
                 return cached.HasAction;
             }
 
-            var computed = ComputeRecordingScopedWorldAction(rec);
+            var computed = ComputeRecordingScopedWorldAction(
+                rec, ignoreMilestoneAchievements);
             CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
             actionSummary = computed.ActionSummary;
             return computed.HasAction;
         }
 
         private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
-            Recording rec)
+            Recording rec,
+            bool ignoreMilestoneAchievements)
         {
             var result = new WorldActionSafetyCacheEntry();
             var recordingIds = CollectRecordingIdsForSafetyGate(rec);
@@ -1019,6 +1039,9 @@ namespace Parsek
                 if (action == null || string.IsNullOrEmpty(action.RecordingId))
                     continue;
                 if (!recordingIds.Contains(action.RecordingId))
+                    continue;
+                if (ignoreMilestoneAchievements
+                    && action.Type == GameActionType.MilestoneAchievement)
                     continue;
                 if (!IsWorldStateChangingRecordingAction(action, actions))
                     continue;
@@ -1086,12 +1109,17 @@ namespace Parsek
             worldActionSafetyCacheSupersedeVersion = supersedeVersion;
         }
 
-        private static string BuildWorldActionSafetyCacheKey(Recording rec)
+        private static string BuildWorldActionSafetyCacheKey(
+            Recording rec,
+            bool ignoreMilestoneAchievements)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return null;
 
-            return rec.RecordingId
+            string mode = ignoreMilestoneAchievements ? "retry" : "strict";
+            return mode
+                + WorldActionCacheKeySeparator
+                + rec.RecordingId
                 + WorldActionCacheKeySeparator
                 + (rec.SupersedeTargetId ?? string.Empty)
                 + WorldActionCacheKeySeparator

@@ -962,28 +962,46 @@ namespace Parsek
                 if (t < 0) t = 0; else if (t > 1) t = 1;
 
                 float tension = spline.Tension;
-                double x = CatmullRomScalar(spline.ControlsX[i0], spline.ControlsX[i1], spline.ControlsX[i2], spline.ControlsX[i3], t, tension);
-                double y = CatmullRomScalar(spline.ControlsY[i0], spline.ControlsY[i1], spline.ControlsY[i2], spline.ControlsY[i3], t, tension);
-                double z = CatmullRomScalar(spline.ControlsZ[i0], spline.ControlsZ[i1], spline.ControlsZ[i2], spline.ControlsZ[i3], t, tension);
+                double x = CatmullRomScalar(
+                    spline.ControlsX[i0], spline.ControlsX[i1], spline.ControlsX[i2], spline.ControlsX[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
+                double y = CatmullRomScalar(
+                    spline.ControlsY[i0], spline.ControlsY[i1], spline.ControlsY[i2], spline.ControlsY[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
+                double z = CatmullRomScalar(
+                    spline.ControlsZ[i0], spline.ControlsZ[i1], spline.ControlsZ[i2], spline.ControlsZ[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
 
                 return new Vector3d(x, WrapLongitude(y), z);
             }
 
-            // Standard uniform Catmull-Rom on a single segment with tangents
-            // m1 = tension * (P2 - P0) and m2 = tension * (P3 - P1). For the
-            // canonical Catmull-Rom curve, tension = 0.5 (so m1 = (P2-P0)/2).
+            // Time-aware Catmull-Rom on a single segment. Tangents are computed
+            // as value-per-second slopes from the neighbouring knots and then
+            // scaled by this segment's duration for the Hermite basis. This
+            // keeps short sections from inheriting an unscaled tangent from a
+            // much longer adjacent interval.
             // Hermite basis: h00=2t^3-3t^2+1, h10=t^3-2t^2+t, h01=-2t^3+3t^2,
             // h11=t^3-t^2.
-            private static double CatmullRomScalar(double p0, double p1, double p2, double p3, double t, double tension)
+            private static double CatmullRomScalar(
+                double p0, double p1, double p2, double p3,
+                double t0, double t1, double t2, double t3,
+                double t, double segmentDuration, double tension)
             {
-                double t2 = t * t;
-                double t3 = t2 * t;
-                double m1 = tension * (p2 - p0);
-                double m2 = tension * (p3 - p1);
-                double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-                double h10 = t3 - 2.0 * t2 + t;
-                double h01 = -2.0 * t3 + 3.0 * t2;
-                double h11 = t3 - t2;
+                double u2 = t * t;
+                double u3 = u2 * t;
+                double denom1 = t2 - t0;
+                double denom2 = t3 - t1;
+                double slope1 = denom1 > 0.0 ? (p2 - p0) / denom1 : 0.0;
+                double slope2 = denom2 > 0.0 ? (p3 - p1) / denom2 : 0.0;
+                double m1 = tension * slope1 * segmentDuration;
+                double m2 = tension * slope2 * segmentDuration;
+                double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+                double h10 = u3 - 2.0 * u2 + t;
+                double h01 = -2.0 * u3 + 3.0 * u2;
+                double h11 = u3 - u2;
                 return h00 * p1 + h10 * m1 + h01 * p2 + h11 * m2;
             }
 
