@@ -17907,7 +17907,7 @@ namespace Parsek
                     + " debobCorrection=" + FormatVector3d(inheritedProjectDebob.Correction)
                     + " debobCorrectionMeters=" + inheritedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " mode=frozen-body-fixed"
-                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset+recorded_path_debob_correction");
+                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset");
                 return true;
             }
 
@@ -17983,7 +17983,7 @@ namespace Parsek
                 + " debobCorrection=" + FormatVector3d(capturedProjectDebob.Correction)
                 + " debobCorrectionMeters=" + capturedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
                 + " mode=frozen-body-fixed"
-                + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset+recorded_path_debob_correction");
+                + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset");
             return true;
         }
 
@@ -18300,37 +18300,10 @@ namespace Parsek
                 return false;
             }
 
-            if (alignment.DebobEnabled
-                && TryComputeReFlyRecordedDebobCorrection(
-                    marker,
-                    currentUT,
-                    out Vector3d debobCorrection,
-                    out debobDiagnostics))
-            {
-                if (!alignment.DebobReferenceCaptured)
-                {
-                    if (!alignment.TryCaptureDebobReference(
-                            body.bodyTransform.rotation,
-                            debobCorrection,
-                            currentUT))
-                    {
-                        debobDiagnostics.Applied = false;
-                        debobDiagnostics.Reason = "reference-capture-failed";
-                        reason = "projected";
-                        return true;
-                    }
-
-                    debobDiagnostics.ReferenceInitialized = true;
-                    alignmentUpdated = true;
-                    if (!alignment.TryProject(body.bodyTransform.rotation, out delta))
-                    {
-                        reason = "alignment-delta-non-finite-after-debob-reference";
-                        return false;
-                    }
-                }
-
-                delta += debobCorrection;
-            }
+            debobDiagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.Reason = "runtime-disabled";
 
             reason = "projected";
             return true;
@@ -18427,14 +18400,12 @@ namespace Parsek
             }
 
             Vector3d debobbedRecordedPos = recordedPos;
-            ReFlyRecordedDebobDiagnostics debobDiagnostics;
-            bool debobApplied = TryComputeReFlyRecordedDebobCorrection(
-                sampleSections,
-                currentUT,
-                out Vector3d initialDebobCorrection,
-                out debobDiagnostics);
-            if (debobApplied)
-                debobbedRecordedPos += initialDebobCorrection;
+            ReFlyRecordedDebobDiagnostics debobDiagnostics = default(ReFlyRecordedDebobDiagnostics);
+            debobDiagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
+            debobDiagnostics.RawWorld = recordedPos;
+            debobDiagnostics.Reason = "runtime-disabled";
 
             if (!ReFlyDisplayAlignment.TryCapture(
                     marker.SessionId,
@@ -18454,13 +18425,11 @@ namespace Parsek
                 return false;
             }
 
-            alignment.DebobEnabled = true;
-            alignment.DebobReferenceCaptured = debobApplied;
-            alignment.DebobReferenceCorrection = debobApplied ? initialDebobCorrection : Vector3d.zero;
-            alignment.DebobReferenceCorrectionMeters = debobApplied
-                ? initialDebobCorrection.magnitude
-                : 0.0;
-            alignment.DebobReferenceUT = debobApplied ? currentUT : double.NaN;
+            alignment.DebobEnabled = false;
+            alignment.DebobReferenceCaptured = false;
+            alignment.DebobReferenceCorrection = Vector3d.zero;
+            alignment.DebobReferenceCorrectionMeters = 0.0;
+            alignment.DebobReferenceUT = double.NaN;
 
             LogReFlyDisplayAlignmentCaptureDetail(
                 marker,
