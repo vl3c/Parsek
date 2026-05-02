@@ -739,6 +739,158 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyPointTrendFit_DrawsLineThroughAlternatingWave()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, -8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, -8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 8.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 8.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(20.0, 1.6, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -6.4, 0.0), correction, 0.0001);
+            Assert.True(maxResidual > 0.0);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_RejectsLargeCorrection()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 1000.0, 0.0),
+                50.0,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("correction-too-large", reason);
+            AssertVectorClose(new Vector3d(20.0, 0.0, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -1000.0, 0.0), correction, 0.0001);
+            Assert.True(double.IsNaN(maxResidual));
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_BlendsBetweenPhysicsTargets()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+
+            bool first = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out Vector3d firstApplied,
+                out Quaternion _,
+                out double firstDelta,
+                out string firstReason);
+            Assert.False(first);
+            Assert.Equal("initialized", firstReason);
+            AssertVectorClose(Vector3d.zero, firstApplied, 0.0001);
+            Assert.Equal(0.0, firstDelta);
+
+            bool second = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(20.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.25,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out Vector3d secondApplied,
+                out Quaternion _,
+                out double secondDelta,
+                out string secondReason);
+            Assert.True(second, secondReason);
+            Assert.Equal("advanced-target", secondReason);
+            Assert.Equal(20.0, secondDelta, 3);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), secondApplied, 0.0001);
+
+            bool duplicate = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(20.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.75,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out Vector3d duplicateApplied,
+                out Quaternion _,
+                out double duplicateDelta,
+                out string duplicateReason);
+            Assert.True(duplicate, duplicateReason);
+            Assert.Equal("duplicate-target", duplicateReason);
+            Assert.Equal(0.0, duplicateDelta, 3);
+            AssertVectorClose(new Vector3d(15.0, 0.0, 0.0), duplicateApplied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_ResetsAcrossLargeTargetJump()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                100.0,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(500.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                100.0,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-jump-reset", reason);
+            Assert.Equal(500.0, delta, 3);
+            AssertVectorClose(new Vector3d(500.0, 0.0, 0.0), applied, 0.0001);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(500.0, 0.0, 0.0), state.currentPosition, 0.0001);
+        }
+
+        [Fact]
         public void ReFlyDisplayAlignmentCache_SessionChangeClearsFrozenOffsets()
         {
             var cache = new ReFlyDisplayAlignmentCache();
