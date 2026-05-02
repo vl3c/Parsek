@@ -490,7 +490,11 @@ namespace Parsek
             public Quaternion currentRotation;
         }
 
-        internal const double ReFlyRenderInterpolationResetMeters = 1000.0;
+        // Reset instead of blending across world-frame discontinuities such
+        // as FloatingOrigin shifts or section seam snaps. Normal active
+        // Re-Fly ascent steps are tens of metres; blending hundreds of metres
+        // renders the ghost visibly behind the correct pinned target.
+        internal const double ReFlyRenderInterpolationResetMeters = 100.0;
         internal const double ReFlyRenderInterpolationMinTargetDeltaMeters = 0.001;
         internal const double ReFlyRenderInterpolationMinRotationDeltaDegrees = 0.01;
 

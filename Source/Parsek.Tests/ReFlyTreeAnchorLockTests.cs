@@ -891,6 +891,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyRenderInterpolation_ResetsAcrossFloatingOriginSizedJump()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                120.78,
+                new Vector3d(-436.0, -2.0, -246.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                120.80,
+                new Vector3d(-4.0, 0.0, -3.0),
+                Quaternion.identity,
+                0.414,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-jump-reset", reason);
+            Assert.True(delta > ParsekFlight.ReFlyRenderInterpolationResetMeters);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(-4.0, 0.0, -3.0), applied, 0.0001);
+        }
+
+        [Fact]
         public void ReFlyRenderInterpolation_ResetDropsPrePinHiddenTarget()
         {
             var state = new ParsekFlight.ReFlyRenderInterpolationState();
