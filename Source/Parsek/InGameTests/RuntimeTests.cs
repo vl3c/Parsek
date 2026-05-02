@@ -1759,6 +1759,18 @@ namespace Parsek.InGameTests
                     && line.Contains("suppressing time-jump transient"));
         }
 
+        internal static int CountTimeJumpSuppressionArmLogLines(List<string> captured, string jumpKind)
+        {
+            if (captured == null)
+                return 0;
+
+            string expected = "Time-jump launch auto-record suppression armed: jump="
+                + (jumpKind ?? string.Empty);
+            return captured.Count(
+                line => line.Contains("[TimeJump]")
+                    && line.Contains(expected));
+        }
+
         private static int CountPostSwitchAutoStartLogLines(List<string> captured)
         {
             if (captured == null)
@@ -2352,7 +2364,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge discard setup");
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
@@ -2396,7 +2408,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge discard cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                     RecordingStore.DiscardPendingTree();
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
@@ -2439,7 +2451,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit setup");
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
@@ -2496,7 +2508,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                     RecordingStore.DiscardPendingTree();
                 RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
@@ -8594,9 +8606,11 @@ namespace Parsek.InGameTests
             float originalThrottle = FlightInputHandler.state.mainThrottle;
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
+            bool originalRecordingStoreSuppressLogging = RecordingStore.SuppressLogging;
 
             try
             {
+                RecordingStore.SuppressLogging = false;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 flight.StartRecording();
@@ -8670,6 +8684,7 @@ namespace Parsek.InGameTests
             {
                 FlightInputHandler.state.mainThrottle = originalThrottle;
                 ParsekLog.TestObserverForTesting = priorObserver;
+                RecordingStore.SuppressLogging = originalRecordingStoreSuppressLogging;
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
                     ParsekFlight.Instance.StopRecording();
             }
@@ -8954,7 +8969,7 @@ namespace Parsek.InGameTests
             try
             {
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge commit canary setup");
                 ParsekSettings.Current.autoMerge = false;
 
                 flight.StartRecording();
@@ -9044,7 +9059,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge commit canary cleanup");
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
@@ -9138,7 +9153,7 @@ namespace Parsek.InGameTests
             try
             {
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge discard canary setup");
                 ParsekSettings.Current.autoMerge = false;
 
                 flight.StartRecording();
@@ -9222,7 +9237,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge discard canary cleanup");
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
@@ -9436,9 +9451,12 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
                     "Timeline FF should keep the same real pad vessel pid focused after the jump transient");
 
+                int suppressionArmCount =
+                    RuntimeTests.CountTimeJumpSuppressionArmLogLines(captured, "forward");
+                InGameAssert.IsGreaterThan(suppressionArmCount, 0,
+                    "Timeline FF pad canary should arm the forward time-jump launch auto-record suppression path");
+
                 int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
-                InGameAssert.IsGreaterThan(skipCount, 0,
-                    "Timeline FF pad canary should exercise the time-jump transient suppression path");
 
                 int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
                 InGameAssert.AreEqual(0, autoStartCount,
@@ -9446,7 +9464,8 @@ namespace Parsek.InGameTests
 
                 ParsekLog.Info("TestRunner",
                     $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
-                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
+                    $"suppressionArmCount={suppressionArmCount} skipCount={skipCount} " +
+                    $"autoStartCount={autoStartCount}");
             }
             finally
             {
@@ -9548,9 +9567,8 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
                     "Real Spawn Control warp should keep the same real pad vessel pid focused after the jump transient");
 
-                int suppressionArmCount = captured.Count(
-                    line => line.Contains("[TimeJump]")
-                        && line.Contains("Time-jump launch auto-record suppression armed: jump=epoch-shift"));
+                int suppressionArmCount =
+                    RuntimeTests.CountTimeJumpSuppressionArmLogLines(captured, "epoch-shift");
                 InGameAssert.IsGreaterThan(suppressionArmCount, 0,
                     "Real Spawn Control pad canary should arm the epoch-shift time-jump suppression path");
 

@@ -58,62 +58,60 @@ namespace Parsek.InGameTests
 
             int preFlightInstanceId = ParsekFlight.Instance != null
                 ? ParsekFlight.Instance.GetInstanceID()
-                : -1;
+                : 0;
 
             const string testSaveName = "Parsek_PartIdStabilityTest";
 
-            string saveResult = GamePersistence.SaveGame(
-                testSaveName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
-            InGameAssert.IsTrue(!string.IsNullOrEmpty(saveResult),
-                $"SaveGame('{testSaveName}') returned empty result");
-
-            yield return null;
-
-            Game loaded = GamePersistence.LoadGame(
-                testSaveName, HighLogic.SaveFolder, true, false);
-            InGameAssert.IsNotNull(loaded,
-                $"LoadGame('{testSaveName}') returned null");
-
-            HighLogic.CurrentGame = loaded;
-            HighLogic.LoadScene(GameScenes.FLIGHT);
-
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                preFlightInstanceId, 30f);
-
-            var postVessel = FlightGlobals.ActiveVessel;
-            InGameAssert.IsNotNull(postVessel, "Active vessel missing after reload");
-            InGameAssert.IsTrue(postVessel.parts != null && postVessel.parts.Count > 0,
-                "Active vessel has no parts after reload");
-
-            var postPids = new HashSet<uint>();
-            for (int i = 0; i < postVessel.parts.Count; i++)
+            try
             {
-                var part = postVessel.parts[i];
-                if (part == null) continue;
-                postPids.Add(part.persistentId);
+                ParsekLog.Info("Rewind",
+                    $"PartPersistentIdStability: saving '{testSaveName}' before stock quickload round-trip");
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(testSaveName);
+                yield return new WaitForSeconds(0.5f);
+
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(testSaveName);
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    preFlightInstanceId, 30f);
+
+                var postVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(postVessel, "Active vessel missing after reload");
+                InGameAssert.IsTrue(postVessel.parts != null && postVessel.parts.Count > 0,
+                    "Active vessel has no parts after reload");
+
+                var postPids = new HashSet<uint>();
+                for (int i = 0; i < postVessel.parts.Count; i++)
+                {
+                    var part = postVessel.parts[i];
+                    if (part == null) continue;
+                    postPids.Add(part.persistentId);
+                }
+
+                bool match = prePids.SetEquals(postPids);
+                ParsekLog.Info("Rewind",
+                    $"PartPersistentIdStability: prePids={prePids.Count} postPids={postPids.Count} " +
+                    $"match={match}");
+
+                if (!match)
+                {
+                    var missing = new HashSet<uint>(prePids);
+                    missing.ExceptWith(postPids);
+                    var added = new HashSet<uint>(postPids);
+                    added.ExceptWith(prePids);
+                    ParsekLog.Error("Rewind",
+                        "[CRITICAL] Part.persistentId unstable across save/load — " +
+                        $"pre={prePids.Count} post={postPids.Count} missing={missing.Count} " +
+                        $"added={added.Count}. RootPartPidMap fallback DESIGN INVALID — " +
+                        "escalate to design-doc amendment before continuing");
+                }
+
+                InGameAssert.IsTrue(match,
+                    $"Part.persistentId HashSet differs after save/load " +
+                    $"(pre={prePids.Count}, post={postPids.Count})");
             }
-
-            bool match = prePids.SetEquals(postPids);
-            ParsekLog.Info("Rewind",
-                $"PartPersistentIdStability: prePids={prePids.Count} postPids={postPids.Count} " +
-                $"match={match}");
-
-            if (!match)
+            finally
             {
-                var missing = new HashSet<uint>(prePids);
-                missing.ExceptWith(postPids);
-                var added = new HashSet<uint>(postPids);
-                added.ExceptWith(prePids);
-                ParsekLog.Error("Rewind",
-                    "[CRITICAL] Part.persistentId unstable across save/load — " +
-                    $"pre={prePids.Count} post={postPids.Count} missing={missing.Count} " +
-                    $"added={added.Count}. RootPartPidMap fallback DESIGN INVALID — " +
-                    "escalate to design-doc amendment before continuing");
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(testSaveName);
             }
-
-            InGameAssert.IsTrue(match,
-                $"Part.persistentId HashSet differs after save/load " +
-                $"(pre={prePids.Count}, post={postPids.Count})");
         }
     }
 }
