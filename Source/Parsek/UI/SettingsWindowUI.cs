@@ -184,6 +184,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 SettingsWindowPresentation.SettingsDefaults defaults =
                     SettingsWindowPresentation.BuildDefaults();
+                bool priorShowCommittedFutureOverlays = s.showCommittedFutureOverlays;
                 s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
                 s.autoRecordOnEva = defaults.AutoRecordOnEva;
                 s.autoRecordOnFirstModificationAfterSwitch =
@@ -201,6 +202,8 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
+                if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
+                    StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
