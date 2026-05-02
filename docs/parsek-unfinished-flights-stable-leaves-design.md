@@ -554,7 +554,7 @@ var slot = rp.ChildSlots[slotIdx]
 // merge-time focus regardless of rp.FocusSlotIndex. Inside the
 // classifier, slotListIndex == focusSlotOverride takes the
 // stableTerminalFocusSlot branch on Orbiting/SubOrbital tips, after
-// the existing static-focus and recording-scoped world-action checks
+// the existing static-focus and retry-blocking recording-action checks
 // have run.
 bool qualifies = UnfinishedFlightClassifier.Qualifies(
     provisional, slot, rp, considerSealed: false,
@@ -566,9 +566,12 @@ bool terminalFailure =
     terminal == Destroyed
     OR (EvaCrewName != null AND terminal != Boarded)
 
-bool hasUnsafeRecordingAction =
-    HasRecordingScopedWorldAction(provisional)
-    EXCEPT tombstoneable KerbalAssignment+Dead and bundled death ReputationPenalty
+bool hasRetryBlockingPlayerAction =
+    HasRetryBlockingRecordingAction(provisional)
+    // science/funds spending, contract accept/cancel, kerbal hire,
+    // facility upgrade/repair, strategy activate/deactivate.
+    // Automatic consequence rows and tombstoneable kerbal-death rows
+    // do not close the retry path by themselves.
 
 // Structural mutation during this Re-Fly session: any BranchPoint with
 // Type in {Breakup, Undock, EVA, JointBreak} authored at UT > rp.UT
@@ -580,7 +583,7 @@ bool hasStructuralMutation =
 
 bool keepOpen =
     qualifies
-    AND NOT hasUnsafeRecordingAction
+    AND NOT hasRetryBlockingPlayerAction
     AND terminalFailure                  // ONLY terminal failure keeps open
     AND NOT hasStructuralMutation        // ... and no structural mutation
 
@@ -590,9 +593,9 @@ provisional.MergeState = keepOpen
 
 // Auto-seal triggers: stableTerminalFocusSlot (player-chosen slot
 // reached stable terminal), structuralMutation (session authored a
-// new structural BP), recordingAction (any recording-linked career/
-// world action), downstreamBp (chain tip's child BP resolves to a
-// deeper RP), and the existing hard-safety terminals
+// new structural BP), recordingAction (retry-blocking player action),
+// downstreamBp (chain tip's child BP resolves to a deeper RP), and the
+// existing hard-safety terminals
 // (Recovered/Docked/Boarded).
 if (!keepOpen AND closeReason is an auto-seal reason)
     slot.Sealed = true
@@ -987,7 +990,7 @@ Originally resolved with a "clean stable stays open" policy. **Revised in v0.9.1
 - *Structural-mutation* outcomes (any session-authored `Breakup`/`Undock`/`EVA`/`JointBreak` BP not in `marker.PreSessionBranchPointIds`) commit `Immutable` + auto-seal; Site B-2 lets the reaper clean the RP.
 - *Safety-closed* outcomes (Recovered/Docked/Boarded, downstream BP, retry-blocking player action) commit `Immutable` + auto-seal; same reap path.
 - *Terminal-failure* outcomes (`Destroyed`, non-boarded EVA) without a retry-blocking player action stay `CommittedProvisional` so the player can retry.
-- *Stashed-slot Re-Fly* without structural mutation, world action, or hard-safety terminal stays `CommittedProvisional` via `stashedStableLeaf` because the stashed branch fires before the focus check.
+- *Stashed-slot Re-Fly* without structural mutation, retry-blocking player action, or hard-safety terminal stays `CommittedProvisional` via `stashedStableLeaf` because the stashed branch fires before the focus check.
 
 The previous "clean stable retry" affordance is removed in favour of the playtest-confirmed contract: a successful Re-Fly is the player concluding the slot, not a synchronization pass. Players who want the synchronization affordance Discard / Retry the Re-Fly instead of merging.
 
