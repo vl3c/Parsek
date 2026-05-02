@@ -321,6 +321,7 @@ namespace Parsek
                 $"slot={(classification.ClassifierResolvedSlot ? classification.SlotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
                 $"rp={(classification.ClassifierResolvedSlot ? classification.RewindPointId ?? "<no-rp>" : "<none>")} " +
                 $"focusSlot={(classification.ClassifierResolvedSlot ? classification.FocusSlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"focusSlotOverride={(classification.ClassifierResolvedSlot ? classification.SlotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
                 $"classifierReason={classification.ClassifierReason ?? "<none>"} " +
                 $"autoSeal={classification.AutoSealSlot} " +
                 $"autoSealReason={classification.AutoSealReason ?? "<none>"} " +
@@ -712,6 +713,7 @@ namespace Parsek
 
             HashSet<string> preSessionSet = new HashSet<string>(
                 marker.PreSessionBranchPointIds, StringComparer.Ordinal);
+            HashSet<string> lineageSet = BuildReFlyTargetLineageRecordingIds(rec);
 
             // A small UT slack absorbs floating-point round-trip drift
             // between the resolved cutoff UT and a branch-point UT that
@@ -723,6 +725,7 @@ namespace Parsek
 
             int matchedCount = 0;
             int spliceExcludedCount = 0;
+            int lineageExcludedCount = 0;
             string firstBpId = null;
             BranchPointType? firstBpType = null;
             for (int i = 0; i < tree.BranchPoints.Count; i++)
@@ -740,6 +743,18 @@ namespace Parsek
                     spliceExcludedCount++;
                     continue;
                 }
+                if (!IsBranchPointInReFlyTargetLineage(bp, lineageSet))
+                {
+                    // Same tree, but the BP's parent recordings don't
+                    // intersect the Re-Fly target's lineage (provisional +
+                    // chain segments). A background vessel that staged /
+                    // undocked / joint-broke during this session in the
+                    // same tree authored its own BP with its own parent
+                    // ids — that's not a mutation of the player-chosen
+                    // slot and must not auto-seal it.
+                    lineageExcludedCount++;
+                    continue;
+                }
 
                 matchedCount++;
                 if (firstBpId == null)
@@ -754,12 +769,73 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             detail = $"branchPoints={matchedCount.ToString(ic)}" +
                 $" spliceExcluded={spliceExcludedCount.ToString(ic)}" +
+                $" lineageExcluded={lineageExcludedCount.ToString(ic)}" +
                 $" firstBp={firstBpId ?? "<no-id>"}" +
                 $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
                 $" sinceUT={cutoffSource.Value.ToString("F2", ic)}" +
                 $" cutoffOrigin={cutoffOriginLabel}" +
-                $" baseline={marker.PreSessionBranchPointIds.Count.ToString(ic)}";
+                $" baseline={marker.PreSessionBranchPointIds.Count.ToString(ic)}" +
+                $" lineage={lineageSet.Count.ToString(ic)}";
             return true;
+        }
+
+        /// <summary>
+        /// Builds the set of recording ids that count as the Re-Fly target's
+        /// lineage for structural-mutation detection: the provisional itself
+        /// plus every committed recording in the same tree / chain /
+        /// chain-branch as the provisional. Optimizer-split tails of the
+        /// in-place chain share the provisional's <see cref="Recording.ChainId"/>
+        /// + <see cref="Recording.ChainBranch"/> and are therefore included.
+        /// A BranchPoint whose <see cref="BranchPoint.ParentRecordingIds"/>
+        /// does not intersect this set was authored by an unrelated vessel
+        /// (background sibling in the same tree) and must not trip the gate.
+        /// </summary>
+        private static HashSet<string> BuildReFlyTargetLineageRecordingIds(Recording provisional)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (provisional == null) return set;
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                set.Add(provisional.RecordingId);
+
+            string treeId = provisional.TreeId;
+            string chainId = provisional.ChainId;
+            int chainBranch = provisional.ChainBranch;
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(chainId))
+                return set;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return set;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var cand = committed[i];
+                if (cand == null) continue;
+                if (object.ReferenceEquals(cand, provisional)) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.TreeId, treeId, StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.ChainId, chainId, StringComparison.Ordinal))
+                    continue;
+                if (cand.ChainBranch != chainBranch) continue;
+                set.Add(cand.RecordingId);
+            }
+            return set;
+        }
+
+        private static bool IsBranchPointInReFlyTargetLineage(
+            BranchPoint bp, HashSet<string> lineageSet)
+        {
+            if (bp == null || lineageSet == null || lineageSet.Count == 0)
+                return false;
+            var parents = bp.ParentRecordingIds;
+            if (parents == null || parents.Count == 0)
+                return false;
+            for (int i = 0; i < parents.Count; i++)
+            {
+                string pid = parents[i];
+                if (!string.IsNullOrEmpty(pid) && lineageSet.Contains(pid))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

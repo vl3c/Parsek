@@ -286,8 +286,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LandedTerminal_WithRpSlot_ClosesWithoutAutoSeal()
+        public void LandedTerminal_WithRpSlot_AutoSealsViaFocusOverride()
         {
+            // v0.9.1 revision (§4.6): the player-chosen Re-Fly slot
+            // reaching a stable Landed terminal seals the slot via the
+            // focus override. Previously this test asserted "closes
+            // without auto-seal" because Landed only triggered the
+            // stableTerminal path which auto-sealed only on
+            // IsHardSafetyTerminal (Recovered/Docked/Boarded). Under the
+            // override, Landed/Splashed/Orbiting/SubOrbital on the
+            // player-chosen slot all seal.
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -319,13 +327,13 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=stableTerminal")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("autoSeal=True"));
         }
 
         [Theory]
@@ -421,8 +429,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashedLandedLeaf_MergeKeepsCommittedProvisional()
+        public void StashedLandedLeaf_ReFlyMerge_AutoSealsViaFocusOverride()
         {
+            // v0.9.1 revision (§4.6): a Re-Fly merge of a stashed slot
+            // that ends in a stable terminal (Landed here) seals via the
+            // focus override. The override fires before the
+            // stashed-keep-open branch in the classifier, so
+            // stashedStableLeaf no longer comes out of Site B-1.
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -455,15 +468,15 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.True(originSlot.Stashed);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("classifierReason=stashedStableLeaf")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("autoSeal=True")
+                && l.Contains("focusSlotOverride=1"));
         }
 
         [Fact]
@@ -570,41 +583,83 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingReFlyTarget_StashedSlotWithBreakupBranchPointDuringSession_AutoSealsSlot()
+        public void OrbitingReFlyTarget_NoFocusSignalRP_AutoSealsViaFocusOverride()
         {
-            // The Re-Fly session created a structural Breakup branch point
-            // in the provisional's tree at a UT past the rewind point.
-            // Per playtest contract: any structural mutation during Re-Fly
-            // seals the slot even when the chain tip would otherwise
-            // qualify as a safe stable retry. The Re-Fly target sits on a
-            // Stashed slot so the classifier returns stashedStableLeaf
-            // (qualifies=true) — the structural-mutation gate is what
-            // closes the slot.
-            //
-            // Realistic timing: marker.InvokedUT (300) is the live UT when
-            // the player clicked Re-Fly; the RP loaded the player back to
-            // UT=100; the Breakup occurred at UT=150 during the Re-Fly.
-            // Detection must use rp.UT (100), not marker.InvokedUT (300).
-            const string rpId = "rp_stashed_struct_seal";
-            const string bpId = "bp_stashed_struct_seal";
-            const string breakupBpId = "bp_stashed_struct_seal_decouple";
-            var origin = Rec("rec_origin", "tree_struct_stashed");
-            var breakupBp = new BranchPoint
-            {
-                Id = breakupBpId,
-                Type = BranchPointType.Breakup,
-                UT = 150.0,
-                ChildRecordingIds = new List<string> { "rec_decoupled_debris" },
-            };
-            InstallTree("tree_struct_stashed",
+            // P3 review: the override must precede the noFocusSignalOrbiting
+            // early-return. A Re-Fly merge from an RP captured with no
+            // focus signal (FocusSlotIndex == -1, e.g. the player was
+            // controlling an unrelated vessel at split time) must still
+            // seal via stableTerminalFocusSlot when the player flew the
+            // slot to a stable terminal.
+            const string bpId = "bp_no_focus";
+            var origin = Rec("rec_origin", "tree_no_focus");
+            InstallTree("tree_no_focus",
                 new List<Recording> { origin },
-                new List<BranchPoint> { breakupBp });
-            var provisional = AddProvisional("rec_provisional", "tree_struct_stashed",
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_no_focus",
                 TerminalState.Orbiting, supersedeTargetId: "rec_origin");
             provisional.ParentBranchPointId = bpId;
             var marker = Marker("rec_origin", "rec_provisional");
-            marker.SessionId = "sess_stashed_struct_seal";
-            marker.TreeId = "tree_struct_stashed";
+            marker.TreeId = "tree_no_focus";
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = -1, // no focus captured
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_other", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("autoSeal=True")
+                && l.Contains("focusSlotOverride=1"));
+            // Must NOT take the noFocusSignalOrbiting early-return path.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_provisional")
+                && l.Contains("reason=noFocusSignalOrbiting"));
+        }
+
+        [Fact]
+        public void OrbitingReFlyTarget_StashedSlotWithStableTip_AutoSealsViaFocusOverride()
+        {
+            // v0.9.1 revision (§4.6): focus override fires BEFORE the
+            // classifier's stashed-keep-open branch, so a stashed slot
+            // Re-Flown to stable orbit closes via stableTerminalFocusSlot
+            // — not via the structural-mutation gate. The structural gate
+            // remains a defensive backstop and is exercised at the
+            // helper level by HasReFlySessionStructuralMutation_* tests
+            // below.
+            const string rpId = "rp_stashed_override_seal";
+            const string bpId = "bp_stashed_override_seal";
+            var origin = Rec("rec_origin", "tree_stashed_override");
+            InstallTree("tree_stashed_override",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_stashed_override",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.SessionId = "sess_stashed_override_seal";
+            marker.TreeId = "tree_stashed_override";
             marker.RewindPointId = rpId;
             marker.InvokedUT = 300.0;
             var scenario = InstallScenario(marker);
@@ -638,10 +693,8 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=structuralMutation:")
-                && l.Contains($"firstBp={breakupBpId}")
-                && l.Contains("firstType=Breakup")
-                && l.Contains("cutoffOrigin=rpUT"));
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("focusSlotOverride=1"));
         }
 
         [Fact]
@@ -661,6 +714,7 @@ namespace Parsek.Tests
                 Id = "bp_normal_timing_decouple",
                 Type = BranchPointType.Breakup,
                 UT = 150.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_normal_timing",
                 new List<Recording> { rec },
@@ -702,6 +756,7 @@ namespace Parsek.Tests
                 Id = "bp_post_invoke",
                 Type = BranchPointType.JointBreak,
                 UT = 305.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_no_rp",
                 new List<Recording> { rec },
@@ -783,12 +838,14 @@ namespace Parsek.Tests
                 Id = oldBpId,
                 Type = BranchPointType.Breakup,
                 UT = 200.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             var newBp = new BranchPoint
             {
                 Id = newBpId,
                 Type = BranchPointType.Breakup,
                 UT = 250.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_mixed",
                 new List<Recording> { rec },
@@ -816,6 +873,104 @@ namespace Parsek.Tests
             Assert.Contains("branchPoints=1", detail);
             Assert.Contains("spliceExcluded=1", detail);
             Assert.Contains("baseline=1", detail);
+            Assert.Contains("lineage=", detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_BranchPointOnUnrelatedSiblingInSameTree_NotDetected()
+        {
+            // P1 review: a background sibling vessel in the SAME tree
+            // that stages / undocks during the Re-Fly authors a structural
+            // BP whose ParentRecordingIds points at the sibling, NOT the
+            // Re-Fly target. The lineage filter must exclude it so
+            // background-vessel mutations do not auto-seal the player-
+            // chosen slot.
+            const string rpId = "rp_unrelated_sibling";
+            const string siblingBpId = "bp_sibling_decouple";
+            var provisional = Rec("rec_provisional", "tree_unrelated");
+            var sibling = Rec("rec_sibling", "tree_unrelated");
+            // The sibling is in the same tree but a different chain.
+            sibling.ChainId = "chain_sibling";
+            provisional.ChainId = "chain_provisional";
+            var siblingBp = new BranchPoint
+            {
+                Id = siblingBpId,
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+                // Crucially: parent is the sibling, not the provisional.
+                ParentRecordingIds = new List<string> { "rec_sibling" },
+            };
+            InstallTree("tree_unrelated",
+                new List<Recording> { provisional, sibling },
+                new List<BranchPoint> { siblingBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_unrelated";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            marker.PreSessionBranchPointIds = new List<string>();
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                provisional, marker, out detail));
+            Assert.Null(detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_BranchPointOnSameChainTail_Detected()
+        {
+            // Optimizer-split chain tail: the provisional is the head, a
+            // tail recording shares (TreeId, ChainId, ChainBranch). A BP
+            // authored against the tail (e.g. player decouples mid-chain)
+            // is in the lineage and must trip the gate.
+            const string rpId = "rp_chain_tail";
+            const string tailBpId = "bp_chain_tail_decouple";
+            var head = Rec("rec_provisional", "tree_chain");
+            head.ChainId = "chain_inplace";
+            head.ChainBranch = 0;
+            var tail = Rec("rec_chain_tail", "tree_chain");
+            tail.ChainId = "chain_inplace";
+            tail.ChainBranch = 0;
+            var bp = new BranchPoint
+            {
+                Id = tailBpId,
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+                ParentRecordingIds = new List<string> { "rec_chain_tail" },
+            };
+            InstallTree("tree_chain",
+                new List<Recording> { head, tail },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_chain";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            marker.PreSessionBranchPointIds = new List<string>();
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(
+                head, marker, out detail));
+            Assert.NotNull(detail);
+            Assert.Contains($"firstBp={tailBpId}", detail);
+            // Lineage size = head + tail = 2.
+            Assert.Contains("lineage=2", detail);
         }
 
         [Fact]
@@ -2376,7 +2531,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_KeepsOpen()
+        public void TryCommitReFlySupersede_InPlaceContinuation_StashedStableLeaf_AutoSealsViaFocusOverride()
         {
             const string kBpId = "bp_inplace_stashed_leaf";
             var origin = Rec("rec_rover", "tree_1",
@@ -2449,23 +2604,30 @@ namespace Parsek.Tests
                 RewindPointReaper.ResetTestOverrides();
             }
 
-            Assert.Equal(MergeState.CommittedProvisional, origin.MergeState);
-            Assert.True(roverSlot.Stashed);
-            Assert.NotNull(roverSlot.StashedRealTime);
-            Assert.False(roverSlot.Sealed);
-            Assert.Null(roverSlot.SealedRealTime);
-            Assert.Single(scenario.RewindPoints);
+            // v0.9.1 revision (§4.6): the focus override fires before the
+            // classifier's stashed-keep-open branch, so an in-place
+            // continuation Re-Fly of a stashed slot that ends Landed
+            // commits Immutable + auto-seal. The "in-place continuation
+            // kept stashed" log line is from the merge-dialog tail and
+            // requires MergeState=CommittedProvisional to fire — under
+            // the new sealed outcome, the merge-dialog tail enters its
+            // "slot closed" path and the kept-stashed line does NOT
+            // appear. The post-merge reaper deletes the RP since both
+            // slots resolve closed.
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.True(roverSlot.Sealed);
+            Assert.NotNull(roverSlot.SealedRealTime);
+            Assert.Empty(scenario.RewindPoints);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(0, deletes);
+            Assert.Equal(1, deletes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("classifierReason=stashedStableLeaf")
-                && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("autoSeal=False"));
-            Assert.Contains(logLines, l =>
+                && l.Contains("classifierReason=stableTerminalFocusSlot")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("autoSeal=True"));
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("in-place continuation kept stashed")
-                && l.Contains("rec=rec_rover"));
+                && l.Contains("in-place continuation kept stashed"));
         }
 
         [Fact]
