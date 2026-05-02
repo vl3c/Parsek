@@ -139,8 +139,9 @@ namespace Parsek.InGameTests.Helpers
 
         /// <summary>
         /// Waits until the reloaded FLIGHT scene has a new ParsekFlight instance,
-        /// FlightGlobals.ready is true, and an active vessel is present, or until
-        /// timeout. Pass 0 when there is no previous ParsekFlight instance.
+        /// FlightGlobals.ready is true, and FlightGlobals.ActiveVessel is
+        /// non-null, or until timeout. Pass 0 when there is no previous
+        /// ParsekFlight instance.
         /// </summary>
         internal static IEnumerator WaitForFlightReady(int previousFlightInstanceId, float timeoutSeconds = 10f)
         {
@@ -176,6 +177,8 @@ namespace Parsek.InGameTests.Helpers
             int currentFlightInstanceId,
             int previousFlightInstanceId)
         {
+            // Unity GetInstanceID() uses non-zero values for valid objects; 0 is
+            // the local sentinel for "no ParsekFlight instance".
             bool replacedFlight = currentFlightInstanceId != 0
                 && (previousFlightInstanceId == 0
                     || currentFlightInstanceId != previousFlightInstanceId);

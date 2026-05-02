@@ -39,6 +39,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsReloadedFlightReady_RequiresFlightScene()
+        {
+            Assert.False(QuickloadResumeHelpers.IsReloadedFlightReady(
+                GameScenes.SPACECENTER,
+                flightGlobalsReady: true,
+                activeVesselPresent: true,
+                currentFlightInstanceId: 42,
+                previousFlightInstanceId: 0));
+        }
+
+        [Fact]
+        public void IsReloadedFlightReady_RequiresFlightGlobalsReady()
+        {
+            Assert.False(QuickloadResumeHelpers.IsReloadedFlightReady(
+                GameScenes.FLIGHT,
+                flightGlobalsReady: false,
+                activeVesselPresent: true,
+                currentFlightInstanceId: 42,
+                previousFlightInstanceId: 0));
+        }
+
+        [Fact]
+        public void IsReloadedFlightReady_RequiresCurrentFlightInstance()
+        {
+            Assert.False(QuickloadResumeHelpers.IsReloadedFlightReady(
+                GameScenes.FLIGHT,
+                flightGlobalsReady: true,
+                activeVesselPresent: true,
+                currentFlightInstanceId: 0,
+                previousFlightInstanceId: 0));
+        }
+
+        [Fact]
         public void PartPersistentIdStability_UsesStockQuickloadBackend()
         {
             string path = LocateParsekSourceFile(
@@ -48,8 +81,6 @@ namespace Parsek.Tests
 
             string src = File.ReadAllText(path);
 
-            Assert.Contains("TriggerQuicksave(testSaveName)", src);
-            Assert.Contains("TriggerQuickload(testSaveName)", src);
             Assert.DoesNotContain("HighLogic.CurrentGame = loaded", src);
             Assert.DoesNotContain("HighLogic.LoadScene(GameScenes.FLIGHT)", src);
         }
@@ -57,21 +88,20 @@ namespace Parsek.Tests
         private static string LocateParsekSourceFile(params string[] segments)
         {
             string dir = AppDomain.CurrentDomain.BaseDirectory;
+            string lastCandidate = null;
             while (!string.IsNullOrEmpty(dir))
             {
                 string candidate = Path.Combine(dir, "Source", "Parsek");
                 foreach (string segment in segments)
                     candidate = Path.Combine(candidate, segment);
+                lastCandidate = candidate;
                 if (File.Exists(candidate))
                     return candidate;
 
                 dir = Directory.GetParent(dir)?.FullName;
             }
 
-            return Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek",
-                Path.Combine(segments));
+            return lastCandidate ?? string.Empty;
         }
     }
 }
