@@ -429,6 +429,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HighFidelityWindow_UsesDenseMaxIntervalBackstop()
+        {
+            bool active = FlightRecorder.IsHighFidelitySamplingActive(
+                currentUT: 101.0,
+                highFidelityUntilUT: 105.0);
+            float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                active,
+                configuredMin: 0.2f);
+            float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                active,
+                configuredMax: 3.0f);
+
+            bool result = TrajectoryMath.ShouldRecordPoint(
+                new Vector3(10, 0, 0),
+                new Vector3(10, 0, 0),
+                currentUT: 100.03,
+                lastRecordedUT: 100.0,
+                min,
+                max,
+                VelDirThreshold,
+                SpeedThreshold);
+
+            Assert.True(active);
+            Assert.Equal(0f, min);
+            Assert.Equal(FlightRecorder.HighFidelitySampleIntervalSeconds, max);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void HighFidelityWindow_ExpiresAfterUntilUT()
+        {
+            bool active = FlightRecorder.IsHighFidelitySamplingActive(
+                currentUT: 105.01,
+                highFidelityUntilUT: 105.0);
+            float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                active,
+                configuredMin: 0.2f);
+            float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                active,
+                configuredMax: 3.0f);
+
+            Assert.False(active);
+            Assert.Equal(0.2f, min);
+            Assert.Equal(3.0f, max);
+        }
+
+        [Fact]
+        public void SectionGapStats_ComputesAverageMaxAndLargeGaps()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.0 },
+                new TrajectoryPoint { ut = 10.1 },
+                new TrajectoryPoint { ut = 10.7 },
+                new TrajectoryPoint { ut = 10.9 }
+            };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5);
+
+            Assert.Equal(4, stats.FrameCount);
+            Assert.Equal(10.0, stats.FirstUT);
+            Assert.Equal(10.9, stats.LastUT);
+            Assert.Equal(0.3, stats.AverageGapSeconds, precision: 6);
+            Assert.Equal(0.6, stats.MaxGapSeconds, precision: 6);
+            Assert.Equal(1, stats.LargeGapCount);
+        }
+
+        [Fact]
         public void AttitudeSampling_AboveThreshold_Records()
         {
             bool result = FlightRecorder.ShouldRecordAttitudePoint(

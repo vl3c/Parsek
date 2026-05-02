@@ -401,11 +401,113 @@ namespace Parsek
             ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
         private static float speedChangeThreshold =>
             (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
+
+        internal struct SectionGapStats
+        {
+            public int FrameCount;
+            public double FirstUT;
+            public double LastUT;
+            public double AverageGapSeconds;
+            public double MaxGapSeconds;
+            public int LargeGapCount;
+        }
+
+        internal static SectionGapStats ComputeSectionGapStats(
+            IList<TrajectoryPoint> frames,
+            double largeGapThresholdSeconds = SparseSectionGapWarningThresholdSeconds)
+        {
+            var stats = new SectionGapStats
+            {
+                FrameCount = frames?.Count ?? 0,
+                FirstUT = double.NaN,
+                LastUT = double.NaN,
+                AverageGapSeconds = 0.0,
+                MaxGapSeconds = 0.0,
+                LargeGapCount = 0
+            };
+
+            if (frames == null || frames.Count == 0)
+                return stats;
+
+            stats.FirstUT = frames[0].ut;
+            stats.LastUT = frames[frames.Count - 1].ut;
+            if (frames.Count == 1)
+                return stats;
+
+            double totalGap = 0.0;
+            double maxGap = 0.0;
+            int gapCount = 0;
+            int largeGapCount = 0;
+            for (int i = 1; i < frames.Count; i++)
+            {
+                double gap = frames[i].ut - frames[i - 1].ut;
+                if (gap < 0.0)
+                    continue;
+
+                totalGap += gap;
+                gapCount++;
+                if (gap > maxGap)
+                    maxGap = gap;
+                if (gap > largeGapThresholdSeconds)
+                    largeGapCount++;
+            }
+
+            stats.AverageGapSeconds = gapCount > 0 ? totalGap / gapCount : 0.0;
+            stats.MaxGapSeconds = maxGap;
+            stats.LargeGapCount = largeGapCount;
+            return stats;
+        }
+
+        internal static bool IsHighFidelitySamplingActive(double currentUT, double highFidelityUntilUT)
+        {
+            return !double.IsNaN(highFidelityUntilUT)
+                && !double.IsInfinity(highFidelityUntilUT)
+                && currentUT <= highFidelityUntilUT;
+        }
+
+        internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
+        {
+            return highFidelityActive ? 0f : configuredMin;
+        }
+
+        internal static float ResolveEffectiveMaxSampleInterval(bool highFidelityActive, float configuredMax)
+        {
+            return highFidelityActive
+                ? Math.Min(configuredMax, HighFidelitySampleIntervalSeconds)
+                : configuredMax;
+        }
+
+        private void ActivateHighFidelitySampling(double eventUT, string reason)
+        {
+            if (double.IsNaN(eventUT) || double.IsInfinity(eventUT))
+                return;
+
+            double untilUT = eventUT + HighFidelitySamplingWindowSeconds;
+            bool extendsWindow = double.IsNaN(highFidelitySamplingUntilUT)
+                || untilUT > highFidelitySamplingUntilUT + 0.001;
+            highFidelitySamplingUntilUT = Math.Max(
+                double.IsNaN(highFidelitySamplingUntilUT) ? double.MinValue : highFidelitySamplingUntilUT,
+                untilUT);
+            highFidelitySamplingReason = reason ?? "unknown";
+
+            if (extendsWindow)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("Recorder",
+                    $"High-fidelity sampling window active: reason={highFidelitySamplingReason} " +
+                    $"eventUT={eventUT.ToString("F2", ic)} " +
+                    $"untilUT={highFidelitySamplingUntilUT.ToString("F2", ic)} " +
+                    $"maxInterval={HighFidelitySampleIntervalSeconds.ToString("F3", ic)}s");
+            }
+        }
         private const double snapshotRefreshIntervalUT = 10.0;
         private static readonly double finalizationCacheRefreshIntervalUT =
             RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
+        internal const double HighFidelitySamplingWindowSeconds = 10.0;
+        internal const float HighFidelitySampleIntervalSeconds = 0.02f;
+        internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
@@ -417,6 +519,8 @@ namespace Parsek
         private Vector3 lastRecordedVelocity;
         private Quaternion lastRecordedWorldRotation = Quaternion.identity;
         private bool hasLastRecordedWorldRotation;
+        private double highFidelitySamplingUntilUT = double.NaN;
+        private string highFidelitySamplingReason;
 
         /// <summary>
         /// UT of the most recently sampled trajectory point. <c>double.NaN</c>
@@ -516,6 +620,7 @@ namespace Parsek
                 eventType = evtType,
                 partName = p.partInfo?.name ?? "unknown"
             });
+            ActivateHighFidelitySampling(PartEvents[PartEvents.Count - 1].ut, $"part-event-{evtType}");
             ParsekLog.Verbose("Recorder", $"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
             RefreshFinalizationCache(p.vessel, "part_die", force: true);
         }
@@ -571,6 +676,7 @@ namespace Parsek
                 eventType = PartEventType.Decoupled,
                 partName = joint.Child.partInfo?.name ?? "unknown"
             });
+            ActivateHighFidelitySampling(jointBreakUT, "joint-break");
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
             RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
 
@@ -3903,6 +4009,7 @@ namespace Parsek
                 // Start the timer
                 atmosphereBoundaryPending = true;
                 atmosphereBoundaryPendingUT = currentUT;
+                ActivateHighFidelitySampling(currentUT, "atmosphere-boundary-pending");
                 ParsekLog.Verbose("Recorder", $"Atmosphere boundary detected — starting hysteresis timer " +
                     $"(body={v.mainBody.name}, {(nowInAtmo ? "entering" : "exiting")}, alt={altitude:F0}m, atmoDepth={atmoDepth:F0}m)");
                 return;
@@ -3919,6 +4026,7 @@ namespace Parsek
                 EnteredAtmosphere = nowInAtmo;
                 wasInAtmosphere = nowInAtmo;
                 atmosphereBoundaryPending = false;
+                ActivateHighFidelitySampling(currentUT, "atmosphere-boundary-confirmed");
                 ParsekLog.Info("Recorder", $"Atmosphere boundary confirmed: {(nowInAtmo ? "entered" : "exited")} " +
                     $"atmosphere of {v.mainBody.name} at alt {altitude:F0}m " +
                     $"(hysteresis: {(currentUT - atmosphereBoundaryPendingUT):F1}s, {Math.Abs(altitude - atmoDepth):F0}m past boundary)");
@@ -3981,6 +4089,7 @@ namespace Parsek
                 // Start the timer
                 altitudeBoundaryPending = true;
                 altitudeBoundaryPendingUT = currentUT;
+                ActivateHighFidelitySampling(currentUT, "altitude-boundary-pending");
                 ParsekLog.Verbose("Recorder", $"Altitude boundary detected — starting hysteresis timer " +
                     $"(body={v.mainBody.name}, {(nowAbove ? "ascending" : "descending")}, alt={altitude:F0}m, threshold={currentAltitudeThreshold:F0}m)");
                 return;
@@ -3997,6 +4106,7 @@ namespace Parsek
                 DescendedBelowThreshold = !nowAbove;
                 wasAboveAltitudeThreshold = nowAbove;
                 altitudeBoundaryPending = false;
+                ActivateHighFidelitySampling(currentUT, "altitude-boundary-confirmed");
                 ParsekLog.Info("Recorder", $"Altitude boundary confirmed: {(nowAbove ? "ascended above" : "descended below")} " +
                     $"threshold on {v.mainBody.name} at alt {altitude:F0}m " +
                     $"(threshold={currentAltitudeThreshold:F0}m, hysteresis: {(currentUT - altitudeBoundaryPendingUT):F1}s, " +
@@ -4223,6 +4333,7 @@ namespace Parsek
 
             int frameCount = currentTrackSection.frames?.Count ?? 0;
             int checkpointCount = currentTrackSection.checkpoints?.Count ?? 0;
+            SectionGapStats gapStats = ComputeSectionGapStats(currentTrackSection.frames);
 
             // Skip degenerate zero-frame sections from brief RELATIVE/environment flickers
             // (e.g., debris triggers anchor for one frame then leaves). Only discard if
@@ -4242,7 +4353,20 @@ namespace Parsek
             ParsekLog.Info("Recorder",
                 $"TrackSection closed: env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
                 $"frames={frameCount} checkpoints={checkpointCount} " +
-                $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
+                $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s " +
+                $"avgGap={gapStats.AverageGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                $"largeGaps={gapStats.LargeGapCount}");
+
+            if (gapStats.LargeGapCount > 0)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
+                    $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
+                    $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                    $"threshold={SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                    $"largeGaps={gapStats.LargeGapCount}");
+            }
 
             // Phase 7 (design doc §13, §19.2 Pipeline-Terrain row): when a
             // surface section closes, summarise the clearance distribution
@@ -4723,6 +4847,7 @@ namespace Parsek
                     ? environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric;
                 StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
+                ActivateHighFidelitySampling(boundaryUT, "relative-exit-landing");
                 AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-landing");
                 ParsekLog.Info("Anchor",
                     $"RELATIVE mode exited on landing: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
@@ -4774,6 +4899,7 @@ namespace Parsek
                             : SegmentEnvironment.Atmospheric;
                         StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
                         ApplyCurrentRecordingAnchorToCurrentTrackSection();
+                        ActivateHighFidelitySampling(boundaryUT, "relative-enter");
                         bool seeded = SeedRelativeBoundaryPoint(v, result.candidate, boundaryUT);
                         if (!seeded)
                         {
@@ -4826,6 +4952,7 @@ namespace Parsek
                         ? environmentHysteresis.CurrentEnvironment
                         : SegmentEnvironment.Atmospheric;
                     StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
+                    ActivateHighFidelitySampling(boundaryUT, "relative-exit");
                     AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
                     ParsekLog.Info("Anchor",
                         $"RELATIVE mode exited: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
@@ -6036,13 +6163,20 @@ namespace Parsek
                     5.0);
             }
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+            bool highFidelityActive = IsHighFidelitySamplingActive(currentUT, highFidelitySamplingUntilUT);
+            float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
+                highFidelityActive,
+                minSampleInterval);
+            float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
+                highFidelityActive,
+                maxSampleInterval);
             bool motionTriggered = TrajectoryMath.ShouldRecordPoint(
                 currentVelocity,
                 lastRecordedVelocity,
                 currentUT,
                 lastRecordedUT,
-                minSampleInterval,
-                maxSampleInterval,
+                effectiveMinSampleInterval,
+                effectiveMaxSampleInterval,
                 velocityDirThreshold,
                 speedChangeThreshold);
             bool attitudeTriggered = ShouldRecordAttitudePoint(
@@ -6051,7 +6185,7 @@ namespace Parsek
                 currentUT,
                 lastRecordedUT,
                 hasLastRecordedWorldRotation,
-                minSampleInterval,
+                effectiveMinSampleInterval,
                 attitudeSampleThresholdDegrees);
 
             if (!motionTriggered && !attitudeTriggered)
@@ -6061,8 +6195,12 @@ namespace Parsek
                 // Use the default 5s window — the line conveys "stationary,
                 // waiting" which is a steady state, so per-window granularity
                 // is plenty.
+                var ic = CultureInfo.InvariantCulture;
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
-                    $"Sample skipped at ut={currentUT:F2}; waiting for motion/attitude trigger");
+                    $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
+                    $"highFidelity={highFidelityActive} reason={highFidelitySamplingReason ?? "(none)"} " +
+                    $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
+                    $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
                 return;
             }
 
@@ -6494,6 +6632,7 @@ namespace Parsek
                 ? environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.Atmospheric;
             StartNewTrackSection(env, ReferenceFrame.Absolute, ut);
+            ActivateHighFidelitySampling(ut, $"relative-force-exit-{reason ?? "unknown"}");
             ParsekLog.Info("Anchor",
                 $"RELATIVE mode force-exited: anchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
                 $"diagnosticPid={oldAnchorPid} reason={reason} new ABSOLUTE section started");
@@ -7063,6 +7202,8 @@ namespace Parsek
                         eventUT.ToString("F2", CultureInfo.InvariantCulture)));
                 return;
             }
+
+            ActivateHighFidelitySampling(eventUT, $"structural-event-{eventType ?? "unknown"}");
 
             int snapshotsAppended = 0;
             int vesselsConsidered = 0;

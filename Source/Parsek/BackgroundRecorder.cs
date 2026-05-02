@@ -190,6 +190,8 @@ namespace Parsek
 
             // Proximity-based sample interval tracking
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
+            public double highFidelitySamplingUntilUT = double.NaN;
+            public string highFidelitySamplingReason;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -1700,6 +1702,7 @@ namespace Parsek
                 if (state.environmentHysteresis.Update(rawEnv, ut))
                 {
                     var newEnv = state.environmentHysteresis.CurrentEnvironment;
+                    ActivateBackgroundHighFidelitySampling(state, ut, "environment-transition");
                     ParsekLog.Info("BgRecorder",
                         $"Environment transition: pid={pid} -> {newEnv} " +
                         $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -1717,6 +1720,7 @@ namespace Parsek
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
             double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+            bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut);
 
             // Log when sample rate changes for this vessel
             if (proximityInterval != state.currentSampleInterval)
@@ -1731,7 +1735,8 @@ namespace Parsek
             }
 
             // Skip trajectory sampling if out of range
-            if (proximityInterval >= ProximityRateSelector.OutOfRangeInterval)
+            if (proximityInterval >= ProximityRateSelector.OutOfRangeInterval
+                && !highFidelityActive)
             {
                 return;
             }
@@ -1746,10 +1751,16 @@ namespace Parsek
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
             float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
             float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
+            float effectiveMinSampleInterval = highFidelityActive
+                ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, (float)proximityInterval)
+                : (float)proximityInterval;
+            float effectiveMaxSampleInterval = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                highFidelityActive,
+                maxSampleInterval);
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
-                (float)proximityInterval, maxSampleInterval,
+                effectiveMinSampleInterval, effectiveMaxSampleInterval,
                 velocityDirThreshold, speedChangeThreshold))
             {
                 return;
@@ -1787,7 +1798,8 @@ namespace Parsek
 
             ParsekLog.VerboseRateLimited("BgRecorder", $"bgPhysics.{pid}",
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
-                $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)}", 5.0);
+                $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
+                $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
         }
 
         /// <summary>
@@ -2861,6 +2873,10 @@ namespace Parsek
                 hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
             if (hasInitialTrajectoryPoint)
             {
+                ActivateBackgroundHighFidelitySampling(
+                    state,
+                    initialTrajectoryPoint.ut,
+                    "initial-trajectory-point");
                 if (hasTreeRecording)
                     ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
                 else
@@ -3403,6 +3419,7 @@ namespace Parsek
                         : SegmentEnvironment.Atmospheric;
                     StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
                     ApplyBackgroundCurrentAnchorToTrackSection(state);
+                    ActivateBackgroundHighFidelitySampling(state, ut, "relative-enter");
                     if (!SeedBackgroundRelativeBoundaryPoint(state, bgVessel, result.candidate, ut))
                     {
                         ExitBackgroundRelativeMode(state, bgVessel, ut, "relative-boundary-seed-failed");
@@ -3982,6 +3999,7 @@ namespace Parsek
                 ? state.environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.Atmospheric;
             StartBackgroundTrackSection(state, env, ReferenceFrame.Absolute, ut);
+            ActivateBackgroundHighFidelitySampling(state, ut, $"relative-exit-{reason ?? "unknown"}");
             SeedBackgroundBoundaryPoint(state, boundaryPoint);
             ParsekLog.Info("BgRecorder",
                 $"RELATIVE mode exited: pid={state.vesselPid} " +
@@ -4002,6 +4020,7 @@ namespace Parsek
                 ? state.environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.Atmospheric;
             StartBackgroundTrackSection(state, env, ReferenceFrame.Absolute, ut);
+            ActivateBackgroundHighFidelitySampling(state, ut, $"relative-force-exit-{reason ?? "unknown"}");
             ParsekLog.Info("BgRecorder",
                 $"RELATIVE mode force-exited: pid={state.vesselPid} " +
                 $"anchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
@@ -4031,6 +4050,46 @@ namespace Parsek
             if (interval >= ProximityRateSelector.OutOfRangeInterval || double.IsInfinity(interval))
                 return "none";
             return interval.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s";
+        }
+
+        private static bool IsBackgroundHighFidelitySamplingActive(
+            BackgroundVesselState state,
+            double currentUT)
+        {
+            return state != null
+                && FlightRecorder.IsHighFidelitySamplingActive(
+                    currentUT,
+                    state.highFidelitySamplingUntilUT);
+        }
+
+        private static void ActivateBackgroundHighFidelitySampling(
+            BackgroundVesselState state,
+            double eventUT,
+            string reason)
+        {
+            if (state == null || double.IsNaN(eventUT) || double.IsInfinity(eventUT))
+                return;
+
+            double untilUT = eventUT + FlightRecorder.HighFidelitySamplingWindowSeconds;
+            bool extendsWindow = double.IsNaN(state.highFidelitySamplingUntilUT)
+                || untilUT > state.highFidelitySamplingUntilUT + 0.001;
+            state.highFidelitySamplingUntilUT = Math.Max(
+                double.IsNaN(state.highFidelitySamplingUntilUT)
+                    ? double.MinValue
+                    : state.highFidelitySamplingUntilUT,
+                untilUT);
+            state.highFidelitySamplingReason = reason ?? "unknown";
+
+            if (extendsWindow)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("BgRecorder",
+                    $"High-fidelity sampling window active: pid={state.vesselPid} " +
+                    $"reason={state.highFidelitySamplingReason} " +
+                    $"eventUT={eventUT.ToString("F2", ic)} " +
+                    $"untilUT={state.highFidelitySamplingUntilUT.ToString("F2", ic)} " +
+                    $"maxInterval={FlightRecorder.HighFidelitySampleIntervalSeconds.ToString("F3", ic)}s");
+            }
         }
 
         #endregion
@@ -4337,6 +4396,8 @@ namespace Parsek
             int frameCount = state.currentTrackSection.frames?.Count ?? 0;
             int checkpointCount = state.currentTrackSection.checkpoints?.Count ?? 0;
             double sectionDuration = ut - state.currentTrackSection.startUT;
+            FlightRecorder.SectionGapStats gapStats =
+                FlightRecorder.ComputeSectionGapStats(state.currentTrackSection.frames);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
             {
@@ -4354,7 +4415,21 @@ namespace Parsek
                 $"ref={state.currentTrackSection.referenceFrame} " +
                 $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={sectionDuration.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                $"avgGap={gapStats.AverageGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                $"largeGaps={gapStats.LargeGapCount} " +
                 $"pid={state.vesselPid}{anchorSuffix}");
+
+            if (gapStats.LargeGapCount > 0)
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"TrackSection sparse sampling: pid={state.vesselPid} " +
+                    $"env={state.currentTrackSection.environment} " +
+                    $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
+                    $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
+                    $"threshold={FlightRecorder.SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                    $"largeGaps={gapStats.LargeGapCount}");
+            }
 
             // Phase 7: per-surface-section clearance distribution
             // diagnostic. Mirrors FlightRecorder.CloseCurrentTrackSection so
@@ -5292,6 +5367,10 @@ namespace Parsek
                 AppendFrameToCurrentTrackSection(state, point);
                 state.lastRecordedUT = point.ut;
                 state.lastRecordedVelocity = point.velocity;
+                ActivateBackgroundHighFidelitySampling(
+                    state,
+                    eventUT,
+                    $"structural-event-{eventType ?? "unknown"}");
                 appended++;
 
                 ParsekLog.Verbose("Pipeline-Smoothing",
