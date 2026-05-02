@@ -2364,7 +2364,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge discard setup");
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
@@ -2408,7 +2408,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge discard cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                     RecordingStore.DiscardPendingTree();
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
@@ -2451,7 +2451,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit setup");
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
@@ -2508,7 +2508,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                     RecordingStore.DiscardPendingTree();
                 RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
@@ -8969,7 +8969,7 @@ namespace Parsek.InGameTests
             try
             {
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge commit canary setup");
                 ParsekSettings.Current.autoMerge = false;
 
                 flight.StartRecording();
@@ -9059,7 +9059,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge commit canary cleanup");
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
@@ -9153,7 +9153,7 @@ namespace Parsek.InGameTests
             try
             {
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge discard canary setup");
                 ParsekSettings.Current.autoMerge = false;
 
                 flight.StartRecording();
@@ -9237,7 +9237,7 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                PopupDialog.DismissPopup("ParsekMerge");
+                MergeDialog.DismissAndClearPendingFlag("scene-exit merge discard canary cleanup");
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
