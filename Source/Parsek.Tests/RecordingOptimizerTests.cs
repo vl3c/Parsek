@@ -806,7 +806,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SplitAtSection_SeedsIdleEngineShutdownSentinelIntoSecondHalf()
+        public void SplitAtSection_ActiveEngineAtZeroThrottle_SeedsZeroThrottleIntoSecondHalf()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
@@ -819,6 +819,31 @@ namespace Parsek.Tests
                 value = 0.4f,
                 moduleIndex = 0
             });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 100u,
+                eventType = PartEventType.EngineThrottle,
+                partName = "liquidEngine",
+                value = 0f,
+                moduleIndex = 0
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal(PartEventType.EngineThrottle, seed.eventType);
+            Assert.Equal((uint)100, seed.partPersistentId);
+            Assert.Equal(0, seed.moduleIndex);
+            Assert.Equal(0f, seed.value);
+        }
+
+        [Fact]
+        public void SplitAtSection_ThrottleZeroWithoutPriorIgnite_SeedsShutdownSentinelIntoSecondHalf()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
             rec.PartEvents.Add(new PartEvent
             {
                 ut = 17020,
@@ -871,6 +896,244 @@ namespace Parsek.Tests
             Assert.Equal((uint)200, seed.partPersistentId);
             Assert.Equal(1, seed.moduleIndex);
             Assert.Equal(0.6f, seed.value);
+        }
+
+        [Fact]
+        public void SplitAtSection_DeployableExtendedBeforeSplit_SeedsDeployableIntoSecondHalf()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableExtended,
+                partName = "telescopicLadderBay",
+                moduleIndex = 2
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal(PartEventType.DeployableExtended, seed.eventType);
+            Assert.Equal((uint)300, seed.partPersistentId);
+            Assert.Equal(2, seed.moduleIndex);
+        }
+
+        [Fact]
+        public void SplitAtSection_DeployableRetractedBeforeSplit_ReliesOnSpawnBaseline()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17005,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableExtended,
+                partName = "telescopicLadderBay",
+                moduleIndex = 2
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableRetracted,
+                partName = "telescopicLadderBay",
+                moduleIndex = 2
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(second.PartEvents);
+        }
+
+        [Fact]
+        public void SplitAtSection_DeployableRetractedOnSamePartDifferentModule_ReliesOnSpawnBaseline()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17005,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableExtended,
+                partName = "multiDeployable",
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableRetracted,
+                partName = "multiDeployable",
+                moduleIndex = 1
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(second.PartEvents);
+        }
+
+        [Fact]
+        public void SplitAtSection_ReversibleVisualStatesBeforeSplit_SeedsActiveStatesIntoSecondHalf()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17004,
+                partPersistentId = 401u,
+                eventType = PartEventType.LightOn,
+                partName = "spotLight"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17005,
+                partPersistentId = 401u,
+                eventType = PartEventType.LightBlinkEnabled,
+                partName = "spotLight",
+                value = 2.5f
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17006,
+                partPersistentId = 401u,
+                eventType = PartEventType.LightBlinkRate,
+                partName = "spotLight",
+                value = 4f
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17007,
+                partPersistentId = 402u,
+                eventType = PartEventType.GearDeployed,
+                partName = "landingLeg"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17008,
+                partPersistentId = 403u,
+                eventType = PartEventType.CargoBayOpened,
+                partName = "serviceBay"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17009,
+                partPersistentId = 404u,
+                eventType = PartEventType.ThermalAnimationMedium,
+                partName = "heatShield",
+                moduleIndex = 1
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 405u,
+                eventType = PartEventType.ParachuteSemiDeployed,
+                partName = "parachuteSingle"
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Equal(6, second.PartEvents.Count);
+            Assert.Contains(second.PartEvents, e =>
+                e.eventType == PartEventType.LightOn && e.partPersistentId == 401u);
+            var blinkSeed = second.PartEvents.Single(e =>
+                e.eventType == PartEventType.LightBlinkEnabled && e.partPersistentId == 401u);
+            Assert.Equal(4f, blinkSeed.value);
+            Assert.Contains(second.PartEvents, e =>
+                e.eventType == PartEventType.GearDeployed && e.partPersistentId == 402u);
+            Assert.Contains(second.PartEvents, e =>
+                e.eventType == PartEventType.CargoBayOpened && e.partPersistentId == 403u);
+            Assert.Contains(second.PartEvents, e =>
+                e.eventType == PartEventType.ThermalAnimationMedium &&
+                e.partPersistentId == 404u && e.moduleIndex == 1);
+            Assert.Contains(second.PartEvents, e =>
+                e.eventType == PartEventType.ParachuteSemiDeployed && e.partPersistentId == 405u);
+            Assert.All(second.PartEvents, e => Assert.Equal(17030, e.ut));
+        }
+
+        [Fact]
+        public void SplitAtSection_BoundaryDeployableExtendedSuppressesDuplicateSeed()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableRetracted,
+                partName = "telescopicLadderBay",
+                moduleIndex = 2
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17030,
+                partPersistentId = 300u,
+                eventType = PartEventType.DeployableExtended,
+                partName = "telescopicLadderBay",
+                moduleIndex = 2
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            var evt = Assert.Single(second.PartEvents);
+            Assert.Equal(PartEventType.DeployableExtended, evt.eventType);
+            Assert.Equal(17030, evt.ut);
+            Assert.Equal((uint)300, evt.partPersistentId);
+            Assert.Equal(2, evt.moduleIndex);
+        }
+
+        [Fact]
+        public void SplitAtSection_ParachuteCutBeforeSplit_ClearsDeploySeedWithoutForwardingCut()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 405u,
+                eventType = PartEventType.ParachuteDeployed,
+                partName = "parachuteSingle"
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 405u,
+                eventType = PartEventType.ParachuteCut,
+                partName = "parachuteSingle"
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(second.PartEvents);
+        }
+
+        [Fact]
+        public void SplitAtSection_HeatColdOnSamePartDifferentModule_ClearsPidLevelHeatSeed()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 404u,
+                eventType = PartEventType.ThermalAnimationHot,
+                partName = "multiHeatPart",
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17020,
+                partPersistentId = 404u,
+                eventType = PartEventType.ThermalAnimationCold,
+                partName = "multiHeatPart",
+                moduleIndex = 1
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(second.PartEvents);
         }
 
         [Fact]
@@ -933,6 +1196,40 @@ namespace Parsek.Tests
             Assert.Single(second.PartEvents);
             Assert.Equal(PartEventType.EngineThrottle, second.PartEvents[0].eventType);
             Assert.Equal(0.8f, second.PartEvents[0].value);
+        }
+
+        [Fact]
+        public void SplitAtSection_BoundaryZeroThrottleSuppressesDuplicateIdleSeed()
+        {
+            var rec = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17010,
+                partPersistentId = 100u,
+                eventType = PartEventType.EngineIgnited,
+                partName = "liquidEngine",
+                value = 0.4f,
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 17030,
+                partPersistentId = 100u,
+                eventType = PartEventType.EngineThrottle,
+                partName = "liquidEngine",
+                value = 0f,
+                moduleIndex = 0
+            });
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal(PartEventType.EngineThrottle, seed.eventType);
+            Assert.Equal((uint)100, seed.partPersistentId);
+            Assert.Equal(0, seed.moduleIndex);
+            Assert.Equal(0f, seed.value);
         }
 
         [Fact]
