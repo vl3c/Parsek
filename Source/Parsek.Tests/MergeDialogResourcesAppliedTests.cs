@@ -307,6 +307,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeDiscard_ReFlyMarkerTreeMismatch_FallsBackToRegularTreeDiscard()
+        {
+            var rec = MakeRecording("rec-mismatch-discard", "tree-dialog-discard", 100.0, 200.0);
+            var tree = MakeTree("tree-dialog-discard", "rec-mismatch-discard", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            var marker = MakeMarker(
+                "sess-mismatch-discard",
+                "tree-other-refly",
+                "rec-other-attempt",
+                "rec-other-origin");
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = marker,
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            TreeDiscardPurge.ResetCallCountForTesting();
+
+            MergeDialog.MergeDiscard(tree);
+
+            Assert.Equal(1, TreeDiscardPurge.PurgeTreeCountForTesting);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Same(marker, scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("does not match dialog tree")
+                && l.Contains("falling back to regular tree discard"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") && l.Contains("User chose: Tree Discard"));
+        }
+
+        [Fact]
         public void MergeDiscard_ReFlyPath_PreservesCommittedMissionTreeAndRp()
         {
             const string treeId = "tree-refly-discard";

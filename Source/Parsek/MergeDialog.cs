@@ -704,6 +704,8 @@ namespace Parsek
             int prunedRecordings = RemoveAttemptRecordingsFromTree(tree, attemptIds);
             if (tree.Recordings == null || tree.Recordings.Count == 0)
             {
+                // Expected unreachable in production: AddAttemptIdIfSafe protects
+                // the origin id, so a valid Re-Fly tree keeps at least that recording.
                 ParsekLog.Warn("MergeDialog",
                     $"RestoreSanitizedPendingTreeIfDetached: tree={tree.Id ?? "<none>"} " +
                     "has no recordings after Re-Fly attempt pruning - cannot restore committed tree");
@@ -914,11 +916,27 @@ namespace Parsek
                 return false;
 
             bool promoted = rp.SessionProvisional;
+            bool hadCreatingSessionId = !string.IsNullOrEmpty(rp.CreatingSessionId);
             rp.SessionProvisional = false;
             rp.CreatingSessionId = null;
-            ParsekLog.Info("ReFlySession",
-                $"Origin RP promoted to persistent rp={marker.RewindPointId} " +
-                $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+            if (promoted)
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Origin RP promoted to persistent rp={marker.RewindPointId} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+            }
+            else if (hadCreatingSessionId)
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Origin RP session metadata cleared rp={marker.RewindPointId} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+            }
+            else
+            {
+                ParsekLog.Verbose("ReFlySession",
+                    $"Origin RP already persistent rp={marker.RewindPointId} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+            }
             return promoted;
         }
 
