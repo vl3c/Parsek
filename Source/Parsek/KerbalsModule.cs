@@ -3,6 +3,13 @@ using System.Globalization;
 
 namespace Parsek
 {
+    internal enum KerbalReservationKind
+    {
+        NotManaged,
+        ReservedActive,
+        ReservedRetired
+    }
+
     /// <summary>
     /// Kerbal lifecycle logic: infers per-crew end states from recording data,
     /// computes reservations and replacement chains, populates CrewEndStates on
@@ -809,6 +816,21 @@ namespace Parsek
                 if (slot.Chain.Contains(kerbalName)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Classifies the subset of managed kerbals that should be visually marked
+        /// as reserved/retired in stock roster surfaces.
+        /// </summary>
+        internal KerbalReservationKind GetReservationKind(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName))
+                return KerbalReservationKind.NotManaged;
+            if (reservations.ContainsKey(kerbalName))
+                return KerbalReservationKind.ReservedActive;
+            if (retiredKerbals.Contains(kerbalName))
+                return KerbalReservationKind.ReservedRetired;
+            return KerbalReservationKind.NotManaged;
         }
 
         /// <summary>
