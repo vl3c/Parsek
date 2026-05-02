@@ -689,6 +689,206 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_UsesNearestCachedPredecessor()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "first-half",
+            };
+            tree.Recordings["first-half"] = new Recording
+            {
+                RecordingId = "first-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            tree.Recordings["middle-half"] = new Recording
+            {
+                RecordingId = "middle-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 0,
+            };
+            tree.Recordings["target-half"] = new Recording
+            {
+                RecordingId = "target-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 2,
+                ChainBranch = 0,
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "first-half",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 1.0,
+            });
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "middle-half",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 2.0,
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "target-half",
+                out ReFlyDisplayAlignment alignment,
+                out string inheritedFromRecordingId);
+
+            Assert.True(inherited);
+            Assert.Equal("middle-half", inheritedFromRecordingId);
+            Assert.Equal("target-half", alignment.RecordingId);
+            AssertVectorClose(new Vector3d(2.0, 0.0, 0.0), alignment.BodyFixedOffset, 0.0001);
+        }
+
+        [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_PrefersPendingTreeTopology()
+        {
+            var committed = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "committed-stale",
+            };
+            committed.Recordings["committed-stale"] = new Recording
+            {
+                RecordingId = "committed-stale",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            RecordingStore.CommittedTrees.Add(committed);
+
+            var pending = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "pending-first",
+            };
+            pending.Recordings["pending-first"] = new Recording
+            {
+                RecordingId = "pending-first",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            pending.Recordings["pending-target"] = new Recording
+            {
+                RecordingId = "pending-target",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 0,
+            };
+            RecordingStore.StashPendingTree(pending);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "pending-first",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(3.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 3.0,
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "pending-target",
+                out ReFlyDisplayAlignment alignment,
+                out string inheritedFromRecordingId);
+
+            Assert.True(inherited);
+            Assert.Equal("pending-first", inheritedFromRecordingId);
+            Assert.Equal("pending-target", alignment.RecordingId);
+            AssertVectorClose(new Vector3d(3.0, 0.0, 0.0), alignment.BodyFixedOffset, 0.0001);
+        }
+
+        [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_DifferentBranchIgnored()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "first-half",
+            };
+            tree.Recordings["branch-0"] = new Recording
+            {
+                RecordingId = "branch-0",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            tree.Recordings["branch-1-target"] = new Recording
+            {
+                RecordingId = "branch-1-target",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 1,
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "branch-0",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "branch-1-target",
+                out _,
+                out _);
+
+            Assert.False(inherited);
+        }
+
+        [Fact]
         public void BuildReFlyDisplayAlignmentScopeKey_ChangesWhenRetryMarkerFieldsChange()
         {
             var marker = new ReFlySessionMarker

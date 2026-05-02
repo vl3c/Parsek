@@ -17776,6 +17776,67 @@ namespace Parsek
             if (!allowCapture)
                 return false;
 
+            if (TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                    cache,
+                    marker,
+                    recordingId,
+                    out alignment,
+                    out string inheritedFromRecordingId))
+            {
+                if (!CachedReFlyDisplayAlignmentMatchesLiveBody(
+                        marker,
+                        alignment,
+                        out string inheritedLiveBodyName,
+                        out string inheritedBodyReason))
+                {
+                    ParsekLog.WarnRateLimited(
+                        "Playback",
+                        "refly-display-alignment-inherit-body-mismatch|"
+                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
+                        "Re-Fly display alignment inheritance skipped: tree="
+                        + ShortRecordingId(recTreeId)
+                        + " sess=" + ShortRecordingId(marker.SessionId)
+                        + " rec=" + ShortRecordingId(recordingId)
+                        + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
+                        + " reason=" + (inheritedBodyReason ?? "body-mismatch")
+                        + " alignmentBody=" + (alignment.BodyName ?? "<none>")
+                        + " liveBody=" + (inheritedLiveBodyName ?? "<none>"),
+                        5.0);
+                    return false;
+                }
+
+                if (!TryProjectReFlyDisplayAlignment(alignment, out delta, out string inheritedProjectReason))
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "Playback",
+                        "refly-display-alignment-inherit-project-skip|"
+                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
+                        "Re-Fly display alignment inheritance skipped: tree="
+                        + ShortRecordingId(recTreeId)
+                        + " sess=" + ShortRecordingId(marker.SessionId)
+                        + " rec=" + ShortRecordingId(recordingId)
+                        + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
+                        + " reason=" + (inheritedProjectReason ?? "<unknown>"),
+                        5.0);
+                    return false;
+                }
+
+                cache.Store(alignment);
+                ParsekLog.Info(
+                    "Playback",
+                    "Re-Fly display alignment inherited: tree="
+                    + ShortRecordingId(recTreeId)
+                    + " sess=" + ShortRecordingId(marker.SessionId)
+                    + " rec=" + ShortRecordingId(recordingId)
+                    + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
+                    + " body=" + (alignment.BodyName ?? "<none>")
+                    + " captureUT=" + alignment.CaptureUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " mode=frozen-body-fixed"
+                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset");
+                return true;
+            }
+
             if (!TryCaptureReFlyDisplayAlignment(
                     marker,
                     recTreeId,
@@ -17858,6 +17919,90 @@ namespace Parsek
             return !double.IsNaN(offsetMeters)
                 && !double.IsInfinity(offsetMeters)
                 && offsetMeters > ReFlyDisplayAlignmentSuspiciousOffsetMeters;
+        }
+
+        internal static bool TryInheritReFlyDisplayAlignmentForChainSuccessor(
+            ReFlyDisplayAlignmentCache cache,
+            ReFlySessionMarker marker,
+            string recordingId,
+            out ReFlyDisplayAlignment alignment,
+            out string inheritedFromRecordingId)
+        {
+            alignment = default(ReFlyDisplayAlignment);
+            inheritedFromRecordingId = null;
+            if (cache == null
+                || marker == null
+                || string.IsNullOrEmpty(marker.SessionId)
+                || string.IsNullOrEmpty(recordingId))
+            {
+                return false;
+            }
+
+            RecordingTree tree = ResolveTreeByIdPreferPending(marker.TreeId);
+            if (tree?.Recordings == null)
+                return false;
+            if (!tree.Recordings.TryGetValue(recordingId, out Recording target)
+                || target == null
+                || string.IsNullOrEmpty(target.ChainId)
+                || target.ChainIndex <= 0)
+            {
+                return false;
+            }
+
+            ReFlyDisplayAlignment bestAlignment = default(ReFlyDisplayAlignment);
+            string bestRecordingId = null;
+            int bestChainIndex = int.MinValue;
+            foreach (KeyValuePair<string, Recording> pair in tree.Recordings)
+            {
+                Recording candidate = pair.Value;
+                if (candidate == null)
+                    continue;
+                if (string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (candidate.ChainIndex >= target.ChainIndex)
+                    continue;
+                if (candidate.ChainIndex <= bestChainIndex)
+                    continue;
+                if (candidate.ChainBranch != target.ChainBranch)
+                    continue;
+                if (!string.Equals(candidate.ChainId, target.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (!cache.TryGet(marker.SessionId, candidate.RecordingId, out ReFlyDisplayAlignment candidateAlignment))
+                    continue;
+
+                bestChainIndex = candidate.ChainIndex;
+                bestRecordingId = candidate.RecordingId;
+                bestAlignment = candidateAlignment;
+            }
+
+            if (string.IsNullOrEmpty(bestRecordingId))
+                return false;
+
+            alignment = bestAlignment;
+            alignment.RecordingId = recordingId;
+            alignment.TreeId = !string.IsNullOrEmpty(target.TreeId)
+                ? target.TreeId
+                : marker.TreeId;
+            inheritedFromRecordingId = bestRecordingId;
+            return true;
+        }
+
+        private static RecordingTree ResolveTreeByIdPreferPending(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return null;
+
+            if (RecordingStore.HasPendingTree)
+            {
+                RecordingTree pending = RecordingStore.PendingTree;
+                if (pending != null
+                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
+                {
+                    return pending;
+                }
+            }
+
+            return ResolveTreeById(treeId);
         }
 
         private ReFlyDisplayAlignmentCache GetReFlyDisplayAlignmentCache()

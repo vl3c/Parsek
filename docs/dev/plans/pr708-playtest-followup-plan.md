@@ -195,6 +195,37 @@ Runtime gate:
 Status note:
 
 - Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable. Frozen alignments are invalidated if the active live Re-Fly vessel changes SOI/body or if the marker scope changes despite the same session id; capture logs now warn when the initial offset exceeds `50m`.
+- Follow-up from `logs/2026-05-02_1320_pr708-refly-optimizer-boundary-bad-init/`: optimizer-created chain successors inherit the nearest cached predecessor's frozen display alignment instead of capturing a second offset at the atmo/exo split. This keeps Re-Fly display alignment continuous across chain segments while still using the hidden recorded trajectory as the source of truth. Review follow-up: when a pending Re-Fly tree and stale committed tree share the same tree id, the pending topology wins for inherited alignment.
+
+---
+
+## 4.1 Fix track C follow-up - Relative anchor continuity at optimizer splits
+
+The same `logs/2026-05-02_1320_pr708-refly-optimizer-boundary-bad-init/` run showed a resolver miss at the split boundary:
+
+```text
+anchor-out-of-recorded-range for the original anchor recording after its optimizer-created segment ended
+```
+
+Target rule:
+
+1. A Relative section anchored to a recording-chain member may continue through that anchor's same-tree, same-branch chain successor when the original anchor segment no longer covers the requested UT.
+2. The continuation must stay inside the same `(TreeId, ChainId, ChainBranch)` scope.
+3. The continuation must not revive live-PID anchoring, legacy migration, or cross-tree fallback.
+4. If no same-chain successor covers the UT, the resolver still fails closed with the existing logged miss.
+
+Implementation target:
+
+- In `RelativeAnchorResolver`, when the anchor recording has track sections but no section covers the requested UT, search the focus tree, in-scope pending tree, and scoped provisional map for the nearest higher `ChainIndex` with the same `ChainId` and `ChainBranch` whose own `TrackSections` cover the UT. If committed and pending candidates tie on `ChainIndex`, prefer the pending candidate so the active Re-Fly topology overlays stale committed data during the load/resume window.
+- Resolve through that successor using the normal resolver recursion so Absolute, Relative, and OrbitalCheckpoint sections keep their existing contracts.
+- Keep cycle detection active and log `Anchor recording continued through same-chain successor` when the handoff happens.
+
+Tests:
+
+- Relative child anchored to the first optimizer half resolves at a UT covered only by the second half.
+- The miss log `anchor-out-of-recorded-range` is absent for that same-chain handoff.
+- Pending successor topology overrides stale committed topology with the same tree id and `ChainIndex`.
+- Different branches are not inherited by the Re-Fly display alignment cache.
 
 ---
 

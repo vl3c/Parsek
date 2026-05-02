@@ -257,6 +257,125 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_AnchorPastOptimizerSplit_UsesSameChainSuccessor()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording secondHalf = MakeAbsoluteRecording(
+                "second-half",
+                tree.Id,
+                new Vector3d(110, 0, 0),
+                new Vector3d(120, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            secondHalf.ChainId = firstHalf.ChainId;
+            secondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(secondHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                12.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(113.0, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Anchor recording continued through same-chain successor") &&
+                l.Contains("recordingId=first-half") &&
+                l.Contains("successorRecordingId=second-half"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=first-half"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorPastOptimizerSplit_PendingSuccessorOverridesStaleFocusTree()
+        {
+            var focusTree = new RecordingTree { Id = "tree" };
+            var pendingTree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeAbsoluteRecording(
+                "first-half",
+                focusTree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording staleSecondHalf = MakeAbsoluteRecording(
+                "second-half",
+                focusTree.Id,
+                new Vector3d(1000, 0, 0),
+                new Vector3d(1010, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            staleSecondHalf.ChainId = firstHalf.ChainId;
+            staleSecondHalf.ChainIndex = 1;
+
+            Recording pendingSecondHalf = MakeAbsoluteRecording(
+                "second-half",
+                pendingTree.Id,
+                new Vector3d(110, 0, 0),
+                new Vector3d(120, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            pendingSecondHalf.ChainId = firstHalf.ChainId;
+            pendingSecondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                focusTree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            focusTree.AddOrReplaceRecording(firstHalf);
+            focusTree.AddOrReplaceRecording(staleSecondHalf);
+            focusTree.AddOrReplaceRecording(child);
+            pendingTree.AddOrReplaceRecording(pendingSecondHalf);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(focusTree, pendingTree: pendingTree),
+                child.RecordingId,
+                12.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(113.0, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_ActiveReFlyAnchorWithFrozenSnapshot_UsesSnapshot()
         {
             var tree = new RecordingTree { Id = "tree" };
@@ -461,7 +580,9 @@ namespace Parsek.Tests
             string treeId,
             Vector3d startWorld,
             Vector3d endWorld,
-            Quaternion? rotation = null)
+            Quaternion? rotation = null,
+            double startUT = 0.0,
+            double endUT = 10.0)
         {
             Quaternion rot = rotation ?? Quaternion.identity;
             var rec = new Recording
@@ -475,12 +596,12 @@ namespace Parsek.Tests
             {
                 referenceFrame = ReferenceFrame.Absolute,
                 environment = SegmentEnvironment.ExoBallistic,
-                startUT = 0.0,
-                endUT = 10.0,
+                startUT = startUT,
+                endUT = endUT,
                 frames = new List<TrajectoryPoint>
                 {
-                    MakePoint(0.0, startWorld, rot),
-                    MakePoint(10.0, endWorld, rot),
+                    MakePoint(startUT, startWorld, rot),
+                    MakePoint(endUT, endWorld, rot),
                 },
                 checkpoints = new List<OrbitSegment>(),
                 source = TrackSectionSource.Active,
@@ -493,7 +614,9 @@ namespace Parsek.Tests
             string treeId,
             Vector3d localOffset,
             string anchorRecordingId = null,
-            uint legacyAnchorPid = 0u)
+            uint legacyAnchorPid = 0u,
+            double startUT = 0.0,
+            double endUT = 10.0)
         {
             var rec = new Recording
             {
@@ -506,14 +629,14 @@ namespace Parsek.Tests
             {
                 referenceFrame = ReferenceFrame.Relative,
                 environment = SegmentEnvironment.ExoBallistic,
-                startUT = 0.0,
-                endUT = 10.0,
+                startUT = startUT,
+                endUT = endUT,
                 anchorVesselId = legacyAnchorPid,
                 anchorRecordingId = anchorRecordingId,
                 frames = new List<TrajectoryPoint>
                 {
-                    MakePoint(0.0, localOffset, Quaternion.identity),
-                    MakePoint(10.0, localOffset, Quaternion.identity),
+                    MakePoint(startUT, localOffset, Quaternion.identity),
+                    MakePoint(endUT, localOffset, Quaternion.identity),
                 },
                 checkpoints = new List<OrbitSegment>(),
                 source = TrackSectionSource.Active,

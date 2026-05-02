@@ -166,6 +166,16 @@ namespace Parsek
                 int sectionIndex = TrajectoryMath.FindTrackSectionForUT(recording.TrackSections, ut);
                 if (sectionIndex < 0)
                 {
+                    if (TryResolveSameChainContinuationPose(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose))
+                    {
+                        return true;
+                    }
+
                     WarnUnresolved(
                         "anchor-out-of-recorded-range",
                         recording.RecordingId,
@@ -222,6 +232,218 @@ namespace Parsek
                 sectionStartUT: double.NaN,
                 sectionEndUT: double.NaN,
                 out pose);
+        }
+
+        private static bool TryResolveSameChainContinuationPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (!TryFindSameChainContinuationRecording(
+                    context,
+                    recording,
+                    ut,
+                    out Recording continuation))
+            {
+                return false;
+            }
+
+            string continuationId = continuation.RecordingId;
+            if (string.IsNullOrEmpty(continuationId))
+                return false;
+
+            HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
+            if (!activeVisited.Add(continuationId))
+            {
+                WarnUnresolved(
+                    "anchor-cycle-detected",
+                    recording.RecordingId,
+                    continuationId,
+                    ut);
+                return false;
+            }
+
+            try
+            {
+                Recording resolvedContinuation = continuation;
+                if (!TryResolveActiveReFlyAnchorRecording(
+                        context,
+                        continuationId,
+                        continuation,
+                        ut,
+                        out resolvedContinuation))
+                {
+                    WarnUnresolved(
+                        "active-provisional-out-of-scope",
+                        recording.RecordingId,
+                        continuationId,
+                        ut);
+                    return false;
+                }
+
+                ParsekLog.VerboseRateLimited(
+                    "RelativeAnchorResolver",
+                    "anchor-chain-continuation|"
+                        + (recording.RecordingId ?? "(none)") + "|"
+                        + continuationId,
+                    "Anchor recording continued through same-chain successor: "
+                    + "recordingId=" + (recording.RecordingId ?? "(none)")
+                    + " successorRecordingId=" + continuationId
+                    + " chainId=" + (recording.ChainId ?? "(none)")
+                    + " chainBranch=" + recording.ChainBranch.ToString(CultureInfo.InvariantCulture)
+                    + " fromIndex=" + recording.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " toIndex=" + continuation.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " ut=" + ut.ToString("R", CultureInfo.InvariantCulture),
+                    5.0);
+
+                return TryResolveRecordingPose(
+                    context,
+                    resolvedContinuation,
+                    ut,
+                    activeVisited,
+                    out pose);
+            }
+            finally
+            {
+                activeVisited.Remove(continuationId);
+            }
+        }
+
+        private static bool TryFindSameChainContinuationRecording(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            out Recording continuation)
+        {
+            continuation = null;
+            if (recording == null
+                || string.IsNullOrEmpty(recording.ChainId)
+                || recording.ChainIndex < 0)
+            {
+                return false;
+            }
+
+            int continuationPriority = -1;
+            TryFindSameChainContinuationRecordingInTree(
+                context.FocusTree,
+                recording,
+                ut,
+                priority: 0,
+                ref continuationPriority,
+                ref continuation);
+
+            if (context.PendingTree != null && PendingTreeIsInScope(context))
+            {
+                TryFindSameChainContinuationRecordingInTree(
+                    context.PendingTree,
+                    recording,
+                    ut,
+                    priority: 1,
+                    ref continuationPriority,
+                    ref continuation);
+            }
+
+            if (context.ProvisionalRecordings != null)
+            {
+                TryFindSameChainContinuationRecordingInMap(
+                    context.ProvisionalRecordings,
+                    recording,
+                    ut,
+                    requiredTreeId: ResolveContinuationScopeTreeId(context, recording),
+                    priority: 2,
+                    ref continuationPriority,
+                    ref continuation);
+            }
+
+            return continuation != null;
+        }
+
+        private static void TryFindSameChainContinuationRecordingInTree(
+            RecordingTree tree,
+            Recording recording,
+            double ut,
+            int priority,
+            ref int bestPriority,
+            ref Recording best)
+        {
+            if (tree?.Recordings == null)
+                return;
+
+            TryFindSameChainContinuationRecordingInMap(
+                tree.Recordings,
+                recording,
+                ut,
+                requiredTreeId: null,
+                priority: priority,
+                ref bestPriority,
+                ref best);
+        }
+
+        private static void TryFindSameChainContinuationRecordingInMap(
+            IEnumerable<KeyValuePair<string, Recording>> recordings,
+            Recording recording,
+            double ut,
+            string requiredTreeId,
+            int priority,
+            ref int bestPriority,
+            ref Recording best)
+        {
+            if (recordings == null)
+                return;
+
+            foreach (KeyValuePair<string, Recording> pair in recordings)
+            {
+                Recording candidate = pair.Value;
+                if (candidate == null)
+                    continue;
+                if (candidate.ChainIndex <= recording.ChainIndex)
+                    continue;
+                if (candidate.ChainBranch != recording.ChainBranch)
+                    continue;
+                if (!string.Equals(candidate.ChainId, recording.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (!ContinuationMatchesRequiredTree(candidate, requiredTreeId))
+                    continue;
+                if (candidate.TrackSections == null || candidate.TrackSections.Count == 0)
+                    continue;
+                if (TrajectoryMath.FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
+                    continue;
+                if (best == null
+                    || candidate.ChainIndex < best.ChainIndex
+                    || (candidate.ChainIndex == best.ChainIndex && priority > bestPriority))
+                {
+                    best = candidate;
+                    bestPriority = priority;
+                }
+            }
+        }
+
+        private static string ResolveContinuationScopeTreeId(
+            RelativeAnchorResolverContext context,
+            Recording recording)
+        {
+            if (!string.IsNullOrEmpty(recording?.TreeId))
+                return recording.TreeId;
+            if (!string.IsNullOrEmpty(context.FocusTreeId))
+                return context.FocusTreeId;
+            if (!string.IsNullOrEmpty(context.ActiveReFlyMarker?.TreeId))
+                return context.ActiveReFlyMarker.TreeId;
+            return null;
+        }
+
+        private static bool ContinuationMatchesRequiredTree(
+            Recording candidate,
+            string requiredTreeId)
+        {
+            if (string.IsNullOrEmpty(requiredTreeId))
+                return true;
+
+            return candidate != null
+                && !string.IsNullOrEmpty(candidate.TreeId)
+                && string.Equals(candidate.TreeId, requiredTreeId, StringComparison.Ordinal);
         }
 
         internal static bool TryResolveSectionAnchorRecordingId(
