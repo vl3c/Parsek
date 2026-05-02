@@ -359,6 +359,7 @@ namespace Parsek
             int purgedEvents = GameStateStore.PurgeEventsForRecordings(
                 attemptIds,
                 $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}");
+            purgedEvents += PurgeInPlaceAttemptEvents(scenario, marker);
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
@@ -729,12 +730,39 @@ namespace Parsek
                     rec.TreeId = tree.Id;
             }
 
-            RecordingStore.CommitTree(tree);
-            RecordingStore.MarkTreeAsApplied(tree);
+            tree.RebuildBackgroundMap();
+            int addedRecordings = 0;
+            int skippedExisting = 0;
+            int dirtySaved = 0;
+            int dirtyFailed = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                if (CommittedRecordingIdExists(rec.RecordingId))
+                {
+                    skippedExisting++;
+                }
+                else
+                {
+                    RecordingStore.AddCommittedInternal(rec);
+                    addedRecordings++;
+                }
+                if (rec.FilesDirty)
+                {
+                    if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
+                        dirtySaved++;
+                    else
+                        dirtyFailed++;
+                }
+            }
+            RecordingStore.AddCommittedTreeInternal(tree);
             ParsekLog.Info("MergeDialog",
                 $"RestoreSanitizedPendingTreeIfDetached: restored committed tree " +
                 $"tree={tree.Id ?? "<none>"} recordings={tree.Recordings.Count} " +
-                $"prunedAttemptRecordings={prunedRecordings}");
+                $"prunedAttemptRecordings={prunedRecordings} " +
+                $"addedRecordings={addedRecordings} skippedExisting={skippedExisting} " +
+                $"dirtySaved={dirtySaved} dirtyFailed={dirtyFailed}");
             return true;
         }
 
@@ -790,6 +818,34 @@ namespace Parsek
             return null;
         }
 
+        private static int PurgeInPlaceAttemptEvents(
+            ParsekScenario scenario, ReFlySessionMarker marker)
+        {
+            if (marker == null)
+                return 0;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || !string.Equals(marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
+            {
+                return 0;
+            }
+
+            RewindPoint rp = FindRewindPointForMarker(scenario, marker);
+            if (rp == null || double.IsNaN(rp.UT) || double.IsInfinity(rp.UT))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"PurgeInPlaceAttemptEvents: origin RP rp={marker.RewindPointId ?? "<none>"} " +
+                    $"missing or invalid for rec={marker.OriginChildRecordingId ?? "<none>"} - " +
+                    "leaving origin-tagged events untouched");
+                return 0;
+            }
+
+            return GameStateStore.PurgeEventsForRecordingAfterUT(
+                marker.OriginChildRecordingId,
+                rp.UT,
+                $"MergeDialog in-place Re-Fly discard sess={marker.SessionId ?? "<no-id>"}");
+        }
+
         private static bool CommittedTreeExists(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
@@ -803,6 +859,24 @@ namespace Parsek
                 if (committedTree == null)
                     continue;
                 if (string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool CommittedRecordingIdExists(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+                return false;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null)
+                    continue;
+                if (string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
                     return true;
             }
             return false;

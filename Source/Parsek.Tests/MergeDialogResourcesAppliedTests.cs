@@ -446,6 +446,15 @@ namespace Parsek.Tests
             scenario.ActiveReFlySessionMarker.SupersedeTargetId = origin.RecordingId;
             ParsekScenario.SetInstanceForTesting(scenario);
 
+            var historicalEvent = new GameStateEvent
+            {
+                ut = 150.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "detached-restore-should-not-milestone",
+                recordingId = "",
+            };
+            GameStateStore.AddEvent(ref historicalEvent);
+
             MergeDialog.MergeDiscard(pendingTree);
 
             Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
@@ -453,6 +462,8 @@ namespace Parsek.Tests
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == treeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == origin.RecordingId);
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == provisional.RecordingId);
+            Assert.Empty(MilestoneStore.Milestones);
+            Assert.Contains(GameStateStore.Events, e => e.key == "detached-restore-should-not-milestone");
             Assert.DoesNotContain(pendingTree.Recordings.Keys, id => id == provisional.RecordingId);
             Assert.DoesNotContain(
                 pendingTree.BranchPoints[0].ChildRecordingIds,
@@ -486,6 +497,7 @@ namespace Parsek.Tests
             {
                 RewindPointId = rpId,
                 BranchPointId = "bp-inplace-discard",
+                UT = 200.0,
                 SessionProvisional = true,
                 CreatingSessionId = sessionId,
                 ChildSlots = new List<ChildSlot>
@@ -504,14 +516,49 @@ namespace Parsek.Tests
             scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
             ParsekScenario.SetInstanceForTesting(scenario);
 
-            var evt = new GameStateEvent
+            var preRpEvent = new GameStateEvent
+            {
+                ut = 150.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = "origin-pre-rp-funds",
+                recordingId = originId,
+            };
+            var postRpAttemptEvent = new GameStateEvent
             {
                 ut = 240.0,
                 eventType = GameStateEventType.FundsChanged,
-                key = "origin-funds",
+                key = "origin-post-rp-attempt-funds",
                 recordingId = originId,
             };
-            GameStateStore.AddEvent(ref evt);
+            GameStateStore.AddEvent(ref preRpEvent);
+            GameStateStore.AddEvent(ref postRpAttemptEvent);
+            var milestone = new Milestone
+            {
+                MilestoneId = "ms-inplace-origin-events",
+                StartUT = 100.0,
+                EndUT = 260.0,
+                RecordingId = originId,
+                Committed = true,
+                LastReplayedEventIndex = 1,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 160.0,
+                        eventType = GameStateEventType.ScienceChanged,
+                        key = "origin-pre-rp-milestone",
+                        recordingId = originId,
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 245.0,
+                        eventType = GameStateEventType.ScienceChanged,
+                        key = "origin-post-rp-attempt-milestone",
+                        recordingId = originId,
+                    },
+                },
+            };
+            MilestoneStore.AddMilestoneForTesting(milestone);
 
             MergeDialog.MergeDiscard(pendingTree);
 
@@ -519,7 +566,11 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == treeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => ReferenceEquals(r, origin));
-            Assert.Contains(GameStateStore.Events, e => e.recordingId == originId);
+            Assert.Contains(GameStateStore.Events, e => e.key == "origin-pre-rp-funds");
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "origin-post-rp-attempt-funds");
+            Assert.Contains(milestone.Events, e => e.key == "origin-pre-rp-milestone");
+            Assert.DoesNotContain(milestone.Events, e => e.key == "origin-post-rp-attempt-milestone");
+            Assert.Equal(0, milestone.LastReplayedEventIndex);
             Assert.Null(origin.CreatingSessionId);
             Assert.Null(origin.ProvisionalForRpId);
             Assert.Null(origin.SupersedeTargetId);
