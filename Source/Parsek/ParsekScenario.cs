@@ -21,6 +21,7 @@ namespace Parsek
         internal const string RewindSpawnSuppressionReasonLegacyUnscoped = "legacy-unscoped";
 
         private const double RewindSpawnSuppressionUTEpsilon = 1e-3;
+        private const double ChainPredecessorRepairUTEpsilon = 1e-3;
 
         #region Game State Recording
 
@@ -2743,6 +2744,8 @@ namespace Parsek
                         }
                     }
 
+                    RepairMissingContiguousChainPredecessors(tree, "LoadRecordingTrees");
+
                     // Phase 8 review-pass-3: deferred co-bubble sweeps
                     // moved out of the per-tree loop. Cross-tree co-bubble
                     // traces are possible because commit-time DetectAndStore
@@ -3025,6 +3028,7 @@ namespace Parsek
                 // post-split first half from the RP's frozen .sfs.
                 int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(
                     tree, tree.ActiveRecordingId);
+                RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode");
 
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then
@@ -3634,6 +3638,209 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Load-time topology repair for orphaned optimizer-split first halves.
+        ///
+        /// <para>
+        /// Diagnosed from a 2026-05-02 playtest: a same-vessel chain successor
+        /// with <c>ChainIndex=1</c> appeared in the committed tree, but the
+        /// matching first-half predecessor had <c>ChainId=null</c> and
+        /// <c>ChainIndex=-1</c>. Playback then treats the successor as a fresh
+        /// ghost on the chain boundary — engines/FX rebuild and the seamless
+        /// handoff is broken. The bad shape is already on disk before any
+        /// session that loads it, and
+        /// <see cref="SpliceMissingCommittedRecordingsIntoLoadedTree"/> faithfully
+        /// copies the broken committed state, so a load-time self-heal is the
+        /// right scope: fix the topology, mark dirty, and let the next OnSave
+        /// persist the corrected shape.
+        /// </para>
+        ///
+        /// <para>
+        /// Conservative criteria: a successor must have
+        /// <c>ChainBranch == 0</c>, <c>ChainIndex == 1</c>, a non-empty
+        /// <c>ChainId</c>, a non-zero <c>VesselPersistentId</c>, and a finite
+        /// <c>StartUT</c>. A candidate predecessor must live in the same tree,
+        /// share the successor's <c>VesselPersistentId</c>, have an empty
+        /// <c>ChainId</c> AND <c>ChainIndex &lt; 0</c> (so we never overwrite an
+        /// existing chain assignment), have a strictly smaller <c>TreeOrder</c>,
+        /// and end within <see cref="ChainPredecessorRepairUTEpsilon"/> of the
+        /// successor's start. Multi-loss chains (length &gt; 2 with both [0]
+        /// and [1] orphaned) are not covered — the gate keeps the repair
+        /// narrow on purpose.
+        /// </para>
+        ///
+        /// <para>
+        /// On match the repair sets the predecessor's <c>ChainId</c>,
+        /// <c>ChainIndex = 0</c>, and <c>ChainBranch</c> from the successor and
+        /// calls <see cref="Recording.MarkFilesDirty"/> so the next OnSave
+        /// rewrites the predecessor's <c>.sfs</c> with the corrected shape.
+        /// Tie-break order on equal <c>EndUT</c> gaps: smaller <c>TreeOrder</c>,
+        /// then ordinal <c>RecordingId</c> — fully deterministic.
+        /// </para>
+        /// </summary>
+        internal static int RepairMissingContiguousChainPredecessors(
+            RecordingTree tree,
+            string context)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return 0;
+
+            int considered = 0;
+            int repaired = 0;
+            HashSet<string> reservedPredecessorIds = null;
+
+            foreach (var kvp in tree.Recordings)
+            {
+                Recording successor = kvp.Value;
+                if (!IsRepairableMissingChainPredecessorSuccessor(successor))
+                    continue;
+
+                considered++;
+                Recording predecessor = FindMissingContiguousChainPredecessor(
+                    tree,
+                    successor,
+                    reservedPredecessorIds);
+                if (predecessor == null)
+                    continue;
+
+                predecessor.ChainId = successor.ChainId;
+                predecessor.ChainIndex = successor.ChainIndex - 1;
+                predecessor.ChainBranch = successor.ChainBranch;
+                predecessor.MarkFilesDirty();
+                if (reservedPredecessorIds == null)
+                    reservedPredecessorIds = new HashSet<string>(StringComparer.Ordinal);
+                reservedPredecessorIds.Add(predecessor.RecordingId);
+                repaired++;
+
+                ParsekLog.Info("Scenario", string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RepairMissingChainPredecessor: context={0} tree={1} predecessor={2} successor={3} " +
+                    "chain={4} predecessorIdx={5} successorIdx={6} vesselPid={7} boundaryUT={8:R}",
+                    context ?? "unknown",
+                    tree.Id ?? "",
+                    predecessor.RecordingId ?? "",
+                    successor.RecordingId ?? "",
+                    successor.ChainId ?? "",
+                    predecessor.ChainIndex,
+                    successor.ChainIndex,
+                    successor.VesselPersistentId,
+                    successor.StartUT));
+            }
+
+            if (considered > 0 || repaired > 0)
+            {
+                if (repaired > 0)
+                    tree.RebuildBackgroundMap();
+                ParsekLog.Verbose("Scenario", string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RepairMissingChainPredecessor summary: context={0} tree={1} considered={2} repaired={3}",
+                    context ?? "unknown",
+                    tree.Id ?? "",
+                    considered,
+                    repaired));
+            }
+
+            return repaired;
+        }
+
+        private static bool IsRepairableMissingChainPredecessorSuccessor(Recording successor)
+        {
+            return successor != null
+                && !string.IsNullOrEmpty(successor.RecordingId)
+                && !string.IsNullOrEmpty(successor.ChainId)
+                && successor.ChainBranch == 0
+                && successor.ChainIndex == 1
+                && successor.VesselPersistentId != 0
+                && IsFiniteChainBoundaryUT(successor.StartUT);
+        }
+
+        private static Recording FindMissingContiguousChainPredecessor(
+            RecordingTree tree,
+            Recording successor,
+            HashSet<string> reservedPredecessorIds)
+        {
+            Recording best = null;
+            double bestGap = double.MaxValue;
+            foreach (var candidateKvp in tree.Recordings)
+            {
+                Recording candidate = candidateKvp.Value;
+                if (candidate == null || ReferenceEquals(candidate, successor))
+                    continue;
+                if (string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (reservedPredecessorIds != null
+                    && reservedPredecessorIds.Contains(candidate.RecordingId))
+                    continue;
+                if (!string.IsNullOrEmpty(candidate.ChainId) || candidate.ChainIndex >= 0)
+                    continue;
+                if (candidate.VesselPersistentId == 0
+                    || candidate.VesselPersistentId != successor.VesselPersistentId)
+                    continue;
+                if (!SameTreeForChainRepair(candidate, successor, tree))
+                    continue;
+                if (candidate.TreeOrder >= 0
+                    && successor.TreeOrder >= 0
+                    && candidate.TreeOrder >= successor.TreeOrder)
+                    continue;
+
+                double candidateEndUT = candidate.EndUT;
+                if (!IsFiniteChainBoundaryUT(candidateEndUT))
+                    continue;
+
+                double gap = Math.Abs(candidateEndUT - successor.StartUT);
+                if (gap > ChainPredecessorRepairUTEpsilon)
+                    continue;
+
+                if (best == null
+                    || CompareChainPredecessorCandidates(candidate, gap, best, bestGap) < 0)
+                {
+                    best = candidate;
+                    bestGap = gap;
+                }
+            }
+
+            return best;
+        }
+
+        private static int CompareChainPredecessorCandidates(
+            Recording a, double aGap,
+            Recording b, double bGap)
+        {
+            // Smaller boundary-UT gap wins.
+            int gapCmp = aGap.CompareTo(bGap);
+            if (gapCmp != 0)
+                return gapCmp;
+            // Tie on gap: lower TreeOrder wins. Treat unset (-1) as larger
+            // than any explicit order so candidates with a known position
+            // beat ambiguous ones.
+            int aOrder = a.TreeOrder >= 0 ? a.TreeOrder : int.MaxValue;
+            int bOrder = b.TreeOrder >= 0 ? b.TreeOrder : int.MaxValue;
+            int orderCmp = aOrder.CompareTo(bOrder);
+            if (orderCmp != 0)
+                return orderCmp;
+            // Final tie-break: ordinal RecordingId (always non-empty here —
+            // the find-loop guard rejects empty ids).
+            return string.CompareOrdinal(a.RecordingId, b.RecordingId);
+        }
+
+        private static bool SameTreeForChainRepair(
+            Recording candidate, Recording successor, RecordingTree tree)
+        {
+            string treeId = tree != null ? tree.Id : null;
+            if (!string.IsNullOrEmpty(treeId))
+            {
+                return string.Equals(candidate.TreeId, treeId, StringComparison.Ordinal)
+                    && string.Equals(successor.TreeId, treeId, StringComparison.Ordinal);
+            }
+
+            return string.Equals(candidate.TreeId, successor.TreeId, StringComparison.Ordinal);
+        }
+
+        private static bool IsFiniteChainBoundaryUT(double ut)
+        {
+            return !double.IsNaN(ut) && !double.IsInfinity(ut);
+        }
+
+        /// <summary>
         /// Bug #601: Re-Fly load preserves post-RP merge tree mutations.
         ///
         /// <para>
@@ -3853,10 +4060,14 @@ namespace Parsek
                 }
             }
 
+            int repairedChainPredecessors = RepairMissingContiguousChainPredecessors(
+                loadedTree, "SpliceMissingCommittedRecordings");
+
             int loadedAfter = loadedTree.Recordings != null ? loadedTree.Recordings.Count : 0;
 
             if (splicedRecordings > 0
                 || refreshedRecordings > 0
+                || repairedChainPredecessors > 0
                 || splicedBranchPoints > 0
                 || updatedBranchPoints > 0)
             {
@@ -3868,6 +4079,7 @@ namespace Parsek
                     $"refreshedRecordings={refreshedRecordings} " +
                     $"(full={refreshedRecordingsFull} " +
                     $"recorderStatePreserved={refreshedRecordingsRecorderStatePreserved}) " +
+                    $"repairedChainPredecessors={repairedChainPredecessors} " +
                     $"splicedBranchPoints={splicedBranchPoints} " +
                     $"updatedBranchPoints={updatedBranchPoints} " +
                     $"source=committed-tree-in-memory");

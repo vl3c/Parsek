@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- A same-vessel optimizer chain whose first half lost its `ChainId` on disk (so the second half stayed `ChainIndex=1` while the predecessor read `chain=none`) is repaired on load: the predecessor is grafted back as the chain's `[0]` entry and re-saved, restoring the seamless ghost handoff so the upper-stage segment no longer respawns engines/FX as a fresh ghost on the chain boundary.
 - Unowned science subjects from stock transmission and vessel recovery now enter the ledger immediately, so Parsek no longer patches the science pool back down before those rewards are committed.
 - The Re-Fly merge confirmation dialog's `Discard` button now abandons only the active Re-Fly attempt instead of purging the whole mission tree.
 - The Re-Fly revert dialog's `Discard Re-Fly` button now returns to the origin rewind point without letting the outgoing flight scene or the loaded origin save's active-tree restore path create a pending merge tree. Discarding a Re-Fly resets the state to before the Re-Fly attempt, shows no KSC merge dialog, and leaves the STASH slot available to try later.
