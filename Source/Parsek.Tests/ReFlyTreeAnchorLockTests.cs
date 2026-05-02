@@ -840,7 +840,7 @@ namespace Parsek.Tests
                     UT = ut,
                     World = new Vector3d(
                         100.0 + 12.0 * dt + 0.75 * dt * dt,
-                        -50.0 - 4.0 * dt + 2.0 * dt * dt,
+                        -50.0 - 4.0 * dt + 4.0 * dt * dt,
                         25.0 + 0.25 * dt * dt),
                 });
             }
@@ -890,6 +890,42 @@ namespace Parsek.Tests
             Assert.Equal("residual-too-large", reason);
             Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
             Assert.True(correction.magnitude < ParsekFlight.ReFlyPointTrendMaxCorrectionMeters);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_FallsBackToQuadraticForSparseParabola()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>();
+            for (int i = 0; i < 5; i++)
+            {
+                double ut = i * 3.0;
+                double dt = ut - 6.0;
+                samples.Add(new ParsekFlight.ReFlyPointTrendSample
+                {
+                    UT = ut,
+                    World = new Vector3d(
+                        100.0 + 12.0 * dt + 0.75 * dt * dt,
+                        -50.0 - 4.0 * dt + 4.0 * dt * dt,
+                        25.0 + 0.25 * dt * dt),
+                });
+            }
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                6.0,
+                new Vector3d(100.0, -50.0, 25.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied-quadratic", reason);
+            AssertVectorClose(new Vector3d(100.0, -50.0, 25.0), trend, 0.0001);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+            Assert.True(maxResidual < 0.001);
         }
 
         [Theory]

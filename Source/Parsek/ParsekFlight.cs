@@ -17361,6 +17361,24 @@ namespace Parsek
 
             if (maxResidualMeters > maxResidualMetersAllowed)
             {
+                if (TryFitReFlyPointTrendQuadratic(
+                        samples,
+                        targetUT,
+                        rawWorld,
+                        maxCorrectionMeters,
+                        maxResidualMetersAllowed,
+                        out Vector3d quadraticTrendWorld,
+                        out Vector3d quadraticCorrection,
+                        out double quadraticMaxResidualMeters,
+                        out _))
+                {
+                    trendWorld = quadraticTrendWorld;
+                    correction = quadraticCorrection;
+                    maxResidualMeters = quadraticMaxResidualMeters;
+                    reason = "applied-quadratic";
+                    return true;
+                }
+
                 reason = "residual-too-large";
                 return false;
             }
