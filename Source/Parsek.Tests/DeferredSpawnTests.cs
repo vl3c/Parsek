@@ -308,6 +308,118 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushDeferredSpawns_TerminalSafetyDeferred_KeepsPendingWithoutSpawn()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-terminal-deferred",
+                VesselName = "Unsafe Terminal Probe",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+                TerminalSpawnSafetyDeferred = true,
+                TerminalSpawnNextAttemptUT = 1000.0,
+                TerminalSpawnSafetyReasonCode = TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            int spawnCalls = 0;
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentUTOverrideForTesting = () => 500.0,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++
+            };
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+
+            policy.FlushDeferredSpawns();
+
+            Assert.Equal(0, spawnCalls);
+            Assert.False(rec.VesselSpawned);
+            Assert.Contains(rec.RecordingId, policy.pendingSpawnRecordingIds);
+        }
+
+        [Fact]
+        public void RetryHeldGhostSpawns_TerminalSafetyDeferredBeforeNextUt_DoesNotRetryOrDestroy()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-held-terminal-deferred",
+                VesselName = "Held Unsafe Probe",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+                TerminalSpawnSafetyDeferred = true,
+                TerminalSpawnNextAttemptUT = 1000.0,
+                TerminalSpawnSafetyReasonCode = TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            float now = 20f;
+            int spawnCalls = 0;
+            int destroyCalls = 0;
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                CurrentRealTimeOverrideForTesting = () => now,
+                CurrentUTOverrideForTesting = () => 500.0,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
+                DestroyGhostOverrideForTesting = (index, reason) => destroyCalls++
+            };
+            policy.heldGhosts[0] = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = rec.RecordingId,
+                vesselName = rec.VesselName
+            };
+
+            policy.RetryHeldGhostSpawns();
+            now = 21f;
+            policy.RetryHeldGhostSpawns();
+
+            Assert.Equal(0, spawnCalls);
+            Assert.Equal(0, destroyCalls);
+            Assert.True(policy.heldGhosts.ContainsKey(0));
+        }
+
+        [Fact]
+        public void ShouldRetainMapPresenceForTerminalRealSpawn_PendingOrDeferred_ReturnsTrue()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-map-retained",
+                VesselName = "Map Probe",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.0
+            });
+
+            Assert.True(ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(
+                rec,
+                hasFutureSegment: false));
+
+            rec.VesselSpawned = true;
+            Assert.False(ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(
+                rec,
+                hasFutureSegment: false));
+        }
+
+        [Fact]
         public void FlushDeferredSpawns_PurgesSupersededRelationQueues()
         {
             var oldRec = new Recording
@@ -584,6 +696,55 @@ namespace Parsek.Tests
                     l.Contains("[Policy]")
                     && l.Contains("Spawn-death detected")
                     && l.Contains("Healthy Spawned"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void RunSpawnDeathChecks_TerminalOrbitDeath_MarksCannotSpawnAndDoesNotArmRetryLoop()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-terminal-death",
+                VesselName = "Terminal Death Probe",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 77777u,
+                SpawnAbandoned = false,
+                SpawnDeathCount = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+                TerminalSpawnSafetyAltitude = 16909.4,
+                TerminalSpawnSafetySafeAltitude = 75000.0,
+                TerminalSpawnSafetyPeriapsisAltitude = 48000.0,
+                TerminalSpawnSafetyApoapsisAltitude = 125000.0
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var scenario = new ParsekScenario { ActiveReFlySessionMarker = null };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host);
+
+                policy.RunSpawnDeathChecks();
+
+                Assert.False(rec.VesselSpawned);
+                Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+                Assert.Equal(1, rec.SpawnDeathCount);
+                Assert.False(rec.SpawnAbandoned);
+                Assert.True(rec.TerminalSpawnCannotSpawnSafely);
+                Assert.Equal(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
+                    rec.TerminalSpawnSafetyReasonCode);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Policy]")
+                    && l.Contains("Spawn-death detected for terminal orbit")
+                    && l.Contains("will not be retried"));
             }
             finally
             {

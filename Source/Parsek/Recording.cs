@@ -288,6 +288,17 @@ namespace Parsek
         public bool WalkbackExhausted;           // True after TryWalkbackForEndOfRecordingSpawn scanned entire trajectory with no clear sub-step — distinct from SpawnAbandoned for diagnostics (transient, #264)
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
+        public bool TerminalSpawnSafetyDeferred;  // True while terminal-orbit real spawn is waiting for a safe propagated UT (transient)
+        public bool TerminalSpawnCannotSpawnSafely; // True when terminal orbit cannot be materialized safely as an on-rails vessel (transient)
+        public string TerminalSpawnSafetyReasonCode;
+        public string TerminalSpawnSafetyReason;
+        public double TerminalSpawnSafetyDecisionUT = double.NaN;
+        public double TerminalSpawnNextAttemptUT = double.NaN;
+        public double TerminalSpawnSafetyAltitude = double.NaN;
+        public double TerminalSpawnSafetySafeAltitude = double.NaN;
+        public double TerminalSpawnSafetyPeriapsisAltitude = double.NaN;
+        public double TerminalSpawnSafetyApoapsisAltitude = double.NaN;
+        public double TerminalSpawnSafetyPressure = double.NaN;
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
         public bool SpawnSuppressedByRewind;     // True only for the active/source recording protected by plain Rewind-to-Launch strip cleanup (#573). Persisted with scoped metadata below so legacy broad markers can be ignored/cleared (#589).
         public string SpawnSuppressedByRewindReason;
@@ -648,6 +659,17 @@ namespace Parsek
             clone.WalkbackExhausted = source.WalkbackExhausted;
             clone.DuplicateBlockerRecovered = source.DuplicateBlockerRecovered;
             clone.SpawnDeathCount = source.SpawnDeathCount;
+            clone.TerminalSpawnSafetyDeferred = source.TerminalSpawnSafetyDeferred;
+            clone.TerminalSpawnCannotSpawnSafely = source.TerminalSpawnCannotSpawnSafely;
+            clone.TerminalSpawnSafetyReasonCode = source.TerminalSpawnSafetyReasonCode;
+            clone.TerminalSpawnSafetyReason = source.TerminalSpawnSafetyReason;
+            clone.TerminalSpawnSafetyDecisionUT = source.TerminalSpawnSafetyDecisionUT;
+            clone.TerminalSpawnNextAttemptUT = source.TerminalSpawnNextAttemptUT;
+            clone.TerminalSpawnSafetyAltitude = source.TerminalSpawnSafetyAltitude;
+            clone.TerminalSpawnSafetySafeAltitude = source.TerminalSpawnSafetySafeAltitude;
+            clone.TerminalSpawnSafetyPeriapsisAltitude = source.TerminalSpawnSafetyPeriapsisAltitude;
+            clone.TerminalSpawnSafetyApoapsisAltitude = source.TerminalSpawnSafetyApoapsisAltitude;
+            clone.TerminalSpawnSafetyPressure = source.TerminalSpawnSafetyPressure;
             clone.SceneExitSituation = source.SceneExitSituation;
             clone.SpawnSuppressedByRewind = source.SpawnSuppressedByRewind;
             clone.SpawnSuppressedByRewindReason = source.SpawnSuppressedByRewindReason;

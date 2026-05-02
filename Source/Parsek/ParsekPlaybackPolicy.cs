@@ -163,6 +163,40 @@ namespace Parsek
                 rec.SpawnDeathCount++;
                 detected++;
 
+                if (rec.TerminalStateValue == TerminalState.Orbiting
+                    && VesselSpawner.HasRecordedTerminalOrbit(rec))
+                {
+                    uint terminalOldPid = rec.SpawnedVesselPersistentId;
+                    rec.VesselSpawned = false;
+                    rec.SpawnedVesselPersistentId = 0;
+                    rec.SpawnAttempts = 0;
+                    var decision = new TerminalOrbitSpawnSafetyDecision
+                    {
+                        Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                        ReasonCode = TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
+                        Reason = "spawned terminal orbit vessel died before it could remain materialized",
+                        CurrentAltitude = rec.TerminalSpawnSafetyAltitude,
+                        AtmosphereDepth = double.NaN,
+                        SafetyMargin = TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                        SafeAltitude = rec.TerminalSpawnSafetySafeAltitude,
+                        PeriapsisAltitude = rec.TerminalSpawnSafetyPeriapsisAltitude,
+                        ApoapsisAltitude = rec.TerminalSpawnSafetyApoapsisAltitude,
+                        NextSafeUT = double.NaN,
+                        NextSafeAltitude = double.NaN,
+                    };
+                    TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(
+                        rec,
+                        decision,
+                        CurrentUniversalTimeSafe(),
+                        rec.TerminalSpawnSafetyPressure);
+                    abandoned++;
+                    ParsekLog.Warn("Policy",
+                        $"Spawn-death detected for terminal orbit and will not be retried: " +
+                        $"#{i} \"{rec.VesselName}\" pid={terminalOldPid} deathCount={rec.SpawnDeathCount} " +
+                        $"reason={decision.ReasonCode}");
+                    continue;
+                }
+
                 if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
                         rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
                 {
@@ -242,7 +276,27 @@ namespace Parsek
                     continue;
 
                 bool spawnedNow = false;
-                if (pendingSpawn && GhostPlaybackLogic.ShouldSkipDeferredSpawn(
+                if (pendingSpawn && rec.TerminalSpawnCannotSpawnSafely)
+                {
+                    ParsekLog.Warn("Policy",
+                        $"Deferred spawn cannot execute safely: #{i} \"{rec.VesselName}\" " +
+                        $"id={rec.RecordingId} reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    flushedSpawnIds.Add(rec.RecordingId);
+                    pendingSpawn = false;
+                }
+                else if (pendingSpawn
+                    && TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(
+                        rec,
+                        currentUT,
+                        out string terminalHoldReason))
+                {
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "terminal-deferred-spawn-held-" + (rec.RecordingId ?? i.ToString(CultureInfo.InvariantCulture)),
+                        $"Deferred spawn held for terminal orbit safety: #{i} \"{rec.VesselName}\" " +
+                        $"id={rec.RecordingId} reason={terminalHoldReason}");
+                    continue;
+                }
+                else if (pendingSpawn && GhostPlaybackLogic.ShouldSkipDeferredSpawn(
                         rec.VesselSpawned, rec.VesselSnapshot != null))
                 {
                     ParsekLog.Verbose("Policy",
@@ -258,10 +312,35 @@ namespace Parsek
                         SpawnVesselOrChainTipOverrideForTesting(rec, i);
                     else
                         host.SpawnVesselOrChainTipFromPolicy(rec, i);
-                    spawnedCount++;
-                    flushedSpawnIds.Add(rec.RecordingId);
-                    pendingSpawn = false;
-                    spawnedNow = true;
+
+                    if (rec.VesselSpawned)
+                    {
+                        spawnedCount++;
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                        spawnedNow = true;
+                    }
+                    else if (rec.TerminalSpawnCannotSpawnSafely)
+                    {
+                        ParsekLog.Warn("Policy",
+                            $"Deferred spawn resolved as cannot-spawn-safely: #{i} \"{rec.VesselName}\" " +
+                            $"id={rec.RecordingId} reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                    }
+                    else if (TerminalOrbitSpawnSafety.HasActiveHold(rec))
+                    {
+                        ParsekLog.Info("Policy",
+                            $"Deferred spawn remains pending after terminal orbit safety decision: " +
+                            $"#{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                            $"reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                        continue;
+                    }
+                    else
+                    {
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                    }
                 }
 
                 if (spawnedNow || pendingFlagReplay)
@@ -323,8 +402,16 @@ namespace Parsek
                 pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
             }
 
-            ParsekLog.Info("Policy",
-                $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
+            if (spawnedCount > 0 || flushedSpawnIds.Count > 0)
+            {
+                ParsekLog.Info("Policy",
+                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
+            }
+            else if (pendingSpawnRecordingIds.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "deferred-spawn-flush-waiting",
+                    $"Deferred spawn flush waiting: pending={pendingSpawnRecordingIds.Count}");
+            }
 
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
@@ -608,6 +695,9 @@ namespace Parsek
             float now = CurrentRealTimeOverrideForTesting != null
                 ? CurrentRealTimeOverrideForTesting()
                 : CurrentUnityRealTime();
+            double currentUT = CurrentUTOverrideForTesting != null
+                ? CurrentUTOverrideForTesting()
+                : CurrentUniversalTimeSafe();
 
             // Collect indices to release and retry-time updates (cannot modify dict during iteration)
             List<KeyValuePair<int, string>> toRelease = null;  // index + destroy reason
@@ -621,7 +711,8 @@ namespace Parsek
                 var decision = DecideHeldGhostAction(
                     index, info, committed, now, HeldGhostTimeoutSeconds,
                     HeldGhostRetryIntervalSeconds,
-                    relationSupersededIds);
+                    relationSupersededIds,
+                    currentUT);
 
                 switch (decision)
                 {
@@ -733,6 +824,19 @@ namespace Parsek
             return Time.time;
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double CurrentUniversalTimeSafe()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
         /// <summary>
         /// Pure decision logic for held ghost retry. Determines what action to take
         /// for a held ghost based on current state. Testable without Unity side effects.
@@ -741,7 +845,8 @@ namespace Parsek
             int index, HeldGhostInfo info, IReadOnlyList<Recording> committed,
             float currentTime, float timeoutSeconds,
             float retryIntervalSeconds = 1.0f,
-            ISet<string> relationSupersededIds = null)
+            ISet<string> relationSupersededIds = null,
+            double currentUT = double.NaN)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -762,9 +867,22 @@ namespace Parsek
             if (rec.VesselSpawned)
                 return HeldGhostAction.ReleaseSpawned;
 
+            bool terminalSpawnDeferredReady =
+                rec.TerminalSpawnSafetyDeferred
+                && TerminalOrbitSpawnSafety.IsFinite(rec.TerminalSpawnNextAttemptUT)
+                && TerminalOrbitSpawnSafety.IsFinite(currentUT)
+                && currentUT >= rec.TerminalSpawnNextAttemptUT;
+            if (TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(
+                rec,
+                currentUT,
+                out _))
+            {
+                return HeldGhostAction.Hold;
+            }
+
             // Timeout check
             float elapsed = currentTime - info.holdStartTime;
-            if (elapsed >= timeoutSeconds)
+            if (!terminalSpawnDeferredReady && elapsed >= timeoutSeconds)
                 return HeldGhostAction.Timeout;
 
             // Throttle retry attempts — avoid hammering spawn every frame
@@ -812,6 +930,9 @@ namespace Parsek
 
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
+
+        private readonly HashSet<string> terminalMapRetentionLoggedIds =
+            new HashSet<string>();
 
         /// <summary>
         /// Per-chain dedup: maps chainId → recording index that currently owns the ghost map vessel.
@@ -971,6 +1092,37 @@ namespace Parsek
         internal static bool IsInRelativeFrame(IPlaybackTrajectory traj, double ut)
         {
             return GhostMapPresence.IsInRelativeFrame(traj, ut);
+        }
+
+        internal static bool ShouldRetainMapPresenceForTerminalRealSpawn(
+            Recording rec,
+            bool hasFutureSegment)
+        {
+            if (hasFutureSegment || rec == null)
+                return false;
+
+            if (rec.VesselSpawned
+                || rec.SpawnAbandoned
+                || rec.VesselSnapshot == null
+                || rec.IsDebris
+                || rec.IsGhostOnly
+                || rec.ChainBranch > 0)
+            {
+                return false;
+            }
+
+            if (rec.TerminalStateValue != TerminalState.Orbiting)
+                return false;
+
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId)
+                || rec.SpawnSuppressedByRewind)
+            {
+                return false;
+            }
+
+            return VesselSpawner.HasRecordedTerminalOrbit(rec)
+                || rec.HasOrbitSegments
+                || TerminalOrbitSpawnSafety.HasActiveHold(rec);
         }
 
         /// <summary>
@@ -1152,6 +1304,32 @@ namespace Parsek
                             futureSegmentBody = segs[s].bodyName;
                             break;
                         }
+                    }
+
+                    if (ShouldRetainMapPresenceForTerminalRealSpawn(rec, hasFutureSegment))
+                    {
+                        string retentionKey = rec.RecordingId ?? idx.ToString(CultureInfo.InvariantCulture);
+                        string reason = rec.TerminalSpawnCannotSpawnSafely
+                            ? rec.TerminalSpawnSafetyReasonCode ?? "cannot-spawn-safely"
+                            : rec.TerminalSpawnSafetyDeferred
+                                ? rec.TerminalSpawnSafetyReasonCode ?? "deferred"
+                                : "pending-terminal-real-spawn";
+                        string message = string.Format(CultureInfo.InvariantCulture,
+                            "Map presence retained because terminal real spawn is pending/deferred: " +
+                            "rec={0} idx={1} vessel=\"{2}\" currentUT={3:F2} reason={4}",
+                            rec.RecordingId ?? "(null)",
+                            idx,
+                            rec.VesselName ?? "(null)",
+                            currentUT,
+                            reason);
+                        if (terminalMapRetentionLoggedIds.Add(retentionKey))
+                            ParsekLog.Info("Policy", message);
+                        else
+                            ParsekLog.VerboseRateLimited(
+                                "Policy",
+                                "terminal-map-retained-" + retentionKey,
+                                message);
+                        continue;
                     }
 
                     GhostMapPresence.RemoveGhostVesselForRecording(idx,
@@ -1524,7 +1702,11 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             uint vesselPid = 0;
             if (committed != null && evt.Index >= 0 && evt.Index < committed.Count)
+            {
                 vesselPid = committed[evt.Index].VesselPersistentId;
+                if (!string.IsNullOrEmpty(committed[evt.Index].RecordingId))
+                    terminalMapRetentionLoggedIds.Remove(committed[evt.Index].RecordingId);
+            }
 
             GhostMapPresence.RemoveAllGhostPresenceForIndex(evt.Index, vesselPid, "ghost-destroyed");
         }
@@ -1556,6 +1738,7 @@ namespace Parsek
             stateVectorOrbitTrajectories.Clear();
             soiGapStateVectorExpectedBodies.Clear();
             stateVectorCachedIndices.Clear();
+            terminalMapRetentionLoggedIds.Clear();
         }
 
         /// <summary>
@@ -1576,6 +1759,7 @@ namespace Parsek
             stateVectorOrbitTrajectories.Clear();
             soiGapStateVectorExpectedBodies.Clear();
             stateVectorCachedIndices.Clear();
+            terminalMapRetentionLoggedIds.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
         }
     }
