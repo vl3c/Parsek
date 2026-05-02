@@ -144,6 +144,66 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region OrbitalCheckpoint renderability
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithFrames_ReturnsTrue()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10.0 }
+                }
+            };
+
+            Assert.True(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithCheckpointsOnly_ReturnsTrue()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10.0, endUT = 20.0 }
+                }
+            };
+
+            Assert.True(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithNoPayload_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint
+            };
+
+            Assert.False(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_AbsoluteWithFrames_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10.0 }
+                }
+            };
+
+            Assert.False(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        #endregion
+
         #region ToString
 
         [Fact]

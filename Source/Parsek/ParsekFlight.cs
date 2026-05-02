@@ -1185,7 +1185,7 @@ namespace Parsek
                         // unknownFrameTagWarned dedup so LateUpdate doesn't
                         // double-emit).
                         Vector3d pos;
-                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        if (e.hasReFlyTreeOffset || !TryComputeLateUpdateSplineWorldPosition(e, out pos))
                         {
                             Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
                                 e.latBefore, e.lonBefore, e.altBefore);
@@ -1536,7 +1536,7 @@ namespace Parsek
                             // so spline / anchor ε re-application still works.
                             if (e.bodyAfter == null) break;
                             Vector3d pos;
-                            if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                            if (e.hasReFlyTreeOffset || !TryComputeLateUpdateSplineWorldPosition(e, out pos))
                             {
                                 Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
                                     e.latBefore, e.lonBefore, e.altBefore);
@@ -16216,6 +16216,16 @@ namespace Parsek
                 interpolatedPos = posBefore;
             }
 
+            // Re-Fly tree display alignment is resolved before smoothing so
+            // active Re-Fly ghosts do not mix the frozen display offset with
+            // a spline path that can disagree with the raw recorded bracket
+            // around optimizer boundaries. The hidden recording remains the
+            // source of truth; this only chooses the rendering interpolant.
+            Vector3d reFlyTreeOffset = Vector3d.zero;
+            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                recordingId, targetUT, out reFlyTreeOffset);
+            bool suppressSplineForReFlyDisplayAlignment = hasReFlyTreeOffset;
+
             // Phase 1 smoothing splines (design doc §6.1, §17.3.1, §18 Phase 1).
             // Replace the lerped lat/lon/alt-derived world position with a
             // Catmull-Rom spline evaluation when the section has a valid spline
@@ -16226,7 +16236,8 @@ namespace Parsek
             // that is acceptable per HR-9 because "no spline yet" is a normal
             // state, not a failure.
             bool splineApplied = false;
-            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            if (!suppressSplineForReFlyDisplayAlignment
+                && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
             {
                 RecordSplineEvalForLogging();
                 Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, targetUT);
@@ -16285,15 +16296,6 @@ namespace Parsek
                     hermiteApplied = true;
                 }
             }
-
-            // Re-Fly tree display alignment: when the ghost belongs to the
-            // active Re-Fly tree, translate by the frozen body-fixed offset
-            // captured on this recording's first renderable frame. This is
-            // detected before anchor correction so the two display-space
-            // translations cannot stack on top of each other.
-            Vector3d reFlyTreeOffset = Vector3d.zero;
-            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, targetUT, out reFlyTreeOffset);
 
             // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
             // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
@@ -16393,6 +16395,7 @@ namespace Parsek
                     + " hermiteMaxDeviationMeters=" + hermiteMaxDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " interpMode=" + (splineApplied ? "Spline" : hermiteApplied ? "Hermite" : "Lerp")
                     + " splineHit=" + (splineApplied ? "true" : "false")
+                    + " splineSuppressedForReFly=" + (suppressSplineForReFlyDisplayAlignment ? "true" : "false")
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
@@ -20572,6 +20575,48 @@ namespace Parsek
             if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody orbitBody))
                 return false;
 
+            bool hasCheckpointFrames = section.frames != null && section.frames.Count > 0;
+            if (!hasCheckpointFrames)
+            {
+                if (allowActivation && !ghost.activeSelf)
+                    ghost.SetActive(true);
+
+                PositionGhostFromOrbit(ghost, segment, playbackUT, cacheKey, recordingId);
+
+                Vector3d orbitWorldPos = orbit.getPositionAtUT(playbackUT);
+                Vector3d orbitVelocity = orbit.getOrbitalVelocityAtUT(playbackUT);
+                double orbitAltitude = orbitBody.GetAltitude(orbitWorldPos);
+                interpResult = new InterpolationResult(
+                    (Vector3)orbitVelocity,
+                    segment.bodyName,
+                    orbitAltitude);
+
+                string recId = string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId;
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "orbital-checkpoint-orbit-only-{0}-{1}-{2}",
+                        recId,
+                        sectionIdx,
+                        checkpointIdx),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "OrbitalCheckpoint orbit-only playback: rec={0} currentUT={1:F1} section[{2}] sectionUT={3:F1}-{4:F1} checkpointIdx={5} segmentUT={6:F1}-{7:F1} world={8} alt={9:F1}",
+                        recId,
+                        playbackUT,
+                        sectionIdx,
+                        section.startUT,
+                        section.endUT,
+                        checkpointIdx,
+                        segment.startUT,
+                        segment.endUT,
+                        GhostRenderTrace.FormatVector3d(orbitWorldPos),
+                        orbitAltitude),
+                    5.0);
+                return true;
+            }
+
             bool hasPointInterpolation = TryResolveCheckpointPointInterpolation(
                 section.frames,
                 ref playbackIdx,
@@ -20849,9 +20894,17 @@ namespace Parsek
                 return false;
 
             section = traj.TrackSections[sectionIdx];
-            return section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
-                && section.frames != null
-                && section.frames.Count > 0;
+            return HasRenderableCheckpointTrackSection(section);
+        }
+
+        internal static bool HasRenderableCheckpointTrackSection(TrackSection section)
+        {
+            if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+                return false;
+
+            bool hasFrames = section.frames != null && section.frames.Count > 0;
+            bool hasCheckpoints = section.checkpoints != null && section.checkpoints.Count > 0;
+            return hasFrames || hasCheckpoints;
         }
 
         void LogCheckpointPointPlayback(
