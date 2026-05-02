@@ -836,6 +836,223 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeTree_PreservesOrbitOnlyPredictedTailWhenFlatPointsAreStale()
+        {
+            const double sectionEndUT = 729.417;
+            const double terminalUT = 2421.878;
+
+            var section = MakeSection(
+                710.297,
+                sectionEndUT,
+                TrackSectionSource.Active,
+                lat: -0.04,
+                lon: -74.3,
+                alt: 55000.0,
+                endLat: -0.03,
+                endLon: -74.0,
+                endAlt: 54000.0);
+            var rec = MakeRecording("rec-stale-orbit-tail", "Kerbal X", new List<TrackSection> { section });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(739.157, 1400.0, isPredicted: true),
+                MakeOrbitSegment(1400.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Stale Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-stale-orbit-tail"];
+
+            Assert.Equal(2, merged.Points.Count);
+            Assert.Equal(710.297, merged.Points[0].ut);
+            Assert.Equal(sectionEndUT, merged.Points[1].ut);
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(739.157, merged.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-stale-orbit-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
+        }
+
+        [Fact]
+        public void MergeTree_PreservesPredictedTailAfterCheckpointPrefixWithRoundTripDrift()
+        {
+            const double checkpointEndUT = 300.0;
+            const double terminalUT = 900.0;
+
+            var atmospheric = MakeSection(
+                100.0,
+                200.0,
+                TrackSectionSource.Active,
+                lat: -0.02,
+                lon: -74.5,
+                alt: 65000.0,
+                endLat: -0.01,
+                endLon: -74.2,
+                endAlt: 72000.0);
+            var checkpointSegment = MakeOrbitSegment(200.0, checkpointEndUT, isPredicted: false);
+            var checkpoint = MakeSectionNoFrames(200.0, checkpointEndUT, TrackSectionSource.Checkpoint);
+            checkpoint.checkpoints.Add(checkpointSegment);
+
+            var rec = MakeRecording(
+                "rec-checkpoint-tail",
+                "Kerbal X",
+                new List<TrackSection> { atmospheric, checkpoint });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+
+            OrbitSegment sourceCheckpoint = checkpointSegment;
+            sourceCheckpoint.startUT += 5e-7;
+            sourceCheckpoint.endUT -= 5e-7;
+            sourceCheckpoint.inclination += 5e-10;
+            sourceCheckpoint.semiMajorAxis += 5e-7;
+            sourceCheckpoint.orbitalFrameRotation = new Quaternion(
+                sourceCheckpoint.orbitalFrameRotation.x + 5e-7f,
+                sourceCheckpoint.orbitalFrameRotation.y,
+                sourceCheckpoint.orbitalFrameRotation.z,
+                sourceCheckpoint.orbitalFrameRotation.w);
+            sourceCheckpoint.angularVelocity = new Vector3(
+                sourceCheckpoint.angularVelocity.x,
+                sourceCheckpoint.angularVelocity.y + 5e-7f,
+                sourceCheckpoint.angularVelocity.z);
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                sourceCheckpoint,
+                MakeOrbitSegment(320.0, 600.0, isPredicted: true),
+                MakeOrbitSegment(600.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Checkpoint Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-checkpoint-tail"];
+
+            Assert.Equal(2, merged.Points.Count);
+            Assert.Equal(3, merged.OrbitSegments.Count);
+            Assert.False(merged.OrbitSegments[0].isPredicted);
+            Assert.Equal(200.0, merged.OrbitSegments[0].startUT);
+            Assert.Equal(checkpointEndUT, merged.OrbitSegments[0].endUT);
+            Assert.All(merged.OrbitSegments.Skip(1), seg => Assert.True(seg.isPredicted));
+            Assert.Equal(320.0, merged.OrbitSegments[1].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-checkpoint-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
+        }
+
+        [Theory]
+        [InlineData("non-predicted")]
+        [InlineData("non-monotonic")]
+        [InlineData("starts-before-section-end")]
+        public void MergeTree_RejectsUnsafePredictedOrbitTailWhenFlatPointsAreStale(
+            string unsafeShape)
+        {
+            const double sectionEndUT = 200.0;
+            var section = MakeSection(
+                100.0,
+                sectionEndUT,
+                TrackSectionSource.Active,
+                lat: -0.02,
+                lon: -74.5,
+                alt: 65000.0,
+                endLat: -0.01,
+                endLon: -74.2,
+                endAlt: 72000.0);
+            var rec = MakeRecording(
+                "rec-unsafe-orbit-tail-" + unsafeShape,
+                "Kerbal X",
+                new List<TrackSection> { section });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+
+            if (unsafeShape == "non-predicted")
+            {
+                rec.OrbitSegments = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(210.0, 300.0, isPredicted: true),
+                    MakeOrbitSegment(300.0, 400.0, isPredicted: false)
+                };
+            }
+            else if (unsafeShape == "non-monotonic")
+            {
+                rec.OrbitSegments = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(220.0, 300.0, isPredicted: true),
+                    MakeOrbitSegment(210.0, 400.0, isPredicted: true)
+                };
+            }
+            else
+            {
+                rec.OrbitSegments = new List<OrbitSegment>
+                {
+                    MakeOrbitSegment(199.0, 400.0, isPredicted: true)
+                };
+            }
+
+            var tree = MakeTree("Unsafe Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result[rec.RecordingId];
+
+            Assert.Equal(2, merged.Points.Count);
+            Assert.Empty(merged.OrbitSegments);
+            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("recording='" + rec.RecordingId + "'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("recording='" + rec.RecordingId + "'") &&
+                l.Contains("flatSync=track-sections"));
+        }
+
+        [Fact]
         public void MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy()
         {
             var section = new TrackSection
