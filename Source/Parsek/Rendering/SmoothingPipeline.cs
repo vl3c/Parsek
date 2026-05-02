@@ -26,8 +26,7 @@ namespace Parsek.Rendering
     /// <list type="bullet">
     /// <item><description>Iterate <see cref="Recording.TrackSections"/>, fit a
     /// Catmull-Rom spline through each eligible ABSOLUTE-frame
-    /// Atmospheric / ExoPropulsive / ExoBallistic section's
-    /// <c>frames</c>, and stage the result in
+    /// ExoPropulsive / ExoBallistic section's <c>frames</c>, and stage the result in
     /// <see cref="SectionAnnotationStore"/>.</description></item>
     /// <item><description>Read / write the <c>.pann</c> sidecar atomically, and
     /// gate cached splines on the five-field cache key (binary version,
@@ -145,9 +144,9 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Fits a Catmull-Rom spline through every eligible ABSOLUTE-frame
-        /// Atmospheric / ExoPropulsive / ExoBallistic section's frames and stores the result
+        /// ExoPropulsive / ExoBallistic section's frames and stores the result
         /// in <see cref="SectionAnnotationStore"/>. Sections that don't qualify
-        /// (RELATIVE, OrbitalCheckpoint, Surface*, Approach) are
+        /// (RELATIVE, OrbitalCheckpoint, Atmospheric, Surface*, Approach) are
         /// skipped silently — they belong to other rendering paths (HR-7).
         ///
         /// <para>
@@ -155,8 +154,8 @@ namespace Parsek.Rendering
         /// inertial-longitude space (FrameTag = 1) before fitting; design doc
         /// §6.2 Stage 2 / §18 Phase 4. Body resolution failure for an inertial
         /// section is HR-9 (Pipeline-Frame Warn + skip, no spline stored — the
-        /// consumer falls back to the legacy lerp path). Atmospheric sections
-        /// use the body-fixed path; Surface* remains terrain-aware future work.
+        /// consumer falls back to the legacy lerp path). Atmospheric and
+        /// Surface* sections remain terrain/drag-aware future work.
         /// </para>
         /// </summary>
         internal static void FitAndStorePerSection(Recording rec)
@@ -189,10 +188,10 @@ namespace Parsek.Rendering
                     continue;
                 }
 
-                // Phase 4 frame-tag decision (design doc §6.2). ExoPropulsive
-                // / ExoBallistic sections fit in inertial longitude;
-                // Atmospheric still routes through body-fixed. Surface*
-                // enablement remains a later terrain-aware phase.
+                // Phase 4 frame-tag decision (design doc §6.2).
+                // ExoPropulsive / ExoBallistic sections fit in inertial
+                // longitude. Atmospheric/Surface* enablement remains a later
+                // terrain/drag-aware phase.
                 bool inertial = section.environment == SegmentEnvironment.ExoPropulsive
                     || section.environment == SegmentEnvironment.ExoBallistic;
                 byte frameTag = inertial ? (byte)1 : (byte)0;
@@ -1015,9 +1014,9 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Returns true iff the section qualifies for recorded-path smoothing:
-        /// ABSOLUTE frame, Atmospheric / ExoPropulsive / ExoBallistic
-        /// environment, with enough samples to fit a Catmull-Rom spline.
-        /// Surface* belongs to a later terrain-aware phase; RELATIVE is
+        /// ABSOLUTE frame, ExoPropulsive / ExoBallistic environment, with
+        /// enough samples to fit a Catmull-Rom spline. Atmospheric and
+        /// Surface* belong to later terrain/drag-aware phases; RELATIVE is
         /// forbidden by HR-7; OrbitalCheckpoint is analytical and has no
         /// sample frames to fit.
         /// </summary>
@@ -1025,8 +1024,7 @@ namespace Parsek.Rendering
         {
             if (section.referenceFrame != ReferenceFrame.Absolute)
                 return false;
-            if (section.environment != SegmentEnvironment.Atmospheric
-                && section.environment != SegmentEnvironment.ExoPropulsive
+            if (section.environment != SegmentEnvironment.ExoPropulsive
                 && section.environment != SegmentEnvironment.ExoBallistic)
                 return false;
             if (section.frames == null

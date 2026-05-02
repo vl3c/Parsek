@@ -187,27 +187,27 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void FitAndStorePerSection_Atmospheric_FitsBodyFixedSpline()
+        public void FitAndStorePerSection_Atmospheric_NotFitted()
         {
-            // PR #708 playtest follow-up: atmospheric ascent/descent is where
-            // recorded-path bobbing is most visible during active Re-Fly.
-            // Atmospheric Absolute sections should now get body-fixed splines.
+            // PR #708 playtest rollback: sparse atmospheric ascent sections
+            // produced large Catmull-Rom loops during active Re-Fly. Until the
+            // fitter has an explicit monotonic/shape-safe contract,
+            // Atmospheric Absolute sections must stay on the legacy lerp path.
             var rec = MakeRecording("rec-atmo",
                 MakeSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, frameCount: 10));
             SmoothingPipeline.FitAndStorePerSection(rec);
-            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-atmo", 0, out var spline));
-            Assert.True(spline.IsValid);
-            Assert.Equal((byte)0, spline.FrameTag);
-            Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording("rec-atmo"));
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-atmo", 0, out _));
+            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("rec-atmo"));
         }
 
         [Fact]
-        public void AtmosphericSplineEligibility_BumpsPannAlgorithmStamp()
+        public void AtmosphericSplineRollback_BumpsPannAlgorithmStamp()
         {
-            // Existing .pann files can be fresh under the old cache key while
-            // missing atmospheric splines. The alg-stamp bump forces recompute.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 11,
-                "AlgorithmStampVersion must be >= 11 after Atmospheric spline eligibility ships");
+            // Existing v11 .pann files can contain atmospheric splines from
+            // the short-lived eligibility expansion. The alg-stamp bump forces
+            // recompute so those unsafe entries are not reused.
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 12,
+                "AlgorithmStampVersion must be >= 12 after Atmospheric spline eligibility rollback");
         }
 
         [Fact]
