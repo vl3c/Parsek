@@ -378,6 +378,8 @@ namespace Parsek
 
         private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint, CoBubble }
 
+        private enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
+
         private struct GhostPosEntry
         {
             public GameObject ghost;
@@ -455,15 +457,15 @@ namespace Parsek
             public string coBubblePrimaryRecordingId;
             public double coBubblePointUT;
 
-            // Re-Fly tree anchor offset — `live_active_world(now) -
-            // recorded_active_world(currentUT)` evaluated this Update
-            // frame and re-applied here in LateUpdate so the
-            // FloatingOrigin-recomputed worldPos preserves the same
-            // anchored alignment. Recomputed every frame; not constant.
+            // Re-Fly tree display alignment. This is the frozen body-fixed
+            // offset projected into the current render frame and reapplied
+            // in late/end-of-frame positioning so FloatingOrigin shifts do
+            // not discard the anchored alignment.
             public Vector3d reFlyTreeOffset;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
+        private int ghostPreCullReapplyFrame = -1;
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
@@ -983,6 +985,7 @@ namespace Parsek
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
+            Camera.onPreCull += OnCameraPreCull;
 
             ui = new ParsekUI(this);
 
@@ -1033,6 +1036,11 @@ namespace Parsek
             // After OnSceneChangeRequested, the scene is tearing down — skip all processing
             // to prevent ghost spawns and other work into the dying scene.
             if (sceneChangeInProgress) return;
+
+            // Defensive clear for any prior-frame entries that did not reach
+            // the camera pre-cull hook (for example, scene/camera teardown).
+            if (ghostPosEntries.Count > 0)
+                ghostPosEntries.Clear();
 
             ClearStaleConfirmations();
             HandleMissedVesselSwitchRecovery();
@@ -1122,10 +1130,33 @@ namespace Parsek
             // Ghost icon popup: check for outside clicks (runs after UI event processing)
             Patches.GhostIconClickPatch.CheckOutsideClick();
 
+            ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
+
+            ClampGhostsToTerrain();
+
+            watchMode.UpdateWatchCamera();
+        }
+
+        private void OnCameraPreCull(Camera camera)
+        {
+            if (sceneChangeInProgress || ghostPosEntries.Count == 0)
+                return;
+            if (ghostPreCullReapplyFrame == Time.frameCount)
+                return;
+
+            ghostPreCullReapplyFrame = Time.frameCount;
+            ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
+            ClampGhostsToTerrain();
+            ghostPosEntries.Clear();
+        }
+
+        private void ApplyGhostPosEntries(GhostPositionReapplyPhase phase)
+        {
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
                 if (e.ghost == null || !e.ghost.activeSelf) continue;
+                Vector3d positionBeforeReapply = e.ghost.transform.position;
 
                 switch (e.mode)
                 {
@@ -1501,13 +1532,46 @@ namespace Parsek
                         break;
                     }
                 }
+
+                TraceGhostPositionReapply(e, phase, positionBeforeReapply, e.ghost.transform.position);
             }
+        }
 
-            ClampGhostsToTerrain();
+        private static void TraceGhostPositionReapply(
+            GhostPosEntry entry,
+            GhostPositionReapplyPhase phase,
+            Vector3d before,
+            Vector3d after)
+        {
+            if (phase != GhostPositionReapplyPhase.CameraPreCull)
+                return;
 
-            ghostPosEntries.Clear();
+            double delta = Vector3d.Distance(before, after);
+            bool hasReFlyOffset = entry.reFlyTreeOffset.sqrMagnitude > 0.000001;
+            if (delta < 1.0 && !hasReFlyOffset)
+                return;
 
-            watchMode.UpdateWatchCamera();
+            string recordingId =
+                !string.IsNullOrEmpty(entry.anchorRecordingId) ? entry.anchorRecordingId :
+                !string.IsNullOrEmpty(entry.coBubblePeerRecordingId) ? entry.coBubblePeerRecordingId :
+                !string.IsNullOrEmpty(entry.relativeAnchorRecordingId) ? entry.relativeAnchorRecordingId :
+                "<none>";
+            string shortRecordingId = recordingId.Length > 8 ? recordingId.Substring(0, 8) : recordingId;
+            string key = "ghost-camera-pre-cull-reapply-" + shortRecordingId + "-" + entry.mode;
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                key,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Ghost camera pre-cull reapply: rec={0} mode={1} ut={2:F3} deltaMeters={3:F2} before=({4:F2},{5:F2},{6:F2}) after=({7:F2},{8:F2},{9:F2}) reFlyOffset=({10:F2},{11:F2},{12:F2})",
+                    shortRecordingId,
+                    entry.mode,
+                    entry.pointUT,
+                    delta,
+                    before.x, before.y, before.z,
+                    after.x, after.y, after.z,
+                    entry.reFlyTreeOffset.x, entry.reFlyTreeOffset.y, entry.reFlyTreeOffset.z),
+                1.0);
         }
 
         private static bool TryResolveStoredRecordedAnchorPose(
@@ -1648,6 +1712,7 @@ namespace Parsek
         {
             Instance = null;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
+            Camera.onPreCull -= OnCameraPreCull;
             DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
 
             if (toolbarControl != null)
