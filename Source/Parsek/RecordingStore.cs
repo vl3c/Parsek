@@ -2879,6 +2879,7 @@ namespace Parsek
             rec.SpawnAbandoned = false;
             rec.WalkbackExhausted = false;
             rec.DuplicateBlockerRecovered = false;
+            TerminalOrbitSpawnSafety.Clear(rec);
             rec.LastAppliedResourceIndex = -1;
             // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
             // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the

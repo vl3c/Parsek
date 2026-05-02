@@ -267,6 +267,54 @@ namespace Parsek.Tests
             Assert.Equal(HeldGhostAction.RetrySpawn, action);
         }
 
+        [Fact]
+        public void DecideAction_TerminalSafetyDeferredBeforeNextUt_HoldsPastTimeout()
+        {
+            var rec = MakeRecording("rec-1");
+            rec.TerminalSpawnSafetyDeferred = true;
+            rec.TerminalSpawnNextAttemptUT = 1000.0;
+            rec.TerminalSpawnSafetyReasonCode =
+                TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude;
+            var committed = new List<Recording> { rec };
+            var info = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = "rec-1"
+            };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 20f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1.0f,
+                currentUT: 500.0);
+
+            Assert.Equal(HeldGhostAction.Hold, action);
+        }
+
+        [Fact]
+        public void DecideAction_TerminalSafetyDeferredAtNextUt_RetriesDespiteTimeout()
+        {
+            var rec = MakeRecording("rec-1");
+            rec.TerminalSpawnSafetyDeferred = true;
+            rec.TerminalSpawnNextAttemptUT = 1000.0;
+            rec.TerminalSpawnSafetyReasonCode =
+                TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude;
+            var committed = new List<Recording> { rec };
+            var info = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = "rec-1"
+            };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 20f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1.0f,
+                currentUT: 1000.0);
+
+            Assert.Equal(HeldGhostAction.RetrySpawn, action);
+        }
+
         #endregion
 
         #region HeldGhostInfo struct
