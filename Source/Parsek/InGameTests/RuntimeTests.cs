@@ -12236,7 +12236,7 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Game-state UI overlays §8.6 / E16: R&D despawn strips Parsek_TechOverlay objects across repeated open/close cycles.")]
-        public IEnumerator OverlaysClearedOnDespawn()
+        public IEnumerator RnDOverlaysClearedOnDespawn()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
@@ -12281,6 +12281,146 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                         $"R&D despawn cycle {cycle + 1} should leave no Parsek_TechOverlay objects alive", 5f);
+                }
+            }
+            finally
+            {
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+            }
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6 / E16: Astronaut Complex despawn strips Parsek_KerbalOverlay objects across repeated open/close cycles.")]
+        public IEnumerator AstronautOverlaysClearedOnDespawn()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Astronaut Complex overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
+                yield break;
+            }
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            try
+            {
+                for (int cycle = 0; cycle < 2; cycle++)
+                {
+                    Recording recording = null;
+                    string recordingId = null;
+                    ProtoCrewMember applicant = null;
+                    string suffix = System.Guid.NewGuid().ToString("N").Substring(0, 8);
+                    string applicantName = "PrskDesp" + suffix + " Kerman";
+                    try
+                    {
+                        using (SuppressionGuard.Crew())
+                        {
+                            applicant = CreateApplicantForOverlayTest(roster, applicantName);
+                        }
+
+                        recordingId = "phase5-astronaut-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                        recording = AddCommittedOverlayFixture(
+                            recordingId,
+                            GameStateEventType.CrewHired,
+                            applicantName,
+                            "Phase 5 Astronaut despawn overlay test");
+
+                        if (!TryEnterSpaceCenterBuilding<AstronautComplexFacility>("Astronaut Complex", out _))
+                            yield break;
+
+                        yield return WaitForAstronautComplex(8f);
+                        NotifyTimelineDataChangedForOverlayTest();
+                        yield return WaitForCrewListItemOverlay(applicantName, StockUiOverlayKerbalObjectName,
+                            $"Astronaut despawn cycle {cycle + 1} should create one kerbal overlay before close", 8f);
+                    }
+                    finally
+                    {
+                        RemoveCommittedOverlayFixture(recordingId, recording);
+                        CloseAstronautForOverlayTest();
+                        using (SuppressionGuard.Crew())
+                        {
+                            RemoveKerbalForOverlayTest(roster, applicant);
+                        }
+                    }
+
+                    yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
+                        $"Astronaut despawn cycle {cycle + 1} should leave no Parsek_KerbalOverlay objects alive", 5f);
+                }
+            }
+            finally
+            {
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+            }
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6 / E16: Mission Control despawn strips Parsek_ContractOverlay objects across repeated open/close cycles.")]
+        public IEnumerator MissionControlOverlaysClearedOnDespawn()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
+            {
+                InGameAssert.Skip(skipReason);
+                yield break;
+            }
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            try
+            {
+                for (int cycle = 0; cycle < 2; cycle++)
+                {
+                    Recording recording = null;
+                    string recordingId = null;
+                    try
+                    {
+                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                        recording = AddCommittedOverlayFixture(
+                            recordingId,
+                            GameStateEventType.ContractAccepted,
+                            contractKey,
+                            "contractTitle=" + contractTitle);
+
+                        if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                            yield break;
+
+                        yield return WaitForMissionControl(8f);
+                        NotifyTimelineDataChangedForOverlayTest();
+                        yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
+                            $"Mission Control despawn cycle {cycle + 1} should create one contract overlay before close", 8f);
+                    }
+                    finally
+                    {
+                        RemoveCommittedOverlayFixture(recordingId, recording);
+                        CloseMissionControlForOverlayTest();
+                    }
+
+                    yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
+                        $"Mission Control despawn cycle {cycle + 1} should leave no Parsek_ContractOverlay objects alive", 5f);
                 }
             }
             finally
