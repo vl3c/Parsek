@@ -35,11 +35,13 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
         }
 
         public void Dispose()
         {
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -527,6 +529,53 @@ namespace Parsek.Tests
                 suppressUntilFrame: 101);
 
             Assert.False(suppressedAfterTransient);
+        }
+
+        #endregion
+
+        #region Ledger recalculation
+
+        [Fact]
+        public void RecalculateLedgerAfterTimeJump_InvokesRecalculateHook()
+        {
+            string capturedJump = null;
+            int calls = 0;
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = jump =>
+            {
+                capturedJump = jump;
+                calls++;
+            };
+
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("forward");
+
+            Assert.Equal(1, calls);
+            Assert.Equal("forward", capturedJump);
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation started") &&
+                l.Contains("jump=forward"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation complete") &&
+                l.Contains("jump=forward"));
+        }
+
+        [Fact]
+        public void RecalculateLedgerAfterTimeJump_CatchesAndLogsFailures()
+        {
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = _ =>
+            {
+                throw new InvalidOperationException("boom");
+            };
+
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("epoch-shift");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") &&
+                l.Contains("Time jump ledger recalculation failed") &&
+                l.Contains("jump=epoch-shift") &&
+                l.Contains("InvalidOperationException") &&
+                l.Contains("boom"));
         }
 
         #endregion
