@@ -15688,7 +15688,6 @@ namespace Parsek.InGameTests
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
             Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
             const double bpUT = 1234.0;
             var parent = MakeAnchorTestRecording("supp-parent", bpUT, 0, 0, 100);
@@ -15704,19 +15703,21 @@ namespace Parsek.InGameTests
             };
             tree.BranchPoints.Add(bp);
 
-            var seed = new Vector3d(7.0, 0.0, 0.0);
-            Parsek.Rendering.RenderSessionState.PutAnchorForTesting(
-                new Parsek.Rendering.AnchorCorrection(
-                    parent.RecordingId, sectionIndex: 0,
-                    side: Parsek.Rendering.AnchorSide.End,
-                    ut: bpUT,
-                    epsilon: seed,
-                    source: Parsek.Rendering.AnchorSource.LiveSeparation));
-            Parsek.Rendering.AnchorPropagator.SuppressionPredicateForTesting = id =>
-                string.Equals(id, child.RecordingId, System.StringComparison.Ordinal);
-
             try
             {
+                Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
+
+                var seed = new Vector3d(7.0, 0.0, 0.0);
+                Parsek.Rendering.RenderSessionState.PutAnchorForTesting(
+                    new Parsek.Rendering.AnchorCorrection(
+                        parent.RecordingId, sectionIndex: 0,
+                        side: Parsek.Rendering.AnchorSide.End,
+                        ut: bpUT,
+                        epsilon: seed,
+                        source: Parsek.Rendering.AnchorSource.LiveSeparation));
+                Parsek.Rendering.AnchorPropagator.SuppressionPredicateForTesting = id =>
+                    string.Equals(id, child.RecordingId, System.StringComparison.Ordinal);
+
                 yield return null;
 
                 Parsek.Rendering.AnchorPropagator.Run(
