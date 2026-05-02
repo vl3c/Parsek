@@ -4,10 +4,15 @@ using UnityEngine.UI;
 
 namespace Parsek
 {
-    internal sealed class OverlayBadge : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+    internal sealed class OverlayBadge : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
     {
+        private const string TexturePath = "Parsek/Textures/clock_overlay";
         private const float TooltipWidth = 320f;
         private const float TooltipHeight = 54f;
+
+        private static bool textureMissingLogged;
+        private static bool gameDatabaseUnavailableLogged;
+        private static bool textureExceptionLogged;
 
         private string screen;
         private string itemName;
@@ -49,17 +54,49 @@ namespace Parsek
                 var db = GameDatabase.Instance;
                 if (db != null)
                 {
-                    var texture = db.GetTexture("Parsek/Textures/clock_overlay", false);
+                    var texture = db.GetTexture(TexturePath, false);
                     if (texture != null)
                         return texture;
+
+                    LogTextureMissingOnce(
+                        $"OverlayBadge: texture '{TexturePath}' not found; using tinted fallback");
+                }
+                else
+                {
+                    LogGameDatabaseUnavailableOnce("OverlayBadge: GameDatabase unavailable; using tinted fallback");
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Fall back to a tinted square if GameDatabase is unavailable.
+                if (!textureExceptionLogged)
+                {
+                    textureExceptionLogged = true;
+                    ParsekLog.VerboseRateLimited(
+                        "StockUiOverlay",
+                        "overlay-badge-texture-exception",
+                        $"OverlayBadge: texture lookup failed for '{TexturePath}'; using tinted fallback ({ex.Message})");
+                }
             }
 
             return Texture2D.whiteTexture;
+        }
+
+        private static void LogTextureMissingOnce(string message)
+        {
+            if (textureMissingLogged)
+                return;
+
+            textureMissingLogged = true;
+            ParsekLog.Verbose("StockUiOverlay", message);
+        }
+
+        private static void LogGameDatabaseUnavailableOnce(string message)
+        {
+            if (gameDatabaseUnavailableLogged)
+                return;
+
+            gameDatabaseUnavailableLogged = true;
+            ParsekLog.Verbose("StockUiOverlay", message);
         }
 
         public void OnPointerEnter(PointerEventData eventData)
@@ -70,6 +107,15 @@ namespace Parsek
         public void OnPointerExit(PointerEventData eventData)
         {
             hovered = false;
+        }
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            string button = eventData != null ? eventData.button.ToString() : "Unknown";
+            ParsekLog.VerboseRateLimited(
+                "StockUiOverlay",
+                "overlay-badge-click-" + (screen ?? "unknown"),
+                $"StockUiOverlay: badge clicked screen={screen} name={itemName} button={button}");
         }
 
         private void Update()

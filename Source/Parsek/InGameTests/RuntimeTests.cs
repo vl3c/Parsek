@@ -12500,6 +12500,7 @@ namespace Parsek.InGameTests
                 ExplicitEndUT = now + 120.0,
                 MergeState = MergeState.Immutable
             };
+            // Intentional no-tree fixture: these overlay tests only need recording lookup for tooltip context.
             RecordingStore.AddCommittedInternal(recording);
 
             var evt = new GameStateEvent

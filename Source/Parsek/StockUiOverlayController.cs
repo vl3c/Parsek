@@ -373,6 +373,7 @@ namespace Parsek
             return BuildTechMarks(MilestoneStore.GetCommittedTechIds());
         }
 
+        // Test-only shim for overlay/click-block predicate parity.
         internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks_Candidates()
         {
             return BuildTechMarks();
@@ -402,6 +403,7 @@ namespace Parsek
             return BuildContractMarks(MilestoneStore.GetCommittedContractAcceptIds());
         }
 
+        // Test-only shim for overlay/click-block predicate parity.
         internal static Dictionary<string, ContractOverlayMark> BuildContractMarks_Candidates()
         {
             return BuildContractMarks();
@@ -500,6 +502,7 @@ namespace Parsek
             return result;
         }
 
+        // Test-only shim for overlay/click-block predicate parity.
         internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks_Candidates(
             IEnumerable<string> kerbalNames,
             Func<string, KerbalReservationKind> reservationKindResolver)
@@ -507,6 +510,7 @@ namespace Parsek
             return BuildApplicantMarks(kerbalNames, reservationKindResolver);
         }
 
+        // Test-only shim for overlay/click-block predicate parity.
         internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks_Candidates(
             IEnumerable<string> kerbalNames,
             Func<string, KerbalReservationKind> reservationKindResolver,
@@ -670,6 +674,7 @@ namespace Parsek
                     }
                     else if (ev.ut < existing.UT)
                     {
+                        // EventOverlayMark is a struct; carry the duplicate count into the replacement entry.
                         existing.AdditionalCommittedCount++;
                         result[ev.key] = new EventOverlayMark
                         {
@@ -681,6 +686,7 @@ namespace Parsek
                     }
                     else
                     {
+                        // EventOverlayMark is a struct; write the incremented copy back into the dictionary.
                         existing.AdditionalCommittedCount++;
                         result[ev.key] = existing;
                     }
