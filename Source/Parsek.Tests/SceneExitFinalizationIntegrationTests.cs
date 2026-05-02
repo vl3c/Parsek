@@ -1215,6 +1215,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_SuppressionWarnsPerRecording()
+        {
+            var first = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-per-recording-log-a",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            first.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+            var second = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-per-recording-log-b",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            second.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool firstBuilt = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                first,
+                out IncompleteBallisticFinalizationResult firstResult);
+            bool secondBuilt = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                second,
+                out IncompleteBallisticFinalizationResult secondResult);
+
+            Assert.False(firstBuilt);
+            Assert.False(secondBuilt);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, firstResult.extrapolationFailureReason);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, secondResult.extrapolationFailureReason);
+            Assert.Equal(1, CountLogLines(
+                "suppressing sub-surface Destroyed",
+                "scene-exit-null-solver-per-recording-log-a"));
+            Assert.Equal(1, CountLogLines(
+                "suppressing sub-surface Destroyed",
+                "scene-exit-null-solver-per-recording-log-b"));
+        }
+
+        [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_StaleRecordedPointStillClassifiesDestroyed()
         {
             var rec = new Recording

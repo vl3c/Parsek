@@ -532,7 +532,7 @@ namespace Parsek
                 {
                     ParsekLog.WarnRateLimited(
                         "Extrapolator",
-                        "subsurface-destroyed-recorded-start-contradiction",
+                        "subsurface-destroyed-recorded-start-contradiction." + recordingId,
                         string.Format(
                             CultureInfo.InvariantCulture,
                             "TryFinalizeRecording: suppressing sub-surface Destroyed for '{0}' " +
