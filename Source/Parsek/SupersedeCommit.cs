@@ -587,7 +587,7 @@ namespace Parsek
             }
 
             string actionSummary;
-            if (TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            if (TryFindRetryBlockingWorldAction(rec, out actionSummary))
             {
                 closeReason = new ReFlyCloseReason
                 {
@@ -980,12 +980,34 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        // Strict mode intentionally stays available as the tested ledger-safety
+        // contract below retry mode. STASH/Re-Fly retry callers should use
+        // TryFindRetryBlockingWorldAction so automatic consequence rows do not
+        // close terminal-failure retries by themselves.
         internal static bool TryFindRecordingScopedWorldAction(
             Recording rec,
             out string actionSummary)
         {
+            return TryFindRecordingScopedWorldAction(
+                rec, retryBlockingOnly: false, out actionSummary);
+        }
+
+        internal static bool TryFindRetryBlockingWorldAction(
+            Recording rec,
+            out string actionSummary)
+        {
+            return TryFindRecordingScopedWorldAction(
+                rec, retryBlockingOnly: true, out actionSummary);
+        }
+
+        private static bool TryFindRecordingScopedWorldAction(
+            Recording rec,
+            bool retryBlockingOnly,
+            out string actionSummary)
+        {
             actionSummary = null;
-            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
+            string cacheKey = BuildWorldActionSafetyCacheKey(
+                rec, retryBlockingOnly);
             if (cacheKey == null)
                 return false;
 
@@ -998,14 +1020,16 @@ namespace Parsek
                 return cached.HasAction;
             }
 
-            var computed = ComputeRecordingScopedWorldAction(rec);
+            var computed = ComputeRecordingScopedWorldAction(
+                rec, retryBlockingOnly);
             CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
             actionSummary = computed.ActionSummary;
             return computed.HasAction;
         }
 
         private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
-            Recording rec)
+            Recording rec,
+            bool retryBlockingOnly)
         {
             var result = new WorldActionSafetyCacheEntry();
             var recordingIds = CollectRecordingIdsForSafetyGate(rec);
@@ -1020,7 +1044,10 @@ namespace Parsek
                     continue;
                 if (!recordingIds.Contains(action.RecordingId))
                     continue;
-                if (!IsWorldStateChangingRecordingAction(action, actions))
+                bool hasAction = retryBlockingOnly
+                    ? IsRetryBlockingRecordingAction(action, actions)
+                    : IsWorldStateChangingRecordingAction(action, actions);
+                if (!hasAction)
                     continue;
 
                 result.HasAction = true;
@@ -1086,12 +1113,17 @@ namespace Parsek
             worldActionSafetyCacheSupersedeVersion = supersedeVersion;
         }
 
-        private static string BuildWorldActionSafetyCacheKey(Recording rec)
+        private static string BuildWorldActionSafetyCacheKey(
+            Recording rec,
+            bool retryBlockingOnly)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return null;
 
-            return rec.RecordingId
+            string mode = retryBlockingOnly ? "retry" : "strict";
+            return mode
+                + WorldActionCacheKeySeparator
+                + rec.RecordingId
                 + WorldActionCacheKeySeparator
                 + (rec.SupersedeTargetId ?? string.Empty)
                 + WorldActionCacheKeySeparator
@@ -1220,6 +1252,41 @@ namespace Parsek
                 return false;
 
             return true;
+        }
+
+        internal static bool IsRetryBlockingRecordingAction(
+            GameAction action,
+            IReadOnlyList<GameAction> sameTimelineActions)
+        {
+            if (!IsWorldStateChangingRecordingAction(action, sameTimelineActions))
+                return false;
+
+            // Retry-blocking auto-seal fires only on intentional player actions taken
+            // on the vessel that produce sticky world-state effects. ScienceEarning
+            // (Crew Report / EVA Report / Surface Sample / Transmit / Recover) is the
+            // only ledger row in this category — every other GameActionType is either
+            //
+            //   - an automatic game consequence (MilestoneAchievement,
+            //     ContractComplete/Fail, FundsEarning, ReputationEarning/Penalty,
+            //     KerbalAssignment/Rescue/StandIn, FacilityDestruction) — denylisted
+            //     by IsWorldStateChangingRecordingAction or by exclusion here;
+            //
+            //   - a KSC-scene player action (ContractAccept/Cancel, KerbalHire,
+            //     FacilityUpgrade/Repair, StrategyActivate/Deactivate,
+            //     ScienceSpending) that cannot reach this gate with a flight-recording
+            //     tag because GameStateRecorder.Emit only stamps a tag in FLIGHT
+            //     scene with a live recorder; or
+            //
+            //   - a paid-once setup row (FundsSpending(VesselBuild) adopted to the
+            //     recording via TryAdoptRolloutAction) whose effect survives a
+            //     revert/retag without re-charging the player, so sealing on it
+            //     would punish retries for spending the player already accepted.
+            //
+            // Structural mutations (decouple / stage / undock / EVA / joint break)
+            // and hard safety terminals (Recovered / Docked / Boarded) seal via
+            // their own dedicated gates (HasReFlySessionStructuralMutation +
+            // IsHardSafetyTerminal), not through this predicate.
+            return action.Type == GameActionType.ScienceEarning;
         }
 
         private static void ApplyAutoSealAfterSafetyClose(

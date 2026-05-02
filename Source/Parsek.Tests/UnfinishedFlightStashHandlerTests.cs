@@ -85,6 +85,24 @@ namespace Parsek.Tests
             return scenario;
         }
 
+        private static GameAction RecordingScopedAction(
+            GameActionType type,
+            string recordingId,
+            string actionId)
+        {
+            return new GameAction
+            {
+                ActionId = actionId,
+                Type = type,
+                RecordingId = recordingId,
+                UT = 12.0,
+                SubjectId = "crewReport@MunSrfLanded",
+                ScienceAwarded = 1.5f,
+                NodeId = "survivability",
+                Cost = 5.0f,
+            };
+        }
+
         [Fact]
         public void TryStash_SetsSlotStashTimestamp_DoesNotChangeMergeState_LogsAndBlocksReap()
         {
@@ -182,7 +200,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryStash_RecordingScopedScienceAction_ReturnsRecordingActionWithoutVersionBump()
+        public void TryStash_RecordingScopedFundsEarningAction_Stashes()
         {
             var landed = Rec("rec_landed", TerminalState.Landed);
             RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
@@ -199,15 +217,48 @@ namespace Parsek.Tests
             };
             var scenario = InstallScenario(rp);
             int versionBefore = scenario.SupersedeStateVersion;
-            Ledger.AddAction(new GameAction
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                "rec_landed",
+                "act_funds"));
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.True(rp.ChildSlots[1].Stashed);
+            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
+            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stashed slot=1")
+                && l.Contains("rec=rec_landed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:FundsEarning:act_funds"));
+        }
+
+        [Fact]
+        public void TryStash_RecordingScopedScienceEarningAction_ReturnsRecordingActionWithoutVersionBump()
+        {
+            var landed = Rec("rec_landed", TerminalState.Landed);
+            RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
+            var rp = new RewindPoint
             {
-                ActionId = "act_sci",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_landed",
-                UT = 12.0,
-                SubjectId = "crewReport@MunSrfLanded",
-                ScienceAwarded = 1.5f,
-            });
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_landed")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_landed",
+                "act_sci"));
 
             bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
 
@@ -221,6 +272,45 @@ namespace Parsek.Tests
                 && l.Contains("[UnfinishedFlights]")
                 && l.Contains("Stash unavailable")
                 && l.Contains("reason=recordingAction:ScienceEarning:act_sci"));
+        }
+
+        // Negative twin of TryStash_RecordingScopedScienceEarningAction_...
+        // After the v0.9.x tightening, ScienceSpending (a KSC-scene tech-unlock)
+        // no longer counts as a retry-blocking action, so a Landed slot carrying
+        // only a tagged ScienceSpending row stays stashable. Mirrors the
+        // FundsEarning Stashes test above.
+        [Fact]
+        public void TryStash_RecordingScopedScienceSpendingAction_Stashes()
+        {
+            var landed = Rec("rec_landed", TerminalState.Landed);
+            RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_landed")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceSpending,
+                "rec_landed",
+                "act_sci_spend"));
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.True(rp.ChildSlots[1].Stashed);
+            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
+            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:ScienceSpending"));
         }
 
         [Fact]
