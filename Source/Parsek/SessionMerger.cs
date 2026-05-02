@@ -13,6 +13,10 @@ namespace Parsek
     internal static class SessionMerger
     {
         private const string Tag = "Merger";
+        private const double OrbitUtTolerance = 1e-6;
+        private const double OrbitScalarTolerance = 1e-9;
+        private const double OrbitDistanceTolerance = 1e-6;
+        private const double OrbitVectorTolerance = 1e-6;
 
         /// <summary>
         /// Stock KSP body equatorial radii in meters. Used by ComputeBoundaryDiscontinuity
@@ -228,6 +232,10 @@ namespace Parsek
             return rebuiltFlatTrajectory;
         }
 
+        /// <summary>
+        /// Rebuilds section-owned flat points while preserving a finalizer-authored
+        /// predicted orbit suffix that lives only in the source flat orbit list.
+        /// </summary>
         private static bool TrySyncFlatTrajectoryPreservingPredictedOrbitTail(
             Recording source,
             Recording target,
@@ -245,6 +253,9 @@ namespace Parsek
                 return false;
             }
 
+            if (!TryGetMaxTrackSectionEndUT(target.TrackSections, out double sectionEndUT))
+                return false;
+
             var rebuiltPoints = new List<TrajectoryPoint>();
             RecordingStore.RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
 
@@ -252,7 +263,6 @@ namespace Parsek
             RecordingStore.RebuildOrbitSegmentsFromTrackSections(
                 target.TrackSections, rebuiltOrbitSegments);
 
-            double sectionEndUT = MaxTrackSectionEndUT(target.TrackSections);
             int suffixStart = FindPredictedOrbitTailStart(
                 source.OrbitSegments, rebuiltOrbitSegments, sectionEndUT);
             if (suffixStart < 0)
@@ -263,7 +273,7 @@ namespace Parsek
             {
                 OrbitSegment segment = source.OrbitSegments[i];
                 if (mergedOrbitSegments.Count > 0
-                    && OrbitSegmentEquals(
+                    && OrbitSegmentNearlyEquals(
                         mergedOrbitSegments[mergedOrbitSegments.Count - 1],
                         segment))
                 {
@@ -284,21 +294,31 @@ namespace Parsek
             return true;
         }
 
-        private static double MaxTrackSectionEndUT(List<TrackSection> sections)
+        /// <summary>
+        /// Returns the latest section end UT. The caller uses the result as the
+        /// earliest safe start for any preserved predicted orbit suffix.
+        /// </summary>
+        private static bool TryGetMaxTrackSectionEndUT(
+            List<TrackSection> sections,
+            out double maxEndUT)
         {
-            double max = double.NegativeInfinity;
-            if (sections == null)
-                return max;
+            maxEndUT = double.NegativeInfinity;
+            if (sections == null || sections.Count == 0)
+                return false;
 
             for (int i = 0; i < sections.Count; i++)
             {
-                if (sections[i].endUT > max)
-                    max = sections[i].endUT;
+                if (sections[i].endUT > maxEndUT)
+                    maxEndUT = sections[i].endUT;
             }
 
-            return max;
+            return true;
         }
 
+        /// <summary>
+        /// Locates the first source orbit segment that can be appended as a
+        /// predicted finalizer tail after the resolved track-section payload.
+        /// </summary>
         private static int FindPredictedOrbitTailStart(
             List<OrbitSegment> sourceOrbitSegments,
             List<OrbitSegment> rebuiltOrbitSegments,
@@ -316,7 +336,7 @@ namespace Parsek
             {
                 for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
                 {
-                    if (!OrbitSegmentEquals(sourceOrbitSegments[i], rebuiltOrbitSegments[i]))
+                    if (!OrbitSegmentNearlyEquals(sourceOrbitSegments[i], rebuiltOrbitSegments[i]))
                         return -1;
                 }
 
@@ -327,7 +347,7 @@ namespace Parsek
                 start = -1;
                 for (int i = 0; i < sourceOrbitSegments.Count; i++)
                 {
-                    if (sourceOrbitSegments[i].startUT + 1e-6 >= minStartUT)
+                    if (StartsAtOrAfter(sourceOrbitSegments[i].startUT, minStartUT))
                     {
                         start = i;
                         break;
@@ -336,6 +356,8 @@ namespace Parsek
             }
 
             if (start < 0 || start >= sourceOrbitSegments.Count)
+                return -1;
+            if (!StartsAtOrAfter(sourceOrbitSegments[start].startUT, minStartUT))
                 return -1;
 
             double previousStartUT = start > 0
@@ -346,9 +368,7 @@ namespace Parsek
                 OrbitSegment segment = sourceOrbitSegments[i];
                 if (!segment.isPredicted)
                     return -1;
-                if (segment.startUT < previousStartUT)
-                    return -1;
-                if (segment.startUT + 1e-6 < minStartUT)
+                if (StartsBefore(segment.startUT, previousStartUT))
                     return -1;
                 previousStartUT = segment.startUT;
             }
@@ -356,26 +376,41 @@ namespace Parsek
             return start;
         }
 
-        private static bool OrbitSegmentEquals(OrbitSegment a, OrbitSegment b)
+        private static bool StartsAtOrAfter(double candidateStartUT, double minStartUT)
         {
-            return a.startUT == b.startUT
-                && a.endUT == b.endUT
-                && a.inclination == b.inclination
-                && a.eccentricity == b.eccentricity
-                && a.semiMajorAxis == b.semiMajorAxis
-                && a.longitudeOfAscendingNode == b.longitudeOfAscendingNode
-                && a.argumentOfPeriapsis == b.argumentOfPeriapsis
-                && a.meanAnomalyAtEpoch == b.meanAnomalyAtEpoch
-                && a.epoch == b.epoch
+            return candidateStartUT + OrbitUtTolerance >= minStartUT;
+        }
+
+        private static bool StartsBefore(double candidateStartUT, double previousStartUT)
+        {
+            return candidateStartUT + OrbitUtTolerance < previousStartUT;
+        }
+
+        private static bool OrbitSegmentNearlyEquals(OrbitSegment a, OrbitSegment b)
+        {
+            return NearlyEqual(a.startUT, b.startUT, OrbitUtTolerance)
+                && NearlyEqual(a.endUT, b.endUT, OrbitUtTolerance)
+                && NearlyEqual(a.inclination, b.inclination, OrbitScalarTolerance)
+                && NearlyEqual(a.eccentricity, b.eccentricity, OrbitScalarTolerance)
+                && NearlyEqual(a.semiMajorAxis, b.semiMajorAxis, OrbitDistanceTolerance)
+                && NearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, OrbitScalarTolerance)
+                && NearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, OrbitScalarTolerance)
+                && NearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, OrbitScalarTolerance)
+                && NearlyEqual(a.epoch, b.epoch, OrbitUtTolerance)
                 && a.bodyName == b.bodyName
                 && a.isPredicted == b.isPredicted
-                && a.orbitalFrameRotation.x == b.orbitalFrameRotation.x
-                && a.orbitalFrameRotation.y == b.orbitalFrameRotation.y
-                && a.orbitalFrameRotation.z == b.orbitalFrameRotation.z
-                && a.orbitalFrameRotation.w == b.orbitalFrameRotation.w
-                && a.angularVelocity.x == b.angularVelocity.x
-                && a.angularVelocity.y == b.angularVelocity.y
-                && a.angularVelocity.z == b.angularVelocity.z;
+                && NearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, OrbitVectorTolerance)
+                && NearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, OrbitVectorTolerance)
+                && NearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, OrbitVectorTolerance)
+                && NearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, OrbitVectorTolerance)
+                && NearlyEqual(a.angularVelocity.x, b.angularVelocity.x, OrbitVectorTolerance)
+                && NearlyEqual(a.angularVelocity.y, b.angularVelocity.y, OrbitVectorTolerance)
+                && NearlyEqual(a.angularVelocity.z, b.angularVelocity.z, OrbitVectorTolerance);
+        }
+
+        private static bool NearlyEqual(double a, double b, double tolerance)
+        {
+            return Math.Abs(a - b) <= tolerance;
         }
 
         /// <summary>
