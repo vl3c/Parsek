@@ -12216,10 +12216,10 @@ namespace Parsek.InGameTests
 
                 yield return WaitForMissionControl(8f);
                 NotifyTimelineDataChangedForOverlayTest();
-                yield return WaitForMissionControlRowOverlay(contractTitle, StockUiOverlayContractObjectName,
+                yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
                     $"offered contract '{contractTitle}' should get a committed-future accept overlay", 8f);
 
-                MCListItem row = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), contractTitle);
+                MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
                 InGameAssert.AreEqual(1, CountNamedChildren(row.transform, StockUiOverlayContractObjectName),
                     "Mission Control committed contract row should have exactly one Parsek_ContractOverlay child");
             }
@@ -12547,9 +12547,19 @@ namespace Parsek.InGameTests
         {
             try
             {
+                RnDBuilding building = Object.FindObjectOfType<RnDBuilding>();
+                if (building != null && building.IsOpen())
+                {
+                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
+                    return;
+                }
+
                 controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
-                RDController.OnRDTreeDespawn.Fire(controller);
-                GameEvents.onGUIRnDComplexDespawn.Fire();
+                if (controller != null)
+                {
+                    RDController.OnRDTreeDespawn.Fire(controller);
+                    GameEvents.onGUIRnDComplexDespawn.Fire();
+                }
             }
             catch (System.Exception ex)
             {
@@ -12561,6 +12571,13 @@ namespace Parsek.InGameTests
         {
             try
             {
+                AstronautComplexFacility building = Object.FindObjectOfType<AstronautComplexFacility>();
+                if (building != null && building.IsOpen())
+                {
+                    InvokeStockCloseMethodForOverlayTest(building, "onAstronautComplexDialogClose");
+                    return;
+                }
+
                 GameEvents.onGUIAstronautComplexDespawn.Fire();
             }
             catch (System.Exception ex)
@@ -12573,12 +12590,32 @@ namespace Parsek.InGameTests
         {
             try
             {
+                MissionControlBuilding building = Object.FindObjectOfType<MissionControlBuilding>();
+                if (building != null && building.IsOpen())
+                {
+                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
+                    return;
+                }
+
                 GameEvents.onGUIMissionControlDespawn.Fire();
             }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("TestRunner", $"Phase 5 MissionControl overlay close helper threw: {ex}");
             }
+        }
+
+        private static void InvokeStockCloseMethodForOverlayTest(object building, string methodName)
+        {
+            MethodInfo method = building != null
+                ? building.GetType().GetMethod(
+                    methodName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                : null;
+            if (method == null)
+                throw new System.MissingMethodException(building != null ? building.GetType().FullName : "(null)", methodName);
+
+            method.Invoke(building, null);
         }
 
         private static IEnumerator WaitForNamedChildCount(
@@ -12774,7 +12811,7 @@ namespace Parsek.InGameTests
         }
 
         private static IEnumerator WaitForMissionControlRowOverlay(
-            string title,
+            string contractKey,
             string overlayName,
             string failureMessage,
             float timeoutSeconds)
@@ -12782,20 +12819,20 @@ namespace Parsek.InGameTests
             float deadline = Time.time + timeoutSeconds;
             while (Time.time < deadline)
             {
-                MCListItem row = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), title);
+                MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
                 if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
                     yield break;
                 yield return null;
             }
 
-            MCListItem finalRow = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), title);
+            MCListItem finalRow = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
             int actual = finalRow != null ? CountNamedChildren(finalRow.transform, overlayName) : -1;
             InGameAssert.Fail($"{failureMessage}; rowFound={finalRow != null} overlayCount={actual}");
         }
 
-        private static MCListItem FindMissionControlRowByTitle(MissionControl missionControl, string title)
+        private static MCListItem FindMissionControlRowByContractKey(MissionControl missionControl, string contractKey)
         {
-            if (missionControl == null || string.IsNullOrEmpty(title))
+            if (missionControl == null || string.IsNullOrEmpty(contractKey))
                 return null;
 
             MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
@@ -12805,33 +12842,26 @@ namespace Parsek.InGameTests
                 if (row == null)
                     continue;
 
-                if (string.Equals(ExtractMissionControlRowTitleForTest(row), title, System.StringComparison.Ordinal))
+                if (string.Equals(ExtractMissionControlRowContractKeyForTest(row), contractKey, System.StringComparison.Ordinal))
                     return row;
             }
 
             return null;
         }
 
-        private static string ExtractMissionControlRowTitleForTest(MCListItem row)
+        private static string ExtractMissionControlRowContractKeyForTest(MCListItem row)
         {
             try
             {
-                FieldInfo field = typeof(MCListItem).GetField(
-                    "title",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                object titleComponent = field != null ? field.GetValue(row) : null;
-                if (titleComponent == null)
-                    return null;
-
-                PropertyInfo textProperty = titleComponent.GetType().GetProperty("text");
-                return textProperty != null
-                    ? textProperty.GetValue(titleComponent, null) as string
+                Contract contract = row != null && row.container != null
+                    ? row.container.Data as Contract
                     : null;
+                return contract != null ? contract.ContractGuid.ToString() : null;
             }
             catch (System.Exception ex)
             {
-                ParsekLog.VerboseRateLimited("TestRunner", "phase5-mission-row-title-failed",
-                    $"Phase 5 MissionControl row title lookup failed: {ex.Message}");
+                ParsekLog.VerboseRateLimited("TestRunner", "phase5-mission-row-contract-key-failed",
+                    $"Phase 5 MissionControl row contract-key lookup failed: {ex.Message}");
                 return null;
             }
         }

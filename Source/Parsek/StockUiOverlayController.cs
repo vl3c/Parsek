@@ -46,13 +46,6 @@ namespace Parsek
         public string Tooltip;
     }
 
-    internal struct ContractSurfaceInfo
-    {
-        public string ContractKey;
-        public string Title;
-        public bool IsActive;
-    }
-
     [KSPAddon(KSPAddon.Startup.SpaceCentre, false)]
     public sealed class StockUiOverlayController : MonoBehaviour
     {
@@ -64,6 +57,7 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static bool rdNodesWarned;
         private static bool astronautListsWarned;
+        private static bool missionRowsWarned;
 
         private RDController currentRdController;
         private AstronautComplex currentAstronautComplex;
@@ -325,45 +319,39 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"StockUiOverlay: MissionControl spawn — building contract marks futureAcceptedCount={marks.Count}");
 
-            var contracts = CollectContractSurface();
-            var visibleKeys = new HashSet<string>(StringComparer.Ordinal);
-            var activeKeys = new HashSet<string>(StringComparer.Ordinal);
-            var visibleMarksByTitle = new Dictionary<string, ContractOverlayMark>(StringComparer.Ordinal);
-            for (int i = 0; i < contracts.Count; i++)
-            {
-                ContractSurfaceInfo info = contracts[i];
-                if (string.IsNullOrEmpty(info.ContractKey))
-                    continue;
-
-                visibleKeys.Add(info.ContractKey);
-                if (info.IsActive)
-                    activeKeys.Add(info.ContractKey);
-            }
-
-            var visibleMarks = FilterContractMarksToVisibleContracts(marks, visibleKeys);
-            visibleMarks = SuppressAlreadyActiveContractMarks(visibleMarks, activeKeys);
-
-            for (int i = 0; i < contracts.Count; i++)
-            {
-                ContractSurfaceInfo info = contracts[i];
-                ContractOverlayMark mark;
-                if (!visibleMarks.TryGetValue(info.ContractKey, out mark))
-                    continue;
-                if (!string.IsNullOrEmpty(info.Title) && !visibleMarksByTitle.ContainsKey(info.Title))
-                    visibleMarksByTitle.Add(info.Title, mark);
-            }
-
-            int decorated = 0;
             MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
+            var visibleKeys = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < rows.Length; i++)
             {
                 MCListItem row = rows[i];
                 if (row == null)
                     continue;
 
-                string title = ExtractMissionControlRowTitle(row);
+                Contract contract;
+                if (!TryGetMissionControlRowContract(row, out contract))
+                    continue;
+
+                string key = contract.ContractGuid.ToString();
+                visibleKeys.Add(key);
+            }
+
+            var visibleMarks = FilterContractMarksToVisibleContracts(marks, visibleKeys);
+            visibleMarks = SuppressAlreadyActiveContractMarks(visibleMarks, CollectActiveContractKeys());
+
+            int decorated = 0;
+            for (int i = 0; i < rows.Length; i++)
+            {
+                MCListItem row = rows[i];
+                if (row == null)
+                    continue;
+
+                Contract contract;
+                if (!TryGetMissionControlRowContract(row, out contract))
+                    continue;
+
+                string key = contract.ContractGuid.ToString();
                 ContractOverlayMark mark;
-                if (string.IsNullOrEmpty(title) || !visibleMarksByTitle.TryGetValue(title, out mark))
+                if (!visibleMarks.TryGetValue(key, out mark))
                     continue;
 
                 AttachBadge(row.transform, ContractOverlayName, "MissionControl", mark.ContractKey, mark.Tooltip,
@@ -912,9 +900,41 @@ namespace Parsek
             return count;
         }
 
-        private static List<ContractSurfaceInfo> CollectContractSurface()
+        private static bool TryGetMissionControlRowContract(MCListItem row, out Contract contract)
         {
-            var result = new List<ContractSurfaceInfo>();
+            contract = null;
+            if (row == null)
+                return false;
+
+            try
+            {
+                contract = row.container != null ? row.container.Data as Contract : null;
+                if (contract != null)
+                    return true;
+
+                if (!missionRowsWarned)
+                {
+                    missionRowsWarned = true;
+                    ParsekLog.Warn(Tag,
+                        "StockUiOverlay: MissionControl row contract lookup failed — contract overlays disabled for rows without UIListItem.Data Contract");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!missionRowsWarned)
+                {
+                    missionRowsWarned = true;
+                    ParsekLog.Warn(Tag,
+                        $"StockUiOverlay: MissionControl row contract lookup failed — contract overlays disabled for rows without UIListItem.Data Contract ({ex.Message})");
+                }
+            }
+
+            return false;
+        }
+
+        private static HashSet<string> CollectActiveContractKeys()
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
             var system = ContractSystem.Instance;
             if (system == null || system.Contracts == null)
                 return result;
@@ -923,42 +943,11 @@ namespace Parsek
             for (int i = 0; i < contracts.Count; i++)
             {
                 Contract contract = contracts[i];
-                if (contract == null)
-                    continue;
-
-                result.Add(new ContractSurfaceInfo
-                {
-                    ContractKey = contract.ContractGuid.ToString(),
-                    Title = contract.Title ?? "",
-                    IsActive = contract.ContractState == Contract.State.Active
-                });
+                if (contract != null && contract.ContractState == Contract.State.Active)
+                    result.Add(contract.ContractGuid.ToString());
             }
 
             return result;
-        }
-
-        private static string ExtractMissionControlRowTitle(MCListItem row)
-        {
-            try
-            {
-                FieldInfo field = typeof(MCListItem).GetField(
-                    "title",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                object titleComponent = field != null ? field.GetValue(row) : null;
-                if (titleComponent == null)
-                    return null;
-
-                PropertyInfo textProperty = titleComponent.GetType().GetProperty("text");
-                return textProperty != null
-                    ? textProperty.GetValue(titleComponent, null) as string
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseRateLimited(Tag, "mission-row-title-failed",
-                    $"StockUiOverlay: MissionControl row title lookup failed — overlay skipped ({ex.Message})");
-                return null;
-            }
         }
 
         private static void AttachBadge(

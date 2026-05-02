@@ -4,6 +4,17 @@ using System.IO;
 
 namespace Parsek
 {
+    /// <summary>
+    /// Stores committed game-state event milestones and exposes the unreplayed,
+    /// current-timeline slices consumed by replay, click-blocks, and stock UI
+    /// overlays.
+    ///
+    /// Future code that advances LastReplayedEventIndex or changes event
+    /// visibility must finish by calling LedgerOrchestrator.RecalculateAndPatch()
+    /// or by invoking LedgerOrchestrator.OnTimelineDataChanged directly. Open
+    /// stock overlays rebuild from that signal and otherwise remain stale until
+    /// the player reopens the stock screen.
+    /// </summary>
     internal static class MilestoneStore
     {
         private static List<Milestone> milestones = new List<Milestone>();
