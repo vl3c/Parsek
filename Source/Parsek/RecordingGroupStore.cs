@@ -263,6 +263,8 @@ namespace Parsek
             Predicate<Recording> isChildRecording,
             string existingMetadataGroup)
         {
+            // A persisted child group may have been user-renamed. Preserve it
+            // ahead of the default root + suffix reconstruction.
             if (!string.IsNullOrEmpty(existingMetadataGroup)
                 && !StringEquals(existingMetadataGroup, rootGroupName))
             {
@@ -300,6 +302,13 @@ namespace Parsek
             if (GroupHierarchyStore.TryGetGroupParent(childGroupName, out currentParent)
                 && StringEquals(currentParent, rootGroupName))
             {
+                return 0;
+            }
+            if (!string.IsNullOrEmpty(currentParent))
+            {
+                // Existing non-root parentage can represent deliberate user
+                // organization. Repair missing links, but do not flatten a
+                // customized hierarchy during discard restore.
                 return 0;
             }
 
@@ -341,6 +350,8 @@ namespace Parsek
                 rec.RecordingGroups = new List<string>();
 
             int changed = 0;
+            // Restore auto-group invariants while leaving unrelated/manual
+            // group memberships intact.
             changed += RemoveAutoGroupIfNotTarget(rec.RecordingGroups, rootGroupName, targetGroup);
             changed += RemoveAutoGroupIfNotTarget(rec.RecordingGroups, debrisGroupName, targetGroup);
             changed += RemoveAutoGroupIfNotTarget(rec.RecordingGroups, crewGroupName, targetGroup);

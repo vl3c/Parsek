@@ -239,7 +239,7 @@ namespace Parsek
             if (markerValid)
             {
                 ParsekLog.Verbose("GroupHierarchy",
-                    "Skipping load-time group hierarchy prune while Re-Fly session is active");
+                    "Skipping group hierarchy prune reason=load-time-sweep while Re-Fly session is active");
             }
             else
             {
