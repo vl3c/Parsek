@@ -19,6 +19,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 Re-Fly merge discard scope
+
+- ~~After a Re-Fly, using the scene-exit merge confirmation dialog's `Discard` button while going back to Space Center or another building could delete the whole mission recording instead of only the active Re-Fly attempt.~~ Source: user report on 2026-05-02. Root cause: the Re-Fly pending tree can reuse the committed mission tree id, but `MergeDialog.MergeDiscard` always called the ordinary full-tree discard path. That path invokes `TreeDiscardPurge.PurgeTree(treeId)`, whose committed-tree-first lookup resolves the original mission tree and removes its Rewind Points, supersede rows, tombstones, and related recording state. Fix: the merge-dialog discard button now detects an active Re-Fly marker scoped to the dialog tree and runs a session-scoped discard path: remove only attempt-owned provisional recordings/events/files, restore a sanitized committed mission tree when the Re-Fly load had temporarily detached its committed copy, clear transient Re-Fly session state, promote the origin Rewind Point back to persistent, and recalculate career state without calling `TreeDiscardPurge`. In-place continuations protect the origin recording id explicitly and trim the origin recording back to the rewind point before restoring a detached tree. Coverage: `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_PreservesCommittedMissionTreeAndRp`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_RestoresSanitizedTreeWhenCommittedCopyDetached`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlacePath_DoesNotRemoveOriginRecording`, and `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlaceDetachedPath_TrimsOriginBackToRewindPoint`.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 revert double-rollout charge
 
 - ~~Reverting a flight to launch and re-flying the same craft charged the rollout cost twice in Parsek's career ledger, even though stock KSP refunds the rollout on revert and re-charges on the new launch (net: one charge).~~ Source: `logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld` recorded two `FundsSpending(VesselBuild)` rows for vessel R1 (pid 3442693372, site Launch Pad, cost 8320.001) at UTs 728.21980… and 728.17980…, ~40 ms apart. The two rows had the same vessel/pid/site/cost but different UTs because the revert rolled the in-game clock back, so the existing UT-embedded `dedupKey` (e.g. `rollout:728.21980712880259|pid=3442693372|site=Launch%20Pad|vessel=R1`) never collided across emissions. KSP refunded the original deduction during the revert, but Parsek's `KspStatePatcher` re-applied it from the surviving ledger row, then the relaunch's `OnVesselRolloutSpending` added a second row, leaving the user out 8320 funds.
