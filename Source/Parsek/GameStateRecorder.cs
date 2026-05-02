@@ -849,6 +849,15 @@ namespace Parsek
             return string.IsNullOrEmpty(recordingTag) && !hasLiveRecorder;
         }
 
+        internal static bool ShouldForwardDirectScienceSubject(
+            string recordingTag,
+            bool hasLiveRecorder,
+            bool hasActiveUncommittedTree)
+        {
+            return ShouldForwardDirectLedgerEvent(recordingTag, hasLiveRecorder) &&
+                   !hasActiveUncommittedTree;
+        }
+
         /// <summary>
         /// Pure: returns true if the status transition is a real change (not an identity
         /// transition like Dead->Dead). Extracted for testability (Bug #122).
@@ -1218,7 +1227,7 @@ namespace Parsek
             // This is correct — the committed-science cache merges by max value when the
             // eventual ScienceEarning actions are persisted, so repeated captures only
             // ever preserve the highest science earned.
-            PendingScienceSubjects.Add(new PendingScienceSubject
+            var pendingSubject = new PendingScienceSubject
             {
                 subjectId = subject.id,
                 science = subject.science,
@@ -1226,11 +1235,36 @@ namespace Parsek
                 captureUT = captureUt,
                 reasonKey = reasonKey,
                 recordingId = subjectRecordingId
-            });
+            };
+
+            bool hasLiveRecorder = HasLiveRecorder();
+            bool hasActiveUncommittedTree = HasActiveUncommittedTree();
+            bool directLedgerHandled = false;
+            if (ShouldForwardDirectScienceSubject(
+                    pendingSubject.recordingId,
+                    hasLiveRecorder,
+                    hasActiveUncommittedTree))
+            {
+                string vesselName = vessel != null ? vessel.vesselName : null;
+                directLedgerHandled = LedgerOrchestrator.TryRecordKscScienceSubject(
+                    pendingSubject,
+                    vesselName);
+            }
+            else if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
+                     hasActiveUncommittedTree)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"OnScienceReceived: retained unowned science subject '{subject.id}' " +
+                    "because an uncommitted recording tree is active");
+            }
+
+            if (!directLedgerHandled)
+                PendingScienceSubjects.Add(pendingSubject);
 
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1} " +
-                $"reason='{reasonKey}' ut={captureUt:F1}");
+                $"reason='{reasonKey}' ut={captureUt:F1} tag='{subjectRecordingId}' " +
+                $"directLedger={directLedgerHandled}");
         }
 
         #endregion
