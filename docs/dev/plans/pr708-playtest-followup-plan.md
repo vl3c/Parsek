@@ -1,7 +1,7 @@
 # PR 708 playtest follow-up plan
 
 **Status:** active follow-up work. Baseline before the frozen-alignment fix is committed and pushed as `d329ffac` (`Seed Re-Fly split children from live root`) on `ghost-anchor-recording-chain-v11`.
-**Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, and cache pre-Re-Fly synthetic anchor recordings.
+**Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, cache pre-Re-Fly synthetic anchor recordings, clear frozen alignment on marker-scope/body changes, and warn on suspiciously large initial offsets.
 **Branch:** `ghost-anchor-recording-chain-v11`.
 **Scope:** remaining issues after Phases A-C of `ghost-anchor-recording-chain-plan.md`.
 **Non-goals:** no legacy v7-v10 migration, no live-PID fallback for non-loop Relative playback, no Phase D behaviour deletion until the D.0 product gate is explicit.
@@ -194,7 +194,7 @@ Runtime gate:
 
 Status note:
 
-- Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable.
+- Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable. Frozen alignments are invalidated if the active live Re-Fly vessel changes SOI/body or if the marker scope changes despite the same session id; capture logs now warn when the initial offset exceeds `50m`.
 
 ---
 

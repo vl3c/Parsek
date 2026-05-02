@@ -641,6 +641,100 @@ namespace Parsek.Tests
             AssertVectorClose(new Vector3d(2.0, 0.0, 0.0), found.BodyFixedOffset, 0.0001);
         }
 
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_ScopeChangeClearsFrozenOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            Assert.True(cache.TryGet("sess-1", "rec-a", out _));
+
+            cache.ClearIfScopeChanged("sess-1", "scope-b");
+
+            Assert.Equal(0, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_RemoveDeletesOnlyMatchingSessionRecording()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-b",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+            });
+
+            Assert.False(cache.Remove("sess-other", "rec-a"));
+            Assert.True(cache.Remove("sess-1", "rec-a"));
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+            Assert.True(cache.TryGet("sess-1", "rec-b", out _));
+        }
+
+        [Fact]
+        public void BuildReFlyDisplayAlignmentScopeKey_ChangesWhenRetryMarkerFieldsChange()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                OriginChildRecordingId = "origin",
+                SupersedeTargetId = "target",
+                RewindPointId = "rp-a",
+                SelectedRootPartPersistentId = 123u,
+                InvokedUT = 10.0,
+            };
+
+            string first = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+            marker.RewindPointId = "rp-b";
+            string second = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+            marker.RewindPointId = "rp-a";
+            marker.InvokedUT = 11.0;
+            string third = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+
+            Assert.NotNull(first);
+            Assert.NotEqual(first, second);
+            Assert.NotEqual(first, third);
+        }
+
+        [Fact]
+        public void IsSuspiciousReFlyDisplayAlignmentOffset_OnlyFlagsFiniteLargeOffsets()
+        {
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(double.NaN));
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(double.PositiveInfinity));
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(
+                ParsekFlight.ReFlyDisplayAlignmentSuspiciousOffsetMeters));
+            Assert.True(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(
+                ParsekFlight.ReFlyDisplayAlignmentSuspiciousOffsetMeters + 0.01));
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentBodyMatches_RequiresSameNonEmptyBodyName()
+        {
+            Assert.True(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", "Kerbin"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", "Mun"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches(null, "Kerbin"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", ""));
+        }
+
         // ============================================================
         // HasResolvableReFlyAnchorData (#688 safety-net branch)
         // ============================================================

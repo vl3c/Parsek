@@ -17648,6 +17648,7 @@ namespace Parsek
         // capture. This keeps Re-Fly comparison ghosts initialized near the
         // separation/root part without injecting the player's later live
         // vessel motion into the hidden recorded trajectory.
+        internal const double ReFlyDisplayAlignmentSuspiciousOffsetMeters = 50.0;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
 
         /// <summary>
@@ -17704,7 +17705,9 @@ namespace Parsek
                 cache.ClearIfSessionChanged(null);
                 return false;
             }
-            cache.ClearIfSessionChanged(marker.SessionId);
+            cache.ClearIfScopeChanged(
+                marker.SessionId,
+                BuildReFlyDisplayAlignmentScopeKey(marker));
 
             string recTreeId = ResolveTreeIdForRecording(recordingId);
             if (string.IsNullOrEmpty(recTreeId)
@@ -17731,6 +17734,28 @@ namespace Parsek
             ReFlyDisplayAlignment alignment;
             if (cache.TryGet(marker.SessionId, recordingId, out alignment))
             {
+                if (!CachedReFlyDisplayAlignmentMatchesLiveBody(
+                        marker,
+                        alignment,
+                        out string liveBodyName,
+                        out string bodyReason))
+                {
+                    cache.Remove(marker.SessionId, recordingId);
+                    ParsekLog.WarnRateLimited(
+                        "Playback",
+                        "refly-display-alignment-body-mismatch|"
+                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
+                        "Re-Fly display alignment cleared: tree="
+                        + ShortRecordingId(recTreeId)
+                        + " sess=" + ShortRecordingId(marker.SessionId)
+                        + " rec=" + ShortRecordingId(recordingId)
+                        + " reason=" + (bodyReason ?? "body-mismatch")
+                        + " alignmentBody=" + (alignment.BodyName ?? "<none>")
+                        + " liveBody=" + (liveBodyName ?? "<none>"),
+                        5.0);
+                    return false;
+                }
+
                 if (TryProjectReFlyDisplayAlignment(alignment, out delta, out string projectReason))
                     return true;
 
@@ -17773,6 +17798,11 @@ namespace Parsek
             }
 
             cache.Store(alignment);
+            WarnIfReFlyDisplayAlignmentOffsetSuspicious(
+                marker,
+                recTreeId,
+                recordingId,
+                alignment);
             if (!TryProjectReFlyDisplayAlignment(alignment, out delta, out string capturedProjectReason))
             {
                 ParsekLog.VerboseRateLimited(
@@ -17806,11 +17836,117 @@ namespace Parsek
             return true;
         }
 
+        internal static string BuildReFlyDisplayAlignmentScopeKey(ReFlySessionMarker marker)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.SessionId))
+                return null;
+
+            var ic = CultureInfo.InvariantCulture;
+            return (marker.SessionId ?? "") + "|"
+                + (marker.TreeId ?? "") + "|"
+                + (marker.ActiveReFlyRecordingId ?? "") + "|"
+                + (marker.OriginChildRecordingId ?? "") + "|"
+                + (marker.SupersedeTargetId ?? "") + "|"
+                + (marker.RewindPointId ?? "") + "|"
+                + marker.SelectedRootPartPersistentId.ToString(ic) + "|"
+                + marker.InvokedUT.ToString("R", ic);
+        }
+
+        internal static bool IsSuspiciousReFlyDisplayAlignmentOffset(double offsetMeters)
+        {
+            return !double.IsNaN(offsetMeters)
+                && !double.IsInfinity(offsetMeters)
+                && offsetMeters > ReFlyDisplayAlignmentSuspiciousOffsetMeters;
+        }
+
         private ReFlyDisplayAlignmentCache GetReFlyDisplayAlignmentCache()
         {
             if (reFlyDisplayAlignmentCache == null)
                 reFlyDisplayAlignmentCache = new ReFlyDisplayAlignmentCache();
             return reFlyDisplayAlignmentCache;
+        }
+
+        private bool CachedReFlyDisplayAlignmentMatchesLiveBody(
+            ReFlySessionMarker marker,
+            ReFlyDisplayAlignment alignment,
+            out string liveBodyName,
+            out string reason)
+        {
+            liveBodyName = null;
+            reason = null;
+            if (marker == null)
+            {
+                reason = "marker-missing";
+                return true;
+            }
+            if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
+                || activeReFlyPid == 0u)
+            {
+                reason = "no-active-pid";
+                return true;
+            }
+
+            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
+            if (liveAnchor == null)
+            {
+                reason = "live-vessel-missing";
+                return true;
+            }
+
+            liveBodyName = liveAnchor.mainBody?.name;
+            if (string.IsNullOrEmpty(liveBodyName) || string.IsNullOrEmpty(alignment.BodyName))
+            {
+                reason = "body-unavailable";
+                return true;
+            }
+
+            if (ReFlyDisplayAlignmentBodyMatches(alignment.BodyName, liveBodyName))
+            {
+                reason = "body-match";
+                return true;
+            }
+
+            reason = "live-body-changed";
+            return false;
+        }
+
+        internal static bool ReFlyDisplayAlignmentBodyMatches(
+            string alignmentBodyName,
+            string liveBodyName)
+        {
+            return !string.IsNullOrEmpty(alignmentBodyName)
+                && !string.IsNullOrEmpty(liveBodyName)
+                && string.Equals(alignmentBodyName, liveBodyName, StringComparison.Ordinal);
+        }
+
+        private static void WarnIfReFlyDisplayAlignmentOffsetSuspicious(
+            ReFlySessionMarker marker,
+            string recTreeId,
+            string recordingId,
+            ReFlyDisplayAlignment alignment)
+        {
+            if (!IsSuspiciousReFlyDisplayAlignmentOffset(alignment.InitialWorldOffsetMeters))
+                return;
+
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                "refly-display-alignment-suspicious-offset|"
+                    + (recTreeId ?? "<no-tree>") + "|"
+                    + (marker?.SessionId ?? "<no-sess>") + "|"
+                    + (recordingId ?? "<no-rec>"),
+                "Re-Fly display alignment suspicious offset: tree="
+                    + ShortRecordingId(recTreeId)
+                    + " sess=" + ShortRecordingId(marker?.SessionId)
+                    + " rec=" + ShortRecordingId(recordingId)
+                    + " initialWorldOffsetMeters="
+                    + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " thresholdMeters="
+                    + ReFlyDisplayAlignmentSuspiciousOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " body=" + (alignment.BodyName ?? "<none>")
+                    + " source=" + (alignment.LiveAnchorSource ?? "<none>")
+                    + " liveAnchorPartPid="
+                    + alignment.LiveAnchorPartPid.ToString(CultureInfo.InvariantCulture),
+                5.0);
         }
 
         private static bool IsReFlyDisplayAlignmentCaptureAllowed(

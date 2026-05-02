@@ -93,6 +93,7 @@ namespace Parsek
         private readonly Dictionary<string, ReFlyDisplayAlignment> alignmentsByRecordingId =
             new Dictionary<string, ReFlyDisplayAlignment>(StringComparer.Ordinal);
         private string activeSessionId;
+        private string activeScopeKey;
 
         internal int Count
         {
@@ -103,9 +104,15 @@ namespace Parsek
         {
             alignmentsByRecordingId.Clear();
             activeSessionId = null;
+            activeScopeKey = null;
         }
 
         internal void ClearIfSessionChanged(string sessionId)
+        {
+            ClearIfScopeChanged(sessionId, sessionId);
+        }
+
+        internal void ClearIfScopeChanged(string sessionId, string scopeKey)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -113,10 +120,15 @@ namespace Parsek
                 return;
             }
 
-            if (!string.Equals(activeSessionId, sessionId, StringComparison.Ordinal))
+            string normalizedScopeKey = !string.IsNullOrEmpty(scopeKey)
+                ? scopeKey
+                : sessionId;
+            if (!string.Equals(activeSessionId, sessionId, StringComparison.Ordinal)
+                || !string.Equals(activeScopeKey, normalizedScopeKey, StringComparison.Ordinal))
             {
                 alignmentsByRecordingId.Clear();
                 activeSessionId = sessionId;
+                activeScopeKey = normalizedScopeKey;
             }
         }
 
@@ -137,10 +149,24 @@ namespace Parsek
                 return;
 
             if (!string.Equals(activeSessionId, alignment.SessionId, StringComparison.Ordinal))
+            {
                 alignmentsByRecordingId.Clear();
+                activeScopeKey = alignment.SessionId;
+            }
 
             activeSessionId = alignment.SessionId;
+            if (string.IsNullOrEmpty(activeScopeKey))
+                activeScopeKey = alignment.SessionId;
             alignmentsByRecordingId[alignment.RecordingId] = alignment;
+        }
+
+        internal bool Remove(string sessionId, string recordingId)
+        {
+            if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(recordingId))
+                return false;
+            if (!string.Equals(activeSessionId, sessionId, StringComparison.Ordinal))
+                return false;
+            return alignmentsByRecordingId.Remove(recordingId);
         }
     }
 }
