@@ -37,6 +37,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             MarkerValidator.ResetTestOverrides();
@@ -57,6 +58,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             RewindPointReaper.ResetTestOverrides();
@@ -273,6 +275,114 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") && l.Contains("Marker valid sess=sess_1"));
+        }
+
+        [Fact]
+        public void MarkerValid_SkipsGroupHierarchyPrune()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Debris", out var parent));
+            Assert.Equal("Kerbal X", parent);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GroupHierarchy]")
+                && l.Contains("Skipping group hierarchy prune reason=load-time-sweep while Re-Fly session is active"));
+        }
+
+        [Fact]
+        public void MarkerInvalid_RunsGroupHierarchyPrune()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker(null, "tree_1", "rec_origin", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Assert.False(GroupHierarchyStore.HasGroupParent("Kerbal X / Debris"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GroupHierarchy]")
+                && l.Contains("Pruned stale group hierarchy")
+                && l.Contains("reason=load-time-sweep"));
+        }
+
+        [Fact]
+        public void SaveInto_ValidMarkerSkipsGroupHierarchyPrune()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_origin", MergeState.Immutable),
+                },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(
+                rps: new List<RewindPoint> { rp },
+                marker: marker);
+
+            var node = new ConfigNode("PARSEK");
+            GroupHierarchyStore.SaveInto(node);
+
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Debris", out var parent));
+            Assert.Equal("Kerbal X", parent);
+            Assert.NotNull(node.GetNode("GROUP_HIERARCHY"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GroupHierarchy]")
+                && l.Contains("Skipping group hierarchy prune reason=save while Re-Fly session is active"));
+        }
+
+        [Fact]
+        public void SaveInto_InvalidMarkerRunsGroupHierarchyPrune()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+
+            var marker = Marker(null, "tree_missing", "rec_origin", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(
+                rps: new List<RewindPoint>(),
+                marker: marker);
+
+            var node = new ConfigNode("PARSEK");
+            GroupHierarchyStore.SaveInto(node);
+
+            Assert.False(GroupHierarchyStore.HasGroupParent("Kerbal X / Debris"));
+            Assert.Null(node.GetNode("GROUP_HIERARCHY"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[GroupHierarchy]")
+                && l.Contains("Pruned stale group hierarchy")
+                && l.Contains("reason=save"));
         }
 
         [Fact]

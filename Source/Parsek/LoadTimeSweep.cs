@@ -236,7 +236,15 @@ namespace Parsek
             // warning on every load/save cycle.
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
-            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            if (markerValid)
+            {
+                ParsekLog.Verbose("GroupHierarchy",
+                    "Skipping group hierarchy prune reason=load-time-sweep while Re-Fly session is active");
+            }
+            else
+            {
+                GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            }
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
 
             // ----------------------------------------------------------------
