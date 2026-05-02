@@ -219,6 +219,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_ActiveReFlyAnchorWithFrozenSnapshot_UsesSnapshot()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording active = MakeAbsoluteRecording(
+                "active-refly",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            active.CapturePreReFlyAnchorTrajectory("session-a");
+
+            Recording mutatedActive = MakeAbsoluteRecording(
+                active.RecordingId,
+                tree.Id,
+                new Vector3d(900, 0, 0),
+                new Vector3d(910, 0, 0));
+            active.TrackSections.Clear();
+            active.TrackSections.Add(mutatedActive.TrackSections[0]);
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: active.RecordingId);
+            tree.AddOrReplaceRecording(active);
+            tree.AddOrReplaceRecording(child);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "session-a",
+                TreeId = tree.Id,
+                ActiveReFlyRecordingId = active.RecordingId,
+                OriginChildRecordingId = active.RecordingId,
+            };
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree, marker: marker),
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(106.0, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Using frozen pre-Re-Fly anchor trajectory") &&
+                l.Contains("recordingId=active-refly"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_ActiveReFlyAnchorWithoutFrozenSnapshot_ReturnsFalse()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording active = MakeAbsoluteRecording(
+                "active-refly",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: active.RecordingId);
+            tree.AddOrReplaceRecording(active);
+            tree.AddOrReplaceRecording(child);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "session-a",
+                TreeId = tree.Id,
+                ActiveReFlyRecordingId = active.RecordingId,
+                OriginChildRecordingId = active.RecordingId,
+            };
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree, marker: marker),
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=active-provisional-out-of-scope") &&
+                l.Contains("anchorRecordingId=active-refly"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_Cycle_ReturnsFalseWithReason()
         {
             var tree = new RecordingTree { Id = "tree" };
@@ -314,12 +404,14 @@ namespace Parsek.Tests
         private static RelativeAnchorResolverContext MakeContext(
             RecordingTree tree,
             Func<Recording, TrackSection, int, string> anchorRecordingIdResolver = null,
-            RecordingTree pendingTree = null)
+            RecordingTree pendingTree = null,
+            ReFlySessionMarker marker = null)
         {
             return new RelativeAnchorResolverContext(
                 tree,
                 focusRecordingId: null,
                 focusTreeId: tree?.Id,
+                activeReFlyMarker: marker,
                 pendingTree: pendingTree,
                 sectionAnchorRecordingIdResolver: anchorRecordingIdResolver,
                 absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),

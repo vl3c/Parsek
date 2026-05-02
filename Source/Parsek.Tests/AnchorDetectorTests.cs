@@ -323,6 +323,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsRecordingAnchorDAGOrderEligible_SameTreeRequiresOlderCandidate()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "focus",
+                TreeId = "tree",
+                TreeOrder = 2
+            };
+            var older = new Recording
+            {
+                RecordingId = "older",
+                TreeId = "tree",
+                TreeOrder = 1
+            };
+            var sameOrder = new Recording
+            {
+                RecordingId = "same-order",
+                TreeId = "tree",
+                TreeOrder = 2
+            };
+            var newer = new Recording
+            {
+                RecordingId = "newer",
+                TreeId = "tree",
+                TreeOrder = 3
+            };
+
+            Assert.True(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, older));
+            Assert.False(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, sameOrder));
+            Assert.False(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, newer));
+        }
+
+        [Fact]
+        public void IsRecordingAnchorDAGOrderEligible_DifferentTreeOrUnassignedOrderAllowed()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "focus",
+                TreeId = "tree-a",
+                TreeOrder = 2
+            };
+            var differentTree = new Recording
+            {
+                RecordingId = "other",
+                TreeId = "tree-b",
+                TreeOrder = 9
+            };
+            var unassigned = new Recording
+            {
+                RecordingId = "unassigned",
+                TreeId = "tree-a",
+                TreeOrder = -1
+            };
+
+            Assert.True(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, differentTree));
+            Assert.True(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, unassigned));
+        }
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_RejectsSameTreeNewerCandidate()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "focus",
+                TreeId = "tree",
+                TreeOrder = 1
+            };
+            var newer = new Recording
+            {
+                RecordingId = "newer",
+                TreeId = "tree",
+                TreeOrder = 2
+            };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                newer,
+                Vector3d.zero,
+                Quaternion.identity,
+                AnchorCandidateSource.Live,
+                0u,
+                -1,
+                out _);
+
+            Assert.False(created);
+        }
+
+        [Fact]
         public void FindNearestRecordingAnchor_EmptyCandidates_ReturnsNotFound()
         {
             var result = AnchorDetector.FindNearestRecordingAnchor(

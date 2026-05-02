@@ -171,6 +171,8 @@ namespace Parsek
             candidate = default;
             if (!IsRecordingAnchorEligible(focusRecording, candidateRecording))
                 return false;
+            if (!IsRecordingAnchorDAGOrderEligible(focusRecording, candidateRecording))
+                return false;
 
             candidate = new RecordingAnchorCandidate(
                 candidateRecording.RecordingId,
@@ -207,6 +209,20 @@ namespace Parsek
             // Loop-anchored recordings still depend on live anchor PIDs by design.
             // They are not valid roots for the non-loop recorded-anchor DAG.
             return candidateRecording.LoopAnchorVesselId == 0u;
+        }
+
+        internal static bool IsRecordingAnchorDAGOrderEligible(
+            Recording focusRecording,
+            Recording candidateRecording)
+        {
+            if (focusRecording == null || candidateRecording == null)
+                return false;
+            if (!SameNonEmpty(focusRecording.TreeId, candidateRecording.TreeId))
+                return true;
+            if (focusRecording.TreeOrder < 0 || candidateRecording.TreeOrder < 0)
+                return true;
+
+            return candidateRecording.TreeOrder < focusRecording.TreeOrder;
         }
 
         internal static bool IsSealedRecordingAnchor(Recording recording)

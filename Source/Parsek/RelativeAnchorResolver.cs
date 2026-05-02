@@ -95,16 +95,6 @@ namespace Parsek
                 return false;
             }
 
-            if (IsStillBeingAppendedActiveProvisional(context, anchorRecordingId))
-            {
-                WarnUnresolved(
-                    "active-provisional-out-of-scope",
-                    context.FocusRecordingId,
-                    anchorRecordingId,
-                    ut);
-                return false;
-            }
-
             HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
             if (!activeVisited.Add(anchorRecordingId))
             {
@@ -121,6 +111,21 @@ namespace Parsek
                 if (!TryFindRecording(context, anchorRecordingId, out Recording recording, out string reason))
                 {
                     WarnUnresolved(reason, context.FocusRecordingId, anchorRecordingId, ut);
+                    return false;
+                }
+
+                if (!TryResolveActiveReFlyAnchorRecording(
+                        context,
+                        anchorRecordingId,
+                        recording,
+                        ut,
+                        out recording))
+                {
+                    WarnUnresolved(
+                        "active-provisional-out-of-scope",
+                        context.FocusRecordingId,
+                        anchorRecordingId,
+                        ut);
                     return false;
                 }
 
@@ -646,7 +651,40 @@ namespace Parsek
             return false;
         }
 
-        private static bool IsStillBeingAppendedActiveProvisional(
+        private static bool TryResolveActiveReFlyAnchorRecording(
+            RelativeAnchorResolverContext context,
+            string recordingId,
+            Recording recording,
+            double ut,
+            out Recording resolvedRecording)
+        {
+            resolvedRecording = recording;
+            if (!IsActiveReFlyRecordingId(context, recordingId))
+                return true;
+
+            string sessionId = context.ActiveReFlyMarker?.SessionId;
+            if (recording != null && recording.HasPreReFlyAnchorTrajectory(sessionId))
+            {
+                Recording frozen = recording.BuildPreReFlyAnchorTrajectoryRecording(sessionId);
+                if (frozen != null)
+                {
+                    resolvedRecording = frozen;
+                    var ic = CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited(
+                        "RelativeAnchorResolver",
+                        "active-refly-anchor-frozen|" + (context.FocusRecordingId ?? "(none)") + "|" + recordingId,
+                        "Using frozen pre-Re-Fly anchor trajectory: " +
+                        $"recordingId={recordingId} focusRecordingId={context.FocusRecordingId ?? "(none)"} " +
+                        $"sessionId={sessionId ?? "(none)"} ut={ut.ToString("F3", ic)}",
+                        5.0);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsActiveReFlyRecordingId(
             RelativeAnchorResolverContext context,
             string recordingId)
         {

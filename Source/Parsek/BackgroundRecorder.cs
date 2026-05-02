@@ -3483,6 +3483,8 @@ namespace Parsek
                 if (!TryGetBackgroundEligibleAnchorRecording(
                         recordingId,
                         focusRecording,
+                        AnchorCandidateSource.Live,
+                        vessel.persistentId,
                         out Recording candidateRecording))
                 {
                     continue;
@@ -3530,6 +3532,8 @@ namespace Parsek
                 if (!TryGetBackgroundEligibleAnchorRecording(
                         provided.RecordingId,
                         focusRecording,
+                        provided.Source,
+                        provided.DiagnosticPid,
                         out Recording candidateRecording))
                 {
                     continue;
@@ -3554,6 +3558,8 @@ namespace Parsek
         private bool TryGetBackgroundEligibleAnchorRecording(
             string recordingId,
             Recording focusRecording,
+            AnchorCandidateSource source,
+            uint diagnosticPid,
             out Recording candidateRecording)
         {
             candidateRecording = null;
@@ -3572,7 +3578,31 @@ namespace Parsek
             if (!tree.Recordings.TryGetValue(recordingId, out candidateRecording))
                 return false;
 
-            return AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording);
+            if (!AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording))
+                return false;
+            if (!AnchorDetector.IsRecordingAnchorDAGOrderEligible(focusRecording, candidateRecording))
+            {
+                LogBackgroundRecordingAnchorDagOrderSkip(focusRecording, candidateRecording, source, diagnosticPid);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void LogBackgroundRecordingAnchorDagOrderSkip(
+            Recording focusRecording,
+            Recording candidateRecording,
+            AnchorCandidateSource source,
+            uint diagnosticPid)
+        {
+            string focusId = focusRecording?.RecordingId ?? "(none)";
+            string candidateId = candidateRecording?.RecordingId ?? "(none)";
+            ParsekLog.VerboseRateLimited("BgRecorder",
+                "bg-recording-anchor-dag-order-skip|" + focusId + "|" + candidateId + "|" + source,
+                $"Background recording anchor candidate skipped: reason=dag-order focusRecordingId={focusId} " +
+                $"candidateRecordingId={candidateId} focusTreeOrder={focusRecording?.TreeOrder ?? -1} " +
+                $"candidateTreeOrder={candidateRecording?.TreeOrder ?? -1} source={source} diagnosticPid={diagnosticPid}",
+                5.0);
         }
 
         private static void SetBackgroundCurrentAnchor(

@@ -4463,8 +4463,15 @@ namespace Parsek
                 scanned++;
                 if (!TryResolveLivePeerRecordingId(vessel.persistentId, out string recordingId))
                     continue;
-                if (!TryGetEligibleAnchorRecording(recordingId, focusRecording, out Recording candidateRecording))
+                if (!TryGetEligibleAnchorRecording(
+                        recordingId,
+                        focusRecording,
+                        AnchorCandidateSource.Live,
+                        vessel.persistentId,
+                        out Recording candidateRecording))
+                {
                     continue;
+                }
 
                 if (AnchorDetector.TryCreateRecordingAnchorCandidate(
                         focusRecording,
@@ -4506,6 +4513,8 @@ namespace Parsek
                 if (!TryGetEligibleAnchorRecording(
                         provided.RecordingId,
                         focusRecording,
+                        provided.Source,
+                        provided.DiagnosticPid,
                         out Recording candidateRecording))
                 {
                     continue;
@@ -4581,6 +4590,8 @@ namespace Parsek
         private bool TryGetEligibleAnchorRecording(
             string recordingId,
             Recording focusRecording,
+            AnchorCandidateSource source,
+            uint diagnosticPid,
             out Recording candidateRecording)
         {
             candidateRecording = null;
@@ -4594,7 +4605,31 @@ namespace Parsek
             if (IsStillBeingAppendedActiveProvisionalRecordingId(recordingId))
                 return false;
 
-            return AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording);
+            if (!AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording))
+                return false;
+            if (!AnchorDetector.IsRecordingAnchorDAGOrderEligible(focusRecording, candidateRecording))
+            {
+                LogRecordingAnchorDagOrderSkip(focusRecording, candidateRecording, source, diagnosticPid);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void LogRecordingAnchorDagOrderSkip(
+            Recording focusRecording,
+            Recording candidateRecording,
+            AnchorCandidateSource source,
+            uint diagnosticPid)
+        {
+            string focusId = focusRecording?.RecordingId ?? "(none)";
+            string candidateId = candidateRecording?.RecordingId ?? "(none)";
+            ParsekLog.VerboseRateLimited("Anchor",
+                "recording-anchor-dag-order-skip|" + focusId + "|" + candidateId + "|" + source,
+                $"Recording anchor candidate skipped: reason=dag-order focusRecordingId={focusId} " +
+                $"candidateRecordingId={candidateId} focusTreeOrder={focusRecording?.TreeOrder ?? -1} " +
+                $"candidateTreeOrder={candidateRecording?.TreeOrder ?? -1} source={source} diagnosticPid={diagnosticPid}",
+                5.0);
         }
 
         private bool TryGetActiveTreeRecording(out Recording activeRecording)
