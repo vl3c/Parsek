@@ -465,6 +465,7 @@ namespace Parsek
             // in late/end-of-frame positioning so FloatingOrigin shifts do
             // not discard the anchored alignment.
             public Vector3d reFlyTreeOffset;
+            public bool hasReFlyTreeOffset;
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -1199,9 +1200,10 @@ namespace Parsek
                         // freezing to the value captured at Update time.
                         // The ε is additive on top of either the spline-
                         // positioned or the raw-lerp position above.
-                        if (allowAnchorCorrectionInterval(
+                        if (allowRenderAnchorCorrectionInterval(
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                out Vector3d lateEps))
+                                e.hasReFlyTreeOffset,
+                                out Vector3d lateEps, out _))
                         {
                             pos += lateEps;
                         }
@@ -1317,9 +1319,10 @@ namespace Parsek
                         // bare lerp position. Phase 3 evaluates ε at the
                         // current playback UT — the lerp interval (§6.4
                         // Both case) progresses each frame, not freezes.
-                        if (allowAnchorCorrectionInterval(
+                        if (allowRenderAnchorCorrectionInterval(
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                out Vector3d cpLateEps))
+                                e.hasReFlyTreeOffset,
+                                out Vector3d cpLateEps, out _))
                         {
                             rawCheckpointPos += cpLateEps;
                         }
@@ -1497,7 +1500,8 @@ namespace Parsek
                             && !string.IsNullOrEmpty(lateprimary)
                             && TryComputeStandaloneWorldPositionForRecording(
                                 lateprimary, e.coBubblePointUT, e.bodyBefore,
-                                out Vector3d primaryWorld))
+                                out Vector3d primaryWorld,
+                                suppressAnchorCorrection: e.hasReFlyTreeOffset))
                         {
                             e.ghost.transform.position = primaryWorld + worldOffset + e.reFlyTreeOffset;
                             e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
@@ -1522,9 +1526,10 @@ namespace Parsek
                                     e.latAfter, e.lonAfter, e.altAfter);
                                 pos = Vector3d.Lerp(posBefore, posAfter, e.t);
                             }
-                            if (allowAnchorCorrectionInterval(
+                            if (allowRenderAnchorCorrectionInterval(
                                     e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                    out Vector3d lateEps))
+                                    e.hasReFlyTreeOffset,
+                                    out Vector3d lateEps, out _))
                             {
                                 pos += lateEps;
                             }
@@ -1547,7 +1552,7 @@ namespace Parsek
             Vector3d after)
         {
             double delta = Vector3d.Distance(before, after);
-            bool hasReFlyOffset = entry.reFlyTreeOffset.sqrMagnitude > 0.000001;
+            bool hasReFlyOffset = entry.hasReFlyTreeOffset;
 
             string recordingId =
                 !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
@@ -16217,6 +16222,15 @@ namespace Parsek
                 }
             }
 
+            // Re-Fly tree display alignment: when the ghost belongs to the
+            // active Re-Fly tree, translate by the frozen body-fixed offset
+            // captured on this recording's first renderable frame. This is
+            // detected before anchor correction so the two display-space
+            // translations cannot stack on top of each other.
+            Vector3d reFlyTreeOffset = Vector3d.zero;
+            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                recordingId, targetUT, out reFlyTreeOffset);
+
             // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
             // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
             // Additive world-space ε translation pinned once at session entry;
@@ -16227,8 +16241,9 @@ namespace Parsek
             // recordingId, no section, flag off, no anchor in the store) is
             // a silent fall-through — re-fly sessions with no marker yet are
             // normal state, not failure.
-            bool hasAnchorEps = allowAnchorCorrectionInterval(
-                recordingId, sectionIndex, targetUT, out Vector3d anchorEps);
+            bool hasAnchorEps = allowRenderAnchorCorrectionInterval(
+                recordingId, sectionIndex, targetUT, hasReFlyTreeOffset,
+                out Vector3d anchorEps, out string anchorCorrectionReason);
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
@@ -16250,7 +16265,9 @@ namespace Parsek
                     out blendStatus))
             {
                 if (TryComputeStandaloneWorldPositionForRecording(
-                        primaryRecordingId, targetUT, bodyBefore, out Vector3d primaryWorld))
+                        primaryRecordingId, targetUT, bodyBefore,
+                        out Vector3d primaryWorld,
+                        suppressAnchorCorrection: hasReFlyTreeOffset))
                 {
                     interpolatedPos = primaryWorld + coBubbleOffset;
                     coBubbleHit = true;
@@ -16264,19 +16281,13 @@ namespace Parsek
                 }
             }
 
-            // Re-Fly tree display alignment: when the ghost belongs to the
-            // active Re-Fly tree, translate by the frozen body-fixed offset
-            // captured on this recording's first renderable frame. Applied
-            // AFTER the Phase 5 co-bubble override so the override does not
-            // discard the offset — the engine reads
-            // ghost.transform immediately after positioning for
-            // ApplyFrameVisuals, TrackGhostAppearance, explosion anchors,
-            // and distance diagnostics; without this ordering co-bubble
-            // frames would use the unanchored position during Update and
-            // only re-apply the offset in LateUpdate.
-            Vector3d reFlyTreeOffset = Vector3d.zero;
-            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, targetUT, out reFlyTreeOffset);
+            // Apply AFTER the Phase 5 co-bubble override so the override
+            // does not discard the offset — the engine reads ghost.transform
+            // immediately after positioning for ApplyFrameVisuals,
+            // TrackGhostAppearance, explosion anchors, and distance
+            // diagnostics; without this ordering co-bubble frames would use
+            // the unanchored position during Update and only re-apply the
+            // offset in LateUpdate.
             if (hasReFlyTreeOffset)
                 interpolatedPos += reFlyTreeOffset;
 
@@ -16302,6 +16313,7 @@ namespace Parsek
                     + " rawLerp=" + GhostRenderTrace.FormatVector3d(Vector3d.Lerp(posBefore, posAfter, t))
                     + " splineHit=" + (splineApplied ? "true" : "false")
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
+                    + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
                     + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
                     + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
@@ -16351,6 +16363,7 @@ namespace Parsek
                     coBubblePrimaryRecordingId = coBubblePrimaryId,
                     coBubblePointUT = targetUT,
                     reFlyTreeOffset = hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero,
+                    hasReFlyTreeOffset = hasReFlyTreeOffset,
                 });
             }
             else
@@ -16370,6 +16383,7 @@ namespace Parsek
                     anchorRecordingId = hasLookupKey ? recordingId : null,
                     anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
                     reFlyTreeOffset = hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero,
+                    hasReFlyTreeOffset = hasReFlyTreeOffset,
                 });
             }
 
@@ -16514,6 +16528,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Render-path anchor-correction gate. Active Re-Fly tree display
+        /// alignment is already the render-space translation for same-tree
+        /// ghosts, so applying the older anchor-correction epsilon on top of
+        /// it double-translates the ghost away from its hidden recorded path.
+        /// </summary>
+        internal static bool allowRenderAnchorCorrectionInterval(
+            string recordingId,
+            int sectionIndex,
+            double targetUT,
+            bool hasReFlyTreeOffset,
+            out Vector3d epsilon,
+            out string reason)
+        {
+            epsilon = default(Vector3d);
+            if (hasReFlyTreeOffset)
+            {
+                reason = "refly-display-offset-active";
+                return false;
+            }
+
+            if (allowAnchorCorrectionInterval(recordingId, sectionIndex, targetUT, out epsilon))
+            {
+                reason = "applied";
+                return true;
+            }
+
+            reason = "miss";
+            return false;
+        }
+
+        /// <summary>
         /// Phase 5 co-bubble blend gate (design doc §6.5 / §10 / §18 Phase 5
         /// / HR-9 / HR-15). Returns <c>true</c> with a populated
         /// <paramref name="worldOffset"/> and resolved
@@ -16545,7 +16590,11 @@ namespace Parsek
         /// <paramref name="ut"/>, or the body cannot be resolved.
         /// </summary>
         internal static bool TryComputeStandaloneWorldPositionForRecording(
-            string recordingId, double ut, CelestialBody fallbackBody, out Vector3d worldPos)
+            string recordingId,
+            double ut,
+            CelestialBody fallbackBody,
+            out Vector3d worldPos,
+            bool suppressAnchorCorrection = false)
         {
             worldPos = default;
             if (string.IsNullOrEmpty(recordingId)) return false;
@@ -16666,7 +16715,8 @@ namespace Parsek
                         pos = splineWorld;
                 }
             }
-            if (allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
+            if (!suppressAnchorCorrection
+                && allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
                 pos += eps;
             worldPos = pos;
             return true;
@@ -17185,8 +17235,9 @@ namespace Parsek
             // branch via GhostPosEntry.reFlyTreeOffset so FloatingOrigin
             // re-pos preserves the alignment.
             Vector3d singlePointReFlyTreeOffset = Vector3d.zero;
+            bool hasSinglePointReFlyTreeOffset = false;
             if (!string.IsNullOrEmpty(recordingId))
-                TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
+                hasSinglePointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
             ghost.transform.position = worldPos + singlePointReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
@@ -17221,6 +17272,7 @@ namespace Parsek
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
                 reFlyTreeOffset = singlePointReFlyTreeOffset,
+                hasReFlyTreeOffset = hasSinglePointReFlyTreeOffset,
             });
         }
 
@@ -17647,8 +17699,9 @@ namespace Parsek
             // offset. LateUpdate Orbit branch reads the same offset via
             // GhostPosEntry.reFlyTreeOffset.
             Vector3d orbitReFlyTreeOffset = Vector3d.zero;
+            bool hasOrbitReFlyTreeOffset = false;
             if (!string.IsNullOrEmpty(recordingId))
-                TryGetReFlyTreeAnchorOffset(recordingId, ut, out orbitReFlyTreeOffset);
+                hasOrbitReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, ut, out orbitReFlyTreeOffset);
             ghost.transform.position = worldPos + orbitReFlyTreeOffset;
 
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
@@ -17713,6 +17766,7 @@ namespace Parsek
                 orbitSegmentStartUT = segment.startUT,
                 boundaryWorldRot = boundaryWorldRot,
                 reFlyTreeOffset = orbitReFlyTreeOffset,
+                hasReFlyTreeOffset = hasOrbitReFlyTreeOffset,
             });
         }
 
@@ -17826,10 +17880,11 @@ namespace Parsek
             // branch reads the same
             // GhostPosEntry.reFlyTreeOffset.
             Vector3d surfReFlyTreeOffset = Vector3d.zero;
+            bool hasSurfReFlyTreeOffset = false;
             if (!string.IsNullOrEmpty(recordingId))
             {
                 double offsetUT = double.IsNaN(pointUT) ? Planetarium.GetUniversalTime() : pointUT;
-                TryGetReFlyTreeAnchorOffset(recordingId, offsetUT, out surfReFlyTreeOffset);
+                hasSurfReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, offsetUT, out surfReFlyTreeOffset);
             }
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude)
                 + surfReFlyTreeOffset;
@@ -17868,6 +17923,7 @@ namespace Parsek
                 latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
                 surfaceRot = surfPos.rotation,
                 reFlyTreeOffset = surfReFlyTreeOffset,
+                hasReFlyTreeOffset = hasSurfReFlyTreeOffset,
             });
 
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
@@ -20189,6 +20245,14 @@ namespace Parsek
             if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
                 interpolatedPos = posBefore;
 
+            // Re-Fly tree display alignment: translate Checkpoint section
+            // playback by the frozen body-fixed offset. Compute before
+            // anchor correction so the active Re-Fly display translation
+            // fences off the older anchor-correction epsilon.
+            Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
+            bool hasCheckpointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
+                recordingId, playbackUT, out checkpointReFlyTreeOffset);
+
             // §7.7 BubbleEntry/Exit (and any other §7.x candidate landing on
             // a Checkpoint section): apply the rigid-translation ε on top of
             // the Kepler-bracketed lerp before assigning the transform.
@@ -20201,25 +20265,17 @@ namespace Parsek
             // Phase 6 anchor-bound resolver work that produces ε at the
             // Checkpoint side. Same lookup as the PointInterp path uses
             // (Phase 2/3 ε, additive in world-space, HR-15 frozen-once).
-            bool hasAnchorEps = allowAnchorCorrectionInterval(
-                recordingId, sectionIdx, playbackUT, out Vector3d anchorEps);
+            bool hasAnchorEps = allowRenderAnchorCorrectionInterval(
+                recordingId, sectionIdx, playbackUT, hasCheckpointReFlyTreeOffset,
+                out Vector3d anchorEps, out string anchorCorrectionReason);
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            // Re-Fly tree display alignment: translate Checkpoint section
-            // playback by the frozen body-fixed offset. LateUpdate
-            // CheckpointPoint branch reads the same offset via
-            // GhostPosEntry.reFlyTreeOffset.
-            //
-            // The translation is applied to transform.position only — rotation
+            // The Re-Fly translation is applied to transform.position only — rotation
             // math (orbital-frame radialOut) uses the pre-tree-offset position
             // so the anchor offset doesn't push the ghost's orbital-frame
             // attitude. ComputeOrbitalRotation receives interpolatedPos
             // BEFORE the tree-offset add for that reason.
-            Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
-            bool hasCheckpointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, playbackUT, out checkpointReFlyTreeOffset);
-
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
@@ -20254,6 +20310,7 @@ namespace Parsek
                     + " rawBefore=" + GhostRenderTrace.FormatVector3d(posBefore)
                     + " rawAfter=" + GhostRenderTrace.FormatVector3d(posAfter)
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
+                    + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
                     + " reFlyHit=" + (hasCheckpointReFlyTreeOffset ? "true" : "false")
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(checkpointReFlyTreeOffset)
@@ -20297,6 +20354,7 @@ namespace Parsek
                 anchorRecordingId = recordingId,
                 anchorSectionIndex = sectionIdx,
                 reFlyTreeOffset = checkpointReFlyTreeOffset,
+                hasReFlyTreeOffset = hasCheckpointReFlyTreeOffset,
             });
 
             interpResult = new InterpolationResult(
@@ -22501,7 +22559,9 @@ namespace Parsek
                 ghostPos = anchorPose.worldPos;
             }
 
-            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset))
+            bool hasRecordedRelativeReFlyTreeOffset =
+                TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset);
+            if (hasRecordedRelativeReFlyTreeOffset)
                 ghostPos += reFlyTreeOffset;
 
             ghost.transform.position = ghostPos;
@@ -22578,6 +22638,7 @@ namespace Parsek
                 relativeAnchorRecordingId = target.AnchorRecordingId,
                 pointUT = targetUT,
                 reFlyTreeOffset = reFlyTreeOffset,
+                hasReFlyTreeOffset = hasRecordedRelativeReFlyTreeOffset,
             });
 
             interpResult = new InterpolationResult(
@@ -22614,7 +22675,9 @@ namespace Parsek
                 dz,
                 recordingFormatVersion);
 
-            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, point.ut, out Vector3d reFlyTreeOffset))
+            bool hasRecordedRelativeReFlyTreeOffset =
+                TryGetReFlyTreeAnchorOffset(target.RecordingId, point.ut, out Vector3d reFlyTreeOffset);
+            if (hasRecordedRelativeReFlyTreeOffset)
                 ghostPos += reFlyTreeOffset;
 
             ghost.transform.position = ghostPos;
@@ -22675,6 +22738,7 @@ namespace Parsek
                 relativeAnchorRecordingId = target.AnchorRecordingId,
                 pointUT = point.ut,
                 reFlyTreeOffset = reFlyTreeOffset,
+                hasReFlyTreeOffset = hasRecordedRelativeReFlyTreeOffset,
             });
             return true;
         }
@@ -23127,6 +23191,7 @@ namespace Parsek
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
                     reFlyTreeOffset = relHasReFlyTreeOffset ? relReFlyTreeOffset : Vector3d.zero,
+                    hasReFlyTreeOffset = relHasReFlyTreeOffset,
                 });
 
                 interpResult = new InterpolationResult(
@@ -23273,6 +23338,7 @@ namespace Parsek
                     latBefore = dx, lonBefore = dy, altBefore = dz,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
                     reFlyTreeOffset = relHasReFlyTreeOffset ? relReFlyTreeOffset : Vector3d.zero,
+                    hasReFlyTreeOffset = relHasReFlyTreeOffset,
                 });
             }
             else

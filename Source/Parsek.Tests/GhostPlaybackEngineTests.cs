@@ -289,6 +289,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_CheckpointSectionWithOrbitSegment_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.RecordingId = "checkpoint-orbit";
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(200.0, endpointUT);
+            Assert.Equal(0, sectionIndex);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_AbsoluteSectionReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                200.0,
+                out _,
+                out _);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_NoOrbitSegmentReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                200.0,
+                out _,
+                out _);
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void TryGetRelativeSectionAtUT_RelativeEndpointReturnsSectionTarget()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);

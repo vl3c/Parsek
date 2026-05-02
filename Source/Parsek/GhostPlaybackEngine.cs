@@ -2172,6 +2172,24 @@ namespace Parsek
             }
 
             double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
+            if (TryGetCheckpointBackedOrbitEndpointUT(
+                    traj, endpointUT, out double checkpointOrbitEndpointUT, out int checkpointSectionIndex))
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "checkpoint-backed-orbit-endpoint-" + (traj.RecordingId ?? index.ToString(CultureInfo.InvariantCulture)),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Endpoint positioned through checkpoint-backed orbit path: recordingId={0} index={1} sectionIndex={2} endpointUT={3:R}",
+                        traj.RecordingId ?? "<none>",
+                        index,
+                        checkpointSectionIndex,
+                        checkpointOrbitEndpointUT),
+                    5.0);
+                positioner.PositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT);
+                return;
+            }
+
             if (TryPositionRelativeSectionAtPlaybackUT(
                     index, traj, state, endpointUT, suppressFx: true))
                 return;
@@ -2201,6 +2219,34 @@ namespace Parsek
             if (traj != null && traj.HasOrbitSegments)
                 return traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT;
             return traj?.EndUT ?? 0.0;
+        }
+
+        internal static bool TryGetCheckpointBackedOrbitEndpointUT(
+            IPlaybackTrajectory traj,
+            double endpointUT,
+            out double orbitEndpointUT,
+            out int sectionIndex)
+        {
+            orbitEndpointUT = 0.0;
+            sectionIndex = -1;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            if (!traj.HasOrbitSegments || traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+
+            sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, endpointUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            TrackSection section = traj.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+                return false;
+
+            if (!TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, endpointUT).HasValue)
+                return false;
+
+            orbitEndpointUT = endpointUT;
+            return true;
         }
 
         internal static bool TryGetRelativeSectionAtUT(
