@@ -240,7 +240,7 @@ Regression coverage: `Bug687Tests.cs` (xUnit pure pieces — `ShouldBlockSpawnFo
 
 ## Done - v0.9.1 in-place Re-Fly STASH cleanup
 
-- ~~In-place continuation Re-Fly of a Destroyed recording could leave stale session-created RPs around because cleanup ran after the marker was cleared but before those RPs were promoted into normal reap eligibility.~~ Source: `logs/2026-04-30_2306_post-679-680-681-merge/`; origin `d5871b0dc3354e7094aa145ce1f0ac7a`, survivor `9078c3dcde9045cb8939d889aeeb8552`, session `sess_a72d601737884d33a309860260fba6ea`, surviving RP `rp_049304412955410185359b9ee1bf010d`. Diagnosis: the in-place merge path cleared the Re-Fly marker before running RP cleanup and skipped the session-RP promotion step used by the journaled merge path. Fix: `MergeDialog.TryCommitReFlySupersede` now promotes session-created RPs after marker/state finalization succeeds and immediately before cleanup, using the local marker's session id, then the existing reaper removes any RP whose slots resolve to closed recordings. Clean stable and terminal-failure slots deliberately remain open; safety-closed outcomes reap. `SupersedeCommitTests.TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap` and the stable/terminal in-place tests pin the promotion ordering, zero/one reaping behavior, STASH membership, and log evidence. The different-PID survivor still follows the existing side-off closure gate; supersede-row policy for session-created side-offs remains a separate follow-up.
+- ~~In-place continuation Re-Fly of a Destroyed recording could leave stale session-created RPs around because cleanup ran after the marker was cleared but before those RPs were promoted into normal reap eligibility.~~ Source: `logs/2026-04-30_2306_post-679-680-681-merge/`; origin `d5871b0dc3354e7094aa145ce1f0ac7a`, survivor `9078c3dcde9045cb8939d889aeeb8552`, session `sess_a72d601737884d33a309860260fba6ea`, surviving RP `rp_049304412955410185359b9ee1bf010d`. Diagnosis: the in-place merge path cleared the Re-Fly marker before running RP cleanup and skipped the session-RP promotion step used by the journaled merge path. Fix: `MergeDialog.TryCommitReFlySupersede` now promotes session-created RPs after marker/state finalization succeeds and immediately before cleanup, using the local marker's session id, then the existing reaper removes any RP whose slots resolve to closed recordings. Chosen stable slots auto-seal, terminal-failure slots deliberately remain open unless retry-blocking, and safety-closed outcomes reap. `SupersedeCommitTests.TryCommitReFlySupersede_InPlaceContinuation_PromotesSessionProvisionalRpBeforeReap` and the stable/terminal in-place tests pin the promotion ordering, zero/one reaping behavior, STASH membership, and log evidence. The different-PID survivor still follows the existing side-off closure gate; supersede-row policy for session-created side-offs remains a separate follow-up.
 
 ## Done — v0.9.1 stage-separation ghost trajectory alignment
 
@@ -682,9 +682,9 @@ stashed `Immutable` slot as still open only while the classifier still qualifies
 that terminal. Stash does not resurrect already-reaped RP quicksaves; all-closed
 stable splits can still disappear before the player has a slot to stash. In-place
 Re-Fly merges now delegate to the same Site B-1 safety decision as fresh
-provisional merges: clean stable and terminal-failure continuations can remain
-`CommittedProvisional`, while hard safety closes become `Immutable`, auto-seal
-when appropriate, and reap once all slots are closed.
+provisional merges: chosen stable continuations auto-seal, terminal-failure
+continuations can remain `CommittedProvisional`, while hard safety closes become
+`Immutable`, auto-seal when appropriate, and reap once all slots are closed.
 
 Diagnostics follow-up: Settings -> Diagnostics now shows live RP breakdown
 counts next to total rewind-point quicksave disk usage: crashed-open,
