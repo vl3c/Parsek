@@ -1759,6 +1759,18 @@ namespace Parsek.InGameTests
                     && line.Contains("suppressing time-jump transient"));
         }
 
+        internal static int CountTimeJumpSuppressionArmLogLines(List<string> captured, string jumpKind)
+        {
+            if (captured == null)
+                return 0;
+
+            string expected = "Time-jump launch auto-record suppression armed: jump="
+                + (jumpKind ?? string.Empty);
+            return captured.Count(
+                line => line.Contains("[TimeJump]")
+                    && line.Contains(expected));
+        }
+
         private static int CountPostSwitchAutoStartLogLines(List<string> captured)
         {
             if (captured == null)
@@ -8594,9 +8606,11 @@ namespace Parsek.InGameTests
             float originalThrottle = FlightInputHandler.state.mainThrottle;
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
+            bool originalRecordingStoreSuppressLogging = RecordingStore.SuppressLogging;
 
             try
             {
+                RecordingStore.SuppressLogging = false;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 flight.StartRecording();
@@ -8670,6 +8684,7 @@ namespace Parsek.InGameTests
             {
                 FlightInputHandler.state.mainThrottle = originalThrottle;
                 ParsekLog.TestObserverForTesting = priorObserver;
+                RecordingStore.SuppressLogging = originalRecordingStoreSuppressLogging;
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
                     ParsekFlight.Instance.StopRecording();
             }
@@ -9436,9 +9451,12 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
                     "Timeline FF should keep the same real pad vessel pid focused after the jump transient");
 
+                int suppressionArmCount =
+                    RuntimeTests.CountTimeJumpSuppressionArmLogLines(captured, "forward");
+                InGameAssert.IsGreaterThan(suppressionArmCount, 0,
+                    "Timeline FF pad canary should arm the forward time-jump launch auto-record suppression path");
+
                 int skipCount = RuntimeTests.CountTimeJumpTransientSkipLogLines(captured);
-                InGameAssert.IsGreaterThan(skipCount, 0,
-                    "Timeline FF pad canary should exercise the time-jump transient suppression path");
 
                 int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
                 InGameAssert.AreEqual(0, autoStartCount,
@@ -9446,7 +9464,8 @@ namespace Parsek.InGameTests
 
                 ParsekLog.Info("TestRunner",
                     $"FF pad no-auto-record: active='{currentActive.vesselName}' pid={currentActive.persistentId} " +
-                    $"skipCount={skipCount} autoStartCount={autoStartCount}");
+                    $"suppressionArmCount={suppressionArmCount} skipCount={skipCount} " +
+                    $"autoStartCount={autoStartCount}");
             }
             finally
             {
@@ -9548,9 +9567,8 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
                     "Real Spawn Control warp should keep the same real pad vessel pid focused after the jump transient");
 
-                int suppressionArmCount = captured.Count(
-                    line => line.Contains("[TimeJump]")
-                        && line.Contains("Time-jump launch auto-record suppression armed: jump=epoch-shift"));
+                int suppressionArmCount =
+                    RuntimeTests.CountTimeJumpSuppressionArmLogLines(captured, "epoch-shift");
                 InGameAssert.IsGreaterThan(suppressionArmCount, 0,
                     "Real Spawn Control pad canary should arm the epoch-shift time-jump suppression path");
 
@@ -13778,9 +13796,13 @@ namespace Parsek.InGameTests
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
             InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
 
-            // Sample 60 spline evaluations across the section. Compute world-
-            // space frame-to-frame deltas; the maximum delta sets the visual
-            // jitter ceiling.
+            // Sample 60 spline evaluations across the section. Resolve via
+            // the same FrameTag dispatch used by playback; ExoBallistic
+            // splines are stored in inertial-longitude space, so calling
+            // GetWorldSurfacePosition directly on the spline tuple would
+            // incorrectly add the body's rotation phase to the frame delta.
+            // Compute world-space frame-to-frame deltas; the maximum delta
+            // sets the visual jitter ceiling.
             const int evalFrames = 60;
             double maxDelta = 0.0;
             Vector3d previous = Vector3d.zero;
@@ -13789,7 +13811,16 @@ namespace Parsek.InGameTests
             {
                 double evalUT = startUT + i * dutPerSample;
                 Vector3d latLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, evalUT);
-                Vector3d world = kerbin.GetWorldSurfacePosition(latLonAlt.x, latLonAlt.y, latLonAlt.z);
+                Vector3d world = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
+                    spline.FrameTag,
+                    latLonAlt.x, latLonAlt.y, latLonAlt.z,
+                    kerbin, evalUT,
+                    recordingId, sectionIndex);
+                InGameAssert.IsTrue(
+                    !double.IsNaN(world.x) && !double.IsNaN(world.y) && !double.IsNaN(world.z)
+                    && !double.IsInfinity(world.x) && !double.IsInfinity(world.y) && !double.IsInfinity(world.z),
+                    "Frame " + i + " dispatched spline world position must be finite"
+                        + " (frameTag=" + spline.FrameTag + ")");
                 if (havePrev)
                 {
                     double delta = Vector3d.Distance(previous, world);
@@ -14606,9 +14637,9 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // The events field is a List<EvtDelegate>; we can't compile-bind to
-            // EvtDelegate so iterate as IEnumerable and reflect for the
-            // originalDelegate field.
+            // The events field may be a List<EvtDelegate> wrapper or a direct
+            // delegate list depending on the KSP EventData shape, so extract
+            // either form before checking the owner.
             object listObj = eventsField.GetValue(eventData);
             InGameAssert.IsNotNull(listObj,
                 eventName + ": EventData<T>.events list must be non-null");
@@ -14621,17 +14652,20 @@ namespace Parsek.InGameTests
             foreach (object evtDelegate in list)
             {
                 if (evtDelegate == null) continue;
-                FieldInfo origField = evtDelegate.GetType().GetField("originalDelegate",
-                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (origField == null) continue;
-                var del = origField.GetValue(evtDelegate) as System.Delegate;
-                if (del == null || del.Method == null || del.Method.DeclaringType == null) continue;
-                var declType = del.Method.DeclaringType;
+                System.Delegate del = ExtractGameEventDelegate(evtDelegate);
+                if (del == null || del.Method == null) continue;
+                System.Type declType = del.Method.DeclaringType;
+                System.Type targetType = del.Target != null ? del.Target.GetType() : null;
+                if (declType == null && targetType == null) continue;
+                if (foundOwnerType == null)
+                    foundOwnerType = targetType != null ? targetType.Name : declType.Name;
                 if (declType == typeof(FlightRecorder)
-                    || declType == typeof(ParsekFlight))
+                    || declType == typeof(ParsekFlight)
+                    || targetType == typeof(FlightRecorder)
+                    || targetType == typeof(ParsekFlight))
                 {
                     found = true;
-                    foundOwnerType = declType.Name;
+                    foundOwnerType = targetType != null ? targetType.Name : declType.Name;
                     break;
                 }
             }
@@ -14641,6 +14675,33 @@ namespace Parsek.InGameTests
                 + "FlightRecorder or ParsekFlight (Phase 9 wiring contract). Found owner: "
                 + (foundOwnerType ?? "<none>"));
             if (found) totalAsserted++;
+        }
+
+        private static System.Delegate ExtractGameEventDelegate(object evtDelegate)
+        {
+            if (evtDelegate == null) return null;
+
+            var direct = evtDelegate as System.Delegate;
+            if (direct != null) return direct;
+
+            System.Type type = evtDelegate.GetType();
+            FieldInfo origField = type.GetField("originalDelegate",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (origField != null)
+            {
+                var del = origField.GetValue(evtDelegate) as System.Delegate;
+                if (del != null) return del;
+            }
+
+            FieldInfo[] fields = type.GetFields(
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var del = fields[i].GetValue(evtDelegate) as System.Delegate;
+                if (del != null) return del;
+            }
+
+            return null;
         }
 
         private static void InvokeFlightRecorderPartEventSubscriptionForTest(
@@ -15630,28 +15691,21 @@ namespace Parsek.InGameTests
         /// Phase 6 §9.4 / HR-8. A suppressed predecessor cannot leak ε
         /// into its child. The test seeds the parent with a non-zero ε,
         /// marks the child's recording id as suppressed via the test
-        /// suppression seam, and verifies the child's slot stays empty
-        /// (or holds ε = 0).
+        /// suppression seam, and verifies the child's slot stays empty.
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
             Description = "Phase 6 §9.4 suppressed predecessor does not leak ε into successor")]
         public IEnumerator Pipeline_Anchor_SuppressedSubtree()
         {
-            // Cycle-suspect path is the closest suppression-equivalent
-            // surface accessible without standing up a full
-            // SessionSuppressionState fixture in the runtime — the runtime
-            // already exercises SessionSuppressionState through the
-            // RewindInvoker integration tests. Here we instead verify that
-            // the child slot stays at ε = 0 when the resolver and propagator
-            // run with no parent seed. The HR-8 closure is unit-tested
-            // exhaustively in AnchorPropagationTests / AnchorWorldFrameResolverTests;
-            // this in-game test is the smoke check that the propagator runs
-            // cleanly under the live runtime without spurious side effects.
+            // The xUnit suite covers the full SessionSuppressionState
+            // closure. This in-game smoke test exercises the runtime
+            // propagator through its suppression seam: a seeded parent would
+            // normally propagate a non-zero ε to the child, but a suppressed
+            // child must receive no anchor slot.
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
             Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
             const double bpUT = 1234.0;
             var parent = MakeAnchorTestRecording("supp-parent", bpUT, 0, 0, 100);
@@ -15667,36 +15721,48 @@ namespace Parsek.InGameTests
             };
             tree.BranchPoints.Add(bp);
 
-            yield return null;
+            try
+            {
+                Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
-            // No parent seed — the propagator should walk the edge with
-            // ε_upstream = 0 and write ε = 0 onto the child. That's the
-            // HR-9 visible-failure surface for "no upstream anchor".
-            Parsek.Rendering.AnchorPropagator.Run(
-                new ReFlySessionMarker { SessionId = "supp-sess", TreeId = tree.Id },
-                new List<Recording> { parent, child },
-                new List<RecordingTree> { tree },
-                surfaceLookup: null);
+                var seed = new Vector3d(7.0, 0.0, 0.0);
+                Parsek.Rendering.RenderSessionState.PutAnchorForTesting(
+                    new Parsek.Rendering.AnchorCorrection(
+                        parent.RecordingId, sectionIndex: 0,
+                        side: Parsek.Rendering.AnchorSide.End,
+                        ut: bpUT,
+                        epsilon: seed,
+                        source: Parsek.Rendering.AnchorSource.LiveSeparation));
+                Parsek.Rendering.AnchorPropagator.SuppressionPredicateForTesting = id =>
+                    string.Equals(id, child.RecordingId, System.StringComparison.Ordinal);
 
-            yield return null;
+                yield return null;
 
-            // The child's slot is written with ε = 0 (the propagator records
-            // metadata even on zero ε so the priority slot is reserved).
-            bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
-                child.RecordingId, sectionIndex: 0,
-                Parsek.Rendering.AnchorSide.Start,
-                out Parsek.Rendering.AnchorCorrection ac);
-            InGameAssert.IsTrue(hit, "Pipeline_Anchor_SuppressedSubtree: child slot must be reserved");
-            InGameAssert.IsTrue(ac.Epsilon.magnitude < 0.01,
-                $"Pipeline_Anchor_SuppressedSubtree: child ε must be zero without parent seed; got {ac.Epsilon.magnitude:F4}m");
+                Parsek.Rendering.AnchorPropagator.Run(
+                    new ReFlySessionMarker { SessionId = "supp-sess", TreeId = tree.Id },
+                    new List<Recording> { parent, child },
+                    new List<RecordingTree> { tree },
+                    surfaceLookup: null);
 
-            ParsekLog.Info("Pipeline-Anchor",
-                $"Pipeline_Anchor_SuppressedSubtree: child ε={ac.Epsilon.magnitude:F4} (expected ~0)");
+                yield return null;
 
-            Parsek.Rendering.RenderSessionState.ResetForTesting();
-            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
-            Parsek.Rendering.AnchorPropagator.ResetForTesting();
+                bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
+                    child.RecordingId, sectionIndex: 0,
+                    Parsek.Rendering.AnchorSide.Start,
+                    out _);
+                InGameAssert.IsFalse(hit,
+                    "Pipeline_Anchor_SuppressedSubtree: suppressed child must not receive propagated ε");
+
+                ParsekLog.Info("Pipeline-Anchor",
+                    "Pipeline_Anchor_SuppressedSubtree: suppressed child blocked propagated ε as expected");
+            }
+            finally
+            {
+                Parsek.Rendering.RenderSessionState.ResetForTesting();
+                Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+                Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
+                Parsek.Rendering.AnchorPropagator.ResetForTesting();
+            }
             yield break;
         }
 
