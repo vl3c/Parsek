@@ -106,6 +106,116 @@ namespace Parsek.Tests
             };
         }
 
+        public static IEnumerable<object[]> RetryBlockingRecordingActionCases()
+        {
+            // Columns: GameActionType, retryBlocking (Re-Fly/STASH gate), strictBlocking
+            // (legacy ledger-safety gate; preserved for non-retry callers).
+            //
+            // Retry-blocking is now narrowed to ScienceEarning only — see
+            // SupersedeCommit.IsRetryBlockingRecordingAction. Every KSC-scene
+            // "player action" still passes the strict gate (so audit/reconciliation
+            // call sites observe them) but does NOT auto-seal a Re-Fly retry,
+            // because in practice it cannot reach the gate with a flight tag and,
+            // for the one rollout-adoption case that does (FundsSpending(VesselBuild)),
+            // the cost is paid once and survives revert/retag.
+            yield return new object[] { GameActionType.ScienceEarning, true, true };
+            yield return new object[] { GameActionType.ScienceSpending, false, true };
+            yield return new object[] { GameActionType.FundsEarning, false, true };
+            yield return new object[] { GameActionType.FundsSpending, false, true };
+            yield return new object[] { GameActionType.MilestoneAchievement, false, true };
+            yield return new object[] { GameActionType.ContractAccept, false, true };
+            yield return new object[] { GameActionType.ContractComplete, false, true };
+            yield return new object[] { GameActionType.ContractFail, false, true };
+            yield return new object[] { GameActionType.ContractCancel, false, true };
+            yield return new object[] { GameActionType.ReputationEarning, false, true };
+            yield return new object[] { GameActionType.ReputationPenalty, false, true };
+            yield return new object[] { GameActionType.KerbalAssignment, false, true };
+            yield return new object[] { GameActionType.KerbalHire, false, true };
+            yield return new object[] { GameActionType.KerbalRescue, false, true };
+            yield return new object[] { GameActionType.KerbalStandIn, false, true };
+            yield return new object[] { GameActionType.FacilityUpgrade, false, true };
+            yield return new object[] { GameActionType.FacilityDestruction, false, true };
+            yield return new object[] { GameActionType.FacilityRepair, false, true };
+            yield return new object[] { GameActionType.StrategyActivate, false, true };
+            yield return new object[] { GameActionType.StrategyDeactivate, false, true };
+            yield return new object[] { GameActionType.FundsInitial, false, false };
+            yield return new object[] { GameActionType.ScienceInitial, false, false };
+            yield return new object[] { GameActionType.ReputationInitial, false, false };
+        }
+
+        [Fact]
+        public void RetryBlockingRecordingActionCases_CoverEveryGameActionType()
+        {
+            var covered = new HashSet<GameActionType>(
+                RetryBlockingRecordingActionCases()
+                    .Select(row => (GameActionType)row[0]));
+            var expected = new HashSet<GameActionType>(
+                Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>());
+            var missing = expected.Except(covered).ToList();
+            var extra = covered.Except(expected).ToList();
+
+            Assert.True(missing.Count == 0 && extra.Count == 0,
+                "RetryBlockingRecordingActionCases must classify every " +
+                "GameActionType. Missing=[" + string.Join(",", missing) +
+                "] Extra=[" + string.Join(",", extra) + "]");
+        }
+
+        private static GameAction RecordingScopedAction(
+            GameActionType type,
+            string recordingId,
+            string actionId = null)
+        {
+            return new GameAction
+            {
+                ActionId = actionId ?? "act_" + type,
+                Type = type,
+                RecordingId = recordingId,
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+                NodeId = "survivability",
+                Cost = 5.0f,
+                FundsAwarded = 10.0f,
+                FundsSpent = 10.0f,
+                FundsSource = FundsEarningSource.Other,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                NominalRep = 1.0f,
+                NominalPenalty = 1.0f,
+                RepSource = ReputationSource.Other,
+                RepPenaltySource = ReputationPenaltySource.Other,
+                MilestoneId = "RecordsAltitude",
+                MilestoneFundsAwarded = 960.0f,
+                MilestoneRepAwarded = 1.0f,
+                ContractId = "contract_1",
+                ContractType = "ExploreBody",
+                ContractTitle = "Explore the Mun",
+                AdvanceFunds = 1000.0f,
+                FundsReward = 2000.0f,
+                RepReward = 2.0f,
+                ScienceReward = 1.0f,
+                FundsPenalty = 500.0f,
+                RepPenalty = 1.0f,
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                KerbalEndStateField = KerbalEndState.Recovered,
+                HireCost = 10000.0f,
+                ReplacesKerbal = "Bill Kerman",
+                FacilityId = "LaunchPad",
+                ToLevel = 2,
+                FacilityCost = 75000.0f,
+                StrategyId = "FundraisingCamp",
+                SourceResource = StrategyResource.Reputation,
+                TargetResource = StrategyResource.Funds,
+                Commitment = 0.1f,
+                SetupCost = 1000.0f,
+                SetupScienceCost = 5.0f,
+                SetupReputationCost = 1.0f,
+                InitialFunds = 25000.0f,
+                InitialScience = 5.0f,
+                InitialReputation = 10.0f,
+            };
+        }
+
         private static void InstallTree(string treeId, List<Recording> recordings,
             List<BranchPoint> branchPoints)
         {
@@ -1212,7 +1322,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1240,15 +1350,10 @@ namespace Parsek.Tests
                     originSlot,
                 }
             });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_sci_origin",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_origin",
-                UT = 12.0,
-                SubjectId = "crewReport@MunInSpaceLow",
-                ScienceAwarded = 1.5f,
-            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_origin",
+                "act_sci_earn_origin"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1259,9 +1364,9 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
         }
 
         [Fact]
@@ -1325,7 +1430,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1357,15 +1462,10 @@ namespace Parsek.Tests
                     originSlot,
                 }
             });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_sci_origin",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_origin",
-                UT = 12.0,
-                SubjectId = "crewReport@MunInSpaceLow",
-                ScienceAwarded = 1.5f,
-            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_origin",
+                "act_sci_earn_origin"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1375,9 +1475,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_origin")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_origin"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
         }
 
         [Fact]
@@ -1465,8 +1565,56 @@ namespace Parsek.Tests
             Assert.Null(summary);
         }
 
+        [Theory]
+        [MemberData(nameof(RetryBlockingRecordingActionCases))]
+        public void TryFindRetryBlockingWorldAction_ReportsOnlyScienceEarning(
+            GameActionType type,
+            bool retryBlocking,
+            bool strictBlocking)
+        {
+            var rec = Rec("rec_" + type, "tree_1");
+            string actionId = "act_" + type;
+            Ledger.AddAction(RecordingScopedAction(type, rec.RecordingId, actionId));
+
+            string summary;
+            Assert.Equal(strictBlocking,
+                SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            if (strictBlocking)
+                Assert.Equal(type + ":" + actionId, summary);
+            else
+                Assert.Null(summary);
+
+            Assert.Equal(retryBlocking,
+                SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
+            if (retryBlocking)
+                Assert.Equal(type + ":" + actionId, summary);
+            else
+                Assert.Null(summary);
+        }
+
         [Fact]
-        public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceAction_AutoSeals()
+        public void TryFindRetryBlockingWorldAction_SkipsAutomaticActionsAndReportsScienceEarning()
+        {
+            var rec = Rec("rec_mixed_actions", "tree_1");
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                rec.RecordingId,
+                "act_funds_earn"));
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                rec.RecordingId,
+                "act_sci_earn"));
+
+            string summary;
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("FundsEarning:act_funds_earn", summary);
+
+            Assert.True(SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_earn", summary);
+        }
+
+        [Fact]
+        public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1495,15 +1643,10 @@ namespace Parsek.Tests
                     originSlot,
                 }
             });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_sci",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_provisional",
-                UT = 12.0,
-                SubjectId = "crewReport@MunInSpaceLow",
-                ScienceAwarded = 1.5f,
-            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_provisional",
+                "act_sci_earn"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1513,13 +1656,158 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn"));
+        }
+
+        // Negative twin of the ScienceEarning case above. After the v0.9.x
+        // tightening (auto-seal limited to intentional player actions taken on
+        // the vessel), ScienceSpending — a KSC-scene tech-unlock — no longer
+        // closes a Destroyed retry slot, even when it carries a flight-tagged
+        // RecordingId.
+        [Fact]
+        public void DestroyedTerminal_WithRecordingScopedScienceSpendingAction_StaysRetryable()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceSpending,
+                "rec_provisional",
+                "act_sci_spend"));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
         }
 
         [Fact]
-        public void DestroyedTerminal_WithRecordingScopedScienceAction_AutoSeals()
+        public void DestroyedTerminal_WithRecordingScopedScienceEarningAction_AutoSeals()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_provisional",
+                "act_sci_earn"));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn"));
+        }
+
+        [Fact]
+        public void DestroyedTerminal_WithOnlyNonStructuralPartEvents_KeepsOpen()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            provisional.PartEvents.Add(new PartEvent
+            {
+                ut = 12.0,
+                partPersistentId = 100000,
+                partName = "roverWheel",
+                eventType = PartEventType.GearDeployed,
+            });
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=crashed")
+                && l.Contains("autoSeal=False"));
+        }
+
+        [Fact]
+        public void DestroyedTerminal_WithRecordingScopedMilestoneAction_KeepsOpen()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1550,25 +1838,25 @@ namespace Parsek.Tests
             });
             Ledger.AddAction(new GameAction
             {
-                ActionId = "act_sci",
-                Type = GameActionType.ScienceEarning,
+                ActionId = "act_milestone",
+                Type = GameActionType.MilestoneAchievement,
                 RecordingId = "rec_provisional",
                 UT = 12.0,
-                SubjectId = "crewReport@MunInSpaceLow",
-                ScienceAwarded = 1.5f,
+                MilestoneId = "RecordsAltitude",
+                MilestoneFundsAwarded = 960.0f,
+                MilestoneRepAwarded = 1.0f,
             });
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci")
-                && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci"));
+                && l.Contains("mergeState=CommittedProvisional")
+                && l.Contains("classifierReason=crashed")
+                && l.Contains("autoSeal=False"));
         }
 
         [Fact]
