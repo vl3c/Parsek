@@ -1567,7 +1567,7 @@ namespace Parsek.Tests
 
         [Theory]
         [MemberData(nameof(RetryBlockingRecordingActionCases))]
-        public void TryFindRetryBlockingWorldAction_ReportsOnlyPlayerActions(
+        public void TryFindRetryBlockingWorldAction_ReportsOnlyScienceEarning(
             GameActionType type,
             bool retryBlocking,
             bool strictBlocking)
@@ -1593,7 +1593,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindRetryBlockingWorldAction_SkipsAutomaticActionsUntilPlayerAction()
+        public void TryFindRetryBlockingWorldAction_SkipsAutomaticActionsAndReportsScienceEarning()
         {
             var rec = Rec("rec_mixed_actions", "tree_1");
             Ledger.AddAction(RecordingScopedAction(
