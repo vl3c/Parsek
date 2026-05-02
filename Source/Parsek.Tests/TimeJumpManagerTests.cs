@@ -26,6 +26,27 @@ namespace Parsek.Tests
         private static readonly double CircularMeanMotion =
             Math.Sqrt(KerbinGM / (CircularSMA * CircularSMA * CircularSMA));
 
+        private static string FindParsekSourceFile(string fileName)
+        {
+            string dir = System.IO.Directory.GetCurrentDirectory();
+            for (int i = 0; i < 8; i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", fileName);
+                if (System.IO.File.Exists(candidate))
+                    return candidate;
+
+                var parent = System.IO.Directory.GetParent(dir);
+                if (parent == null)
+                    break;
+
+                dir = parent.FullName;
+            }
+
+            throw new System.IO.FileNotFoundException(
+                "Could not locate Parsek source file from test working directory.",
+                fileName);
+        }
+
         public TimeJumpManagerTests()
         {
             RecordingStore.SuppressLogging = true;
@@ -582,6 +603,20 @@ namespace Parsek.Tests
                 l.Contains("cutoffUT=9876.5") &&
                 l.Contains("InvalidOperationException") &&
                 l.Contains("boom"));
+        }
+
+        [Fact]
+        public void ExecuteJumpPaths_CallRecalculateHelperWithTargetUt()
+        {
+            string source = System.IO.File.ReadAllText(
+                FindParsekSourceFile("TimeJumpManager.cs"));
+
+            Assert.Contains(
+                "RecalculateLedgerAfterTimeJump(\"epoch-shift\", targetUT);",
+                source);
+            Assert.Contains(
+                "RecalculateLedgerAfterTimeJump(\"forward\", targetUT);",
+                source);
         }
 
         #endregion
