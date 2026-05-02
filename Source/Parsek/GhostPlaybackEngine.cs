@@ -522,6 +522,8 @@ namespace Parsek
                 if (f.skipGhost)
                 {
                     CountFrameSkip(f.skipReason);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, f.skipReason.ToLogToken());
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
@@ -549,6 +551,8 @@ namespace Parsek
                 if (!HasRenderableGhostData(traj))
                 {
                     CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "no-renderable-ghost-data");
                     continue;
                 }
 
@@ -560,6 +564,8 @@ namespace Parsek
                 if (SessionSuppressionState.IsActive
                     && SessionSuppressionState.IsSuppressedRecordingIndex(i))
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "session-suppressed-subtree");
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
@@ -580,6 +586,8 @@ namespace Parsek
                 {
                     completedEventFired.Remove(i);
                     earlyDestroyedDebrisCompleted.Remove(i);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "before-activation-start-ut");
                     if (ghostActive)
                     {
                         DestroyAllOverlapGhosts(i);
@@ -599,6 +607,9 @@ namespace Parsek
                     // Anchor gating: if anchor configured but not loaded, skip ghost
                     if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
                     {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT,
+                            "loop-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
                         if (ghostActive)
                         {
                             DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
@@ -639,6 +650,8 @@ namespace Parsek
                         if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
                                 out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
                         {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "parent-loop-sync-failed");
                             if (ghostActive)
                                 DestroyGhost(i, traj, f, reason: "parent loop sync failed");
                             CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -650,6 +663,9 @@ namespace Parsek
                                 ctx.warpRate, traj, parentLoopUT);
                         if (parentPaused || suppressLoopSyncGhost)
                         {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT,
+                                parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
                             if (state != null)
                                 DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
                             CountFrameSkip(parentPaused
@@ -1020,6 +1036,9 @@ namespace Parsek
 
             if (zoneResult.hiddenByZone)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT,
+                    "hidden-by-zone distance=" + FormatPlaybackDistanceForLog(renderDistance));
                 ghostActive = HandleHiddenGhostVisualState(
                     i, traj, state, ctx.currentUT, ctx.warpRate, renderDistance, overlapGhost: false,
                     hiddenReason: $"hidden by distance LOD at {FormatPlaybackDistanceForLog(renderDistance)}");
@@ -1062,6 +1081,8 @@ namespace Parsek
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
 
             double visiblePlaybackUT = ResolveVisiblePlaybackUT(traj, state, ctx.currentUT);
+            GhostRenderTrace.BeginFrame(
+                traj, i, ctx.currentUT, visiblePlaybackUT, "non-loop");
 
             // Bug #613 (PR #594 P1): clear the per-frame retire signal before
             // positioning so a stale value from a previous frame's relative
@@ -1113,6 +1134,8 @@ namespace Parsek
             // for a retired ghost was the original misleading symptom.
             bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired);
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -1325,6 +1348,8 @@ namespace Parsek
                     out double duration,
                     out double intervalSeconds))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-schedule-resolution-failed");
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop schedule resolution failed");
                 CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -1348,6 +1373,8 @@ namespace Parsek
                         || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                             ctx.warpRate, traj, overlapLoopUT)))
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
                     if (ghostActive && state.ghost.activeSelf)
                     {
                         state.ghost.SetActive(false);
@@ -1384,6 +1411,8 @@ namespace Parsek
             if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
                     out loopUT, out cycleIndex, out inPauseWindow, index))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-ut-computation-failed");
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
                 CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -1395,6 +1424,8 @@ namespace Parsek
             if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                     ctx.warpRate, traj, loopUT))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-warp-hidden");
                 if (ghostActive && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
@@ -1566,6 +1597,9 @@ namespace Parsek
             var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
             if (zoneResult.hiddenByZone)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT,
+                    "loop-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(loopZoneDistance));
                 ghostActive = HandleHiddenGhostVisualState(
                     index, traj, state, loopUT, ctx.warpRate, loopZoneDistance, overlapGhost: false,
                     hiddenReason: $"loop hidden by distance LOD at {FormatPlaybackDistanceForLog(loopZoneDistance)}");
@@ -1610,13 +1644,18 @@ namespace Parsek
             // positioning. The relative loop positioner sets it back to true
             // if the recorded anchor is unresolvable.
             state.anchorRetiredThisFrame = false;
+            GhostRenderTrace.BeginFrame(
+                traj, index, ctx.currentUT, loopUT, "loop-primary");
 
             // Position the loop ghost
             positioner.PositionLoop(index, traj, state, loopUT, effectiveSuppressVisualFx);
 
             // Apply visual events
-            if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                    state.anchorRetiredThisFrame))
+            bool loopRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired);
+            if (loopRetired)
             {
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
                 // NOT log appearance. See the matching gate in RenderInRangeGhost.
@@ -1650,6 +1689,8 @@ namespace Parsek
         {
             if (ctx.currentUT < scheduleStartUT)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "overlap-before-activation-start-ut");
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
@@ -1767,6 +1808,9 @@ namespace Parsek
                     index, primaryState, traj, primaryDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT,
+                        "overlap-primary-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(primaryDistance));
                     // Bug #450 B2: a newly-started overlap-primary build may already have
                     // consumed its one allowed timeline advance this frame above. Do not let
                     // hidden-tier prewarm immediately take a second advance through
@@ -1818,9 +1862,14 @@ namespace Parsek
                         // positioning; gate visuals/activation/appearance on
                         // it after.
                         primaryState.anchorRetiredThisFrame = false;
+                        GhostRenderTrace.BeginFrame(
+                            traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
                         positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
-                        if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                                primaryState.anchorRetiredThisFrame))
+                        bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            primaryState.anchorRetiredThisFrame);
+                        GhostRenderTrace.EmitPostUpdate(
+                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired);
+                        if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                                 skipPartEvents: true, suppressVisualFx: true,
@@ -1955,6 +2004,10 @@ namespace Parsek
                     index, ovState, traj, overlapDistance, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT,
+                        "overlap-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(overlapDistance)
+                            + " cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
                     HandleHiddenGhostVisualState(
                         index, traj, ovState, loopUT, ctx.warpRate, overlapDistance, overlapGhost: true,
                         hiddenReason: $"overlap hidden by distance LOD at {FormatPlaybackDistanceForLog(overlapDistance)}");
@@ -1978,9 +2031,17 @@ namespace Parsek
                 // Bug #613 (PR #594 P1): clear retire signal before
                 // positioning; gate visuals/activation/appearance on it after.
                 ovState.anchorRetiredThisFrame = false;
+                GhostRenderTrace.BeginFrame(
+                    traj, index, ctx.currentUT, loopUT,
+                    "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
-                if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                        ovState.anchorRetiredThisFrame))
+                bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    ovState.anchorRetiredThisFrame);
+                GhostRenderTrace.EmitPostUpdate(
+                    traj, index, ctx.currentUT, loopUT, ovState,
+                    "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
+                    overlapRetired);
+                if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                         skipPartEvents: true, suppressVisualFx: true,
@@ -5058,6 +5119,7 @@ namespace Parsek
             // against its current frame, not against a stale pose from
             // the prior session.
             PlaybackTrace.Reset();
+            GhostRenderTrace.Reset();
         }
 
         /// <summary>

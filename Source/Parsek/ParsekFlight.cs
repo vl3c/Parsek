@@ -384,6 +384,9 @@ namespace Parsek
         {
             public GameObject ghost;
             public GhostPosMode mode;
+            public string recordingId;
+            public int recordingIndex;
+            public bool hasRecordingIndex;
 
             // PointInterp fields
             public CelestialBody bodyBefore;
@@ -1543,19 +1546,37 @@ namespace Parsek
             Vector3d before,
             Vector3d after)
         {
-            if (phase != GhostPositionReapplyPhase.CameraPreCull)
-                return;
-
             double delta = Vector3d.Distance(before, after);
             bool hasReFlyOffset = entry.reFlyTreeOffset.sqrMagnitude > 0.000001;
-            if (delta < 1.0 && !hasReFlyOffset)
-                return;
 
             string recordingId =
+                !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
                 !string.IsNullOrEmpty(entry.anchorRecordingId) ? entry.anchorRecordingId :
                 !string.IsNullOrEmpty(entry.coBubblePeerRecordingId) ? entry.coBubblePeerRecordingId :
                 !string.IsNullOrEmpty(entry.relativeAnchorRecordingId) ? entry.relativeAnchorRecordingId :
-                "<none>";
+                null;
+            double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : entry.pointUT;
+            GhostRenderTrace.EmitReapply(
+                recordingId,
+                entry.hasRecordingIndex ? entry.recordingIndex : -1,
+                currentUT,
+                entry.pointUT,
+                phase == GhostPositionReapplyPhase.CameraPreCull ? "CameraPreCull" : "LateUpdate",
+                entry.mode.ToString(),
+                before,
+                after,
+                entry.ghost != null ? entry.ghost.transform.rotation : Quaternion.identity,
+                entry.reFlyTreeOffset,
+                hasReFlyOffset ? "refly-offset" : null);
+
+            if (phase != GhostPositionReapplyPhase.CameraPreCull)
+                return;
+
+            if (delta < 1.0 && !hasReFlyOffset)
+                return;
+
+            if (string.IsNullOrEmpty(recordingId))
+                recordingId = "<none>";
             string shortRecordingId = recordingId.Length > 8 ? recordingId.Substring(0, 8) : recordingId;
             string key = "ghost-camera-pre-cull-reapply-" + shortRecordingId + "-" + entry.mode;
             ParsekLog.VerboseRateLimited(
@@ -1572,6 +1593,55 @@ namespace Parsek
                     after.x, after.y, after.z,
                     entry.reFlyTreeOffset.x, entry.reFlyTreeOffset.y, entry.reFlyTreeOffset.z),
                 1.0);
+        }
+
+        private static string BuildGhostRenderTraceLiveRootComparison(
+            string recordingId,
+            Vector3d finalWorldPosition)
+        {
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return string.Empty;
+
+            string prefix = " liveRootActive=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                + " selectedRootPid="
+                + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture);
+            if (string.IsNullOrEmpty(recordingId))
+                return prefix + " liveRootHit=false liveRootReason=recording-id-missing";
+            if (!IsFiniteVector3d(finalWorldPosition))
+                return prefix + " liveRootHit=false liveRootReason=ghost-pos-non-finite";
+            if (!TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid) || activeReFlyPid == 0u)
+                return prefix + " liveRootHit=false liveRootReason=active-pid-missing";
+
+            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
+            if (liveAnchor == null)
+                return prefix + " liveRootHit=false liveRootReason=live-vessel-missing activePid="
+                    + activeReFlyPid.ToString(CultureInfo.InvariantCulture);
+
+            if (!TryResolveReFlyLiveAnchorWorld(
+                    liveAnchor,
+                    marker,
+                    out Vector3d liveRootWorld,
+                    out string liveRootSource,
+                    out uint liveRootPartPid,
+                    out double liveRootVesselOffsetMeters))
+            {
+                return prefix + " liveRootHit=false liveRootReason=live-root-unresolved activePid="
+                    + activeReFlyPid.ToString(CultureInfo.InvariantCulture);
+            }
+
+            Vector3d ghostMinusLiveRoot = finalWorldPosition - liveRootWorld;
+            return prefix
+                + " liveRootHit=true"
+                + " activePid=" + activeReFlyPid.ToString(CultureInfo.InvariantCulture)
+                + " liveRootSource=" + (liveRootSource ?? "<none>")
+                + " liveRootPartPid=" + liveRootPartPid.ToString(CultureInfo.InvariantCulture)
+                + " liveRootVesselOffsetMeters="
+                + liveRootVesselOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                + " liveRootWorld=" + GhostRenderTrace.FormatVector3d(liveRootWorld)
+                + " ghostMinusLiveRoot=" + GhostRenderTrace.FormatVector3d(ghostMinusLiveRoot)
+                + " ghostLiveRootDM="
+                + ghostMinusLiveRoot.magnitude.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         private static bool TryResolveStoredRecordedAnchorPose(
@@ -1643,7 +1713,28 @@ namespace Parsek
                 double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight, clearance);
                 if (clamped > alt)
                 {
-                    e.ghost.transform.position = body.GetWorldSurfacePosition(lat, lon, clamped);
+                    Vector3d beforeClamp = e.ghost.transform.position;
+                    Vector3d afterClamp = body.GetWorldSurfacePosition(lat, lon, clamped);
+                    e.ghost.transform.position = afterClamp;
+                    string traceRecordingId =
+                        !string.IsNullOrEmpty(e.recordingId) ? e.recordingId :
+                        !string.IsNullOrEmpty(e.anchorRecordingId) ? e.anchorRecordingId :
+                        !string.IsNullOrEmpty(e.coBubblePeerRecordingId) ? e.coBubblePeerRecordingId :
+                        !string.IsNullOrEmpty(e.relativeAnchorRecordingId) ? e.relativeAnchorRecordingId :
+                        null;
+                    double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : e.pointUT;
+                    GhostRenderTrace.EmitTerrainClamp(
+                        traceRecordingId,
+                        e.hasRecordingIndex ? e.recordingIndex : -1,
+                        currentUT,
+                        e.pointUT,
+                        e.mode.ToString(),
+                        beforeClamp,
+                        afterClamp,
+                        alt,
+                        terrainHeight,
+                        clamped,
+                        clearance);
                     ParsekLog.VerboseRateLimited("TerrainCorrect", "clamp-ghost",
                         string.Format(CultureInfo.InvariantCulture,
                             "Ghost terrain clamp: alt={0:F1} terrain={1:F1} -> {2:F1} (clearance={3:F1}m)",
@@ -16095,6 +16186,7 @@ namespace Parsek
             // !IsValid) silently falls through to the legacy lerp result —
             // that is acceptable per HR-9 because "no spline yet" is a normal
             // state, not a failure.
+            bool splineApplied = false;
             if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
             {
                 RecordSplineEvalForLogging();
@@ -16118,7 +16210,10 @@ namespace Parsek
                         recordingId, sectionIndex,
                         unknownFrameTagWarned);
                     if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
+                    {
                         interpolatedPos = splineWorld;
+                        splineApplied = true;
+                    }
                 }
             }
 
@@ -16148,9 +16243,11 @@ namespace Parsek
             // standalone Stages 1+2+3+4 already produced a valid position.
             bool coBubbleHit = false;
             string coBubblePrimaryId = null;
+            Vector3d coBubbleOffset = Vector3d.zero;
+            Parsek.Rendering.CoBubbleBlendStatus blendStatus = default(Parsek.Rendering.CoBubbleBlendStatus);
             if (allowCoBubbleBlend(recordingId, targetUT,
-                    out Vector3d coBubbleOffset, out string primaryRecordingId,
-                    out Parsek.Rendering.CoBubbleBlendStatus blendStatus))
+                    out coBubbleOffset, out string primaryRecordingId,
+                    out blendStatus))
             {
                 if (TryComputeStandaloneWorldPositionForRecording(
                         primaryRecordingId, targetUT, bodyBefore, out Vector3d primaryWorld))
@@ -16186,6 +16283,36 @@ namespace Parsek
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
+            if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    traceCurrentUT,
+                    targetUT,
+                    "UpdatePath",
+                    "mode=" + (coBubbleHit ? "CoBubble" : "PointInterp")
+                    + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                    + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " afterUT=" + after.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " t=" + t.ToString("F4", CultureInfo.InvariantCulture)
+                    + " rawBefore=" + GhostRenderTrace.FormatVector3d(posBefore)
+                    + " rawAfter=" + GhostRenderTrace.FormatVector3d(posAfter)
+                    + " rawLerp=" + GhostRenderTrace.FormatVector3d(Vector3d.Lerp(posBefore, posAfter, t))
+                    + " splineHit=" + (splineApplied ? "true" : "false")
+                    + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
+                    + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
+                    + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
+                    + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
+                    + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
+                    + " reFlyHit=" + (hasReFlyTreeOffset ? "true" : "false")
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero)
+                    + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
+                    + BuildGhostRenderTraceLiveRootComparison(recordingId, interpolatedPos));
+            }
+
             // Register for LateUpdate re-positioning after FloatingOrigin shift.
             // Phase 3 / Phase 4: store the lookup key (recordingId + sectionIndex)
             // so LateUpdate can re-evaluate BOTH the spline (Phase 1+4) and the
@@ -16210,6 +16337,7 @@ namespace Parsek
                 {
                     ghost = ghost,
                     mode = GhostPosMode.CoBubble,
+                    recordingId = recordingId,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
@@ -16231,6 +16359,7 @@ namespace Parsek
                 {
                     ghost = ghost,
                     mode = GhostPosMode.PointInterp,
+                    recordingId = recordingId,
                     bodyBefore = bodyBefore,
                     bodyAfter = bodyAfter,
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
@@ -17060,12 +17189,33 @@ namespace Parsek
                 TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
             ghost.transform.position = worldPos + singlePointReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
+            if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    traceCurrentUT,
+                    point.ut,
+                    "UpdatePath",
+                    "mode=SinglePoint body=" + (point.bodyName ?? "<none>")
+                    + " lat=" + point.latitude.ToString("F6", CultureInfo.InvariantCulture)
+                    + " lon=" + point.longitude.ToString("F6", CultureInfo.InvariantCulture)
+                    + " alt=" + effectiveAltitude.ToString("F2", CultureInfo.InvariantCulture)
+                    + " altitudeAuthoritative=" + (altitudeAuthoritative ? "true" : "false")
+                    + " rawWorld=" + GhostRenderTrace.FormatVector3d(worldPos)
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(singlePointReFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
+                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+            }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
             ghostPosEntries.Add(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.SinglePoint,
+                recordingId = recordingId,
                 bodyBefore = body,
                 latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
@@ -17475,18 +17625,21 @@ namespace Parsek
                 orbitCache[cacheKey] = orbit;
             }
 
-            Vector3d worldPos = orbit.getPositionAtUT(ut);
+            Vector3d rawOrbitWorldPos = orbit.getPositionAtUT(ut);
+            Vector3d worldPos = rawOrbitWorldPos;
 
             // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
             // orbit with periapsis below surface, or impact trajectory on airless body),
             // clamp to surface altitude. Prevents the ghost mesh from tunneling through
             // the planet during orbit-only recording sections where no trajectory points exist.
             double orbitAlt = body.GetAltitude(worldPos);
+            bool orbitTerrainClamped = false;
             if (orbitAlt < 0)
             {
                 double lat = body.GetLatitude(worldPos);
                 double lon = body.GetLongitude(worldPos);
                 worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                orbitTerrainClamped = true;
             }
 
             // Re-Fly tree display alignment: orbit-driven ghosts in the
@@ -17509,6 +17662,28 @@ namespace Parsek
                 ghost.transform.rotation, cacheKey, hasOfr, spinning);
 
             ghost.transform.rotation = ghostRot;
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : ut;
+            if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    traceCurrentUT,
+                    ut,
+                    "UpdatePath",
+                    "mode=Orbit cacheKey=" + cacheKey.ToString(CultureInfo.InvariantCulture)
+                    + " body=" + (segment.bodyName ?? "<none>")
+                    + " segmentUT=[" + segment.startUT.ToString("F3", CultureInfo.InvariantCulture)
+                    + "," + segment.endUT.ToString("F3", CultureInfo.InvariantCulture) + "]"
+                    + " rawWorld=" + GhostRenderTrace.FormatVector3d(rawOrbitWorldPos)
+                    + " terrainClamp=" + (orbitTerrainClamped ? "true" : "false")
+                    + " orbitAlt=" + orbitAlt.ToString("F2", CultureInfo.InvariantCulture)
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(orbitReFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
+                    + " rotationMode=" + (spinning ? "spin-forward" : hasOfr ? "orbital-frame" : "prograde")
+                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+            }
 
             // First-activation logging (once per segment)
             if (!loggedOrbitRotationSegments.Contains(cacheKey))
@@ -17527,6 +17702,7 @@ namespace Parsek
             {
                 ghost = ghost,
                 mode = GhostPosMode.Orbit,
+                recordingId = recordingId,
                 orbitCacheKey = cacheKey,
                 orbitUT = ut,
                 orbitFrameRot = segment.orbitalFrameRotation,
@@ -17658,6 +17834,27 @@ namespace Parsek
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude)
                 + surfReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
+            double tracePlaybackUT = double.IsNaN(pointUT) && Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : pointUT;
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : tracePlaybackUT;
+            if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    traceCurrentUT,
+                    tracePlaybackUT,
+                    "UpdatePath",
+                    "mode=Surface body=" + (surfPos.body ?? "<none>")
+                    + " lat=" + surfPos.latitude.ToString("F6", CultureInfo.InvariantCulture)
+                    + " lon=" + surfPos.longitude.ToString("F6", CultureInfo.InvariantCulture)
+                    + " alt=" + surfPos.altitude.ToString("F2", CultureInfo.InvariantCulture)
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(surfReFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
+                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+            }
             if (allowActivation)
                 ghost.SetActive(true);
 
@@ -17666,6 +17863,7 @@ namespace Parsek
             {
                 ghost = ghost,
                 mode = GhostPosMode.Surface,
+                recordingId = recordingId,
                 bodyBefore = body,
                 latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
                 surfaceRot = surfPos.rotation,
@@ -17825,6 +18023,17 @@ namespace Parsek
             }
             if (!IsReFlyDisplayAlignmentCaptureAllowed(recordingId, currentUT, out string captureWindowReason))
             {
+                GhostRenderTrace.EmitReFlyAlignment(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    "capture-window-skip",
+                    captureWindowReason,
+                    marker,
+                    recTreeId,
+                    Vector3d.zero,
+                    0.0,
+                    force: true);
                 ParsekLog.VerboseRateLimited(
                     "Playback",
                     "refly-display-alignment-capture-window-skip|"
@@ -17849,6 +18058,17 @@ namespace Parsek
                         out string bodyReason))
                 {
                     cache.Remove(marker.SessionId, recordingId);
+                    GhostRenderTrace.EmitReFlyAlignment(
+                        recordingId,
+                        -1,
+                        currentUT,
+                        "cache-body-mismatch",
+                        bodyReason,
+                        marker,
+                        recTreeId,
+                        Vector3d.zero,
+                        alignment.InitialWorldOffsetMeters,
+                        force: true);
                     ParsekLog.WarnRateLimited(
                         "Playback",
                         "refly-display-alignment-body-mismatch|"
@@ -17883,9 +18103,31 @@ namespace Parsek
                         alignment,
                         delta,
                         projectDebob);
+                    GhostRenderTrace.EmitReFlyAlignment(
+                        recordingId,
+                        -1,
+                        currentUT,
+                        "projected",
+                        projectReason,
+                        marker,
+                        recTreeId,
+                        delta,
+                        alignment.InitialWorldOffsetMeters,
+                        force: false);
                     return true;
                 }
 
+                GhostRenderTrace.EmitReFlyAlignment(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    "project-skip",
+                    projectReason,
+                    marker,
+                    recTreeId,
+                    Vector3d.zero,
+                    alignment.InitialWorldOffsetMeters,
+                    force: true);
                 ParsekLog.VerboseRateLimited(
                     "Playback",
                     "refly-display-alignment-project-skip|"
@@ -17915,6 +18157,17 @@ namespace Parsek
                         out string inheritedLiveBodyName,
                         out string inheritedBodyReason))
                 {
+                    GhostRenderTrace.EmitReFlyAlignment(
+                        recordingId,
+                        -1,
+                        currentUT,
+                        "inherit-body-mismatch",
+                        inheritedBodyReason,
+                        marker,
+                        recTreeId,
+                        Vector3d.zero,
+                        alignment.InitialWorldOffsetMeters,
+                        force: true);
                     ParsekLog.WarnRateLimited(
                         "Playback",
                         "refly-display-alignment-inherit-body-mismatch|"
@@ -17940,6 +18193,17 @@ namespace Parsek
                         out ReFlyRecordedDebobDiagnostics inheritedProjectDebob,
                         out _))
                 {
+                    GhostRenderTrace.EmitReFlyAlignment(
+                        recordingId,
+                        -1,
+                        currentUT,
+                        "inherit-project-skip",
+                        inheritedProjectReason,
+                        marker,
+                        recTreeId,
+                        Vector3d.zero,
+                        alignment.InitialWorldOffsetMeters,
+                        force: true);
                     ParsekLog.VerboseRateLimited(
                         "Playback",
                         "refly-display-alignment-inherit-project-skip|"
@@ -17955,6 +18219,17 @@ namespace Parsek
                 }
 
                 cache.Store(alignment);
+                GhostRenderTrace.EmitReFlyAlignment(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    "inherited",
+                    "inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId),
+                    marker,
+                    recTreeId,
+                    delta,
+                    alignment.InitialWorldOffsetMeters,
+                    force: true);
                 ParsekLog.Info(
                     "Playback",
                     "Re-Fly display alignment inherited: tree="
@@ -17987,6 +18262,17 @@ namespace Parsek
                     out uint liveAnchorPartPid,
                     out double liveAnchorOffsetMeters))
             {
+                GhostRenderTrace.EmitReFlyAlignment(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    "capture-skip",
+                    reason,
+                    marker,
+                    recTreeId,
+                    Vector3d.zero,
+                    0.0,
+                    force: true);
                 ParsekLog.VerboseRateLimited(
                     "Playback",
                     "refly-recording-anchor-skip|" + recTreeId + "|" + marker.SessionId,
@@ -18013,6 +18299,17 @@ namespace Parsek
                     out ReFlyRecordedDebobDiagnostics capturedProjectDebob,
                     out bool capturedAlignmentUpdated))
             {
+                GhostRenderTrace.EmitReFlyAlignment(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    "captured-project-skip",
+                    capturedProjectReason,
+                    marker,
+                    recTreeId,
+                    Vector3d.zero,
+                    alignment.InitialWorldOffsetMeters,
+                    force: true);
                 ParsekLog.VerboseRateLimited(
                     "Playback",
                     "refly-display-alignment-captured-project-skip|"
@@ -18028,6 +18325,18 @@ namespace Parsek
             if (capturedAlignmentUpdated)
                 cache.Store(alignment);
 
+            GhostRenderTrace.EmitReFlyAlignment(
+                recordingId,
+                -1,
+                currentUT,
+                "initialized",
+                "liveAnchorSource=" + (liveAnchorSource ?? "<none>")
+                    + "|liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture),
+                marker,
+                recTreeId,
+                delta,
+                alignment.InitialWorldOffsetMeters,
+                force: true);
             ParsekLog.Info(
                 "Playback",
                 "Re-Fly display alignment initialized: tree="
@@ -19043,6 +19352,15 @@ namespace Parsek
             state.externalActivationDeferred = false;
             if (wasRaised)
             {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
+                    "ReFlyActivationGate",
+                    "action=lower reason=" + (reason ?? "<none>"),
+                    important: false,
+                    force: true);
                 ParsekLog.Verbose("Playback",
                     "Re-Fly anchor activation gate lowered: rec="
                     + ShortRecordingId(recordingId)
@@ -19058,6 +19376,15 @@ namespace Parsek
             state.externalActivationDeferred = true;
             if (!wasRaised)
             {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    -1,
+                    currentUT,
+                    currentUT,
+                    "ReFlyActivationGate",
+                    "action=raise reason=offset-not-resolvable",
+                    important: false,
+                    force: true);
                 ParsekLog.VerboseRateLimited(
                     "Playback",
                     "refly-gate-raise|" + (recordingId ?? "<no-rec>"),
@@ -19910,6 +20237,30 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos + checkpointReFlyTreeOffset;
             ghost.transform.rotation = ghostRot;
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : playbackUT;
+            if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    recordingId,
+                    recordingIndex,
+                    traceCurrentUT,
+                    playbackUT,
+                    "UpdatePath",
+                    "mode=CheckpointPoint sectionIndex=" + sectionIdx.ToString(CultureInfo.InvariantCulture)
+                    + " cacheKey=" + cacheKey.ToString(CultureInfo.InvariantCulture)
+                    + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " afterUT=" + after.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " t=" + t.ToString("F4", CultureInfo.InvariantCulture)
+                    + " rawBefore=" + GhostRenderTrace.FormatVector3d(posBefore)
+                    + " rawAfter=" + GhostRenderTrace.FormatVector3d(posAfter)
+                    + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
+                    + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
+                    + " reFlyHit=" + (hasCheckpointReFlyTreeOffset ? "true" : "false")
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(checkpointReFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
+                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+            }
 
             Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
             pointRot = TrajectoryMath.SanitizeQuaternion(pointRot);
@@ -19917,6 +20268,9 @@ namespace Parsek
             {
                 ghost = ghost,
                 mode = GhostPosMode.CheckpointPoint,
+                recordingId = recordingId,
+                recordingIndex = recordingIndex,
+                hasRecordingIndex = true,
                 bodyBefore = bodyBefore,
                 bodyAfter = bodyAfter,
                 latBefore = before.latitude,
@@ -20423,7 +20777,25 @@ namespace Parsek
             worldPos = Vector3d.zero;
             RelativeAnchorPose anchorPose;
             if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out anchorPose))
+            {
+                GhostRenderTrace.EmitRelativeResolver(
+                    target.RecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "recorded-relative-offset",
+                    "anchor-pose-unresolved",
+                    target.Section.anchorVesselId,
+                    target.AnchorRecordingId,
+                    success: false,
+                    fromRecordedTrajectory: true,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: new Vector3d(dx, dy, dz),
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 return false;
+            }
 
             worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                 anchorPose.worldPos,
@@ -20434,8 +20806,25 @@ namespace Parsek
                 recordingFormatVersion);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPose.worldPos;
-            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset))
+            Vector3d reFlyTreeOffset = Vector3d.zero;
+            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out reFlyTreeOffset))
                 worldPos += reFlyTreeOffset;
+            GhostRenderTrace.EmitRelativeResolver(
+                target.RecordingId,
+                -1,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                targetUT,
+                "recorded-relative-offset",
+                "resolved",
+                target.Section.anchorVesselId,
+                target.AnchorRecordingId,
+                success: true,
+                fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
+                anchorPosition: anchorPose.worldPos,
+                anchorRotation: anchorPose.worldRotation,
+                localOffset: new Vector3d(dx, dy, dz),
+                outputPosition: worldPos,
+                reFlyOffset: reFlyTreeOffset);
             return true;
         }
 
@@ -20539,6 +20928,22 @@ namespace Parsek
                             out _))
                     {
                         pose = livePose;
+                        GhostRenderTrace.EmitRelativeResolver(
+                            victimRecordingId,
+                            -1,
+                            Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                            targetUT,
+                            "loop-live-anchor",
+                            "live-fast-path",
+                            anchorVesselId,
+                            null,
+                            success: true,
+                            fromRecordedTrajectory: false,
+                            anchorPosition: pose.worldPos,
+                            anchorRotation: pose.worldRotation,
+                            localOffset: Vector3d.zero,
+                            outputPosition: pose.worldPos,
+                            reFlyOffset: Vector3d.zero);
                         return true;
                     }
                 }
@@ -20653,14 +21058,78 @@ namespace Parsek
             {
                 case RelativeAnchorResolution.AnchorFrameSource.Live:
                     pose = livePose;
+                    GhostRenderTrace.EmitRelativeResolver(
+                        victimRecordingId,
+                        -1,
+                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                        targetUT,
+                        "loop-live-anchor",
+                        "live-selected",
+                        anchorVesselId,
+                        null,
+                        success: true,
+                        fromRecordedTrajectory: false,
+                        anchorPosition: pose.worldPos,
+                        anchorRotation: pose.worldRotation,
+                        localOffset: Vector3d.zero,
+                        outputPosition: pose.worldPos,
+                        reFlyOffset: Vector3d.zero);
                     return true;
                 case RelativeAnchorResolution.AnchorFrameSource.Recorded:
                     pose = recordedPose;
+                    GhostRenderTrace.EmitRelativeResolver(
+                        victimRecordingId,
+                        -1,
+                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                        targetUT,
+                        "loop-live-anchor",
+                        bypassLiveAnchor ? "recorded-selected-bypass" : "recorded-selected-stale-or-unloaded",
+                        anchorVesselId,
+                        null,
+                        success: true,
+                        fromRecordedTrajectory: true,
+                        anchorPosition: pose.worldPos,
+                        anchorRotation: pose.worldRotation,
+                        localOffset: Vector3d.zero,
+                        outputPosition: pose.worldPos,
+                        reFlyOffset: Vector3d.zero);
                     return true;
                 case RelativeAnchorResolution.AnchorFrameSource.RecordedFallback:
                     pose = recordedFallbackPose;
+                    GhostRenderTrace.EmitRelativeResolver(
+                        victimRecordingId,
+                        -1,
+                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                        targetUT,
+                        "loop-live-anchor",
+                        "recorded-fallback-selected",
+                        anchorVesselId,
+                        null,
+                        success: true,
+                        fromRecordedTrajectory: true,
+                        anchorPosition: pose.worldPos,
+                        anchorRotation: pose.worldRotation,
+                        localOffset: Vector3d.zero,
+                        outputPosition: pose.worldPos,
+                        reFlyOffset: Vector3d.zero);
                     return true;
                 default:
+                    GhostRenderTrace.EmitRelativeResolver(
+                        victimRecordingId,
+                        -1,
+                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                        targetUT,
+                        "loop-live-anchor",
+                        "no-anchor-source",
+                        anchorVesselId,
+                        null,
+                        success: false,
+                        fromRecordedTrajectory: false,
+                        anchorPosition: Vector3d.zero,
+                        anchorRotation: Quaternion.identity,
+                        localOffset: Vector3d.zero,
+                        outputPosition: Vector3d.zero,
+                        reFlyOffset: Vector3d.zero);
                     return false;
             }
         }
@@ -22039,6 +22508,42 @@ namespace Parsek
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                 anchorPose.worldRotation,
                 interpolatedRot);
+            GhostRenderTrace.EmitRelativeResolver(
+                target.RecordingId,
+                recordingIndex,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                targetUT,
+                "recorded-relative-position",
+                "resolved",
+                target.Section.anchorVesselId,
+                target.AnchorRecordingId,
+                success: true,
+                fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
+                anchorPosition: anchorPose.worldPos,
+                anchorRotation: anchorPose.worldRotation,
+                localOffset: new Vector3d(dx, dy, dz),
+                outputPosition: ghostPos,
+                reFlyOffset: reFlyTreeOffset);
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
+            if (GhostRenderTrace.ShouldEmitPhase(target.RecordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    target.RecordingId,
+                    recordingIndex,
+                    traceCurrentUT,
+                    targetUT,
+                    "UpdatePath",
+                    "mode=RecordedRelative sectionIndex=" + target.SectionIndex.ToString(CultureInfo.InvariantCulture)
+                    + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " afterUT=" + after.ut.ToString("F3", CultureInfo.InvariantCulture)
+                    + " t=" + t.ToString("F4", CultureInfo.InvariantCulture)
+                    + " anchorRec=" + (target.AnchorRecordingId ?? "<none>")
+                    + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
+                    + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
+            }
 
             ParsekLog.VerboseRateLimited("Flight", "recorded-relative-offset-applied",
                 BuildRecordedRelativeOffsetAppliedLog(
@@ -22057,6 +22562,9 @@ namespace Parsek
             {
                 ghost = ghost,
                 mode = GhostPosMode.Relative,
+                recordingId = target.RecordingId,
+                recordingIndex = recordingIndex,
+                hasRecordingIndex = true,
                 anchorVesselId = 0u,
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = interpolatedRot,
@@ -22113,6 +22621,39 @@ namespace Parsek
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                 anchorPose.worldRotation,
                 sanitized);
+            GhostRenderTrace.EmitRelativeResolver(
+                target.RecordingId,
+                -1,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut,
+                point.ut,
+                "recorded-relative-single",
+                "resolved",
+                target.Section.anchorVesselId,
+                target.AnchorRecordingId,
+                success: true,
+                fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
+                anchorPosition: anchorPose.worldPos,
+                anchorRotation: anchorPose.worldRotation,
+                localOffset: new Vector3d(dx, dy, dz),
+                outputPosition: ghostPos,
+                reFlyOffset: reFlyTreeOffset);
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
+            if (GhostRenderTrace.ShouldEmitPhase(target.RecordingId, traceCurrentUT))
+            {
+                GhostRenderTrace.EmitPhase(
+                    target.RecordingId,
+                    -1,
+                    traceCurrentUT,
+                    point.ut,
+                    "UpdatePath",
+                    "mode=RecordedRelativeSingle sectionIndex=" + target.SectionIndex.ToString(CultureInfo.InvariantCulture)
+                    + " anchorRec=" + (target.AnchorRecordingId ?? "<none>")
+                    + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
+                    + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
+                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
+                    + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
+            }
 
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
             altitude = body != null ? body.GetAltitude(ghostPos) : 0.0;
@@ -22120,6 +22661,7 @@ namespace Parsek
             {
                 ghost = ghost,
                 mode = GhostPosMode.Relative,
+                recordingId = target.RecordingId,
                 anchorVesselId = 0u,
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = sanitized,
@@ -22160,6 +22702,22 @@ namespace Parsek
             pose = default(RelativeAnchorPose);
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "recorded-anchor-pose",
+                    "anchor-recording-id-missing",
+                    0u,
+                    anchorRecordingId,
+                    success: false,
+                    fromRecordedTrajectory: true,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 ParsekLog.WarnRateLimited(
                     "Anchor",
                     "recorded-relative-missing-anchor-recording-id|" +
@@ -22175,6 +22733,22 @@ namespace Parsek
             anchorRecordingId = anchorRecordingId.Trim();
             if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
             {
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "recorded-anchor-pose",
+                    "focus-tree-missing",
+                    0u,
+                    anchorRecordingId,
+                    success: false,
+                    fromRecordedTrajectory: true,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 ParsekLog.WarnRateLimited(
                     "Anchor",
                     "recorded-relative-focus-tree-missing|" + (recordingId ?? "(none)"),
@@ -22210,12 +22784,44 @@ namespace Parsek
 
             if (!resolved)
             {
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "recorded-anchor-pose",
+                    "resolver-unresolved",
+                    0u,
+                    anchorRecordingId,
+                    success: false,
+                    fromRecordedTrajectory: true,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 return false;
             }
 
             pose.worldPos = anchorPose.WorldPos;
             pose.worldRotation = anchorPose.WorldRotation;
             pose.fromRecordedTrajectory = true;
+            GhostRenderTrace.EmitRelativeResolver(
+                recordingId,
+                -1,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                targetUT,
+                "recorded-anchor-pose",
+                "resolved",
+                0u,
+                anchorRecordingId,
+                success: true,
+                fromRecordedTrajectory: true,
+                anchorPosition: pose.worldPos,
+                anchorRotation: pose.worldRotation,
+                localOffset: Vector3d.zero,
+                outputPosition: pose.worldPos,
+                reFlyOffset: Vector3d.zero);
             return true;
         }
 
@@ -22450,6 +23056,42 @@ namespace Parsek
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchorPose.worldRotation,
                     interpolatedRot);
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    recordingIndex,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-relative-position",
+                    "resolved",
+                    anchorVesselId,
+                    null,
+                    success: true,
+                    fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
+                    anchorPosition: anchorPose.worldPos,
+                    anchorRotation: anchorPose.worldRotation,
+                    localOffset: new Vector3d(dx, dy, dz),
+                    outputPosition: ghostPos,
+                    reFlyOffset: reFlyTreeOffset);
+                double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
+                if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+                {
+                    GhostRenderTrace.EmitPhase(
+                        recordingId,
+                        recordingIndex,
+                        traceCurrentUT,
+                        targetUT,
+                        "UpdatePath",
+                        "mode=LoopRelative anchorPid=" + anchorVesselId.ToString(CultureInfo.InvariantCulture)
+                        + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
+                        + " afterUT=" + after.ut.ToString("F3", CultureInfo.InvariantCulture)
+                        + " t=" + t.ToString("F4", CultureInfo.InvariantCulture)
+                        + " anchorSource=" + (anchorPose.fromRecordedTrajectory ? "recorded" : "live")
+                        + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
+                        + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
+                        + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
+                        + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
+                        + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
+                }
 
                 ParsekLog.VerboseRateLimited("Flight", "relative-offset-applied",
                     BuildRelativeOffsetAppliedLog(
@@ -22473,6 +23115,9 @@ namespace Parsek
                 {
                     ghost = ghost,
                     mode = GhostPosMode.Relative,
+                    recordingId = recordingId,
+                    recordingIndex = recordingIndex,
+                    hasRecordingIndex = true,
                     anchorVesselId = anchorVesselId,
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = interpolatedRot,
@@ -22493,6 +23138,22 @@ namespace Parsek
                 // No live or recorded anchor pose is available. Retire for this
                 // frame so v6 metre offsets are never interpreted as surface
                 // lat/lon/alt or left frozen at a stale transform.
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    recordingIndex,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-relative-position",
+                    "anchor-unresolved-retired",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: new Vector3d(dx, dy, dz),
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 if (ghost.activeSelf) ghost.SetActive(false);
                 if (retireSignalState != null)
                     retireSignalState.anchorRetiredThisFrame = true;
@@ -22561,12 +23222,48 @@ namespace Parsek
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchorPose.worldRotation,
                     sanitized);
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    recordingIndex,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut,
+                    point.ut,
+                    "loop-relative-single",
+                    "resolved",
+                    anchorVesselId,
+                    null,
+                    success: true,
+                    fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
+                    anchorPosition: anchorPose.worldPos,
+                    anchorRotation: anchorPose.worldRotation,
+                    localOffset: new Vector3d(dx, dy, dz),
+                    outputPosition: ghostPos,
+                    reFlyOffset: relReFlyTreeOffset);
+                double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
+                if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
+                {
+                    GhostRenderTrace.EmitPhase(
+                        recordingId,
+                        recordingIndex,
+                        traceCurrentUT,
+                        point.ut,
+                        "UpdatePath",
+                        "mode=LoopRelativeSingle anchorPid=" + anchorVesselId.ToString(CultureInfo.InvariantCulture)
+                        + " anchorSource=" + (anchorPose.fromRecordedTrajectory ? "recorded" : "live")
+                        + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
+                        + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
+                        + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(relReFlyTreeOffset)
+                        + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
+                        + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
+                }
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 ghostPosEntries.Add(new GhostPosEntry
                 {
                     ghost = ghost,
                     mode = GhostPosMode.Relative,
+                    recordingId = recordingId,
+                    recordingIndex = recordingIndex,
+                    hasRecordingIndex = true,
                     anchorVesselId = anchorVesselId,
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = sanitized,
@@ -22582,6 +23279,22 @@ namespace Parsek
             {
                 // No live or recorded anchor pose is available. Retire for this
                 // frame; see InterpolateAndPositionLoopRelative for the same gate.
+                GhostRenderTrace.EmitRelativeResolver(
+                    recordingId,
+                    recordingIndex,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut,
+                    point.ut,
+                    "loop-relative-single",
+                    "anchor-unresolved-retired",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: new Vector3d(dx, dy, dz),
+                    outputPosition: Vector3d.zero,
+                    reFlyOffset: Vector3d.zero);
                 if (ghost.activeSelf) ghost.SetActive(false);
                 if (retireSignalState != null)
                     retireSignalState.anchorRetiredThisFrame = true;
