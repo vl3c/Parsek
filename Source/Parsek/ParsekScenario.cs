@@ -2896,6 +2896,15 @@ namespace Parsek
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
+                pendingActiveTreeResumeRewindSave = null;
+                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                    "TryRestoreActiveTreeNode:rewind-in-progress",
+                    out string rewindSuppressReason))
+                {
+                    ParsekLog.Warn("Scenario",
+                        "TryRestoreActiveTreeNode: consumed active-tree restore " +
+                        $"suppression while rewind was already skipping restore reason='{rewindSuppressReason}'");
+                }
                 ParsekLog.Verbose("Scenario",
                     "TryRestoreActiveTreeNode: skipped (rewind in progress — active tree deliberately discarded)");
                 return false;
@@ -2907,6 +2916,19 @@ namespace Parsek
                 if (!IsActiveTreeNode(treeNodes[t])) continue;
 
                 var tree = RecordingTree.Load(treeNodes[t]);
+                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                    "TryRestoreActiveTreeNode:active-tree",
+                    out string suppressReason))
+                {
+                    pendingActiveTreeResumeRewindSave = null;
+                    ParsekLog.Info("Scenario",
+                        "TryRestoreActiveTreeNode: suppressed saved active tree restore " +
+                        $"tree='{tree.TreeName}' id={tree.Id} recordings={tree.Recordings.Count} " +
+                        $"activeRecId={tree.ActiveRecordingId ?? "<null>"} reason='{suppressReason}' - " +
+                        "leaving committed mission tree intact and not stashing pending-Limbo");
+                    return false;
+                }
+
                 int sidecarHydrationFailures = 0;
                 int staleEpochHydrationFailures = 0;
                 // Hydrate bulk data from sidecar files for each recording.
@@ -3072,6 +3094,14 @@ namespace Parsek
                         : ""));
                 ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
+            }
+            if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                "TryRestoreActiveTreeNode:no-active-tree",
+                out string noActiveSuppressReason))
+            {
+                ParsekLog.Warn("Scenario",
+                    "TryRestoreActiveTreeNode: consumed active-tree restore " +
+                    $"suppression but no active tree node was present reason='{noActiveSuppressReason}'");
             }
             return false;
         }

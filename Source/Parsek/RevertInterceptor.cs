@@ -98,6 +98,13 @@ namespace Parsek
         internal static Action<GameScenes, EditorFacility> DiscardReFlyLoadSceneForTesting;
 
         /// <summary>
+        /// Test seam: when non-null, overrides only the scene-dispatch result
+        /// while still letting <see cref="DiscardReFlyHandler"/> arm its
+        /// production one-shot suppressions.
+        /// </summary>
+        internal static Func<RevertTarget, EditorFacility, bool> DiscardReFlyDispatchSceneResultForTesting;
+
+        /// <summary>
         /// Test seam: when non-null, suppresses the
         /// <see cref="ScreenMessages.PostScreenMessage"/> call the discard path
         /// uses for user-visible error toasts so unit tests can capture the
@@ -121,6 +128,7 @@ namespace Parsek
             RewindInvokeStartForTesting = null;
             DiscardReFlyLoadGameForTesting = null;
             DiscardReFlyLoadSceneForTesting = null;
+            DiscardReFlyDispatchSceneResultForTesting = null;
             ScreenMessagePostForTesting = null;
             DiscardReFlyQuicksaveExistsForTesting = null;
         }
@@ -508,6 +516,8 @@ namespace Parsek
             {
                 RecordingStore.ArmNextTreeSceneExitCommitSuppression(
                     $"discardReFly sess={sessionId} target={target}{facilityText}");
+                RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                    $"discardReFly sess={sessionId} target={target}{facilityText}");
                 suppressionArmed = true;
             }
 
@@ -522,6 +532,14 @@ namespace Parsek
                     ParsekLog.Warn(SessionTag,
                         "DiscardReFly: scene dispatch failed; consumed tree scene-exit " +
                         $"commit suppression to prevent leak reason='{consumedReason}'");
+                }
+                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                    "DiscardReFly:scene-dispatch-failed",
+                    out string restoreReason))
+                {
+                    ParsekLog.Warn(SessionTag,
+                        "DiscardReFly: scene dispatch failed; consumed active-tree " +
+                        $"restore suppression to prevent leak reason='{restoreReason}'");
                 }
             }
 
@@ -706,6 +724,10 @@ namespace Parsek
 
         private static bool DispatchScene(RevertTarget target, EditorFacility facility)
         {
+            var resultHook = DiscardReFlyDispatchSceneResultForTesting;
+            if (resultHook != null)
+                return resultHook(target, facility);
+
             var hook = DiscardReFlyLoadSceneForTesting;
             if (hook != null)
             {
