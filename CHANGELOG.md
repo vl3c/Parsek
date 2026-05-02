@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Unowned science subjects from stock transmission and vessel recovery now enter the ledger immediately, so Parsek no longer patches the science pool back down before those rewards are committed.
 - The Re-Fly merge confirmation dialog's `Discard` button now abandons only the active Re-Fly attempt instead of purging the whole mission tree.
 - Fast Forward and Real Spawn Control instant time jumps now recalculate the career ledger immediately after the clock changes, matching normal time-warp exit. Funds, science, reputation, contracts, and facilities no longer stay at pre-jump values until another trigger fires.
 - STASH/Re-Fly retry safety now closes slots only when the player credited `ScienceEarning` (Crew Report / EVA Report / Surface Sample / Transmit / Recover) on the vessel during the recording. Automatic gameplay/career consequence rows (`MilestoneAchievement`, funds/rep earnings, contract complete/fail, facility destruction, kerbal assignment/rescue/stand-in) and KSC-scene player decisions (tech unlock, contract accept/cancel, kerbal hire, facility upgrade/repair, strategy toggle, vessel build cost) no longer exclude or auto-seal an otherwise retryable destroyed or non-boarded-EVA terminal-failure slot, and no longer block manual Stash on otherwise eligible stable terminal slots — they either fire from KSC scenes with no flight-recording tag or, in the rollout-adoption case, are paid once and survive revert/retag.

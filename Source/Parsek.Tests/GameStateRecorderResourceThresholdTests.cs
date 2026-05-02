@@ -125,5 +125,29 @@ namespace Parsek.Tests
                 88.8,
                 "rec-new"));
         }
+
+        [Theory]
+        [InlineData("", false, false, true)]
+        [InlineData(null, false, false, true)]
+        [InlineData("", true, false, false)]
+        [InlineData("", false, true, false)]
+        [InlineData("", true, true, false)]
+        [InlineData("rec-owned", false, false, false)]
+        [InlineData("rec-owned", true, false, false)]
+        [InlineData("rec-owned", false, true, false)]
+        [InlineData("rec-owned", true, true, false)]
+        public void ShouldForwardDirectScienceSubject_OnlyUnownedWithoutLiveOrPendingTreeForwards(
+            string recordingTag,
+            bool hasLiveRecorder,
+            bool hasActiveUncommittedTree,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                GameStateRecorder.ShouldForwardDirectScienceSubject(
+                    recordingTag,
+                    hasLiveRecorder,
+                    hasActiveUncommittedTree));
+        }
     }
 }
