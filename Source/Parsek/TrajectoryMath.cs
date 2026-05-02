@@ -245,6 +245,132 @@ namespace Parsek
             return delta > 180.0 ? 360.0 - delta : delta;
         }
 
+        private static bool IsFinite(Vector3d value)
+        {
+            return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
+                && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
+                && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+
+        /// <summary>
+        /// Velocity-aware world-position interpolation for sparse playback brackets.
+        /// Uses cubic Hermite when endpoint velocities agree with the recorded
+        /// chord and the curve stays near the legacy lerp. Returns false when
+        /// the velocity data is missing, non-finite, frame-inconsistent, or
+        /// would introduce a large bow/loop.
+        /// </summary>
+        internal static bool TryInterpolateWorldHermite(
+            Vector3d posBefore,
+            Vector3 velocityBefore,
+            Vector3d posAfter,
+            Vector3 velocityAfter,
+            double deltaTimeSeconds,
+            float t,
+            double maxDeviationMeters,
+            out Vector3d hermiteWorld,
+            out double deviationMeters,
+            out string reason)
+        {
+            hermiteWorld = Vector3d.zero;
+            deviationMeters = double.NaN;
+            reason = null;
+
+            if (!IsFinite(posBefore) || !IsFinite(posAfter))
+            {
+                reason = "position-non-finite";
+                return false;
+            }
+            if (!IsFinite(velocityBefore) || !IsFinite(velocityAfter))
+            {
+                reason = "velocity-non-finite";
+                return false;
+            }
+            if (double.IsNaN(deltaTimeSeconds)
+                || double.IsInfinity(deltaTimeSeconds)
+                || deltaTimeSeconds <= 1e-6)
+            {
+                reason = "dt-invalid";
+                return false;
+            }
+            if (float.IsNaN(t) || float.IsInfinity(t) || t < 0f || t > 1f)
+            {
+                reason = "t-invalid";
+                return false;
+            }
+            if (double.IsNaN(maxDeviationMeters)
+                || double.IsInfinity(maxDeviationMeters)
+                || maxDeviationMeters <= 0.0)
+            {
+                reason = "max-deviation-invalid";
+                return false;
+            }
+
+            double speedBeforeSq = velocityBefore.sqrMagnitude;
+            double speedAfterSq = velocityAfter.sqrMagnitude;
+            if (speedBeforeSq < 0.01 || speedAfterSq < 0.01)
+            {
+                reason = "velocity-missing";
+                return false;
+            }
+
+            Vector3d v0 = new Vector3d(velocityBefore.x, velocityBefore.y, velocityBefore.z);
+            Vector3d v1 = new Vector3d(velocityAfter.x, velocityAfter.y, velocityAfter.z);
+            Vector3d chord = posAfter - posBefore;
+            double chordMeters = chord.magnitude;
+            Vector3d averageVelocityDisplacement = (v0 + v1) * (0.5 * deltaTimeSeconds);
+            double velocityChordResidual = (averageVelocityDisplacement - chord).magnitude;
+            double maxVelocityChordResidual = System.Math.Max(500.0, chordMeters * 0.75);
+            if (velocityChordResidual > maxVelocityChordResidual)
+            {
+                reason = "velocity-chord-mismatch";
+                return false;
+            }
+
+            double u = t;
+            double u2 = u * u;
+            double u3 = u2 * u;
+            double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+            double h10 = u3 - 2.0 * u2 + u;
+            double h01 = -2.0 * u3 + 3.0 * u2;
+            double h11 = u3 - u2;
+            Vector3d tangentBefore = v0 * deltaTimeSeconds;
+            Vector3d tangentAfter = v1 * deltaTimeSeconds;
+
+            hermiteWorld =
+                posBefore * h00
+                + tangentBefore * h10
+                + posAfter * h01
+                + tangentAfter * h11;
+            if (!IsFinite(hermiteWorld))
+            {
+                reason = "hermite-non-finite";
+                return false;
+            }
+
+            Vector3d lerpWorld = Vector3d.Lerp(posBefore, posAfter, t);
+            deviationMeters = (hermiteWorld - lerpWorld).magnitude;
+            if (double.IsNaN(deviationMeters) || double.IsInfinity(deviationMeters))
+            {
+                reason = "deviation-non-finite";
+                return false;
+            }
+            if (deviationMeters > maxDeviationMeters)
+            {
+                reason = "deviation-too-large";
+                return false;
+            }
+
+            reason = "applied";
+            return true;
+        }
+
         private static void ExpandEquivalentOrbitWindow(
             List<OrbitSegment> segments,
             int seedFirstIndex,

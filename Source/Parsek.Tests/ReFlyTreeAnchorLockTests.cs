@@ -596,6 +596,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyDisplayAlignment_GhostPartPinAddsFrozenBodyFixedOffset()
+        {
+            Quaternion bodyRotation = Quaternion.identity;
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Vector3d pinDelta = new Vector3d(0.0, -4.0, 3.0);
+            Assert.True(alignment.TryApplyGhostPartPin(bodyRotation, pinDelta, 3087746488u, 10.25));
+
+            Assert.True(alignment.GhostPartPinCaptured);
+            Assert.Equal(3087746488u, alignment.GhostPartPinPid);
+            Assert.Equal(10.25, alignment.GhostPartPinUT);
+            Assert.Equal(5.0, alignment.GhostPartPinMeters, 6);
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d projected));
+            AssertVectorClose(new Vector3d(10.0, -4.0, 3.0), projected, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_GhostPartPinRejectsSecondCapture()
+        {
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                Quaternion.identity,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryApplyGhostPartPin(
+                Quaternion.identity,
+                new Vector3d(1.0, 0.0, 0.0),
+                123u,
+                11.0));
+            Assert.False(alignment.TryApplyGhostPartPin(
+                Quaternion.identity,
+                new Vector3d(1.0, 0.0, 0.0),
+                123u,
+                12.0));
+            Assert.Equal(11.0, alignment.GhostPartPinUT);
+        }
+
+        [Fact]
         public void ReFlyDisplayAlignment_CaptureRejectsNonFiniteInputs()
         {
             bool captured = ReFlyDisplayAlignment.TryCapture(

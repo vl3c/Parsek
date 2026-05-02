@@ -395,7 +395,10 @@ namespace Parsek
             public double latAfter, lonAfter, altAfter;
             public float t;
             public double pointUT;
+            public double pointDeltaTimeSeconds;
             public Quaternion interpolatedRot;
+            public Vector3 velocityBefore;
+            public Vector3 velocityAfter;
 
             // SinglePoint fields (also used body/lat/lon/alt from "before")
             // (uses bodyBefore, latBefore, lonBefore, altBefore, pointUT, interpolatedRot)
@@ -1188,7 +1191,22 @@ namespace Parsek
                                 e.latBefore, e.lonBefore, e.altBefore);
                             Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                 e.latAfter, e.lonAfter, e.altAfter);
-                            pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                            double hermiteMaxDeviationMeters =
+                                ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                            if (!TrajectoryMath.TryInterpolateWorldHermite(
+                                    posBefore,
+                                    e.velocityBefore,
+                                    posAfter,
+                                    e.velocityAfter,
+                                    e.pointDeltaTimeSeconds,
+                                    e.t,
+                                    hermiteMaxDeviationMeters,
+                                    out pos,
+                                    out _,
+                                    out _))
+                            {
+                                pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                            }
                         }
                         // Phase 2 + Phase 3 anchor correction (design doc
                         // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
@@ -1524,7 +1542,22 @@ namespace Parsek
                                     e.latBefore, e.lonBefore, e.altBefore);
                                 Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                     e.latAfter, e.lonAfter, e.altAfter);
-                                pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                                double hermiteMaxDeviationMeters =
+                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                                if (!TrajectoryMath.TryInterpolateWorldHermite(
+                                        posBefore,
+                                        e.velocityBefore,
+                                        posAfter,
+                                        e.velocityAfter,
+                                        e.pointDeltaTimeSeconds,
+                                        e.t,
+                                        hermiteMaxDeviationMeters,
+                                        out pos,
+                                        out _,
+                                        out _))
+                                {
+                                    pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                                }
                             }
                             if (allowRenderAnchorCorrectionInterval(
                                     e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
@@ -16171,7 +16204,8 @@ namespace Parsek
             Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
                 after.latitude, after.longitude, effectiveAltAfter);
 
-            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
+            Vector3d rawLerpPos = Vector3d.Lerp(posBefore, posAfter, t);
+            Vector3d interpolatedPos = rawLerpPos;
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
 
             interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
@@ -16219,6 +16253,36 @@ namespace Parsek
                         interpolatedPos = splineWorld;
                         splineApplied = true;
                     }
+                }
+            }
+
+            // Velocity-aware PointInterp fallback: for sparse atmospheric
+            // brackets, endpoint velocities often describe a smoother path
+            // than straight world-position lerp. The helper is deliberately
+            // guarded; if velocities are stale/frame-inconsistent or the
+            // cubic bows too far from the legacy line, rendering stays on
+            // the old lerp.
+            bool hermiteApplied = false;
+            Vector3d rawHermitePos = Vector3d.zero;
+            double hermiteDeviationMeters = double.NaN;
+            double hermiteMaxDeviationMeters = ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+            string hermiteReason = splineApplied ? "spline-applied" : "not-evaluated";
+            if (!splineApplied)
+            {
+                if (TrajectoryMath.TryInterpolateWorldHermite(
+                        posBefore,
+                        before.velocity,
+                        posAfter,
+                        after.velocity,
+                        after.ut - before.ut,
+                        t,
+                        hermiteMaxDeviationMeters,
+                        out rawHermitePos,
+                        out hermiteDeviationMeters,
+                        out hermiteReason))
+                {
+                    interpolatedPos = rawHermitePos;
+                    hermiteApplied = true;
                 }
             }
 
@@ -16293,6 +16357,17 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
+            bool reFlyGhostPartPinApplied = TryApplyInitialReFlyGhostPartPin(
+                recordingId,
+                targetUT,
+                ghost,
+                bodyBefore,
+                ref reFlyTreeOffset,
+                ref hasReFlyTreeOffset,
+                out Vector3d reFlyGhostPartPinDelta,
+                out string reFlyGhostPartPinReason);
+            if (reFlyGhostPartPinApplied)
+                interpolatedPos += reFlyGhostPartPinDelta;
 
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
@@ -16310,7 +16385,13 @@ namespace Parsek
                     + " t=" + t.ToString("F4", CultureInfo.InvariantCulture)
                     + " rawBefore=" + GhostRenderTrace.FormatVector3d(posBefore)
                     + " rawAfter=" + GhostRenderTrace.FormatVector3d(posAfter)
-                    + " rawLerp=" + GhostRenderTrace.FormatVector3d(Vector3d.Lerp(posBefore, posAfter, t))
+                    + " rawLerp=" + GhostRenderTrace.FormatVector3d(rawLerpPos)
+                    + " rawHermite=" + GhostRenderTrace.FormatVector3d(hermiteApplied ? rawHermitePos : Vector3d.zero)
+                    + " hermiteHit=" + (hermiteApplied ? "true" : "false")
+                    + " hermiteReason=" + (hermiteReason ?? "<none>")
+                    + " hermiteDeviationMeters=" + hermiteDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " hermiteMaxDeviationMeters=" + hermiteMaxDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " interpMode=" + (splineApplied ? "Spline" : hermiteApplied ? "Hermite" : "Lerp")
                     + " splineHit=" + (splineApplied ? "true" : "false")
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
@@ -16320,6 +16401,9 @@ namespace Parsek
                     + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
                     + " reFlyHit=" + (hasReFlyTreeOffset ? "true" : "false")
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero)
+                    + " reFlyGhostPartPinHit=" + (reFlyGhostPartPinApplied ? "true" : "false")
+                    + " reFlyGhostPartPinReason=" + (reFlyGhostPartPinReason ?? "<none>")
+                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(reFlyGhostPartPinApplied ? reFlyGhostPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + BuildGhostRenderTraceLiveRootComparison(recordingId, interpolatedPos));
@@ -16356,7 +16440,10 @@ namespace Parsek
                     latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
+                    pointDeltaTimeSeconds = after.ut - before.ut,
                     interpolatedRot = interpolatedRot,
+                    velocityBefore = before.velocity,
+                    velocityAfter = after.velocity,
                     anchorRecordingId = hasLookupKey ? recordingId : null,
                     anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
                     coBubblePeerRecordingId = recordingId,
@@ -16379,7 +16466,10 @@ namespace Parsek
                     latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
                     t = t,
                     pointUT = targetUT,
+                    pointDeltaTimeSeconds = after.ut - before.ut,
                     interpolatedRot = interpolatedRot,
+                    velocityBefore = before.velocity,
+                    velocityAfter = after.velocity,
                     anchorRecordingId = hasLookupKey ? recordingId : null,
                     anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
                     reFlyTreeOffset = hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero,
@@ -16391,6 +16481,20 @@ namespace Parsek
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+        }
+
+        private static double ComputePointHermiteMaxDeviationMeters(Vector3d posBefore, Vector3d posAfter)
+        {
+            double chordMeters = Vector3d.Distance(posBefore, posAfter);
+            if (double.IsNaN(chordMeters) || double.IsInfinity(chordMeters))
+                return PointHermiteMinDeviationMeters;
+
+            double scaled = chordMeters * PointHermiteDeviationFraction;
+            if (scaled < PointHermiteMinDeviationMeters)
+                return PointHermiteMinDeviationMeters;
+            if (scaled > PointHermiteMaxDeviationCapMeters)
+                return PointHermiteMaxDeviationCapMeters;
+            return scaled;
         }
 
         /// <summary>
@@ -17240,6 +17344,15 @@ namespace Parsek
                 hasSinglePointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
             ghost.transform.position = worldPos + singlePointReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
+            bool singlePointPartPinApplied = TryApplyInitialReFlyGhostPartPin(
+                recordingId,
+                point.ut,
+                ghost,
+                body,
+                ref singlePointReFlyTreeOffset,
+                ref hasSinglePointReFlyTreeOffset,
+                out Vector3d singlePointPartPinDelta,
+                out string singlePointPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -17256,6 +17369,9 @@ namespace Parsek
                     + " altitudeAuthoritative=" + (altitudeAuthoritative ? "true" : "false")
                     + " rawWorld=" + GhostRenderTrace.FormatVector3d(worldPos)
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(singlePointReFlyTreeOffset)
+                    + " reFlyGhostPartPinHit=" + (singlePointPartPinApplied ? "true" : "false")
+                    + " reFlyGhostPartPinReason=" + (singlePointPartPinReason ?? "<none>")
+                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(singlePointPartPinApplied ? singlePointPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
@@ -17715,6 +17831,15 @@ namespace Parsek
                 ghost.transform.rotation, cacheKey, hasOfr, spinning);
 
             ghost.transform.rotation = ghostRot;
+            bool orbitPartPinApplied = TryApplyInitialReFlyGhostPartPin(
+                recordingId,
+                ut,
+                ghost,
+                body,
+                ref orbitReFlyTreeOffset,
+                ref hasOrbitReFlyTreeOffset,
+                out Vector3d orbitPartPinDelta,
+                out string orbitPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : ut;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -17732,6 +17857,9 @@ namespace Parsek
                     + " terrainClamp=" + (orbitTerrainClamped ? "true" : "false")
                     + " orbitAlt=" + orbitAlt.ToString("F2", CultureInfo.InvariantCulture)
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(orbitReFlyTreeOffset)
+                    + " reFlyGhostPartPinHit=" + (orbitPartPinApplied ? "true" : "false")
+                    + " reFlyGhostPartPinReason=" + (orbitPartPinReason ?? "<none>")
+                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(orbitPartPinApplied ? orbitPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + " rotationMode=" + (spinning ? "spin-forward" : hasOfr ? "orbital-frame" : "prograde")
@@ -17889,6 +18017,15 @@ namespace Parsek
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude)
                 + surfReFlyTreeOffset;
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
+            bool surfPartPinApplied = TryApplyInitialReFlyGhostPartPin(
+                recordingId,
+                double.IsNaN(pointUT) ? Planetarium.GetUniversalTime() : pointUT,
+                ghost,
+                body,
+                ref surfReFlyTreeOffset,
+                ref hasSurfReFlyTreeOffset,
+                out Vector3d surfPartPinDelta,
+                out string surfPartPinReason);
             double tracePlaybackUT = double.IsNaN(pointUT) && Planetarium.fetch != null
                 ? Planetarium.GetUniversalTime()
                 : pointUT;
@@ -17906,6 +18043,9 @@ namespace Parsek
                     + " lon=" + surfPos.longitude.ToString("F6", CultureInfo.InvariantCulture)
                     + " alt=" + surfPos.altitude.ToString("F2", CultureInfo.InvariantCulture)
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(surfReFlyTreeOffset)
+                    + " reFlyGhostPartPinHit=" + (surfPartPinApplied ? "true" : "false")
+                    + " reFlyGhostPartPinReason=" + (surfPartPinReason ?? "<none>")
+                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(surfPartPinApplied ? surfPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
@@ -17967,10 +18107,18 @@ namespace Parsek
         // The live vessel is not sampled again for that recording after
         // capture. This keeps Re-Fly comparison ghosts initialized near the
         // separation/root part without injecting the player's later live
-        // vessel motion into the hidden recorded trajectory.
+        // vessel motion into the hidden recorded trajectory. On the first
+        // visible ghost frame we may add one more frozen body-fixed delta
+        // so the visible ghost part with the selected decoupler/root PID is
+        // exactly over the live selected root part at t0.
         internal const double ReFlyDisplayAlignmentSuspiciousOffsetMeters = 50.0;
+        internal const double ReFlyGhostPartPinSuspiciousOffsetMeters = 50.0;
+        internal const double ReFlyGhostPartPinMaxOffsetMeters = 2000.0;
         internal const double ReFlyRecordedDebobWindowSeconds = 0.75;
         internal const double ReFlyRecordedDebobMaxCorrectionMeters = 250.0;
+        private const double PointHermiteMaxDeviationCapMeters = 250.0;
+        private const double PointHermiteMinDeviationMeters = 10.0;
+        private const double PointHermiteDeviationFraction = 0.05;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
         private string reFlyDebobSampleScopeKey;
         private string reFlyDebobSampleRecordingId;
@@ -18453,7 +18601,222 @@ namespace Parsek
                     + " debobReferenceCorrectionMeters="
                     + alignment.DebobReferenceCorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " debobCorrection=" + FormatVector3d(debob.Correction)
-                    + " debobCorrectionMeters=" + debob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture),
+                    + " debobCorrectionMeters=" + debob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " ghostPartPinCaptured=" + alignment.GhostPartPinCaptured
+                    + " ghostPartPinPid=" + alignment.GhostPartPinPid.ToString(CultureInfo.InvariantCulture)
+                    + " ghostPartPinMeters=" + alignment.GhostPartPinMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " ghostPartPinUT=" + alignment.GhostPartPinUT.ToString("F3", CultureInfo.InvariantCulture),
+                5.0);
+        }
+
+        private bool TryApplyInitialReFlyGhostPartPin(
+            string recordingId,
+            double currentUT,
+            GameObject ghost,
+            CelestialBody body,
+            ref Vector3d reFlyTreeOffset,
+            ref bool hasReFlyTreeOffset,
+            out Vector3d pinDelta,
+            out string reason)
+        {
+            pinDelta = Vector3d.zero;
+            reason = null;
+            if (!hasReFlyTreeOffset)
+            {
+                reason = "refly-offset-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                reason = "recording-id-missing";
+                return false;
+            }
+            if (ghost == null)
+            {
+                reason = "ghost-missing";
+                return false;
+            }
+            if (body == null || body.bodyTransform == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null || string.IsNullOrEmpty(marker.SessionId))
+            {
+                reason = "marker-missing";
+                return false;
+            }
+            uint selectedRootPartPid = marker.SelectedRootPartPersistentId;
+            if (selectedRootPartPid == 0u)
+            {
+                reason = "selected-root-part-missing";
+                return false;
+            }
+
+            ReFlyDisplayAlignmentCache cache = GetReFlyDisplayAlignmentCache();
+            if (!cache.TryGet(marker.SessionId, recordingId, out ReFlyDisplayAlignment alignment))
+            {
+                reason = "alignment-missing";
+                return false;
+            }
+            if (alignment.GhostPartPinCaptured)
+            {
+                reason = "already-captured";
+                return false;
+            }
+
+            Transform ghostPart = GhostVisualBuilder.FindGhostPartTransform(ghost, selectedRootPartPid);
+            if (ghostPart == null)
+            {
+                reason = "ghost-part-missing";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            Vector3d ghostPartWorld = ghostPart.position;
+            if (!IsFiniteVector3d(ghostPartWorld))
+            {
+                reason = "ghost-part-non-finite";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+
+            if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
+                || activeReFlyPid == 0u)
+            {
+                reason = "active-pid-missing";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
+            if (liveAnchor == null)
+            {
+                reason = "live-vessel-missing";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            if (!TryResolveReFlyLiveAnchorWorld(
+                    liveAnchor,
+                    marker,
+                    out Vector3d liveAnchorWorld,
+                    out string liveAnchorSource,
+                    out uint liveAnchorPartPid,
+                    out double liveAnchorVesselOffsetMeters))
+            {
+                reason = "live-anchor-unresolved";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            if (!string.Equals(liveAnchorSource, "root-part", StringComparison.Ordinal)
+                || liveAnchorPartPid != selectedRootPartPid)
+            {
+                reason = "live-anchor-not-selected-root-part";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+
+            pinDelta = liveAnchorWorld - ghostPartWorld;
+            if (!IsFiniteVector3d(pinDelta))
+            {
+                reason = "pin-delta-non-finite";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            double pinMeters = pinDelta.magnitude;
+            if (double.IsNaN(pinMeters) || double.IsInfinity(pinMeters))
+            {
+                reason = "pin-magnitude-non-finite";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+            if (pinMeters > ReFlyGhostPartPinMaxOffsetMeters)
+            {
+                reason = "pin-delta-too-large";
+                ParsekLog.WarnRateLimited(
+                    "Playback",
+                    "refly-ghost-part-pin-too-large|"
+                        + (marker.SessionId ?? "<no-sess>") + "|" + recordingId,
+                    "Re-Fly ghost part pin skipped: rec=" + ShortRecordingId(recordingId)
+                    + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                    + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
+                    + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " maxMeters=" + ReFlyGhostPartPinMaxOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " ghostPartWorld=" + FormatVector3d(ghostPartWorld)
+                    + " liveAnchorWorld=" + FormatVector3d(liveAnchorWorld),
+                    5.0);
+                return false;
+            }
+
+            Vector3d previousOffset = reFlyTreeOffset;
+            if (!alignment.TryApplyGhostPartPin(
+                    body.bodyTransform.rotation,
+                    pinDelta,
+                    selectedRootPartPid,
+                    currentUT))
+            {
+                reason = "alignment-pin-capture-failed";
+                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
+                return false;
+            }
+
+            cache.Store(alignment);
+            reFlyTreeOffset += pinDelta;
+            hasReFlyTreeOffset = true;
+            ghost.transform.position = (Vector3d)ghost.transform.position + pinDelta;
+            reason = "applied";
+
+            if (pinMeters > ReFlyGhostPartPinSuspiciousOffsetMeters)
+            {
+                ParsekLog.WarnRateLimited(
+                    "Playback",
+                    "refly-ghost-part-pin-suspicious|"
+                        + (marker.SessionId ?? "<no-sess>") + "|" + recordingId,
+                    "Re-Fly ghost part pin suspicious offset: rec=" + ShortRecordingId(recordingId)
+                    + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                    + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
+                    + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " thresholdMeters=" + ReFlyGhostPartPinSuspiciousOffsetMeters.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+
+            ParsekLog.Info(
+                "Playback",
+                "Re-Fly ghost part pin applied: rec=" + ShortRecordingId(recordingId)
+                + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                + " sess=" + ShortRecordingId(marker.SessionId)
+                + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
+                + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
+                + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
+                + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
+                + " liveAnchorVesselOffsetMeters=" + liveAnchorVesselOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                + " ghostPartWorld=" + FormatVector3d(ghostPartWorld)
+                + " liveAnchorWorld=" + FormatVector3d(liveAnchorWorld)
+                + " pinDelta=" + FormatVector3d(pinDelta)
+                + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
+                + " previousOffset=" + FormatVector3d(previousOffset)
+                + " updatedOffset=" + FormatVector3d(reFlyTreeOffset)
+                + " mode=initial-ghost-part-pin"
+                + " contract=ghost_anchor_part_world(t0)=live_selected_root_part_world(t0), then frozen_body_fixed_offset");
+            return true;
+        }
+
+        private static void LogReFlyGhostPartPinSkip(
+            string recordingId,
+            ReFlySessionMarker marker,
+            string reason,
+            uint selectedRootPartPid)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "refly-ghost-part-pin-skip|"
+                    + (marker?.SessionId ?? "<no-sess>") + "|"
+                    + (recordingId ?? "<no-rec>") + "|"
+                    + (reason ?? "<unknown>"),
+                "Re-Fly ghost part pin skipped: rec=" + ShortRecordingId(recordingId)
+                + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
+                + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
+                + " reason=" + (reason ?? "<unknown>"),
                 5.0);
         }
 
@@ -20293,6 +20656,15 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos + checkpointReFlyTreeOffset;
             ghost.transform.rotation = ghostRot;
+            bool checkpointPartPinApplied = TryApplyInitialReFlyGhostPartPin(
+                recordingId,
+                playbackUT,
+                ghost,
+                bodyBefore,
+                ref checkpointReFlyTreeOffset,
+                ref hasCheckpointReFlyTreeOffset,
+                out Vector3d checkpointPartPinDelta,
+                out string checkpointPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : playbackUT;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -20314,6 +20686,9 @@ namespace Parsek
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
                     + " reFlyHit=" + (hasCheckpointReFlyTreeOffset ? "true" : "false")
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(checkpointReFlyTreeOffset)
+                    + " reFlyGhostPartPinHit=" + (checkpointPartPinApplied ? "true" : "false")
+                    + " reFlyGhostPartPinReason=" + (checkpointPartPinReason ?? "<none>")
+                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(checkpointPartPinApplied ? checkpointPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));

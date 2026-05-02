@@ -21,6 +21,11 @@ namespace Parsek
         public Vector3d DebobReferenceCorrection;
         public double DebobReferenceCorrectionMeters;
         public double DebobReferenceUT;
+        public bool GhostPartPinCaptured;
+        public uint GhostPartPinPid;
+        public Vector3d GhostPartPinBodyFixedOffset;
+        public double GhostPartPinMeters;
+        public double GhostPartPinUT;
 
         internal static bool TryCapture(
             string sessionId,
@@ -108,6 +113,36 @@ namespace Parsek
             DebobReferenceCorrection = debobCorrection;
             DebobReferenceCorrectionMeters = debobCorrection.magnitude;
             DebobReferenceUT = referenceUT;
+            return true;
+        }
+
+        internal bool TryApplyGhostPartPin(
+            Quaternion bodyWorldRotation,
+            Vector3d pinWorldDelta,
+            uint partPersistentId,
+            double pinUT)
+        {
+            if (partPersistentId == 0u || GhostPartPinCaptured)
+                return false;
+            if (!IsFinite(pinWorldDelta))
+                return false;
+
+            Vector3 local = TrajectoryMath.PureRotateVector(
+                TrajectoryMath.PureInverse(TrajectoryMath.PureNormalize(bodyWorldRotation)),
+                (Vector3)pinWorldDelta);
+            Vector3d localPin = new Vector3d(local.x, local.y, local.z);
+            if (!IsFinite(localPin))
+                return false;
+
+            BodyFixedOffset += localPin;
+            if (!IsFinite(BodyFixedOffset))
+                return false;
+
+            GhostPartPinCaptured = true;
+            GhostPartPinPid = partPersistentId;
+            GhostPartPinBodyFixedOffset = localPin;
+            GhostPartPinMeters = pinWorldDelta.magnitude;
+            GhostPartPinUT = pinUT;
             return true;
         }
 
