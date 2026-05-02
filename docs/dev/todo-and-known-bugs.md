@@ -19,6 +19,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 terminal orbit map/spawn safety
+
+- ~~A terminal/orbit recording could vanish from the map, spawn as an on-rails real vessel at an unsafe propagated terminal orbit, get destroyed by KSP's pressure check, then retry deeper in atmosphere and disappear permanently.~~ Source: `logs/2026-05-02_1018_ghost-anchor-playtest-investigation`; `Kerbal X Probe` removed its map ProtoVessel with `reason=left-orbit-segments`, spawned once around 103.8 km before KSP destroyed it at 1.1 kPa, then retried around 16.9 km and died again at 4.6 kPa.
+
+**Fix:** terminal-orbit real spawns now run `TerminalOrbitSpawnSafety` before `SpawnAtPosition`. The safety gate allows stable propagated terminal orbits, defers on atmospheric bodies when the current propagated altitude is below `atmosphereDepth + 5 km` and a future safe altitude is reachable, and refuses materialization when the propagated orbit cannot remain safe (including periapsis below the safety altitude). The policy keeps held ghosts and map ProtoVessels visible while the terminal real spawn is pending/deferred/cannot-spawn, skips repeated unsafe retry attempts, marks terminal orbit resolution failures as cannot-spawn-safely instead of falling back to unchecked materialization, and marks a terminal-orbit spawn-death as cannot-spawn-safely instead of rearming the spawn loop. Logs now include the safety decision, deferred/cannot reason, retained map-presence reason, and spawn-after-defer success.
+
+**Status:** CLOSED 2026-05-02. Runtime validation still needs an in-game replay of the retained save/log scenario to confirm the map marker remains visible and KSP.log contains no pressure-destruction retry loop. The cannot-spawn flag is transient and clears on reload/rewind/reconcile paths; there is no dedicated manual retry button yet.
+
+---
+
 ## Done - v0.9.1 forced-exit booster ghost orbit tail
 
 - ~~A first-tree `Kerbal X Probe` booster ghost could remain visible but frozen in mid-air after Rewind when the original flight was exited with forced Go To Space Center while the booster was still flying.~~ Source: `logs/2026-05-01_2344_kerbal-x-not-sealed/`; recording `90f164b7c86542c0b4b77c761de480ad` was scene-exit finalized with `appendedSegments=2`, `terminal=Destroyed`, and `terminalUT=767.4`, but the subsequent merge logged `flatSync=track-sections` and rewrote the sidecar as `sectionAuthoritative=True` with `orbitSegments=0`. The `.prec.txt` retained only atmospheric track sections through UT `91.426`, while the `.sfs` metadata still kept `explicitEndUT=767.365`, so playback after Rewind considered the ghost active at UT `124.23` / `379.71` but resolved `activeFrame=none` and reused the same root position.
