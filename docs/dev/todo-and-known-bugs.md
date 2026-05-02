@@ -23,9 +23,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - ~~Fast Forward and Real Spawn Control instant jumps advanced UT without immediately replaying the ledger, so funds/science/reputation/contracts/facilities could stay at their pre-jump values until another trigger fired.~~ Normal KSP time-warp exit already called `LedgerOrchestrator.RecalculateAndPatch()`, and Rewind/Re-Fly already used explicit cutoff/full-state recalculation, but Parsek's discrete jump paths were stale: `TimeJumpManager.ExecuteJump` still logged "game actions system not available, skipping recalculation", and `ExecuteForwardJump` never called the ledger at all.
 
-**Fix:** `TimeJumpManager` now has one shared post-jump helper that logs, calls `LedgerOrchestrator.RecalculateAndPatch()`, and catches/logs patch failures. Epoch-shifted jumps (`Warp to Real` / departure warp) call it after UT changes, epoch shifts, and crossed-chain-tip spawning. Ordinary Fast Forward calls it after UT changes, converter timestamp repair, and off-rails restoration. This mirrors the normal warp-exit contract while keeping the actual time jump successful even if recalculation logs a non-fatal failure.
+**Fix:** `TimeJumpManager` now has one shared post-jump helper that logs, calls `LedgerOrchestrator.RecalculateAndPatchForTimeJump(targetUT)`, and catches/logs patch failures. Epoch-shifted jumps (`Warp to Real` / departure warp) call it after UT changes, epoch shifts, and crossed-chain-tip spawning. Ordinary Fast Forward calls it after UT changes, converter timestamp repair, and off-rails restoration. The helper preserves the jump target as the ledger cutoff so future actions remain filtered until replay reaches their UT, while keeping the actual time jump successful even if recalculation logs a non-fatal failure.
 
-**Coverage:** `TimeJumpManagerTests` pins the recalculation hook and failure logging. Full headless xUnit suite passed after the fix.
+**Coverage:** `TimeJumpManagerTests` pins the recalculation hook, target-UT cutoff forwarding, and failure logging; `RewindUtCutoffTests` pins the time-jump orchestrator wrapper's target-UT filtering. Full headless xUnit suite passed after the fix.
 
 **Status:** CLOSED 2026-05-02.
 

@@ -539,41 +539,47 @@ namespace Parsek.Tests
         public void RecalculateLedgerAfterTimeJump_InvokesRecalculateHook()
         {
             string capturedJump = null;
+            double capturedCutoff = double.NaN;
             int calls = 0;
-            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = jump =>
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = (jump, cutoff) =>
             {
                 capturedJump = jump;
+                capturedCutoff = cutoff;
                 calls++;
             };
 
-            TimeJumpManager.RecalculateLedgerAfterTimeJump("forward");
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("forward", 1234.5);
 
             Assert.Equal(1, calls);
             Assert.Equal("forward", capturedJump);
+            Assert.Equal(1234.5, capturedCutoff);
             Assert.Contains(logLines, l =>
                 l.Contains("[TimeJump]") &&
                 l.Contains("Time jump ledger recalculation started") &&
-                l.Contains("jump=forward"));
+                l.Contains("jump=forward") &&
+                l.Contains("cutoffUT=1234.5"));
             Assert.Contains(logLines, l =>
                 l.Contains("[TimeJump]") &&
                 l.Contains("Time jump ledger recalculation complete") &&
-                l.Contains("jump=forward"));
+                l.Contains("jump=forward") &&
+                l.Contains("cutoffUT=1234.5"));
         }
 
         [Fact]
         public void RecalculateLedgerAfterTimeJump_CatchesAndLogsFailures()
         {
-            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = _ =>
+            TimeJumpManager.RecalculateAfterTimeJumpOverrideForTesting = (_, __) =>
             {
                 throw new InvalidOperationException("boom");
             };
 
-            TimeJumpManager.RecalculateLedgerAfterTimeJump("epoch-shift");
+            TimeJumpManager.RecalculateLedgerAfterTimeJump("epoch-shift", 9876.5);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[TimeJump]") &&
                 l.Contains("Time jump ledger recalculation failed") &&
                 l.Contains("jump=epoch-shift") &&
+                l.Contains("cutoffUT=9876.5") &&
                 l.Contains("InvalidOperationException") &&
                 l.Contains("boom"));
         }
