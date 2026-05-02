@@ -144,6 +144,9 @@ namespace Parsek.Tests
         [Fact]
         public void TryRecordKscScienceSubject_DirectThenRecordingCommitSameSubjectAndUt_DeduplicatesAcrossPaths()
         {
+            // Production OnScienceReceived avoids this exact ordering while a tree is
+            // uncommitted; this pins the shared dedup helper as defense in depth for
+            // repair/migration paths and future writer ordering changes.
             var subject = new PendingScienceSubject
             {
                 subjectId = "crewReport@KerbinSrfLandedLaunchPad",
@@ -197,6 +200,89 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("DeduplicateAgainstLedger: removed 1 duplicates"));
+        }
+
+        public static IEnumerable<object[]> DedupOccurrenceUtCases
+        {
+            get
+            {
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    200.0,
+                    100.0,
+                    200.0,
+                    100.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    100.0,
+                    100.0,
+                    100.0,
+                    100.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    200.0,
+                    0.0,
+                    0.0,
+                    200.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    200.0,
+                    double.NaN,
+                    200.0,
+                    200.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceEarning,
+                    200.0,
+                    double.PositiveInfinity,
+                    200.0,
+                    200.0
+                };
+                yield return new object[]
+                {
+                    GameActionType.ScienceSpending,
+                    200.0,
+                    100.0,
+                    200.0,
+                    200.0
+                };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(DedupOccurrenceUtCases))]
+        public void GetDedupOccurrenceUt_ReturnsExpectedOccurrenceUt(
+            GameActionType type,
+            double ut,
+            double startUt,
+            double endUt,
+            double expected)
+        {
+            var action = new GameAction
+            {
+                Type = type,
+                UT = ut,
+                StartUT = (float)startUt,
+                EndUT = (float)endUt
+            };
+
+            Assert.Equal(expected, LedgerOrchestrator.GetDedupOccurrenceUt(action), 3);
         }
     }
 }

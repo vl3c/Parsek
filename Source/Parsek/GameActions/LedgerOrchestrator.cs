@@ -773,8 +773,10 @@ namespace Parsek
         /// <summary>
         /// Removes actions from the candidate list that already exist in the ledger.
         /// Matches on Type + occurrence UT (within epsilon) + key field (SubjectId, NodeId,
-        /// FacilityId, MilestoneId, or ContractId depending on type). ScienceEarning is
-        /// end-anchored for recording commits, so its occurrence UT is StartUT when present.
+        /// FacilityId, MilestoneId, or ContractId depending on type). Recording-commit
+        /// ScienceEarning rows use UT == recording end for timeline ordering, but preserve
+        /// the actual capture moment in StartUT. Direct KSC science rows store the capture
+        /// moment in UT == StartUT == EndUT, so science dedup compares the capture moment.
         /// This prevents double-adding KSC events that were written to the ledger in real-time
         /// via OnKscSpending but also fall within a recording's time range.
         /// </summary>
@@ -818,14 +820,20 @@ namespace Parsek
             return result;
         }
 
-        private static double GetDedupOccurrenceUt(GameAction action)
+        internal static double GetDedupOccurrenceUt(GameAction action)
         {
-            if (action.Type == GameActionType.ScienceEarning &&
-                !float.IsNaN(action.StartUT) &&
-                !float.IsInfinity(action.StartUT) &&
-                (action.StartUT > 0f || action.EndUT > 0f || System.Math.Abs(action.UT) <= 0.1))
+            if (action.Type == GameActionType.ScienceEarning)
             {
-                return action.StartUT;
+                bool hasFiniteStartUt =
+                    !float.IsNaN(action.StartUT) &&
+                    !float.IsInfinity(action.StartUT);
+
+                // StartUT defaults to zero on old/synthetic rows. Treat it as populated only
+                // when the science row has an explicit window, or for legacy UT=0 migrations.
+                bool hasExplicitScienceWindow = action.StartUT > 0f || action.EndUT > 0f;
+                bool isLegacyZeroUtSynthetic = System.Math.Abs(action.UT) <= 0.1;
+                if (hasFiniteStartUt && (hasExplicitScienceWindow || isLegacyZeroUtSynthetic))
+                    return action.StartUT;
             }
 
             return action.UT;
