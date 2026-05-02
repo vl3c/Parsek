@@ -508,6 +508,8 @@ namespace Parsek
             {
                 RecordingStore.ArmNextTreeSceneExitCommitSuppression(
                     $"discardReFly sess={sessionId} target={target}{facilityText}");
+                RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                    $"discardReFly sess={sessionId} target={target}{facilityText}");
                 suppressionArmed = true;
             }
 
@@ -522,6 +524,14 @@ namespace Parsek
                     ParsekLog.Warn(SessionTag,
                         "DiscardReFly: scene dispatch failed; consumed tree scene-exit " +
                         $"commit suppression to prevent leak reason='{consumedReason}'");
+                }
+                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                    "DiscardReFly:scene-dispatch-failed",
+                    out string restoreReason))
+                {
+                    ParsekLog.Warn(SessionTag,
+                        "DiscardReFly: scene dispatch failed; consumed active-tree " +
+                        $"restore suppression to prevent leak reason='{restoreReason}'");
                 }
             }
 

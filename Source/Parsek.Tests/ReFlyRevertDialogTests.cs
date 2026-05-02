@@ -307,6 +307,7 @@ namespace Parsek.Tests
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
             Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
         }
 
         [Fact]
