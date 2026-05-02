@@ -78,6 +78,7 @@ All notable changes to Parsek are documented here.
 
 - Added MilestoneStore helpers for committed contract accepts and kerbal hire/retire events.
 - Added click-blocks for contract acceptance and kerbal hiring when pending recordings already committed those actions.
+- Added stock UI overlay controller and badge infrastructure for committed-future R&D, Astronaut Complex, and Mission Control rows.
 - Added settings toggles for stock committed-future overlays and committed-action click-blocks.
 - Unfinished Flights now includes post-upgrade stable leaves: controllable non-focus Rewind Point children that end `Orbiting` or `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states. New rows offer `Fly` and explicit `Seal` actions; legacy orbiting/suborbital rows without a focused-slot signal stay forward-only, while stranded EVA rows remain retroactive.
 - Spawnable stable terminal Rewind Point leaves (`Landed`, `Splashed`, `Orbiting`, `SubOrbital`) that are still backed by an RP can now be Stashed from the Recordings table. Stashed slots appear under Unfinished Flights with the same `Fly` and `Seal` actions without changing the recording's merge state; recovered, docked, boarded, downstream-interacting, and recording-action-bearing outcomes stay closed because they changed career state or another vessel, while clean stable re-flights can remain open until the player Seals or a later safety-gated outcome closes them.
