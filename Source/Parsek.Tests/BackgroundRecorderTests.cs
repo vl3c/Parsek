@@ -83,6 +83,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardWithoutPersist_ClearsTrackingStateWithoutFlushing()
+        {
+            var logLines = new List<string>();
+            bool priorSuppressLogging = ParsekLog.SuppressLogging;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+                var bgRecorder = new BackgroundRecorder(tree);
+                bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+                {
+                    startUT = 50.0,
+                    endUT = 100.0,
+                    bodyName = "Mun",
+                    semiMajorAxis = 250000.0,
+                    eccentricity = 0.01,
+                    inclination = 2.0,
+                    longitudeOfAscendingNode = 3.0,
+                    argumentOfPeriapsis = 4.0,
+                    meanAnomalyAtEpoch = 0.5,
+                    epoch = 50.0
+                });
+                bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", new RecordingFinalizationCache
+                {
+                    RecordingId = "rec_bg1",
+                    VesselPersistentId = 100u,
+                    Owner = FinalizationCacheOwner.BackgroundOnRails,
+                    Status = FinalizationCacheStatus.Fresh,
+                    TerminalState = TerminalState.Orbiting,
+                    TerminalUT = 200.0
+                });
+
+                bgRecorder.DiscardWithoutPersist("discard-test");
+
+                Assert.Equal(0, bgRecorder.OnRailsStateCount);
+                Assert.Equal(0, bgRecorder.LoadedStateCount);
+                Assert.False(bgRecorder.HasFinalizationCache(100));
+                Assert.Empty(tree.Recordings["rec_bg1"].OrbitSegments);
+                Assert.True(tree.BackgroundMap.ContainsKey(100));
+                Assert.True(tree.Recordings.ContainsKey("rec_bg1"));
+                Assert.DoesNotContain(logLines, l => l.Contains("FinalizeAllForCommit"));
+                Assert.DoesNotContain(logLines, l => l.Contains("PersistFinalizedRecording"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[BgRecorder]")
+                    && l.Contains("DiscardWithoutPersist")
+                    && l.Contains("onRails=2")
+                    && l.Contains("loaded=0")
+                    && l.Contains("caches=1")
+                    && l.Contains("discard-test"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = priorSuppressLogging;
+            }
+        }
+
+        [Fact]
         public void Constructor_OnRailsState_HasNoOpenOrbitSegment()
         {
             // Constructor creates minimal on-rails state (no vessel available)

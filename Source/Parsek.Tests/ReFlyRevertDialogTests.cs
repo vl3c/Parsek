@@ -275,6 +275,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+        }
+
+        [Fact]
+        public void SceneExitCommitSuppression_ConsumesOnce()
+        {
+            RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            Assert.True(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.True(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                GameScenes.SPACECENTER, out string reason));
+            Assert.Contains("discardReFly", reason);
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                GameScenes.SPACECENTER, out _));
+        }
+
+        [Fact]
         public void DiscardReFly_PrelaunchContext_VAB_TransitionsToVAB_StartupCleanSetOnEditor()
         {
             var marker = MakeMarker();

@@ -296,6 +296,8 @@ namespace Parsek
         // quickload-vs-non-flight dispatch) from a stale pending left over from a
         // previous flight (discard per #64).
         internal static bool PendingStashedThisTransition;
+        private static bool suppressNextTreeSceneExitCommit;
+        private static string suppressNextTreeSceneExitCommitReason;
 
         // Merged to timeline — these auto-playback during flight.
         //
@@ -1147,6 +1149,41 @@ namespace Parsek
                         $"StashPendingTree: active {activeStashRec.DebugName}");
             }
         }
+
+        /// <summary>
+        /// Arms a one-shot guard for scene transitions that intentionally throw
+        /// away the active flight's in-memory tree. Discard Re-Fly uses this
+        /// before loading the origin RP's save: the loaded save already contains
+        /// the pre-Re-Fly state, so the outgoing scene must not auto-stash the
+        /// discarded attempt as a pending merge tree.
+        /// </summary>
+        internal static void ArmNextTreeSceneExitCommitSuppression(string reason)
+        {
+            suppressNextTreeSceneExitCommit = true;
+            suppressNextTreeSceneExitCommitReason =
+                string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
+            ParsekLog.Info("RecordingStore",
+                $"Armed next tree scene-exit commit suppression reason='{suppressNextTreeSceneExitCommitReason}'");
+        }
+
+        internal static bool TryConsumeNextTreeSceneExitCommitSuppression(
+            GameScenes destinationScene,
+            out string reason)
+        {
+            reason = null;
+            if (!suppressNextTreeSceneExitCommit)
+                return false;
+
+            reason = suppressNextTreeSceneExitCommitReason ?? "<unspecified>";
+            suppressNextTreeSceneExitCommit = false;
+            suppressNextTreeSceneExitCommitReason = null;
+            ParsekLog.Info("RecordingStore",
+                $"Consumed tree scene-exit commit suppression reason='{reason}' dest={destinationScene}");
+            return true;
+        }
+
+        internal static bool NextTreeSceneExitCommitSuppressionArmedForTesting
+            => suppressNextTreeSceneExitCommit;
 
         /// <summary>
         /// Commits the pending tree to the timeline.
@@ -2340,6 +2377,8 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingStashedThisTransition = false;
+            suppressNextTreeSceneExitCommit = false;
+            suppressNextTreeSceneExitCommitReason = null;
             ResetLegacyMergeStateMigrationForTesting();
         }
 
