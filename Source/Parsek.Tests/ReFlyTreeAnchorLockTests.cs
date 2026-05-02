@@ -615,6 +615,32 @@ namespace Parsek.Tests
             Assert.False(cache.TryGet("sess-1", "rec-ghost", out _));
         }
 
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_StoreNewSessionClearsPriorOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-2",
+                RecordingId = "rec-b",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+            });
+
+            Assert.Equal(1, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+            Assert.True(cache.TryGet("sess-2", "rec-b", out ReFlyDisplayAlignment found));
+            AssertVectorClose(new Vector3d(2.0, 0.0, 0.0), found.BodyFixedOffset, 0.0001);
+        }
+
         // ============================================================
         // HasResolvableReFlyAnchorData (#688 safety-net branch)
         // ============================================================

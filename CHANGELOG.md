@@ -102,7 +102,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
-- Began the ghost-anchor recording-chain rearchitecture with v11 schema, recording-id anchor selection, chain-resolved non-loop Relative playback, same-tree DAG-order anchor fencing, and frozen pre-Re-Fly anchor replay.
+- Began the ghost-anchor recording-chain rearchitecture with v11 schema, recording-id anchor selection, chain-resolved non-loop Relative playback, same-tree DAG-order anchor fencing, frozen pre-Re-Fly anchor replay, and review follow-up hardening for split-window anchors.
 - Downgraded a benign in-place Re-Fly marker-rebuild warning from WARN to VERBOSE.
 - Hardened `UnfinishedFlightClassifier.HasStashedResolvedSlot` to reject slots that are both stashed and sealed.
 - Continued refactor-4 (Pass 4) with a behavior-neutral `LedgerOrchestrator` extraction for vessel recovery-funds pairing and rollout cost/adoption helpers. Existing orchestrator wrappers, constants, log tags/text, dedup formats, KSC sequence allocation, and build-cost residual emission stay in place while the moved logic lives in focused helper classes.

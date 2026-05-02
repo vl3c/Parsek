@@ -62,6 +62,8 @@ namespace Parsek
         private readonly List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
         private readonly List<RecordingAnchorCandidate> recordingAnchorCandidateBuffer =
             new List<RecordingAnchorCandidate>();
+        private readonly HashSet<string> recordedAnchorResolverVisited =
+            new HashSet<string>(StringComparer.Ordinal);
 
         internal Func<RecordingTree, string, uint, double, IEnumerable<RecordingAnchorCandidate>>
             ExternalRecordingAnchorCandidatesProvider { get; set; }
@@ -6361,12 +6363,21 @@ namespace Parsek
                 return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out reason);
 
             var context = BuildRecorderRelativeAnchorResolverContext();
-            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                context,
-                anchorRecordingId,
-                ut,
-                new HashSet<string>(StringComparer.Ordinal),
-                out pose);
+            recordedAnchorResolverVisited.Clear();
+            bool resolved;
+            try
+            {
+                resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                    context,
+                    anchorRecordingId,
+                    ut,
+                    recordedAnchorResolverVisited,
+                    out pose);
+            }
+            finally
+            {
+                recordedAnchorResolverVisited.Clear();
+            }
             if (!resolved)
                 reason = "recorded-anchor-unresolved";
             return resolved;

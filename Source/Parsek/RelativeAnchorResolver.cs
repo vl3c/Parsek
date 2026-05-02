@@ -219,6 +219,8 @@ namespace Parsek
                 ut,
                 resolvedSectionIndex: -1,
                 resolvedRecordingId: recording.RecordingId,
+                sectionStartUT: double.NaN,
+                sectionEndUT: double.NaN,
                 out pose);
         }
 
@@ -264,6 +266,8 @@ namespace Parsek
                 ut,
                 sectionIndex,
                 recording.RecordingId,
+                section.startUT,
+                section.endUT,
                 out pose);
         }
 
@@ -396,10 +400,12 @@ namespace Parsek
             double ut,
             int resolvedSectionIndex,
             string resolvedRecordingId,
+            double sectionStartUT,
+            double sectionEndUT,
             out AnchorPose pose)
         {
             pose = default;
-            if (!PointListCoversUT(frames, ut))
+            if (!FrameListCoversUT(frames, sectionStartUT, sectionEndUT, ut))
             {
                 WarnUnresolved(
                     "anchor-out-of-recorded-range",
@@ -503,7 +509,7 @@ namespace Parsek
                 return false;
             if (frames.Count == 1)
             {
-                if (!RelativeSingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut))
+                if (!SingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut))
                     return false;
 
                 TrajectoryPoint point = frames[0];
@@ -536,7 +542,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool RelativeSingleFrameCoversUT(
+        private static bool SingleFrameCoversUT(
             TrajectoryPoint point,
             double sectionStartUT,
             double sectionEndUT,
@@ -557,6 +563,21 @@ namespace Parsek
             double end = Math.Max(sectionStartUT, sectionEndUT);
             return ut >= start - epsilon
                 && ut <= end + epsilon;
+        }
+
+        private static bool FrameListCoversUT(
+            List<TrajectoryPoint> frames,
+            double sectionStartUT,
+            double sectionEndUT,
+            double ut)
+        {
+            if (frames == null || frames.Count == 0)
+                return false;
+            if (double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
+            if (frames.Count == 1)
+                return SingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut);
+            return PointListCoversUT(frames, ut);
         }
 
         private static bool PointListCoversUT(List<TrajectoryPoint> frames, double ut)

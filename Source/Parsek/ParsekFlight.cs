@@ -17662,11 +17662,34 @@ namespace Parsek
         internal bool TryGetReFlyTreeAnchorOffset(
             string recordingId, double currentUT, out Vector3d delta)
         {
-            return TryGetReFlyTreeAnchorOffsetUncached(recordingId, currentUT, out delta);
+            return TryGetReFlyTreeAnchorOffsetUncached(
+                recordingId,
+                currentUT,
+                allowCapture: true,
+                out delta);
+        }
+
+        /// <summary>
+        /// Projection-only read for distance/LOD paths. Returns a frozen
+        /// display alignment that was already captured by a render/admission
+        /// path, but never samples the live vessel and never stores a new
+        /// alignment.
+        /// </summary>
+        internal bool TryProjectExistingReFlyTreeAnchorOffset(
+            string recordingId, double currentUT, out Vector3d delta)
+        {
+            return TryGetReFlyTreeAnchorOffsetUncached(
+                recordingId,
+                currentUT,
+                allowCapture: false,
+                out delta);
         }
 
         private bool TryGetReFlyTreeAnchorOffsetUncached(
-            string recordingId, double currentUT, out Vector3d delta)
+            string recordingId,
+            double currentUT,
+            bool allowCapture,
+            out Vector3d delta)
         {
             delta = Vector3d.zero;
             if (string.IsNullOrEmpty(recordingId))
@@ -17723,6 +17746,9 @@ namespace Parsek
                     5.0);
                 return false;
             }
+
+            if (!allowCapture)
+                return false;
 
             if (!TryCaptureReFlyDisplayAlignment(
                     marker,
@@ -18728,14 +18754,17 @@ namespace Parsek
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
-                // Re-Fly tree anchor lock: classify zone hiding / LOD / watch
-                // cutoff against the SAME anchored position the renderer
-                // will use, not the raw recorded position. Without this, the
-                // distance gate would hide / downscale the very ghost the
-                // anchor lock is trying to keep visible at the live player's
-                // current location.
+                // Re-Fly tree anchor lock: once a render/admission path has
+                // captured display alignment, classify zone hiding / LOD /
+                // watch cutoff against that same projected position. This
+                // path is intentionally projection-only so a hidden ghost
+                // cannot freeze its per-session alignment during distance
+                // classification before it is actually renderable.
                 if (traj != null
-                    && TryGetReFlyTreeAnchorOffset(traj.RecordingId, playbackUT, out Vector3d treeDelta))
+                    && TryProjectExistingReFlyTreeAnchorOffset(
+                        traj.RecordingId,
+                        playbackUT,
+                        out Vector3d treeDelta))
                 {
                     worldPos += treeDelta;
                 }

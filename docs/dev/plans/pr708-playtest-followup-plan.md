@@ -1,6 +1,7 @@
 # PR 708 playtest follow-up plan
 
 **Status:** active follow-up work. Baseline before the frozen-alignment fix is committed and pushed as `d329ffac` (`Seed Re-Fly split children from live root`) on `ghost-anchor-recording-chain-v11`.
+**Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, and cache pre-Re-Fly synthetic anchor recordings.
 **Branch:** `ghost-anchor-recording-chain-v11`.
 **Scope:** remaining issues after Phases A-C of `ghost-anchor-recording-chain-plan.md`.
 **Non-goals:** no legacy v7-v10 migration, no live-PID fallback for non-loop Relative playback, no Phase D behaviour deletion until the D.0 product gate is explicit.
@@ -121,6 +122,10 @@ Runtime gate:
 - In the separation window, `[PlaybackTrace] dM` stays continuous and no frame shows a kilometer-scale jump.
 - Logs do not contain zero-point section warnings except in explicitly accepted seam cases.
 
+Status note:
+
+- Review follow-up: one-frame Relative sections already used section interval coverage; one-frame Absolute anchor sections now use the same interval rule so parent anchors do not disappear at split windows just because the section has one frame.
+
 ---
 
 ## 4. Fix track C - active Re-Fly ghost alignment
@@ -186,6 +191,10 @@ Runtime gate:
 - The sibling ghost initializes at the separation point, then follows the hidden recorded trajectory plus the frozen body-fixed alignment.
 - Moving the real vessel after initialization should not move the sibling ghost up/down.
 - Logs must include `Re-Fly display alignment initialized` and `mode=frozen-body-fixed`; the old `per-frame` contract must not appear for the normal path.
+
+Status note:
+
+- Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable.
 
 ---
 

@@ -889,6 +889,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildPreReFlyAnchorTrajectoryRecording_CachesUntilSnapshotChanges()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "booster",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 100.0,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0 },
+                        },
+                    },
+                },
+            };
+
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+            Recording first = rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1");
+            Recording second = rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1");
+
+            Assert.NotNull(first);
+            Assert.Same(first, second);
+
+            rec.Points.Clear();
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            rec.TrackSections[0].frames[0] = new TrajectoryPoint { ut = 200.0 };
+            rec.CapturePreReFlyAnchorTrajectory("sess_1");
+            Recording refreshed = rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1");
+
+            Assert.NotNull(refreshed);
+            Assert.NotSame(first, refreshed);
+            Assert.Equal(200.0, refreshed.Points[0].ut);
+
+            rec.ClearPreReFlyAnchorTrajectory();
+            Assert.Null(rec.BuildPreReFlyAnchorTrajectoryRecording("sess_1"));
+        }
+
+        [Fact]
         public void ShouldUsePreReFlyAnchorTrajectory_RequiresActiveInPlaceRecording()
         {
             var marker = new ReFlySessionMarker

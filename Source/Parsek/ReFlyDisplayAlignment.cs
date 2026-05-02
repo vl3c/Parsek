@@ -90,18 +90,18 @@ namespace Parsek
 
     internal sealed class ReFlyDisplayAlignmentCache
     {
-        private readonly Dictionary<string, ReFlyDisplayAlignment> alignments =
+        private readonly Dictionary<string, ReFlyDisplayAlignment> alignmentsByRecordingId =
             new Dictionary<string, ReFlyDisplayAlignment>(StringComparer.Ordinal);
         private string activeSessionId;
 
         internal int Count
         {
-            get { return alignments.Count; }
+            get { return alignmentsByRecordingId.Count; }
         }
 
         internal void Clear()
         {
-            alignments.Clear();
+            alignmentsByRecordingId.Clear();
             activeSessionId = null;
         }
 
@@ -115,7 +115,7 @@ namespace Parsek
 
             if (!string.Equals(activeSessionId, sessionId, StringComparison.Ordinal))
             {
-                alignments.Clear();
+                alignmentsByRecordingId.Clear();
                 activeSessionId = sessionId;
             }
         }
@@ -123,24 +123,24 @@ namespace Parsek
         internal bool TryGet(string sessionId, string recordingId, out ReFlyDisplayAlignment alignment)
         {
             alignment = default(ReFlyDisplayAlignment);
-            string key = BuildKey(sessionId, recordingId);
-            return key != null && alignments.TryGetValue(key, out alignment);
+            if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(recordingId))
+                return false;
+            if (!string.Equals(activeSessionId, sessionId, StringComparison.Ordinal))
+                return false;
+            return alignmentsByRecordingId.TryGetValue(recordingId, out alignment);
         }
 
         internal void Store(ReFlyDisplayAlignment alignment)
         {
-            string key = BuildKey(alignment.SessionId, alignment.RecordingId);
-            if (key == null)
+            if (string.IsNullOrEmpty(alignment.SessionId)
+                || string.IsNullOrEmpty(alignment.RecordingId))
                 return;
-            activeSessionId = alignment.SessionId;
-            alignments[key] = alignment;
-        }
 
-        private static string BuildKey(string sessionId, string recordingId)
-        {
-            if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(recordingId))
-                return null;
-            return sessionId + "|" + recordingId;
+            if (!string.Equals(activeSessionId, alignment.SessionId, StringComparison.Ordinal))
+                alignmentsByRecordingId.Clear();
+
+            activeSessionId = alignment.SessionId;
+            alignmentsByRecordingId[alignment.RecordingId] = alignment;
         }
     }
 }
