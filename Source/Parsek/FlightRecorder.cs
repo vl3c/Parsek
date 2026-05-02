@@ -58,6 +58,7 @@ namespace Parsek
         private string currentAnchorRecordingId;
         private RecordingAnchorCandidate currentAnchorCandidate;
         private bool hasCurrentAnchorCandidate;
+        private double currentAnchorDistanceMeters = double.NaN;
         private HashSet<uint> treeVesselPids;
         private readonly List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
         private readonly List<RecordingAnchorCandidate> recordingAnchorCandidateBuffer =
@@ -465,15 +466,41 @@ namespace Parsek
                 && currentUT <= highFidelityUntilUT;
         }
 
-        internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
+        internal static bool IsHighFidelityProximityActive(double distanceMeters)
         {
-            return highFidelityActive ? 0f : configuredMin;
+            return !double.IsNaN(distanceMeters)
+                && !double.IsInfinity(distanceMeters)
+                && distanceMeters <= HighFidelityProximityRangeMeters;
         }
 
-        internal static float ResolveEffectiveMaxSampleInterval(bool highFidelityActive, float configuredMax)
+        internal static bool IsHighFidelitySamplingActive(
+            double currentUT,
+            double highFidelityUntilUT,
+            double proximityDistanceMeters)
+        {
+            return IsHighFidelitySamplingActive(currentUT, highFidelityUntilUT)
+                || IsHighFidelityProximityActive(proximityDistanceMeters);
+        }
+
+        internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
+        {
+            return configuredMin;
+        }
+
+        internal static float ResolveEffectiveMaxSampleInterval(
+            bool highFidelityActive,
+            float configuredMax,
+            float configuredMin)
         {
             return highFidelityActive
-                ? Math.Min(configuredMax, HighFidelitySampleIntervalSeconds)
+                ? Math.Min(configuredMax, Math.Max(0f, configuredMin))
+                : configuredMax;
+        }
+
+        internal static double ResolveHighFidelitySamplingWindowSeconds(float configuredMax)
+        {
+            return float.IsNaN(configuredMax) || float.IsInfinity(configuredMax) || configuredMax < 0f
+                ? 0.0
                 : configuredMax;
         }
 
@@ -482,7 +509,8 @@ namespace Parsek
             if (double.IsNaN(eventUT) || double.IsInfinity(eventUT))
                 return;
 
-            double untilUT = eventUT + HighFidelitySamplingWindowSeconds;
+            double windowSeconds = ResolveHighFidelitySamplingWindowSeconds(maxSampleInterval);
+            double untilUT = eventUT + windowSeconds;
             bool extendsWindow = double.IsNaN(highFidelitySamplingUntilUT)
                 || untilUT > highFidelitySamplingUntilUT + 0.001;
             highFidelitySamplingUntilUT = Math.Max(
@@ -497,7 +525,9 @@ namespace Parsek
                     $"High-fidelity sampling window active: reason={highFidelitySamplingReason} " +
                     $"eventUT={eventUT.ToString("F2", ic)} " +
                     $"untilUT={highFidelitySamplingUntilUT.ToString("F2", ic)} " +
-                    $"maxInterval={HighFidelitySampleIntervalSeconds.ToString("F3", ic)}s");
+                    $"windowSeconds={windowSeconds.ToString("F3", ic)} " +
+                    $"proximityRange={HighFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                    $"intervalPolicy=configured-min-sample-interval");
             }
         }
         private const double snapshotRefreshIntervalUT = 10.0;
@@ -505,8 +535,7 @@ namespace Parsek
             RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
-        internal const double HighFidelitySamplingWindowSeconds = 10.0;
-        internal const float HighFidelitySampleIntervalSeconds = 0.02f;
+        internal const double HighFidelityProximityRangeMeters = 200.0;
         internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
@@ -4784,14 +4813,16 @@ namespace Parsek
             currentAnchorPid = 0u;
             currentAnchorCandidate = default;
             hasCurrentAnchorCandidate = false;
+            currentAnchorDistanceMeters = double.NaN;
         }
 
-        private void SetCurrentRecordingAnchor(RecordingAnchorCandidate candidate)
+        private void SetCurrentRecordingAnchor(RecordingAnchorCandidate candidate, double distanceMeters)
         {
             currentAnchorRecordingId = candidate.RecordingId;
             currentAnchorPid = candidate.DiagnosticPid;
             currentAnchorCandidate = candidate;
             hasCurrentAnchorCandidate = true;
+            currentAnchorDistanceMeters = distanceMeters;
         }
 
         private void ApplyCurrentRecordingAnchorToCurrentTrackSection()
@@ -4891,7 +4922,7 @@ namespace Parsek
                         string oldAnchorRecordingId = currentAnchorRecordingId;
                         uint oldAnchorPid = currentAnchorPid;
                         isRelativeMode = true;
-                        SetCurrentRecordingAnchor(result.candidate);
+                        SetCurrentRecordingAnchor(result.candidate, result.distance);
                         double boundaryUT = Planetarium.GetUniversalTime();
                         CloseCurrentTrackSection(boundaryUT);
                         var env = environmentHysteresis != null
@@ -4925,7 +4956,7 @@ namespace Parsek
                     }
                     else
                     {
-                        SetCurrentRecordingAnchor(result.candidate);
+                        SetCurrentRecordingAnchor(result.candidate, result.distance);
                         ApplyCurrentRecordingAnchorToCurrentTrackSection();
                     }
                 }
@@ -5920,6 +5951,7 @@ namespace Parsek
                     currentAnchorPid = resumeAnchorDiagnosticPid;
                     currentAnchorCandidate = default;
                     hasCurrentAnchorCandidate = false;
+                    currentAnchorDistanceMeters = double.NaN;
                 }
             }
             else
@@ -6163,13 +6195,20 @@ namespace Parsek
                     5.0);
             }
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
-            bool highFidelityActive = IsHighFidelitySamplingActive(currentUT, highFidelitySamplingUntilUT);
+            double highFidelityProximityMeters = isRelativeMode
+                ? currentAnchorDistanceMeters
+                : double.NaN;
+            bool highFidelityActive = IsHighFidelitySamplingActive(
+                currentUT,
+                highFidelitySamplingUntilUT,
+                highFidelityProximityMeters);
             float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
                 highFidelityActive,
                 minSampleInterval);
             float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
                 highFidelityActive,
-                maxSampleInterval);
+                maxSampleInterval,
+                minSampleInterval);
             bool motionTriggered = TrajectoryMath.ShouldRecordPoint(
                 currentVelocity,
                 lastRecordedVelocity,
@@ -6196,9 +6235,13 @@ namespace Parsek
                 // waiting" which is a steady state, so per-window granularity
                 // is plenty.
                 var ic = CultureInfo.InvariantCulture;
+                string proximityText = double.IsNaN(highFidelityProximityMeters)
+                    ? "(none)"
+                    : highFidelityProximityMeters.ToString("F1", ic) + "m";
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
                     $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
                     $"highFidelity={highFidelityActive} reason={highFidelitySamplingReason ?? "(none)"} " +
+                    $"proximity={proximityText} " +
                     $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
                     $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
                 return;

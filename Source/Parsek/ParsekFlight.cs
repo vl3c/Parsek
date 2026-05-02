@@ -474,6 +474,37 @@ namespace Parsek
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
         private int ghostPreCullReapplyFrame = -1;
 
+        private void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
+        {
+            if (entry.ghost == null)
+                return;
+
+            int removed = 0;
+            for (int i = ghostPosEntries.Count - 1; i >= 0; i--)
+            {
+                if (ghostPosEntries[i].ghost != entry.ghost)
+                    continue;
+
+                ghostPosEntries.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    "ghost-pos-entry-replaced|" + (entry.recordingId ?? "<no-rec>"),
+                    "Ghost position reapply entry replaced: recording="
+                    + ShortRecordingId(entry.recordingId)
+                    + " mode=" + entry.mode
+                    + " removed=" + removed.ToString(CultureInfo.InvariantCulture)
+                    + " reason=same-frame-latest-position-wins",
+                    5.0);
+            }
+
+            ghostPosEntries.Add(entry);
+        }
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
         private PostSwitchAutoRecordState postSwitchAutoRecord;
@@ -16544,7 +16575,7 @@ namespace Parsek
             // the switch falls through to the standalone path so HR-9 holds.
             if (coBubbleHit)
             {
-                ghostPosEntries.Add(new GhostPosEntry
+                AddOrReplaceGhostPosEntry(new GhostPosEntry
                 {
                     ghost = ghost,
                     mode = GhostPosMode.CoBubble,
@@ -16570,7 +16601,7 @@ namespace Parsek
             }
             else
             {
-                ghostPosEntries.Add(new GhostPosEntry
+                AddOrReplaceGhostPosEntry(new GhostPosEntry
                 {
                     ghost = ghost,
                     mode = GhostPosMode.PointInterp,
@@ -17493,7 +17524,7 @@ namespace Parsek
             }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.SinglePoint,
@@ -17994,7 +18025,7 @@ namespace Parsek
             }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.Orbit,
@@ -18169,7 +18200,7 @@ namespace Parsek
                 ghost.SetActive(true);
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.Surface,
@@ -20853,7 +20884,7 @@ namespace Parsek
 
             Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
             pointRot = TrajectoryMath.SanitizeQuaternion(pointRot);
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.CheckpointPoint,
@@ -23512,7 +23543,7 @@ namespace Parsek
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
             double alt = body != null ? body.GetAltitude(ghostPos) : 0;
 
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.Relative,
@@ -23614,7 +23645,7 @@ namespace Parsek
 
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
             altitude = body != null ? body.GetAltitude(ghostPos) : 0.0;
-            ghostPosEntries.Add(new GhostPosEntry
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
                 ghost = ghost,
                 mode = GhostPosMode.Relative,
@@ -24069,7 +24100,7 @@ namespace Parsek
                 Vector3d relReFlyTreeOffset = Vector3d.zero;
                 bool relHasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
                     recordingId, targetUT, out relReFlyTreeOffset);
-                ghostPosEntries.Add(new GhostPosEntry
+                AddOrReplaceGhostPosEntry(new GhostPosEntry
                 {
                     ghost = ghost,
                     mode = GhostPosMode.Relative,
@@ -24216,7 +24247,7 @@ namespace Parsek
                 }
 
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-                ghostPosEntries.Add(new GhostPosEntry
+                AddOrReplaceGhostPosEntry(new GhostPosEntry
                 {
                     ghost = ghost,
                     mode = GhostPosMode.Relative,

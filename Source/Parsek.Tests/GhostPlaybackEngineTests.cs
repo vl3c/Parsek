@@ -2745,6 +2745,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotRewindOrdinaryFrameAfterActivation()
+        {
+            var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 218.01);
+
+            Assert.Equal(218.01, visibleUT, 2);
+        }
+
+        [Fact]
         public void ResolveVisiblePlaybackUT_DoesNotRewindReshownGhost()
         {
             var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);

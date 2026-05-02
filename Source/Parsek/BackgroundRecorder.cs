@@ -1720,7 +1720,7 @@ namespace Parsek
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
             double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
-            bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut);
+            bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
 
             // Log when sample rate changes for this vessel
             if (proximityInterval != state.currentSampleInterval)
@@ -1741,22 +1741,23 @@ namespace Parsek
                 return;
             }
 
-            // Adaptive sampling (velocity-based, gated by the proximity interval as min floor).
-            // proximityInterval is passed as ShouldRecordPoint's minInterval — single call
-            // path for the rate floor across foreground and background. The *value* still
-            // differs (foreground uses ParsekSettings.minSampleInterval; background uses the
-            // proximity tier from ProximityRateSelector), but the gating logic is unified.
+            // Adaptive sampling (velocity-based). Normal background sampling uses the
+            // proximity tier as its min floor; high-fidelity proximity uses the player's
+            // configured foreground minimum so close split ghosts follow the same density
+            // policy as the active recorder instead of a hard-coded physics-frame rate.
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            float minSampleInterval = ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
             float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
             float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
             float effectiveMinSampleInterval = highFidelityActive
-                ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, (float)proximityInterval)
+                ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)
                 : (float)proximityInterval;
             float effectiveMaxSampleInterval = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 highFidelityActive,
-                maxSampleInterval);
+                maxSampleInterval,
+                minSampleInterval);
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
@@ -4054,12 +4055,14 @@ namespace Parsek
 
         private static bool IsBackgroundHighFidelitySamplingActive(
             BackgroundVesselState state,
-            double currentUT)
+            double currentUT,
+            double proximityDistanceMeters)
         {
             return state != null
                 && FlightRecorder.IsHighFidelitySamplingActive(
                     currentUT,
-                    state.highFidelitySamplingUntilUT);
+                    state.highFidelitySamplingUntilUT,
+                    proximityDistanceMeters);
         }
 
         private static void ActivateBackgroundHighFidelitySampling(
@@ -4070,7 +4073,10 @@ namespace Parsek
             if (state == null || double.IsNaN(eventUT) || double.IsInfinity(eventUT))
                 return;
 
-            double untilUT = eventUT + FlightRecorder.HighFidelitySamplingWindowSeconds;
+            float configuredMax = ParsekSettings.Current?.maxSampleInterval
+                ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            double windowSeconds = FlightRecorder.ResolveHighFidelitySamplingWindowSeconds(configuredMax);
+            double untilUT = eventUT + windowSeconds;
             bool extendsWindow = double.IsNaN(state.highFidelitySamplingUntilUT)
                 || untilUT > state.highFidelitySamplingUntilUT + 0.001;
             state.highFidelitySamplingUntilUT = Math.Max(
@@ -4088,7 +4094,9 @@ namespace Parsek
                     $"reason={state.highFidelitySamplingReason} " +
                     $"eventUT={eventUT.ToString("F2", ic)} " +
                     $"untilUT={state.highFidelitySamplingUntilUT.ToString("F2", ic)} " +
-                    $"maxInterval={FlightRecorder.HighFidelitySampleIntervalSeconds.ToString("F3", ic)}s");
+                    $"windowSeconds={windowSeconds.ToString("F3", ic)} " +
+                    $"proximityRange={FlightRecorder.HighFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                    $"intervalPolicy=configured-min-sample-interval");
             }
         }
 

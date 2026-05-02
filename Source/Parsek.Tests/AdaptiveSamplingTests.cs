@@ -429,7 +429,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HighFidelityWindow_UsesDenseMaxIntervalBackstop()
+        public void HighFidelityWindow_UsesConfiguredMinIntervalBackstop()
         {
             bool active = FlightRecorder.IsHighFidelitySamplingActive(
                 currentUT: 101.0,
@@ -439,9 +439,10 @@ namespace Parsek.Tests
                 configuredMin: 0.2f);
             float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 active,
-                configuredMax: 3.0f);
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
 
-            bool result = TrajectoryMath.ShouldRecordPoint(
+            bool insideConfiguredInterval = TrajectoryMath.ShouldRecordPoint(
                 new Vector3(10, 0, 0),
                 new Vector3(10, 0, 0),
                 currentUT: 100.03,
@@ -450,11 +451,21 @@ namespace Parsek.Tests
                 max,
                 VelDirThreshold,
                 SpeedThreshold);
+            bool atConfiguredInterval = TrajectoryMath.ShouldRecordPoint(
+                new Vector3(10, 0, 0),
+                new Vector3(10, 0, 0),
+                currentUT: 100.21,
+                lastRecordedUT: 100.0,
+                min,
+                max,
+                VelDirThreshold,
+                SpeedThreshold);
 
             Assert.True(active);
-            Assert.Equal(0f, min);
-            Assert.Equal(FlightRecorder.HighFidelitySampleIntervalSeconds, max);
-            Assert.True(result);
+            Assert.Equal(0.2f, min);
+            Assert.Equal(0.2f, max);
+            Assert.False(insideConfiguredInterval);
+            Assert.True(atConfiguredInterval);
         }
 
         [Fact]
@@ -468,11 +479,41 @@ namespace Parsek.Tests
                 configuredMin: 0.2f);
             float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 active,
-                configuredMax: 3.0f);
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
 
             Assert.False(active);
             Assert.Equal(0.2f, min);
             Assert.Equal(3.0f, max);
+        }
+
+        [Fact]
+        public void HighFidelityWindow_DerivesFromConfiguredMaxInterval()
+        {
+            Assert.Equal(2.5, FlightRecorder.ResolveHighFidelitySamplingWindowSeconds(2.5f), 6);
+            Assert.Equal(0.0, FlightRecorder.ResolveHighFidelitySamplingWindowSeconds(float.NaN), 6);
+        }
+
+        [Fact]
+        public void HighFidelityProximity_ActivatesInsideRange()
+        {
+            Assert.True(FlightRecorder.IsHighFidelityProximityActive(199.9));
+            Assert.True(FlightRecorder.IsHighFidelitySamplingActive(
+                currentUT: 150.0,
+                highFidelityUntilUT: 100.0,
+                proximityDistanceMeters: 42.0));
+        }
+
+        [Fact]
+        public void HighFidelityProximity_RejectsInvalidOrOutsideRange()
+        {
+            Assert.Equal(200.0, FlightRecorder.HighFidelityProximityRangeMeters);
+            Assert.False(FlightRecorder.IsHighFidelityProximityActive(200.1));
+            Assert.False(FlightRecorder.IsHighFidelityProximityActive(double.NaN));
+            Assert.False(FlightRecorder.IsHighFidelitySamplingActive(
+                currentUT: 150.0,
+                highFidelityUntilUT: 100.0,
+                proximityDistanceMeters: 250.0));
         }
 
         [Fact]
