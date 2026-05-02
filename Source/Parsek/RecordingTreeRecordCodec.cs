@@ -311,6 +311,34 @@ namespace Parsek
                     }
                 }
             }
+
+            if (!string.IsNullOrEmpty(rec.PreReFlyOriginalSessionId)
+                && rec.HasPreReFlyOriginalRecording(rec.PreReFlyOriginalSessionId))
+            {
+                Recording originalSnapshot = rec.BuildPreReFlyOriginalRecording(
+                    rec.PreReFlyOriginalSessionId);
+                if (originalSnapshot != null)
+                {
+                    ConfigNode originalNode = recNode.AddNode("PRE_REFLY_ORIGINAL");
+                    originalNode.AddValue("sessionId", rec.PreReFlyOriginalSessionId);
+                    ConfigNode originalRecordingNode = originalNode.AddNode("RECORDING");
+                    SaveRecordingInto(originalRecordingNode, originalSnapshot);
+                    TrajectoryTextSidecarCodec.SerializeTrajectoryInto(
+                        originalRecordingNode, originalSnapshot);
+                    SaveInlineSnapshot(originalNode, "VESSEL_SNAPSHOT", originalSnapshot.VesselSnapshot);
+                    SaveInlineSnapshot(originalNode, "GHOST_SNAPSHOT", originalSnapshot.GhostVisualSnapshot);
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ORIGINAL written: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + rec.PreReFlyOriginalSessionId
+                            + " points=" + (originalSnapshot.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (originalSnapshot.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (originalSnapshot.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
+            }
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -890,6 +918,64 @@ namespace Parsek
                     }
                 }
             }
+
+            ConfigNode originalNode = recNode.GetNode("PRE_REFLY_ORIGINAL");
+            if (originalNode != null)
+            {
+                string originalSessionId = originalNode.GetValue("sessionId");
+                ConfigNode originalRecordingNode = originalNode.GetNode("RECORDING");
+                if (!string.IsNullOrEmpty(originalSessionId)
+                    && originalRecordingNode != null)
+                {
+                    Recording originalSnapshot = new Recording
+                    {
+                        RecordingFormatVersion = rec.RecordingFormatVersion,
+                    };
+                    LoadRecordingFrom(originalRecordingNode, originalSnapshot);
+                    TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(
+                        originalRecordingNode, originalSnapshot);
+                    originalSnapshot.VesselSnapshot = LoadInlineSnapshot(
+                        originalNode, "VESSEL_SNAPSHOT");
+                    originalSnapshot.GhostVisualSnapshot = LoadInlineSnapshot(
+                        originalNode, "GHOST_SNAPSHOT");
+                    originalSnapshot.ClearPreReFlySessionSnapshots();
+                    rec.PreReFlyOriginalSessionId = originalSessionId;
+                    rec.PreReFlyOriginalRecording = originalSnapshot;
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ORIGINAL loaded: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + originalSessionId
+                            + " points=" + (originalSnapshot.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (originalSnapshot.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (originalSnapshot.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
+            }
+        }
+
+        private static void SaveInlineSnapshot(ConfigNode parent, string wrapperName, ConfigNode snapshot)
+        {
+            if (parent == null || string.IsNullOrEmpty(wrapperName) || snapshot == null)
+                return;
+
+            ConfigNode wrapper = parent.AddNode(wrapperName);
+            string nodeName = string.IsNullOrEmpty(snapshot.name) ? "SNAPSHOT" : snapshot.name;
+            wrapper.AddNode(nodeName, snapshot.CreateCopy());
+        }
+
+        private static ConfigNode LoadInlineSnapshot(ConfigNode parent, string wrapperName)
+        {
+            if (parent == null || string.IsNullOrEmpty(wrapperName))
+                return null;
+
+            ConfigNode wrapper = parent.GetNode(wrapperName);
+            if (wrapper == null || wrapper.nodes == null || wrapper.nodes.Count == 0)
+                return null;
+
+            ConfigNode snapshot = wrapper.nodes[0];
+            return snapshot != null ? snapshot.CreateCopy() : null;
         }
 
         #endregion

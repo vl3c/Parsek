@@ -413,7 +413,10 @@ namespace Parsek
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
+            bool inPlaceOriginalRestored = committedTreeDetached
+                && RestoreInPlaceOriginalRecordingFromSnapshot(tree, marker);
             bool inPlaceTrimmed = committedTreeDetached
+                && !inPlaceOriginalRestored
                 && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
             bool restoredCommittedTree = committedTreeDetached
@@ -442,6 +445,7 @@ namespace Parsek
                 $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
                 $"transientCleared={transientCleared}, inPlaceTrimmed={inPlaceTrimmed}, " +
+                $"inPlaceOriginalRestored={inPlaceOriginalRestored}, " +
                 $"rpPromoted={rpPromoted}, restoredCommittedTree={restoredCommittedTree})");
             ParsekLog.Info("ReFlySession",
                 $"End reason=discardReFlyAttemptFromMergeDialog sess={sessionId ?? "<no-id>"} " +
@@ -685,6 +689,89 @@ namespace Parsek
                 rec.SupersedeTargetId = null;
             }
             return cleared;
+        }
+
+        private static bool RestoreInPlaceOriginalRecordingFromSnapshot(
+            RecordingTree tree,
+            ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.Recordings == null || marker == null)
+                return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || !string.Equals(marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!tree.Recordings.TryGetValue(
+                    marker.OriginChildRecordingId, out Recording origin)
+                || origin == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"RestoreInPlaceOriginalRecordingFromSnapshot: origin rec={marker.OriginChildRecordingId ?? "<none>"} " +
+                    $"missing from tree={tree.Id ?? "<none>"}");
+                return false;
+            }
+
+            Recording restored = origin.BuildPreReFlyOriginalRecording(marker.SessionId);
+            if (restored == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"RestoreInPlaceOriginalRecordingFromSnapshot: no original snapshot for " +
+                    $"rec={origin.RecordingId ?? "<none>"} sess={marker.SessionId ?? "<none>"}");
+                return false;
+            }
+
+            restored.RecordingId = marker.OriginChildRecordingId;
+            restored.TreeId = !string.IsNullOrEmpty(tree.Id) ? tree.Id : restored.TreeId;
+            restored.CreatingSessionId = null;
+            restored.ProvisionalForRpId = null;
+            restored.SupersedeTargetId = null;
+            restored.ClearPreReFlySessionSnapshots();
+            restored.MarkFilesDirty();
+
+            tree.Recordings[marker.OriginChildRecordingId] = restored;
+            int removedCommittedCopies = RemoveCommittedRecordingsById(marker.OriginChildRecordingId);
+
+            ParsekLog.Info("MergeDialog",
+                $"RestoreInPlaceOriginalRecordingFromSnapshot: rec={restored.RecordingId ?? "<none>"} " +
+                $"sess={marker.SessionId ?? "<none>"} " +
+                $"points={(restored.Points?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"trackSections={(restored.TrackSections?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"removedCommittedCopies={removedCommittedCopies.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"explicitStartUT={restored.ExplicitStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"explicitEndUT={restored.ExplicitEndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        private static int RemoveCommittedRecordingsById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                return 0;
+
+            var matches = new List<Recording>();
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null)
+                    continue;
+                if (string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
+                    matches.Add(rec);
+            }
+
+            int removed = 0;
+            for (int i = 0; i < matches.Count; i++)
+            {
+                if (RecordingStore.RemoveCommittedInternal(matches[i]))
+                    removed++;
+            }
+
+            return removed;
         }
 
         private static bool TrimInPlaceAttemptBackToOriginRewindPoint(

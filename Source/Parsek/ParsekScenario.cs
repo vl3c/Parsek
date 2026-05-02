@@ -4041,7 +4041,7 @@ namespace Parsek
                     // set on the active recording (FilesDirty / SidecarLoadFailed /
                     // SidecarLoadFailureReason / ContinuationBoundaryIndex /
                     // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot /
-                    // PreReFlyAnchor* trajectory snapshot).
+                    // PreReFlyAnchor* / PreReFlyOriginal* snapshots).
                     bool isActive = !string.IsNullOrEmpty(activeRecordingId)
                         && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
 
@@ -4173,11 +4173,8 @@ namespace Parsek
         /// have already set on the loaded copy: <c>FilesDirty</c>,
         /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>,
         /// <c>ContinuationBoundaryIndex</c>, <c>PreContinuationVesselSnapshot</c>,
-        /// <c>PreContinuationGhostSnapshot</c>, and <c>PreReFlyAnchor*</c>
-        /// trajectory snapshots. The committed copy never
-        /// carries those flags (they are <c>[NonSerialized]</c> and
-        /// <c>DeepClone</c> does not propagate them), so a non-active refresh
-        /// can clobber-then-restore safely. The preserve-mode exists because
+        /// <c>PreContinuationGhostSnapshot</c>, <c>PreReFlyAnchor*</c>,
+        /// and <c>PreReFlyOriginal*</c> snapshots. The preserve-mode exists because
         /// the structural overwrite happens to land on the same recording the
         /// recorder will later rebind to, and downstream save paths look at
         /// <c>FilesDirty</c> / <c>SidecarLoadFailed</c> to decide whether to
@@ -4244,7 +4241,7 @@ namespace Parsek
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
             // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
             // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
-            // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this preserve-list when
+            // PreContinuationGhostSnapshot, PreReFlyAnchor*, PreReFlyOriginal*}. Add to this preserve-list when
             // any new [NonSerialized] flag tracking per-session live state
             // is added to Recording.
             bool savedFilesDirty = loadedRec.FilesDirty;
@@ -4257,6 +4254,8 @@ namespace Parsek
             List<TrajectoryPoint> savedPreReFlyAnchorPoints = loadedRec.PreReFlyAnchorPoints;
             List<OrbitSegment> savedPreReFlyAnchorOrbitSegments = loadedRec.PreReFlyAnchorOrbitSegments;
             List<TrackSection> savedPreReFlyAnchorTrackSections = loadedRec.PreReFlyAnchorTrackSections;
+            string savedPreReFlyOriginalSessionId = loadedRec.PreReFlyOriginalSessionId;
+            Recording savedPreReFlyOriginalRecording = loadedRec.PreReFlyOriginalRecording;
 
             Recording sourceClone = Recording.DeepClone(committedRec);
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
@@ -4307,6 +4306,8 @@ namespace Parsek
                 loadedRec.PreReFlyAnchorPoints = savedPreReFlyAnchorPoints;
                 loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;
                 loadedRec.PreReFlyAnchorTrackSections = savedPreReFlyAnchorTrackSections;
+                loadedRec.PreReFlyOriginalSessionId = savedPreReFlyOriginalSessionId;
+                loadedRec.PreReFlyOriginalRecording = savedPreReFlyOriginalRecording;
             }
 
             return true;
