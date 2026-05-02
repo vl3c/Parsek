@@ -1885,7 +1885,7 @@ namespace Parsek
             return true;
         }
 
-        private static void ResetReFlyRenderInterpolationState(
+        internal static void ResetReFlyRenderInterpolationState(
             ref ReFlyRenderInterpolationState state,
             GameObject ghost,
             double targetUT,
@@ -1900,6 +1900,28 @@ namespace Parsek
             state.currentPosition = targetPosition;
             state.previousRotation = targetRotation;
             state.currentRotation = targetRotation;
+        }
+
+        private void ClearReFlyRenderInterpolationStateForGhostPartPin(
+            GameObject ghost,
+            string recordingId,
+            double currentUT,
+            Vector3d pinDelta)
+        {
+            if (ghost == null)
+                return;
+
+            int ghostId = ghost.GetInstanceID();
+            bool removed = reFlyRenderInterpolationStates.Remove(ghostId);
+            ParsekLog.Info(
+                "Playback",
+                "Re-Fly render interpolation reset: rec=" + ShortRecordingId(recordingId)
+                + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
+                + " ghostId=" + ghostId.ToString(CultureInfo.InvariantCulture)
+                + " removedPriorState=" + (removed ? "true" : "false")
+                + " pinDelta=" + FormatVector3d(pinDelta)
+                + " pinMeters=" + pinDelta.magnitude.ToString("F2", CultureInfo.InvariantCulture)
+                + " reason=initial-ghost-part-pin");
         }
 
         private static Vector3d LerpVector3d(Vector3d a, Vector3d b, double t)
@@ -19688,6 +19710,7 @@ namespace Parsek
             reFlyTreeOffset += pinDelta;
             hasReFlyTreeOffset = true;
             ghost.transform.position = (Vector3d)ghost.transform.position + pinDelta;
+            ClearReFlyRenderInterpolationStateForGhostPartPin(ghost, recordingId, currentUT, pinDelta);
             reason = "applied";
 
             if (pinMeters > ReFlyGhostPartPinSuspiciousOffsetMeters)

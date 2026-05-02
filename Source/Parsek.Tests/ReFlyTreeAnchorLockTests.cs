@@ -891,6 +891,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyRenderInterpolation_ResetDropsPrePinHiddenTarget()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            ParsekFlight.ResetReFlyRenderInterpolationState(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(100.0, 0.0, 0.0),
+                Quaternion.identity);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(100.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.25,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("waiting-for-second-target", reason);
+            Assert.Equal(0.0, delta, 3);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(100.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
         public void ReFlyDisplayAlignmentCache_SessionChangeClearsFrozenOffsets()
         {
             var cache = new ReFlyDisplayAlignmentCache();
