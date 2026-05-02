@@ -9567,9 +9567,8 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual((double)originalPid, (double)currentActive.persistentId,
                     "Real Spawn Control warp should keep the same real pad vessel pid focused after the jump transient");
 
-                int suppressionArmCount = captured.Count(
-                    line => line.Contains("[TimeJump]")
-                        && line.Contains("Time-jump launch auto-record suppression armed: jump=epoch-shift"));
+                int suppressionArmCount =
+                    RuntimeTests.CountTimeJumpSuppressionArmLogLines(captured, "epoch-shift");
                 InGameAssert.IsGreaterThan(suppressionArmCount, 0,
                     "Real Spawn Control pad canary should arm the epoch-shift time-jump suppression path");
 
