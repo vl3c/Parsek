@@ -25,7 +25,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** `DiscardReFlyHandler` now arms a one-shot scene-exit commit suppression before real `HighLogic.LoadScene` dispatch. `ParsekFlight.FinalizeTreeOnSceneChange` consumes that guard before background checkpoint / finalize / stash work, force-stops any active recorder, discards background recorder state without flushing or persisting sidecars, and drops the in-memory Re-Fly attempt without creating a pending tree. Test scene-dispatch hooks do not arm the guard, and a failed real scene dispatch consumes it immediately so it cannot leak into the next transition.
 
-**Coverage:** `ReFlyRevertDialogTests.DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression` and `SceneExitCommitSuppression_ConsumesOnce`; `BackgroundRecorderTests.DiscardWithoutPersist_ClearsTrackingStateWithoutFlushing`; full headless xUnit suite passed.
+**Coverage:** `ReFlyRevertDialogTests.DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression`, `SceneExitCommitSuppression_ConsumesOnce`, and `SceneExitCommitSuppression_DropsActiveTreeWithoutPendingStash`; `BackgroundRecorderTests.DiscardWithoutPersist_ClearsTrackingStateWithoutFlushing`; full headless xUnit suite passed.
 
 **Status:** CLOSED 2026-05-02.
 

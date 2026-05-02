@@ -515,9 +515,14 @@ namespace Parsek
             bool dispatched = DispatchScene(target, facility);
             if (!dispatched && suppressionArmed)
             {
-                RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
                     target == RevertTarget.Prelaunch ? GameScenes.EDITOR : GameScenes.SPACECENTER,
-                    out _);
+                    out string consumedReason))
+                {
+                    ParsekLog.Warn(SessionTag,
+                        "DiscardReFly: scene dispatch failed; consumed tree scene-exit " +
+                        $"commit suppression to prevent leak reason='{consumedReason}'");
+                }
             }
 
             // Step 11: log end line. Append dispatched=<true|false> so greppers can

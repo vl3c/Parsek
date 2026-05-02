@@ -1821,6 +1821,22 @@ namespace Parsek
 
         private void FinalizeTreeOnSceneChange(GameScenes scene)
         {
+            FinalizeTreeOnSceneChangeCore(
+                scene,
+                Planetarium.GetUniversalTime(),
+                logRecorderState: true);
+        }
+
+        internal void FinalizeTreeOnSceneChangeForTesting(GameScenes scene, double commitUT)
+        {
+            FinalizeTreeOnSceneChangeCore(scene, commitUT, logRecorderState: false);
+        }
+
+        private void FinalizeTreeOnSceneChangeCore(
+            GameScenes scene,
+            double commitUT,
+            bool logRecorderState)
+        {
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
             if (restoringActiveTree)
             {
@@ -1829,14 +1845,18 @@ namespace Parsek
                 return;
             }
 
-            double commitUT = Planetarium.GetUniversalTime();
-            ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
-
             if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(scene, out string suppressReason))
             {
-                DiscardActiveTreeForSuppressedSceneExit(scene, commitUT, suppressReason);
+                DiscardActiveTreeForSuppressedSceneExit(
+                    scene,
+                    commitUT,
+                    suppressReason,
+                    logRecorderState);
                 return;
             }
+
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
 
             // Checkpoint all background vessels before finalization.
             // This captures clean orbital reference points at the scene-change boundary.
@@ -1944,17 +1964,19 @@ namespace Parsek
         private void DiscardActiveTreeForSuppressedSceneExit(
             GameScenes scene,
             double commitUT,
-            string suppressReason)
+            string suppressReason,
+            bool logRecorderState)
         {
-            string treeName = activeTree?.TreeName ?? "<none>";
-            int recordingCount = activeTree?.Recordings?.Count ?? 0;
-            string activeRecordingId = activeTree?.ActiveRecordingId ?? "<none>";
+            string treeName = activeTree.TreeName;
+            int recordingCount = activeTree.Recordings.Count;
+            string activeRecordingId = activeTree.ActiveRecordingId ?? "<none>";
             ParsekLog.Info("Flight",
                 $"FinalizeTreeOnSceneChange: suppressed tree scene-exit commit " +
                 $"dest={scene} UT={commitUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"tree='{treeName}' recordings={recordingCount} active='{activeRecordingId}' " +
                 $"reason='{suppressReason ?? "<unspecified>"}' - discarding in-memory tree without STASH");
-            ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
 
             if (recorder != null)
             {
@@ -1964,6 +1986,10 @@ namespace Parsek
                 recorder = null;
             }
 
+            // The Re-Fly restore path installs a loaded/detached active tree:
+            // TryRestoreActiveTreeNode clones/reconciles committed recordings into
+            // that tree, so background recorder mutations from the attempt are
+            // discarded here instead of leaking into CommittedRecordings.
             if (backgroundRecorder != null)
             {
                 backgroundRecorder.DiscardWithoutPersist(suppressReason);
@@ -1972,7 +1998,8 @@ namespace Parsek
             }
 
             activeTree = null;
-            ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
         }
 
         void OnVesselWillDestroy(Vessel v)
