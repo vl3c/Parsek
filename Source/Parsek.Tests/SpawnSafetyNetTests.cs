@@ -1403,6 +1403,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TerminalOrbitSpawnSafety_SafePropagatedOrbit_SpawnsNow()
+        {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 120000.0,
+                atmosphereDepth: 70000.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 85000.0,
+                apoapsisAltitude: 180000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, decision.ReasonCode);
+            Assert.Equal(75000.0, decision.SafeAltitude, 10);
+        }
+
+        [Fact]
+        public void TerminalOrbitSpawnSafety_CurrentInsideAtmosphere_Defers()
+        {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 16909.4,
+                atmosphereDepth: 70000.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 16000.0,
+                apoapsisAltitude: 125000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, decision.ReasonCode);
+        }
+
+        [Fact]
+        public void TerminalOrbitSpawnSafety_UnsafePeriapsis_CannotSpawnSafely()
+        {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 103780.5,
+                atmosphereDepth: 70000.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 48000.0,
+                apoapsisAltitude: 125000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, decision.ReasonCode);
+            Assert.Contains("periapsis", decision.Reason);
+        }
+
+        [Fact]
+        public void TerminalOrbitSpawnSafety_AirlessLowOrbit_DoesNotApplyAtmosphereMargin()
+        {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 3000.0,
+                atmosphereDepth: 0.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 2500.0,
+                apoapsisAltitude: 12000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
+            Assert.Equal(0.0, decision.SafeAltitude, 10);
+        }
+
+        [Fact]
         public void TryGetPreferredRecordedOrbitSeedForSpawn_PrefersLastOrbitSegment()
         {
             var rec = new Recording

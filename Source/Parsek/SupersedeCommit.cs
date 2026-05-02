@@ -321,6 +321,7 @@ namespace Parsek
                 $"slot={(classification.ClassifierResolvedSlot ? classification.SlotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
                 $"rp={(classification.ClassifierResolvedSlot ? classification.RewindPointId ?? "<no-rp>" : "<none>")} " +
                 $"focusSlot={(classification.ClassifierResolvedSlot ? classification.FocusSlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                $"focusSlotOverride={(classification.ClassifierResolvedSlot ? classification.SlotListIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
                 $"classifierReason={classification.ClassifierReason ?? "<none>"} " +
                 $"autoSeal={classification.AutoSealSlot} " +
                 $"autoSealReason={classification.AutoSealReason ?? "<none>"} " +
@@ -416,6 +417,7 @@ namespace Parsek
             ClassifierClosed,
             RecordingAction,
             UnsafeClassifierReason,
+            StructuralMutation,
         }
 
         private struct ReFlyCloseReason
@@ -435,6 +437,8 @@ namespace Parsek
                         return "recordingAction:" + (Detail ?? "<none>");
                     case ReFlyCloseReasonKind.UnsafeClassifierReason:
                         return "unsafeClassifierReason:" + (Detail ?? "<none>");
+                    case ReFlyCloseReasonKind.StructuralMutation:
+                        return "structuralMutation:" + (Detail ?? "<none>");
                     default:
                         return null;
                 }
@@ -477,13 +481,24 @@ namespace Parsek
             {
                 var slot = rp.ChildSlots[slotListIndex];
                 string classifierReason;
+                // Treat the merge-time slot as the de-facto focus: the player
+                // just Re-Flew this slot themselves, so a stable Orbiting /
+                // SubOrbital terminal is a concluded outcome, not a "non-focus
+                // unconcluded leaf" left over from background flight. Without
+                // this override the classifier would compare against the
+                // capture-time rp.FocusSlotIndex (whichever vessel happened to
+                // be active when the RP was recorded) and keep the slot
+                // re-flyable, blocking auto-seal. Natural / non-Re-Fly call
+                // sites do not pass an override and continue to use the
+                // static focus.
                 bool classifierQualifies = UnfinishedFlightClassifier.TryQualify(
                     provisional, slot, rp, false, out classifierReason,
-                    treeContext: null, allowNotCommitted: true);
+                    treeContext: null, allowNotCommitted: true,
+                    focusSlotOverride: slotListIndex);
 
                 ReFlyCloseReason closeReason;
                 bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(
-                    provisional, classifierQualifies, classifierReason,
+                    provisional, marker, classifierQualifies, classifierReason,
                     out closeReason);
                 result.NewState = keepSlotOpen
                     ? MergeState.CommittedProvisional
@@ -551,6 +566,7 @@ namespace Parsek
 
         private static bool ShouldKeepReFlySlotOpenAfterMerge(
             Recording rec,
+            ReFlySessionMarker marker,
             bool classifierQualifies,
             string classifierReason,
             out ReFlyCloseReason closeReason)
@@ -584,6 +600,26 @@ namespace Parsek
             if (IsTerminalFailureReFlyOutcome(rec))
                 return true;
 
+            // Structural-mutation seal: a Re-Fly that produced a sibling /
+            // child vessel via decouple, stage, undock, joint break, etc. is
+            // a concluded re-flight even when the chain tip itself is still
+            // a "safe stable retry" leaf (Orbiting / SubOrbital non-focus or
+            // a Stashed slot). Player intent, by playtest contract: any
+            // shape change to the Re-Fly target during the session means
+            // they want to keep the run, not retry — close the slot here.
+            // Crashed / stranded-EVA outcomes return earlier above so the
+            // existing terminal-failure retry path is preserved.
+            string structuralDetail;
+            if (HasReFlySessionStructuralMutation(rec, marker, out structuralDetail))
+            {
+                closeReason = new ReFlyCloseReason
+                {
+                    Kind = ReFlyCloseReasonKind.StructuralMutation,
+                    Detail = structuralDetail,
+                };
+                return false;
+            }
+
             if (!IsSafeStableRetryClassifierReason(classifierReason))
             {
                 closeReason = new ReFlyCloseReason
@@ -597,6 +633,278 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Returns true when the Re-Fly session created at least one
+        /// structural-event branch point in the provisional's tree after
+        /// the rewind point's UT — i.e. a decouple / stage / undock /
+        /// joint-break / EVA produced a sibling vessel during this
+        /// Re-Fly. Detection is on tree topology rather than
+        /// <see cref="Recording.CreatingSessionId"/> because
+        /// <c>CreateBreakupChildRecording</c> does not propagate the
+        /// session id to debris / controlled-child recordings, so a
+        /// session-tagged-recording scan would miss the most common
+        /// structural events (visible in the playtest log as
+        /// <c>Coalescer ProcessBreakupEvent: ... child created</c>).
+        ///
+        /// <para>
+        /// The cutoff is the resolved rewind point's <c>UT</c>, NOT
+        /// <c>marker.InvokedUT</c>. <c>InvokedUT</c> is the live UT at
+        /// the moment the player clicked Re-Fly — typically much later
+        /// than the rewind point's UT, because the RP quicksave throws
+        /// the player back to an earlier saved state. A player who
+        /// clicked Re-Fly at UT=300, was rewound to UT=100, and then
+        /// decoupled at UT=150 must trip this gate; using
+        /// <c>marker.InvokedUT</c> would incorrectly reject that
+        /// branch point as "pre-rewind". If the marker's RP cannot be
+        /// resolved on the live scenario (defensive: should not happen
+        /// during a normal Re-Fly merge), the helper falls back to
+        /// <c>marker.InvokedUT</c> so the gate at least catches the
+        /// post-invocation tail.
+        /// </para>
+        ///
+        /// <para>
+        /// Non-structural branch-point types
+        /// (<see cref="BranchPointType.Dock"/>,
+        /// <see cref="BranchPointType.Board"/>,
+        /// <see cref="BranchPointType.Launch"/>,
+        /// <see cref="BranchPointType.Terminal"/>) are excluded — they
+        /// either attach to a pre-existing vessel without creating a
+        /// new one, or mark tree boundaries. Caller is expected to gate
+        /// by terminal kind (crashed / EVA outcomes use the existing
+        /// retry path before this check fires).
+        /// </para>
+        /// </summary>
+        internal static bool HasReFlySessionStructuralMutation(
+            Recording rec,
+            ReFlySessionMarker marker,
+            out string detail)
+        {
+            detail = null;
+            if (rec == null || marker == null) return false;
+            if (string.IsNullOrEmpty(marker.TreeId)) return false;
+            if (string.IsNullOrEmpty(rec.TreeId)) return false;
+            if (!string.Equals(rec.TreeId, marker.TreeId,
+                    StringComparison.Ordinal))
+                return false;
+
+            // Session-local baseline: when the marker was created we
+            // snapshotted every existing BranchPoint.Id in the tree.
+            // Without that baseline, the load-time splice path
+            // (`SpliceMissingCommittedRecordingsIntoLoadedTree`) re-grafts
+            // pre-Re-Fly post-RP branch points back into the loaded tree
+            // and they look identical to session-authored ones — so the
+            // gate would auto-seal a stashed slot the player never
+            // mutated. Conservatively skip the gate when the baseline is
+            // absent (legacy markers created before this field shipped).
+            if (marker.PreSessionBranchPointIds == null) return false;
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            double? cutoffSource = TryResolveReFlyStructuralCutoffUT(
+                marker, scenario, out string cutoffOriginLabel);
+            if (!cutoffSource.HasValue) return false;
+
+            RecordingTree tree = RecordingStore.CommittedTrees != null
+                ? RecordingStore.CommittedTrees.Find(t =>
+                    t != null
+                    && string.Equals(t.Id, marker.TreeId,
+                        StringComparison.Ordinal))
+                : null;
+            if (tree == null || tree.BranchPoints == null) return false;
+
+            HashSet<string> preSessionSet = new HashSet<string>(
+                marker.PreSessionBranchPointIds, StringComparer.Ordinal);
+            HashSet<string> lineageSet = BuildReFlyTargetLineageRecordingIds(rec);
+
+            // A small UT slack absorbs floating-point round-trip drift
+            // between the resolved cutoff UT and a branch-point UT that
+            // arose from the same physics frame. The rewind point itself
+            // does not author its own branch point at its UT, so this is
+            // exclusion-safe.
+            const double UtSlackSeconds = 0.001;
+            double cutoff = cutoffSource.Value + UtSlackSeconds;
+
+            int matchedCount = 0;
+            int spliceExcludedCount = 0;
+            int lineageExcludedCount = 0;
+            string firstBpId = null;
+            BranchPointType? firstBpType = null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (!IsStructuralBranchPointType(bp.Type)) continue;
+                if (bp.UT < cutoff) continue;
+                if (!string.IsNullOrEmpty(bp.Id)
+                    && preSessionSet.Contains(bp.Id))
+                {
+                    // Pre-existing BP re-spliced into the loaded tree by
+                    // SpliceMissingCommittedRecordingsIntoLoadedTree —
+                    // not a Re-Fly-session mutation.
+                    spliceExcludedCount++;
+                    continue;
+                }
+                if (!IsBranchPointInReFlyTargetLineage(bp, lineageSet))
+                {
+                    // Same tree, but the BP's parent recordings don't
+                    // intersect the Re-Fly target's lineage (provisional +
+                    // chain segments). A background vessel that staged /
+                    // undocked / joint-broke during this session in the
+                    // same tree authored its own BP with its own parent
+                    // ids — that's not a mutation of the player-chosen
+                    // slot and must not auto-seal it.
+                    lineageExcludedCount++;
+                    continue;
+                }
+
+                matchedCount++;
+                if (firstBpId == null)
+                {
+                    firstBpId = bp.Id;
+                    firstBpType = bp.Type;
+                }
+            }
+
+            if (matchedCount == 0) return false;
+
+            var ic = CultureInfo.InvariantCulture;
+            detail = $"branchPoints={matchedCount.ToString(ic)}" +
+                $" spliceExcluded={spliceExcludedCount.ToString(ic)}" +
+                $" lineageExcluded={lineageExcludedCount.ToString(ic)}" +
+                $" firstBp={firstBpId ?? "<no-id>"}" +
+                $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
+                $" sinceUT={cutoffSource.Value.ToString("F2", ic)}" +
+                $" cutoffOrigin={cutoffOriginLabel}" +
+                $" baseline={marker.PreSessionBranchPointIds.Count.ToString(ic)}" +
+                $" lineage={lineageSet.Count.ToString(ic)}";
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the set of recording ids that count as the Re-Fly target's
+        /// lineage for structural-mutation detection: the provisional itself
+        /// plus every committed recording in the same tree / chain /
+        /// chain-branch as the provisional. Optimizer-split tails of the
+        /// in-place chain share the provisional's <see cref="Recording.ChainId"/>
+        /// + <see cref="Recording.ChainBranch"/> and are therefore included.
+        /// A BranchPoint whose <see cref="BranchPoint.ParentRecordingIds"/>
+        /// does not intersect this set was authored by an unrelated vessel
+        /// (background sibling in the same tree) and must not trip the gate.
+        /// </summary>
+        private static HashSet<string> BuildReFlyTargetLineageRecordingIds(Recording provisional)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (provisional == null) return set;
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+                set.Add(provisional.RecordingId);
+
+            string treeId = provisional.TreeId;
+            string chainId = provisional.ChainId;
+            int chainBranch = provisional.ChainBranch;
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(chainId))
+                return set;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return set;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var cand = committed[i];
+                if (cand == null) continue;
+                if (object.ReferenceEquals(cand, provisional)) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (!string.Equals(cand.TreeId, treeId, StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(cand.ChainId, chainId, StringComparison.Ordinal))
+                    continue;
+                if (cand.ChainBranch != chainBranch) continue;
+                set.Add(cand.RecordingId);
+            }
+            return set;
+        }
+
+        private static bool IsBranchPointInReFlyTargetLineage(
+            BranchPoint bp, HashSet<string> lineageSet)
+        {
+            if (bp == null || lineageSet == null || lineageSet.Count == 0)
+                return false;
+            var parents = bp.ParentRecordingIds;
+            if (parents == null || parents.Count == 0)
+                return false;
+            for (int i = 0; i < parents.Count; i++)
+            {
+                string pid = parents[i];
+                if (!string.IsNullOrEmpty(pid) && lineageSet.Contains(pid))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the UT cutoff used by structural-mutation detection.
+        /// Prefers the marker's rewind point UT (where the player was
+        /// placed back to by the RP quicksave); falls back to
+        /// <c>marker.InvokedUT</c> if the RP cannot be located on the
+        /// live scenario. Returns null only when neither source supplies
+        /// a finite, non-negative UT.
+        /// </summary>
+        private static double? TryResolveReFlyStructuralCutoffUT(
+            ReFlySessionMarker marker,
+            ParsekScenario scenario,
+            out string originLabel)
+        {
+            originLabel = "<none>";
+            if (marker == null) return null;
+
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.RewindPoints != null
+                && !string.IsNullOrEmpty(marker.RewindPointId))
+            {
+                for (int i = 0; i < scenario.RewindPoints.Count; i++)
+                {
+                    var candidate = scenario.RewindPoints[i];
+                    if (candidate == null) continue;
+                    if (!string.Equals(candidate.RewindPointId,
+                            marker.RewindPointId, StringComparison.Ordinal))
+                        continue;
+                    if (double.IsNaN(candidate.UT)
+                        || double.IsInfinity(candidate.UT)
+                        || candidate.UT < 0)
+                        break;
+                    originLabel = "rpUT";
+                    return candidate.UT;
+                }
+            }
+
+            if (!double.IsNaN(marker.InvokedUT)
+                && !double.IsInfinity(marker.InvokedUT)
+                && marker.InvokedUT >= 0)
+            {
+                originLabel = "invokedUT";
+                return marker.InvokedUT;
+            }
+
+            return null;
+        }
+
+        private static bool IsStructuralBranchPointType(BranchPointType type)
+        {
+            // Dock / Board / Launch / Terminal are not "the player changed
+            // the vessel's shape": Dock and Board attach to a pre-existing
+            // vessel without spawning a new one mid-flight; Launch is the
+            // tree root; Terminal marks the recording's end. Everything
+            // else (Undock, EVA, JointBreak, Breakup) creates a new
+            // sibling vessel and counts as structural mutation.
+            switch (type)
+            {
+                case BranchPointType.Undock:
+                case BranchPointType.EVA:
+                case BranchPointType.JointBreak:
+                case BranchPointType.Breakup:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static bool ShouldAutoSealReFlySlotAfterMerge(
             Recording rec,
             bool classifierQualifies,
@@ -605,6 +913,8 @@ namespace Parsek
             if (!closeReason.HasValue)
                 return false;
             if (closeReason.Kind == ReFlyCloseReasonKind.RecordingAction)
+                return true;
+            if (closeReason.Kind == ReFlyCloseReasonKind.StructuralMutation)
                 return true;
             if (classifierQualifies)
                 return true;
@@ -618,6 +928,14 @@ namespace Parsek
             if (string.Equals(closeReason.Detail, "stableTerminal",
                     StringComparison.Ordinal))
                 return IsHardSafetyTerminal(rec);
+            // The Re-Fly target slot (player-chosen, either static focus or
+            // promoted via focusSlotOverride) reached a stable Orbiting /
+            // SubOrbital terminal. Per playtest contract: a successful
+            // Re-Fly to stable state seals the slot — the player is done
+            // with that line of flight, no further retry expected.
+            if (string.Equals(closeReason.Detail, "stableTerminalFocusSlot",
+                    StringComparison.Ordinal))
+                return true;
 
             return false;
         }

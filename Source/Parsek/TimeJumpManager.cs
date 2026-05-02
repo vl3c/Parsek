@@ -22,6 +22,7 @@ namespace Parsek
         private static bool isTimeJumpLaunchAutoRecordInProgress;
         // Frame-bounded rather than UT-bounded so rewinds/quickloads cannot revive stale suppression.
         private static int timeJumpLaunchAutoRecordSuppressUntilFrame = -1;
+        internal static Action<string, double> RecalculateAfterTimeJumpOverrideForTesting;
 
         internal static bool IsTimeJumpLaunchAutoRecordInProgress
             => isTimeJumpLaunchAutoRecordInProgress;
@@ -50,6 +51,45 @@ namespace Parsek
                     Time.frameCount,
                     timeJumpLaunchAutoRecordSuppressUntilFrame,
                     TimeJumpLaunchAutoRecordSuppressFrames));
+        }
+
+        internal static void ResetRecalculateAfterTimeJumpOverrideForTesting()
+        {
+            RecalculateAfterTimeJumpOverrideForTesting = null;
+        }
+
+        internal static void RecalculateLedgerAfterTimeJump(string jumpKind, double postJumpUT)
+        {
+            string label = string.IsNullOrEmpty(jumpKind) ? "unknown" : jumpKind;
+            try
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Time jump ledger recalculation started: jump={0} cutoffUT={1:R}",
+                        label,
+                        postJumpUT));
+
+                if (RecalculateAfterTimeJumpOverrideForTesting != null)
+                    RecalculateAfterTimeJumpOverrideForTesting(label, postJumpUT);
+                else
+                    LedgerOrchestrator.RecalculateAndPatchForTimeJump(postJumpUT);
+
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Time jump ledger recalculation complete: jump={0} cutoffUT={1:R}",
+                        label,
+                        postJumpUT));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Time jump ledger recalculation failed: jump={0} cutoffUT={1:R} error={2}: {3}",
+                        label,
+                        postJumpUT,
+                        ex.GetType().Name,
+                        ex.Message));
+            }
         }
 
         /// <summary>
@@ -192,7 +232,7 @@ namespace Parsek
         /// 1. Set Planetarium UT
         /// 2. Epoch-shift all vessel orbits (keep position/velocity, update epoch)
         /// 3. Process spawn queue (chain tips crossed during jump)
-        /// 4. Trigger game actions recalculation (if available, else skip with warning)
+        /// 4. Trigger game actions recalculation at the post-jump UT
         /// </summary>
         internal static void ExecuteJump(
             double targetUT,
@@ -257,10 +297,10 @@ namespace Parsek
                         chains.Remove(spawnedChainKeys[i]);
                 }
 
-                // Step 5: Game actions recalculation
-                // The game actions system is a future dependency. If not available, skip with warning.
-                ParsekLog.Warn(Tag,
-                    "Time jump: game actions system not available, skipping recalculation");
+                // Step 5: Game actions recalculation. After UT has changed, replay the
+                // committed ledger through the target UT and patch KSP state so
+                // funds/science/reputation/contracts/facilities match the new time.
+                RecalculateLedgerAfterTimeJump("epoch-shift", targetUT);
 
                 int remainingGhosts = chains != null ? chains.Count : 0;
 
@@ -392,6 +432,10 @@ namespace Parsek
 
                 // Take vessels off rails
                 TakeVesselsOffRails(onRailsVessels);
+
+                // Mirror normal time-warp exit after the clock has advanced naturally,
+                // preserving the jump target as the ledger cutoff.
+                RecalculateLedgerAfterTimeJump("forward", targetUT);
 
                 ParsekLog.Info(Tag,
                     string.Format(ic,

@@ -914,6 +914,7 @@ namespace Parsek
                     SelectedRootPartPersistentId = selectedRootPartPersistentId,
                     InvokedUT = SafeNow(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
+                    PreSessionBranchPointIds = SnapshotTreeBranchPointIds(treeIdForMarker),
                 };
 
                 CheckpointHookForTesting?.Invoke("CheckpointB:BeforeMarker");
@@ -1052,6 +1053,50 @@ namespace Parsek
         {
             try { return Planetarium.GetUniversalTime(); }
             catch { return 0.0; }
+        }
+
+        /// <summary>
+        /// Snapshots the existing <see cref="BranchPoint.Id"/>s in the
+        /// committed tree referenced by <paramref name="treeId"/>. The
+        /// returned list is consumed by
+        /// <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>
+        /// to distinguish branch points authored DURING this Re-Fly from
+        /// pre-existing ones that the load-time splice path re-grafts
+        /// back into the loaded tree. Returns an empty list (not null)
+        /// when the tree is found with no branch points; returns null
+        /// only when the tree id is empty or no committed tree matches —
+        /// both are unusual at marker creation but a null baseline
+        /// makes the structural-mutation gate conservatively skip on
+        /// merge.
+        /// </summary>
+        internal static List<string> SnapshotTreeBranchPointIds(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return null;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return null;
+            RecordingTree tree = null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var t = trees[i];
+                if (t == null) continue;
+                if (string.Equals(t.Id, treeId, StringComparison.Ordinal))
+                {
+                    tree = t;
+                    break;
+                }
+            }
+            if (tree == null || tree.BranchPoints == null)
+                return null;
+
+            var snapshot = new List<string>(tree.BranchPoints.Count);
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (string.IsNullOrEmpty(bp.Id)) continue;
+                snapshot.Add(bp.Id);
+            }
+            return snapshot;
         }
 
         internal static string ResolveAbsoluteQuicksavePath(RewindPoint rp)
