@@ -567,6 +567,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyDisplayAlignment_LazyDebobReferencePreservesCurrentProjection()
+        {
+            Quaternion bodyRotation = Quaternion.identity;
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d before));
+            Vector3d correction = new Vector3d(0.0, 25.0, 0.0);
+            Assert.True(alignment.TryCaptureDebobReference(bodyRotation, correction, 11.0));
+            Assert.True(alignment.DebobReferenceCaptured);
+            Assert.Equal(11.0, alignment.DebobReferenceUT);
+            AssertVectorClose(correction, alignment.DebobReferenceCorrection, 0.0001);
+
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d afterReference));
+            AssertVectorClose(before, afterReference + correction, 0.0001);
+        }
+
+        [Fact]
         public void ReFlyDisplayAlignment_CaptureRejectsNonFiniteInputs()
         {
             bool captured = ReFlyDisplayAlignment.TryCapture(
@@ -586,6 +615,68 @@ namespace Parsek.Tests
             Assert.False(captured);
             Assert.Null(alignment.SessionId);
             Assert.Null(alignment.RecordingId);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_RemovesMidpointJitter()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                10.0,
+                new Vector3d(5.0, 25.0, 0.0),
+                10.75,
+                new Vector3d(10.0, 0.0, 0.0),
+                11.5,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), baseline, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -25.0, 0.0), correction, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_LinearMotionReturnsZeroCorrection()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                1.0,
+                new Vector3d(5.0, 0.0, 0.0),
+                1.75,
+                new Vector3d(10.0, 0.0, 0.0),
+                2.5,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.True(ok, reason);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), baseline, 0.0001);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_RejectsInvalidWindow()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                2.0,
+                new Vector3d(1.0, 1.0, 1.0),
+                1.0,
+                new Vector3d(2.0, 0.0, 0.0),
+                3.0,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("invalid-time-window", reason);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+            AssertVectorClose(Vector3d.zero, baseline, 0.0001);
         }
 
         [Fact]

@@ -187,16 +187,27 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void FitAndStorePerSection_Atmospheric_NotFitted()
+        public void FitAndStorePerSection_Atmospheric_FitsBodyFixedSpline()
         {
-            // What makes it fail: Phase 1 scoping creep — Atmospheric belongs
-            // to Phase 7. Fitting it here would silently change atmospheric
-            // ghost rendering behaviour.
+            // PR #708 playtest follow-up: atmospheric ascent/descent is where
+            // recorded-path bobbing is most visible during active Re-Fly.
+            // Atmospheric Absolute sections should now get body-fixed splines.
             var rec = MakeRecording("rec-atmo",
                 MakeSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, frameCount: 10));
             SmoothingPipeline.FitAndStorePerSection(rec);
-            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline("rec-atmo", 0, out _));
-            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording("rec-atmo"));
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline("rec-atmo", 0, out var spline));
+            Assert.True(spline.IsValid);
+            Assert.Equal((byte)0, spline.FrameTag);
+            Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording("rec-atmo"));
+        }
+
+        [Fact]
+        public void AtmosphericSplineEligibility_BumpsPannAlgorithmStamp()
+        {
+            // Existing .pann files can be fresh under the old cache key while
+            // missing atmospheric splines. The alg-stamp bump forces recompute.
+            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 11,
+                "AlgorithmStampVersion must be >= 11 after Atmospheric spline eligibility ships");
         }
 
         [Fact]

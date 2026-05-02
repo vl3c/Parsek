@@ -17650,7 +17650,14 @@ namespace Parsek
         // separation/root part without injecting the player's later live
         // vessel motion into the hidden recorded trajectory.
         internal const double ReFlyDisplayAlignmentSuspiciousOffsetMeters = 50.0;
+        internal const double ReFlyRecordedDebobWindowSeconds = 0.75;
+        internal const double ReFlyRecordedDebobMaxCorrectionMeters = 250.0;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
+        private string reFlyDebobSampleScopeKey;
+        private string reFlyDebobSampleRecordingId;
+        private int reFlyDebobSampleStoreVersion;
+        private RecordingTree reFlyDebobSamplePendingTree;
+        private List<TrackSection> reFlyDebobSampleSections;
 
         internal struct ReFlyRecordedAnchorSampleDiagnostics
         {
@@ -17668,6 +17675,23 @@ namespace Parsek
             public string BodyBeforeName;
             public string BodyAfterName;
             public Vector3 RecordedVelocity;
+        }
+
+        internal struct ReFlyRecordedDebobDiagnostics
+        {
+            public bool Applied;
+            public string Reason;
+            public double WindowSeconds;
+            public double BeforeUT;
+            public double AfterUT;
+            public Vector3d RawWorld;
+            public Vector3d BaselineWorld;
+            public Vector3d Correction;
+            public double CorrectionMeters;
+            public bool ReferenceInitialized;
+            public string BeforeBody;
+            public string CurrentBody;
+            public string AfterBody;
         }
 
         /// <summary>
@@ -17775,15 +17799,25 @@ namespace Parsek
                     return false;
                 }
 
-                if (TryProjectReFlyDisplayAlignment(alignment, out delta, out string projectReason))
+                if (TryProjectReFlyDisplayAlignment(
+                        ref alignment,
+                        marker,
+                        currentUT,
+                        out delta,
+                        out string projectReason,
+                        out ReFlyRecordedDebobDiagnostics projectDebob,
+                        out bool projectAlignmentUpdated))
                 {
+                    if (projectAlignmentUpdated)
+                        cache.Store(alignment);
                     LogReFlyDisplayAlignmentProjection(
                         marker,
                         recTreeId,
                         recordingId,
                         currentUT,
                         alignment,
-                        delta);
+                        delta,
+                        projectDebob);
                     return true;
                 }
 
@@ -17832,7 +17866,14 @@ namespace Parsek
                     return false;
                 }
 
-                if (!TryProjectReFlyDisplayAlignment(alignment, out delta, out string inheritedProjectReason))
+                if (!TryProjectReFlyDisplayAlignment(
+                        ref alignment,
+                        marker,
+                        currentUT,
+                        out delta,
+                        out string inheritedProjectReason,
+                        out ReFlyRecordedDebobDiagnostics inheritedProjectDebob,
+                        out _))
                 {
                     ParsekLog.VerboseRateLimited(
                         "Playback",
@@ -17860,8 +17901,13 @@ namespace Parsek
                     + " captureUT=" + alignment.CaptureUT.ToString("F2", CultureInfo.InvariantCulture)
                     + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " projectedOffset=" + FormatVector3d(delta)
+                    + " debobApplied=" + inheritedProjectDebob.Applied
+                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
+                    + " debobReferenceInitialized=" + inheritedProjectDebob.ReferenceInitialized
+                    + " debobCorrection=" + FormatVector3d(inheritedProjectDebob.Correction)
+                    + " debobCorrectionMeters=" + inheritedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " mode=frozen-body-fixed"
-                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset");
+                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset+recorded_path_debob_correction");
                 return true;
             }
 
@@ -17893,7 +17939,14 @@ namespace Parsek
                 recTreeId,
                 recordingId,
                 alignment);
-            if (!TryProjectReFlyDisplayAlignment(alignment, out delta, out string capturedProjectReason))
+            if (!TryProjectReFlyDisplayAlignment(
+                    ref alignment,
+                    marker,
+                    currentUT,
+                    out delta,
+                    out string capturedProjectReason,
+                    out ReFlyRecordedDebobDiagnostics capturedProjectDebob,
+                    out bool capturedAlignmentUpdated))
             {
                 ParsekLog.VerboseRateLimited(
                     "Playback",
@@ -17907,6 +17960,8 @@ namespace Parsek
                     5.0);
                 return false;
             }
+            if (capturedAlignmentUpdated)
+                cache.Store(alignment);
 
             ParsekLog.Info(
                 "Playback",
@@ -17922,8 +17977,13 @@ namespace Parsek
                 + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
                 + " liveAnchorVesselOffsetMeters=" + liveAnchorOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
                 + " projectedOffset=" + FormatVector3d(delta)
+                + " debobApplied=" + capturedProjectDebob.Applied
+                + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
+                + " debobReferenceInitialized=" + capturedProjectDebob.ReferenceInitialized
+                + " debobCorrection=" + FormatVector3d(capturedProjectDebob.Correction)
+                + " debobCorrectionMeters=" + capturedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
                 + " mode=frozen-body-fixed"
-                + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset");
+                + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset+recorded_path_debob_correction");
             return true;
         }
 
@@ -17933,7 +17993,8 @@ namespace Parsek
             string recordingId,
             double currentUT,
             ReFlyDisplayAlignment alignment,
-            Vector3d projectedOffset)
+            Vector3d projectedOffset,
+            ReFlyRecordedDebobDiagnostics debob)
         {
             ParsekLog.VerboseRateLimited(
                 "Playback",
@@ -17954,7 +18015,15 @@ namespace Parsek
                     + " liveAnchorPartPid=" + alignment.LiveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
                     + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " projectedOffset=" + FormatVector3d(projectedOffset)
-                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset),
+                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset)
+                    + " debobApplied=" + debob.Applied
+                    + " debobReason=" + (debob.Reason ?? "<none>")
+                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
+                    + " debobReferenceInitialized=" + debob.ReferenceInitialized
+                    + " debobReferenceCorrectionMeters="
+                    + alignment.DebobReferenceCorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " debobCorrection=" + FormatVector3d(debob.Correction)
+                    + " debobCorrectionMeters=" + debob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture),
                 5.0);
         }
 
@@ -18194,19 +18263,26 @@ namespace Parsek
         }
 
         private bool TryProjectReFlyDisplayAlignment(
-            ReFlyDisplayAlignment alignment,
+            ref ReFlyDisplayAlignment alignment,
+            ReFlySessionMarker marker,
+            double currentUT,
             out Vector3d delta,
-            out string reason)
+            out string reason,
+            out ReFlyRecordedDebobDiagnostics debobDiagnostics,
+            out bool alignmentUpdated)
         {
             delta = Vector3d.zero;
             reason = null;
+            debobDiagnostics = default(ReFlyRecordedDebobDiagnostics);
+            alignmentUpdated = false;
             if (string.IsNullOrEmpty(alignment.BodyName))
             {
                 reason = "alignment-body-empty";
                 return false;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == alignment.BodyName);
+            string alignmentBodyName = alignment.BodyName;
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == alignmentBodyName);
             if (body == null)
             {
                 reason = "alignment-body-missing";
@@ -18223,6 +18299,39 @@ namespace Parsek
                 reason = "alignment-delta-non-finite";
                 return false;
             }
+
+            if (alignment.DebobEnabled
+                && TryComputeReFlyRecordedDebobCorrection(
+                    marker,
+                    currentUT,
+                    out Vector3d debobCorrection,
+                    out debobDiagnostics))
+            {
+                if (!alignment.DebobReferenceCaptured)
+                {
+                    if (!alignment.TryCaptureDebobReference(
+                            body.bodyTransform.rotation,
+                            debobCorrection,
+                            currentUT))
+                    {
+                        debobDiagnostics.Applied = false;
+                        debobDiagnostics.Reason = "reference-capture-failed";
+                        reason = "projected";
+                        return true;
+                    }
+
+                    debobDiagnostics.ReferenceInitialized = true;
+                    alignmentUpdated = true;
+                    if (!alignment.TryProject(body.bodyTransform.rotation, out delta))
+                    {
+                        reason = "alignment-delta-non-finite-after-debob-reference";
+                        return false;
+                    }
+                }
+
+                delta += debobCorrection;
+            }
+
             reason = "projected";
             return true;
         }
@@ -18305,7 +18414,7 @@ namespace Parsek
                 return false;
             }
 
-            List<TrackSection> sampleSections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
+            List<TrackSection> sampleSections = GetCachedReFlyAnchorSampleSections(reFlyRec, marker);
             if (!TrySampleRecordedAbsoluteWorld(
                     sampleSections,
                     currentUT,
@@ -18317,6 +18426,16 @@ namespace Parsek
                 return false;
             }
 
+            Vector3d debobbedRecordedPos = recordedPos;
+            ReFlyRecordedDebobDiagnostics debobDiagnostics;
+            bool debobApplied = TryComputeReFlyRecordedDebobCorrection(
+                sampleSections,
+                currentUT,
+                out Vector3d initialDebobCorrection,
+                out debobDiagnostics);
+            if (debobApplied)
+                debobbedRecordedPos += initialDebobCorrection;
+
             if (!ReFlyDisplayAlignment.TryCapture(
                     marker.SessionId,
                     recTreeId,
@@ -18324,7 +18443,7 @@ namespace Parsek
                     body.name,
                     body.bodyTransform.rotation,
                     livePos,
-                    recordedPos,
+                    debobbedRecordedPos,
                     currentUT,
                     liveAnchorSource,
                     liveAnchorPartPid,
@@ -18335,6 +18454,14 @@ namespace Parsek
                 return false;
             }
 
+            alignment.DebobEnabled = true;
+            alignment.DebobReferenceCaptured = debobApplied;
+            alignment.DebobReferenceCorrection = debobApplied ? initialDebobCorrection : Vector3d.zero;
+            alignment.DebobReferenceCorrectionMeters = debobApplied
+                ? initialDebobCorrection.magnitude
+                : 0.0;
+            alignment.DebobReferenceUT = debobApplied ? currentUT : double.NaN;
+
             LogReFlyDisplayAlignmentCaptureDetail(
                 marker,
                 recTreeId,
@@ -18344,11 +18471,13 @@ namespace Parsek
                 activeReFlyPid,
                 livePos,
                 recordedPos,
+                debobbedRecordedPos,
                 body.name,
                 liveAnchorSource,
                 liveAnchorPartPid,
                 liveAnchorOffsetMeters,
                 sampleDiagnostics,
+                debobDiagnostics,
                 alignment);
 
             reason = "captured";
@@ -18364,11 +18493,13 @@ namespace Parsek
             uint activeReFlyPid,
             Vector3d livePos,
             Vector3d recordedPos,
+            Vector3d debobbedRecordedPos,
             string bodyName,
             string liveAnchorSource,
             uint liveAnchorPartPid,
             double liveAnchorOffsetMeters,
             ReFlyRecordedAnchorSampleDiagnostics sampleDiagnostics,
+            ReFlyRecordedDebobDiagnostics debobDiagnostics,
             ReFlyDisplayAlignment alignment)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -18376,6 +18507,7 @@ namespace Parsek
             Vector3 recordedVelocity = sampleDiagnostics.RecordedVelocity;
             Vector3 velocityDelta = liveVelocity - recordedVelocity;
             Vector3d worldDelta = livePos - recordedPos;
+            Vector3d debobbedWorldDelta = livePos - debobbedRecordedPos;
             double deltaAlongRecordedVelocityMeters =
                 ProjectMetersAlongVelocity(worldDelta, recordedVelocity);
             double recordedSpeed = recordedVelocity.magnitude;
@@ -18435,9 +18567,35 @@ namespace Parsek
                     + "->" + (sampleDiagnostics.BodyAfterName ?? "<none>")
                     + " liveWorld=" + FormatVector3d(livePos)
                     + " recordedWorld=" + FormatVector3d(recordedPos)
+                    + " debobbedRecordedWorld=" + FormatVector3d(debobbedRecordedPos)
                     + " live-recorded=" + FormatVector3d(worldDelta)
+                    + " live-debobbedRecorded=" + FormatVector3d(debobbedWorldDelta)
                     + " initialWorldOffsetMeters="
                     + alignment.InitialWorldOffsetMeters.ToString("F2", ic)
+                    + " debobApplied=" + debobDiagnostics.Applied
+                    + " debobReason=" + (debobDiagnostics.Reason ?? "<none>")
+                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
+                    + " debobReferenceCorrection="
+                    + FormatVector3d(alignment.DebobReferenceCorrection)
+                    + " debobReferenceCorrectionMeters="
+                    + alignment.DebobReferenceCorrectionMeters.ToString("F2", ic)
+                    + " debobReferenceUT="
+                    + alignment.DebobReferenceUT.ToString("F3", ic)
+                    + " debobWindowSeconds="
+                    + debobDiagnostics.WindowSeconds.ToString("F2", ic)
+                    + " debobBeforeUT="
+                    + debobDiagnostics.BeforeUT.ToString("F3", ic)
+                    + " debobAfterUT="
+                    + debobDiagnostics.AfterUT.ToString("F3", ic)
+                    + " debobRawWorld=" + FormatVector3d(debobDiagnostics.RawWorld)
+                    + " debobBaselineWorld=" + FormatVector3d(debobDiagnostics.BaselineWorld)
+                    + " debobCorrection=" + FormatVector3d(debobDiagnostics.Correction)
+                    + " debobCorrectionMeters="
+                    + debobDiagnostics.CorrectionMeters.ToString("F2", ic)
+                    + " debobBodies="
+                    + (debobDiagnostics.BeforeBody ?? "<none>")
+                    + "->" + (debobDiagnostics.CurrentBody ?? "<none>")
+                    + "->" + (debobDiagnostics.AfterBody ?? "<none>")
                     + " liveVelocity=" + FormatVector3(liveVelocity)
                     + " recordedVelocity=" + FormatVector3(recordedVelocity)
                     + " velocityDelta=" + FormatVector3(velocityDelta)
@@ -18459,6 +18617,254 @@ namespace Parsek
             return (delta.x * velocity.x
                 + delta.y * velocity.y
                 + delta.z * velocity.z) / speed;
+        }
+
+        private bool TryComputeReFlyRecordedDebobCorrection(
+            ReFlySessionMarker marker,
+            double currentUT,
+            out Vector3d correction,
+            out ReFlyRecordedDebobDiagnostics diagnostics)
+        {
+            correction = Vector3d.zero;
+            diagnostics = default(ReFlyRecordedDebobDiagnostics);
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                diagnostics.Reason = "marker-missing";
+                return false;
+            }
+
+            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
+            if (reFlyRec == null)
+            {
+                diagnostics.Reason = "refly-rec-missing";
+                return false;
+            }
+
+            return TryComputeReFlyRecordedDebobCorrection(
+                GetCachedReFlyAnchorSampleSections(reFlyRec, marker),
+                currentUT,
+                out correction,
+                out diagnostics);
+        }
+
+        private List<TrackSection> GetCachedReFlyAnchorSampleSections(
+            Recording reFlyRec,
+            ReFlySessionMarker marker)
+        {
+            if (reFlyRec == null || marker == null)
+                return null;
+
+            string scopeKey = BuildReFlyDisplayAlignmentScopeKey(marker);
+            RecordingTree pendingTree = RecordingStore.HasPendingTree
+                ? RecordingStore.PendingTree
+                : null;
+            int storeVersion = RecordingStore.StateVersion;
+            if (!string.IsNullOrEmpty(scopeKey)
+                && reFlyDebobSampleSections != null
+                && string.Equals(reFlyDebobSampleScopeKey, scopeKey, StringComparison.Ordinal)
+                && string.Equals(
+                    reFlyDebobSampleRecordingId,
+                    reFlyRec.RecordingId,
+                    StringComparison.Ordinal)
+                && reFlyDebobSampleStoreVersion == storeVersion
+                && object.ReferenceEquals(reFlyDebobSamplePendingTree, pendingTree))
+            {
+                return reFlyDebobSampleSections;
+            }
+
+            List<TrackSection> sections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
+            reFlyDebobSampleScopeKey = scopeKey;
+            reFlyDebobSampleRecordingId = reFlyRec.RecordingId;
+            reFlyDebobSampleStoreVersion = storeVersion;
+            reFlyDebobSamplePendingTree = pendingTree;
+            reFlyDebobSampleSections = sections;
+            return sections;
+        }
+
+        internal static bool TryComputeReFlyRecordedDebobCorrection(
+            List<TrackSection> sampleSections,
+            double currentUT,
+            out Vector3d correction,
+            out ReFlyRecordedDebobDiagnostics diagnostics)
+        {
+            correction = Vector3d.zero;
+            diagnostics = default(ReFlyRecordedDebobDiagnostics);
+            diagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
+            diagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
+            diagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
+
+            if (sampleSections == null || sampleSections.Count == 0)
+            {
+                diagnostics.Reason = "sections-missing";
+                return false;
+            }
+
+            if (!TrySampleRecordedAbsoluteWorld(
+                    sampleSections,
+                    currentUT,
+                    out Vector3d rawWorld,
+                    out ReFlyRecordedAnchorSampleDiagnostics currentSample)
+                || !IsFiniteVector3d(rawWorld))
+            {
+                diagnostics.Reason = "current-sample-missing";
+                return false;
+            }
+
+            if (!TrySampleRecordedAbsoluteWorld(
+                    sampleSections,
+                    diagnostics.BeforeUT,
+                    out Vector3d beforeWorld,
+                    out ReFlyRecordedAnchorSampleDiagnostics beforeSample)
+                || beforeSample.ClampedToEndpoint
+                || !IsFiniteVector3d(beforeWorld))
+            {
+                diagnostics.RawWorld = rawWorld;
+                diagnostics.Reason = "before-sample-missing";
+                return false;
+            }
+
+            if (!TrySampleRecordedAbsoluteWorld(
+                    sampleSections,
+                    diagnostics.AfterUT,
+                    out Vector3d afterWorld,
+                    out ReFlyRecordedAnchorSampleDiagnostics afterSample)
+                || afterSample.ClampedToEndpoint
+                || !IsFiniteVector3d(afterWorld))
+            {
+                diagnostics.RawWorld = rawWorld;
+                diagnostics.Reason = "after-sample-missing";
+                return false;
+            }
+
+            string beforeBody = ResolveStableSampleBodyName(beforeSample);
+            string currentBody = ResolveStableSampleBodyName(currentSample);
+            string afterBody = ResolveStableSampleBodyName(afterSample);
+            diagnostics.BeforeBody = beforeBody;
+            diagnostics.CurrentBody = currentBody;
+            diagnostics.AfterBody = afterBody;
+            diagnostics.RawWorld = rawWorld;
+
+            if (string.IsNullOrEmpty(beforeBody)
+                || string.IsNullOrEmpty(currentBody)
+                || string.IsNullOrEmpty(afterBody)
+                || !string.Equals(beforeBody, currentBody, StringComparison.Ordinal)
+                || !string.Equals(currentBody, afterBody, StringComparison.Ordinal))
+            {
+                diagnostics.Reason = "body-mismatch";
+                return false;
+            }
+
+            if (!TryComputeReFlyDebobCorrectionFromSamples(
+                    beforeWorld,
+                    diagnostics.BeforeUT,
+                    rawWorld,
+                    currentUT,
+                    afterWorld,
+                    diagnostics.AfterUT,
+                    ReFlyRecordedDebobMaxCorrectionMeters,
+                    out correction,
+                    out Vector3d baselineWorld,
+                    out string reason))
+            {
+                diagnostics.BaselineWorld = baselineWorld;
+                diagnostics.Correction = correction;
+                diagnostics.CorrectionMeters = correction.magnitude;
+                diagnostics.Reason = reason;
+                return false;
+            }
+
+            diagnostics.Applied = true;
+            diagnostics.Reason = "applied";
+            diagnostics.BaselineWorld = baselineWorld;
+            diagnostics.Correction = correction;
+            diagnostics.CorrectionMeters = correction.magnitude;
+            return true;
+        }
+
+        internal static bool TryComputeReFlyDebobCorrectionFromSamples(
+            Vector3d beforeWorld,
+            double beforeUT,
+            Vector3d rawWorld,
+            double currentUT,
+            Vector3d afterWorld,
+            double afterUT,
+            double maxCorrectionMeters,
+            out Vector3d correction,
+            out Vector3d baselineWorld,
+            out string reason)
+        {
+            correction = Vector3d.zero;
+            baselineWorld = Vector3d.zero;
+            reason = null;
+
+            if (!IsFiniteVector3d(beforeWorld)
+                || !IsFiniteVector3d(rawWorld)
+                || !IsFiniteVector3d(afterWorld))
+            {
+                reason = "non-finite-sample";
+                return false;
+            }
+
+            if (double.IsNaN(beforeUT)
+                || double.IsInfinity(beforeUT)
+                || double.IsNaN(currentUT)
+                || double.IsInfinity(currentUT)
+                || double.IsNaN(afterUT)
+                || double.IsInfinity(afterUT)
+                || !(beforeUT < currentUT)
+                || !(currentUT < afterUT))
+            {
+                reason = "invalid-time-window";
+                return false;
+            }
+
+            double span = afterUT - beforeUT;
+            if (span <= 0.001)
+            {
+                reason = "time-window-too-small";
+                return false;
+            }
+
+            double t = (currentUT - beforeUT) / span;
+            if (t < 0.0 || t > 1.0)
+            {
+                reason = "time-window-out-of-range";
+                return false;
+            }
+
+            baselineWorld = Vector3d.Lerp(beforeWorld, afterWorld, (float)t);
+            correction = baselineWorld - rawWorld;
+            if (!IsFiniteVector3d(baselineWorld) || !IsFiniteVector3d(correction))
+            {
+                reason = "non-finite-correction";
+                return false;
+            }
+
+            double magnitude = correction.magnitude;
+            if (magnitude > maxCorrectionMeters)
+            {
+                reason = "correction-too-large";
+                return false;
+            }
+
+            reason = "applied";
+            return true;
+        }
+
+        private static string ResolveStableSampleBodyName(
+            ReFlyRecordedAnchorSampleDiagnostics diagnostics)
+        {
+            if (diagnostics.ClampedToEndpoint)
+                return null;
+            if (string.IsNullOrEmpty(diagnostics.BodyBeforeName)
+                || string.IsNullOrEmpty(diagnostics.BodyAfterName))
+                return null;
+            if (!string.Equals(
+                    diagnostics.BodyBeforeName,
+                    diagnostics.BodyAfterName,
+                    StringComparison.Ordinal))
+                return null;
+            return diagnostics.BodyBeforeName;
         }
 
         /// <summary>

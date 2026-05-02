@@ -16,6 +16,11 @@ namespace Parsek
         public uint LiveAnchorPartPid;
         public double LiveAnchorVesselOffsetMeters;
         public double InitialWorldOffsetMeters;
+        public bool DebobEnabled;
+        public bool DebobReferenceCaptured;
+        public Vector3d DebobReferenceCorrection;
+        public double DebobReferenceCorrectionMeters;
+        public double DebobReferenceUT;
 
         internal static bool TryCapture(
             string sessionId,
@@ -78,6 +83,32 @@ namespace Parsek
                     (float)BodyFixedOffset.z));
             worldOffset = new Vector3d(projected.x, projected.y, projected.z);
             return IsFinite(worldOffset);
+        }
+
+        internal bool TryCaptureDebobReference(
+            Quaternion bodyWorldRotation,
+            Vector3d debobCorrection,
+            double referenceUT)
+        {
+            if (!IsFinite(debobCorrection))
+                return false;
+
+            Vector3 local = TrajectoryMath.PureRotateVector(
+                TrajectoryMath.PureInverse(TrajectoryMath.PureNormalize(bodyWorldRotation)),
+                (Vector3)debobCorrection);
+            Vector3d localCorrection = new Vector3d(local.x, local.y, local.z);
+            if (!IsFinite(localCorrection))
+                return false;
+
+            BodyFixedOffset -= localCorrection;
+            if (!IsFinite(BodyFixedOffset))
+                return false;
+
+            DebobReferenceCaptured = true;
+            DebobReferenceCorrection = debobCorrection;
+            DebobReferenceCorrectionMeters = debobCorrection.magnitude;
+            DebobReferenceUT = referenceUT;
+            return true;
         }
 
         private static bool IsFinite(Vector3d value)
