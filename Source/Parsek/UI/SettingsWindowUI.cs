@@ -169,6 +169,8 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawGhostSettings(s);
             GUILayout.Space(SpacingSmall);
+            DrawStockUiSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawDiagnosticsSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawSamplingSettings(s);
@@ -193,8 +195,12 @@ namespace Parsek
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
                 s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
+                s.showCommittedFutureOverlays = defaults.ShowCommittedFutureOverlays;
+                s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
+                ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
+                ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -367,6 +373,31 @@ namespace Parsek
                 // next load.
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhostsTS);
                 ParsekLog.Info("UI", $"Setting changed: showGhostsInTrackingStation={showGhostsTS}");
+            }
+        }
+
+        private void DrawStockUiSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Stock UI", parentUI.GetSectionHeaderStyle());
+
+            bool showCommittedFutureOverlays = GUILayout.Toggle(s.showCommittedFutureOverlays,
+                new GUIContent(" Show committed-future overlays in stock UI",
+                    "Show stock-screen markers for R&D, Astronaut Complex, and Mission Control actions already committed on the timeline"));
+            if (showCommittedFutureOverlays != s.showCommittedFutureOverlays)
+            {
+                s.showCommittedFutureOverlays = showCommittedFutureOverlays;
+                ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(showCommittedFutureOverlays);
+                ParsekLog.Info("UI", $"Setting changed: showCommittedFutureOverlays={showCommittedFutureOverlays}");
+            }
+
+            bool blockCommittedActions = GUILayout.Toggle(s.blockCommittedActions,
+                new GUIContent(" Block player actions that conflict with committed timeline",
+                    "Prevent stock-screen clicks that would duplicate actions already committed by pending recordings"));
+            if (blockCommittedActions != s.blockCommittedActions)
+            {
+                s.blockCommittedActions = blockCommittedActions;
+                ParsekSettingsPersistence.RecordBlockCommittedActions(blockCommittedActions);
+                ParsekLog.Info("UI", $"Setting changed: blockCommittedActions={blockCommittedActions}");
             }
         }
 

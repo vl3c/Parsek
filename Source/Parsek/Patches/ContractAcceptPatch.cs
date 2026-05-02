@@ -40,7 +40,13 @@ namespace Parsek.Patches
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
-            // TODO Phase 3: gate on ParsekSettings.BlockCommittedActions.
+            if (!(ParsekSettings.Current?.blockCommittedActions ?? true))
+            {
+                ParsekLog.Verbose("ContractAcceptPatch",
+                    "feature disabled by ParsekSettings");
+                return true;
+            }
+
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("ContractAcceptPatch",

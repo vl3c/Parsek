@@ -32,6 +32,8 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            ParsekSettings.CurrentOverrideForTesting =
+                new ParsekSettings { blockCommittedActions = true };
 
             CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
             {
@@ -48,6 +50,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            ParsekSettings.CurrentOverrideForTesting = null;
 
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
@@ -111,6 +114,27 @@ namespace Parsek.Tests
                 line.Contains("[VERBOSE][ContractAcceptPatch]") &&
                 line.Contains("bypass") &&
                 line.Contains("replay in progress"));
+            Assert.DoesNotContain(logLines, line => line.Contains("[CommittedAction]"));
+        }
+
+        /// <summary>
+        /// Edge case E11 from §9. Fails if disabling committed-action click-blocks still blocks a committed contract.
+        /// </summary>
+        [Fact]
+        public void ContractAcceptPatch_ClickBlockSettingDisabled_AllowsCommittedAndLogs()
+        {
+            string key = Guid.NewGuid().ToString();
+            AddMilestone(Event(GameStateEventType.ContractAccepted, key, ut: 45678.0));
+            ParsekSettings.CurrentOverrideForTesting =
+                new ParsekSettings { blockCommittedActions = false };
+
+            bool allowed = ContractAcceptPatch.ShouldAllowAccept(key, "Disabled Setting Contract");
+
+            Assert.True(allowed);
+            Assert.False(dialogHookCalled);
+            Assert.Contains(logLines, line =>
+                line.Contains("[VERBOSE][ContractAcceptPatch]") &&
+                line.Contains("feature disabled by ParsekSettings"));
             Assert.DoesNotContain(logLines, line => line.Contains("[CommittedAction]"));
         }
 
