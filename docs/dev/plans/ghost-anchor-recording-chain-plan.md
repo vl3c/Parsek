@@ -1,6 +1,6 @@
 # Ghost rendering anchor - recording chain rearchitecture
 
-**Status:** approved; Phase A, Phase B, and Phase C implemented 2026-05-01. Phase D is gated on D.0 product-behaviour confirmation.
+**Status:** approved; Phase A, Phase B, and Phase C implemented 2026-05-01. PR #708 playtest follow-ups through 2026-05-02 added temporary display-stabilization and runtime fences without starting Phase D. Phase D is still gated on D.0 product-behaviour confirmation.
 **Author:** synthesised from user's stated intent across multiple sessions.
 **Supersedes:** `relative-anchor-rearchitecture-prompt.md` (had drift on the architectural intent).
 
@@ -15,6 +15,16 @@ Render every ghost in the playback scene at a position derived **only from recor
 > **Warning: Re-Fly UX behaviour change.** Today's Re-Fly tree anchor lock applies a per-frame world-space translation `live_active(now) - recorded_active(t)` to every ghost in the tree, so ghosts visually follow the player's live vessel. **This plan removes that translation.** After Phase D, ghosts in an active Re-Fly tree play back at their **original recorded coordinates** regardless of where the player flies the live vessel. A divergent re-fly (player taking a wildly different path) shows ghosts continuing on the original mission's recorded trajectory; the player's live vessel and the ghost reference frame visibly separate. This is the explicit user intent (see Appendix verbatim quotes), but it is a **product behaviour change**, not a refactor - confirm before Phase D lands.
 
 > **Private-development format break.** Legacy recordings are disposable. Correctness for new v11 recordings is the only compatibility target. v7-v10 recordings may warn, skip Relative sections, or fall back to recorded absolute-shadow data for debugging, but they are **not migrated** and are **not required to play correctly**. Test fixtures and manual repro saves should be re-recorded under v11.
+
+### Current implementation checkpoint (2026-05-02)
+
+PR #708 is still a Phases A-C PR plus playtest stabilization, not Phase D.
+
+- The v11 data path is on track: `TrackSection.anchorRecordingId` round-trips, foreground/background recorders choose recording-id anchors with the intended sealed / lineage / distance priority, and non-loop Relative flight playback resolves through `RelativeAnchorResolver` rather than live PIDs.
+- The active Re-Fly display layer is intentionally transitional. It uses the selected live root part only to initialize a per-session frozen body-fixed display alignment, lets same-chain successors inherit that alignment, and applies a recorded-only de-bob correction from the hidden active trajectory. This reduced the playtest initialization and up/down motion errors without deleting the old Re-Fly display-offset surface.
+- Absolute Atmospheric sections now produce body-fixed smoothing splines via the existing `.pann` pipeline, with annotation algorithm stamp v11, so hidden recorded trajectories are less noisy during active Re-Fly display.
+- This checkpoint does **not** satisfy Phase D acceptance. `TryGetReFlyTreeAnchorOffset` still exists as the temporary display-alignment surface, and ghosts are not yet guaranteed to render at pure original recorded coordinates during divergent active Re-Fly. D.1 must still delete that surface after D.0 confirms the product behaviour.
+- The immediate track remains: keep investigating fresh playtest logs under PR #708, fix narrow stabilization bugs without adding live-PID fallbacks or legacy migration, then run the explicit D.0 product gate before any D.1-D.7 deletion work.
 
 ### Downstream consequences of the Re-Fly change
 
@@ -430,6 +440,8 @@ This is a required milestone, not a comment. D.1-D.7 do not start without it.
 #### D.1: Delete `TryGetReFlyTreeAnchorOffset` and the per-tree Re-Fly anchor lock
 
 `TryGetReFlyTreeAnchorOffset` and `GhostPosEntry.reFlyTreeOffset` are spread through inline positioner code, method definitions, XML comments, and LateUpdate re-position branches. The exact hit count has already drifted between reviews, so the implementation rule is discovery-gated:
+
+**2026-05-02 checkpoint:** PR #708 playtest follow-ups changed `TryGetReFlyTreeAnchorOffset` from a per-frame live-active translation into a frozen body-fixed display-alignment surface with recorded-path de-bob. That makes playtesting better, but it does not remove the D.1 target. D.1 still deletes the whole display-offset helper family after D.0; do not preserve it as the final architecture.
 
 - Before D.1 edits, run a fresh source search for `TryGetReFlyTreeAnchorOffset`, `TryGetReFlyTreeAnchorOffsetUncached`, and `reFlyTreeOffset` in `Source/Parsek/ParsekFlight.cs`.
 - Classify every hit as method definition/memo, executable position shift, `GhostPosEntry` field/write, LateUpdate read, or comment.
