@@ -1261,6 +1261,11 @@ namespace Parsek
             if (!IsWorldStateChangingRecordingAction(action, sameTimelineActions))
                 return false;
 
+            // ScienceEarning is credited experiment data (collect/transmit/recover), not
+            // a passive consequence row like milestones or funds/reputation rewards.
+            if (action.Type == GameActionType.ScienceEarning)
+                return true;
+
             return TimelineEntryDisplay.IsPlayerAction(
                 TimelineEntryDisplay.MapGameActionType(action.Type));
         }

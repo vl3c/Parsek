@@ -200,7 +200,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryStash_RecordingScopedScienceEarningAction_Stashes()
+        public void TryStash_RecordingScopedFundsEarningAction_Stashes()
+        {
+            var landed = Rec("rec_landed", TerminalState.Landed);
+            RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_landed")
+                }
+            };
+            var scenario = InstallScenario(rp);
+            int versionBefore = scenario.SupersedeStateVersion;
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                "rec_landed",
+                "act_funds"));
+
+            bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.True(rp.ChildSlots[1].Stashed);
+            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
+            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stashed slot=1")
+                && l.Contains("rec=rec_landed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:FundsEarning:act_funds"));
+        }
+
+        [Fact]
+        public void TryStash_RecordingScopedScienceEarningAction_ReturnsRecordingActionWithoutVersionBump()
         {
             var landed = Rec("rec_landed", TerminalState.Landed);
             RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
@@ -224,17 +262,16 @@ namespace Parsek.Tests
 
             bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
 
-            Assert.True(ok);
-            Assert.Null(reason);
-            Assert.True(rp.ChildSlots[1].Stashed);
-            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
-            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            Assert.False(ok);
+            Assert.Equal("recordingAction:ScienceEarning:act_sci", reason);
+            Assert.False(rp.ChildSlots[1].Stashed);
+            Assert.Null(rp.ChildSlots[1].StashedRealTime);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("Stashed slot=1")
-                && l.Contains("rec=rec_landed"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:ScienceEarning:act_sci"));
+                l.Contains("[WARN]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stash unavailable")
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci"));
         }
 
         [Fact]

@@ -108,7 +108,7 @@ namespace Parsek.Tests
 
         public static IEnumerable<object[]> RetryBlockingRecordingActionCases()
         {
-            yield return new object[] { GameActionType.ScienceEarning, false, true };
+            yield return new object[] { GameActionType.ScienceEarning, true, true };
             yield return new object[] { GameActionType.ScienceSpending, true, true };
             yield return new object[] { GameActionType.FundsEarning, false, true };
             yield return new object[] { GameActionType.FundsSpending, true, true };
@@ -1587,20 +1587,20 @@ namespace Parsek.Tests
         {
             var rec = Rec("rec_mixed_actions", "tree_1");
             Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                rec.RecordingId,
+                "act_funds_earn"));
+            Ledger.AddAction(RecordingScopedAction(
                 GameActionType.ScienceEarning,
                 rec.RecordingId,
                 "act_sci_earn"));
-            Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
-                rec.RecordingId,
-                "act_sci_spend"));
 
             string summary;
             Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
-            Assert.Equal("ScienceEarning:act_sci_earn", summary);
+            Assert.Equal("FundsEarning:act_funds_earn", summary);
 
             Assert.True(SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
-            Assert.Equal("ScienceSpending:act_sci_spend", summary);
+            Assert.Equal("ScienceEarning:act_sci_earn", summary);
         }
 
         [Fact]
@@ -1700,7 +1700,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DestroyedTerminal_WithRecordingScopedScienceEarningAction_KeepsOpen()
+        public void DestroyedTerminal_WithRecordingScopedScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1736,6 +1736,57 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(originSlot.Sealed);
+            Assert.NotNull(originSlot.SealedRealTime);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn")
+                && l.Contains("autoSeal=True")
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn"));
+        }
+
+        [Fact]
+        public void DestroyedTerminal_WithOnlyNonStructuralPartEvents_KeepsOpen()
+        {
+            const string bpId = "bp_stage";
+            var origin = Rec("rec_origin", "tree_1");
+            InstallTree("tree_1",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = bpId;
+            provisional.PartEvents.Add(new PartEvent
+            {
+                ut = 12.0,
+                partPersistentId = 100000,
+                partName = "roverWheel",
+                eventType = PartEventType.GearDeployed,
+            });
+            var marker = Marker("rec_origin", "rec_provisional");
+            var scenario = InstallScenario(marker);
+            var originSlot = new ChildSlot
+            {
+                SlotIndex = 1,
+                OriginChildRecordingId = "rec_origin",
+                Controllable = true,
+            };
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = bpId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_focus", Controllable = true },
+                    originSlot,
+                }
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             Assert.False(originSlot.Sealed);
             Assert.Null(originSlot.SealedRealTime);
@@ -1744,8 +1795,6 @@ namespace Parsek.Tests
                 && l.Contains("mergeState=CommittedProvisional")
                 && l.Contains("classifierReason=crashed")
                 && l.Contains("autoSeal=False"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn"));
         }
 
         [Fact]

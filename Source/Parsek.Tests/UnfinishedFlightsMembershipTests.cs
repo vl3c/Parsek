@@ -211,7 +211,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DestroyedWithRecordingScopedScienceEarningAction_IsMember()
+        public void DestroyedWithRecordingScopedScienceEarningAction_NotMember()
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -226,14 +226,11 @@ namespace Parsek.Tests
             logLines.Clear();
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
-            Assert.Single(members);
-            Assert.Equal("rec_A", members[0].RecordingId);
+            Assert.Empty(members);
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_A")
-                && l.Contains("reason=crashed"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
         }
 
         [Fact]
