@@ -4,23 +4,27 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// A Re-Fly that produced a structural side-off (decouple, stage,
-    /// undock, joint break, EVA) during the session must auto-seal the
-    /// slot on merge regardless of where the chain tip lands. Without
-    /// this gate, a stashed-slot Re-Fly that staged debris and reached
-    /// stable orbit would still classify as <c>stashedStableLeaf</c> and
-    /// keep the slot re-flyable. With the structural-mutation rule, any
-    /// structural-typed branch point in the provisional's tree at a UT
-    /// past <c>marker.InvokedUT</c> closes the slot.
+    /// In-game smoke test for <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>.
+    /// Under the v0.9.1 auto-seal revision (design §4.6) the focus
+    /// override path closes the slot via <c>stableTerminalFocusSlot</c>
+    /// before the structural gate runs, so the structural gate is now a
+    /// defensive backstop rather than the primary seal trigger for live
+    /// merges. This test exercises the seal outcome end-to-end on a
+    /// stashed slot Re-Fly that produced a structural BP and reached a
+    /// stable terminal — the merge succeeds (Immutable + slot.Sealed),
+    /// the user sees the row leave Unfinished Flights, and the verdict
+    /// log carries either <c>classifierReason=stableTerminalFocusSlot</c>
+    /// (override path, expected) or <c>structuralMutation:*</c>
+    /// (backstop). Helper-level coverage for the gate's mechanics —
+    /// rp.UT cutoff, <c>PreSessionBranchPointIds</c> baseline, lineage
+    /// scope — lives in xUnit (<c>SupersedeCommitTests.HasReFlySessionStructuralMutation_*</c>).
     ///
     /// <para>
-    /// Preconditions: an active Re-Fly session marker on a Stashed slot
-    /// (so the classifier returns <c>stashedStableLeaf qualifies=true</c>
-    /// and the structural gate is reached), the provisional's chain tip
-    /// has a non-Crashed terminal (Crashed retains its existing retry-
-    /// keep-open path), and the provisional's tree carries at least one
-    /// structural branch point past <c>marker.InvokedUT</c>. The test
-    /// auto-skips otherwise.
+    /// Preconditions: an active Re-Fly session marker on a Stashed slot,
+    /// the provisional's chain tip has a non-Crashed terminal (Crashed
+    /// retains its existing retry-keep-open path), and the provisional's
+    /// tree carries at least one structural branch point authored past
+    /// the rewind-point UT. The test auto-skips otherwise.
     /// </para>
     /// </summary>
     public class MergeReFlyStructuralMutationAutoSealsTest

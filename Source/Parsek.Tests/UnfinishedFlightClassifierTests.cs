@@ -196,9 +196,14 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitingFocusSlot_StaticFocusPathUnchangedByOverride()
         {
-            // When the slot already matches rp.FocusSlotIndex, the static
-            // focus check fires before the override branch; behavior is
-            // unchanged regardless of whether the override is supplied.
+            // When the merge-time slot equals rp.FocusSlotIndex (the player
+            // is Re-Flying the static focus slot), the override and the
+            // static-focus check both produce stableTerminalFocusSlot. The
+            // override branch fires first under the v0.9.1 ordering so the
+            // verdict comes out of the override path; the static-focus
+            // check remains in the code as the natural-merge / non-override
+            // path. End-result reason and qualifies=false are identical
+            // either way, which is what this test pins.
             const string treeId = "tree_focus";
             const string bpId = "bp_focus_split";
             var focus = Rec(

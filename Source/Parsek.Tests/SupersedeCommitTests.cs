@@ -925,6 +925,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HasReFlySessionStructuralMutation_StandaloneProvisionalNullChainId_DetectsViaProvisionalIdOnly()
+        {
+            // BuildReFlyTargetLineageRecordingIds early-returns just the
+            // provisional's id when ChainId is null/empty (standalone
+            // recording, no chain segments). A decouple BP authored
+            // against the provisional during the session must still trip
+            // the gate via the singleton lineage set — the most common
+            // case for fresh-provisional Re-Flies.
+            const string rpId = "rp_standalone";
+            const string bpId = "bp_standalone_decouple";
+            var rec = Rec("rec_provisional", "tree_standalone");
+            // ChainId stays null (Recording default).
+            Assert.Null(rec.ChainId);
+            var bp = new BranchPoint
+            {
+                Id = bpId,
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
+            };
+            InstallTree("tree_standalone",
+                new List<Recording> { rec },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_standalone";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            marker.PreSessionBranchPointIds = new List<string>();
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.NotNull(detail);
+            Assert.Contains($"firstBp={bpId}", detail);
+            // Lineage = {provisional} only (no chain segments).
+            Assert.Contains("lineage=1", detail);
+        }
+
+        [Fact]
         public void HasReFlySessionStructuralMutation_BranchPointOnSameChainTail_Detected()
         {
             // Optimizer-split chain tail: the provisional is the head, a
