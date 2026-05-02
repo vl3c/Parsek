@@ -32,8 +32,9 @@ namespace Parsek
 
     internal static class IncompleteBallisticSceneExitFinalizer
     {
-        // This guard only handles the "fresh split" signature: the first authored
-        // recording sample and live fallback state land on effectively the same UT.
+        // This is not a sampling-cadence tolerance. It only admits the "fresh split"
+        // signature where the first authored sample and live fallback state land on
+        // effectively the same physics moment.
         private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
 
         private static bool? flightGlobalsRuntimeAvailableForTesting;
@@ -613,6 +614,10 @@ namespace Parsek
                 || result.subSurfaceDestroyedAltitude > result.subSurfaceDestroyedThreshold)
                 return false;
 
+            recordingStartUT = recording.StartUT;
+            if (!IsFinite(recordingStartUT))
+                return false;
+
             string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
                 ? result.subSurfaceDestroyedBodyName
                 : startState.bodyName;
@@ -627,10 +632,6 @@ namespace Parsek
             {
                 return false;
             }
-
-            recordingStartUT = recording.StartUT;
-            if (!IsFinite(recordingStartUT))
-                return false;
 
             if (recordedPointDeltaUT > SubSurfaceRecordedPointContradictionWindowSeconds)
                 return false;
