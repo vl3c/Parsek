@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace Parsek
@@ -221,6 +222,71 @@ namespace Parsek
             {
                 ParsekLog.Verbose("MilestoneStore",
                     $"PurgeTaggedEvents ({reason}): no matches, {milestones.Count} milestones untouched, ids={recordingIds.Count}");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Removes tagged events for one recording only after a UT cutoff.
+        /// Preserves earlier events with the same recording id, which is needed
+        /// when an in-place Re-Fly records its attempt onto the origin id.
+        /// </summary>
+        internal static List<GameStateEvent> PurgeTaggedEventsAfterUT(
+            string recordingId, double cutoffUT, string reason)
+        {
+            var removed = new List<GameStateEvent>();
+            if (string.IsNullOrEmpty(recordingId)
+                || double.IsNaN(cutoffUT)
+                || double.IsInfinity(cutoffUT))
+            {
+                return removed;
+            }
+
+            int emptiedMilestones = 0;
+            int replayIdxAdjustments = 0;
+            for (int i = milestones.Count - 1; i >= 0; i--)
+            {
+                var m = milestones[i];
+                for (int j = m.Events.Count - 1; j >= 0; j--)
+                {
+                    var e = m.Events[j];
+                    if (!string.IsNullOrEmpty(e.recordingId)
+                        && string.Equals(e.recordingId, recordingId, StringComparison.Ordinal)
+                        && e.ut > cutoffUT)
+                    {
+                        removed.Add(e);
+                        m.Events.RemoveAt(j);
+                        if (j <= m.LastReplayedEventIndex)
+                        {
+                            m.LastReplayedEventIndex--;
+                            if (m.LastReplayedEventIndex < -1) m.LastReplayedEventIndex = -1;
+                            replayIdxAdjustments++;
+                        }
+                    }
+                }
+                if (m.Events.Count == 0)
+                {
+                    milestones.RemoveAt(i);
+                    emptiedMilestones++;
+                }
+            }
+
+            if (removed.Count > 0 || emptiedMilestones > 0)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"PurgeTaggedEventsAfterUT ({reason}): {removed.Count} events removed, " +
+                    $"{emptiedMilestones} milestones dropped, " +
+                    $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
+                    $"rec={recordingId} cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                ResourceBudget.Invalidate();
+            }
+            else
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"PurgeTaggedEventsAfterUT ({reason}): no matches, " +
+                    $"{milestones.Count} milestones untouched, rec={recordingId} " +
+                    $"cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
             }
 
             return removed;

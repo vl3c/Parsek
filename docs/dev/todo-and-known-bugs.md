@@ -19,6 +19,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 Re-Fly merge discard scope
+
+- ~~After a Re-Fly, using the scene-exit merge confirmation dialog's `Discard` button while going back to Space Center or another building could delete the whole mission recording instead of only the active Re-Fly attempt.~~ Source: user report on 2026-05-02. Root cause: the Re-Fly pending tree can reuse the committed mission tree id, but `MergeDialog.MergeDiscard` always called the ordinary full-tree discard path. That path invokes `TreeDiscardPurge.PurgeTree(treeId)`, whose committed-tree-first lookup resolves the original mission tree and removes its Rewind Points, supersede rows, tombstones, and related recording state. Fix: the merge-dialog discard button now detects an active Re-Fly marker scoped to the dialog tree and runs a session-scoped discard path: remove only attempt-owned provisional recordings/events/files, restore a sanitized committed mission tree through raw committed-list reattachment when the Re-Fly load had temporarily detached its committed copy, clear transient Re-Fly session state, promote the origin Rewind Point back to persistent, and recalculate career state without calling `TreeDiscardPurge` or replaying first-commit side effects. In-place continuations protect the origin recording id explicitly, purge only origin-tagged events after the RP UT, and trim the origin recording back to the rewind point before restoring a detached tree. Coverage: `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyMarkerTreeMismatch_FallsBackToRegularTreeDiscard`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_PreservesCommittedMissionTreeAndRp`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_RestoresSanitizedTreeWhenCommittedCopyDetached`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlacePath_DoesNotRemoveOriginRecording`, and `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlaceDetachedPath_TrimsOriginBackToRewindPoint`.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 instant time-jump ledger recalculation
 
 - ~~Fast Forward and Real Spawn Control instant jumps advanced UT without immediately replaying the ledger, so funds/science/reputation/contracts/facilities could stay at their pre-jump values until another trigger fired.~~ Normal KSP time-warp exit already called `LedgerOrchestrator.RecalculateAndPatch()`, and Rewind/Re-Fly already used explicit cutoff/full-state recalculation, but Parsek's discrete jump paths were stale: `TimeJumpManager.ExecuteJump` still logged "game actions system not available, skipping recalculation", and `ExecuteForwardJump` never called the ledger at all.

@@ -341,6 +341,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes tagged events for one recording only after a UT cutoff. Used by
+        /// in-place Re-Fly discard: the original recording id is also the active
+        /// attempt id, so full id-based purge would delete pre-Re-Fly history.
+        /// </summary>
+        internal static int PurgeEventsForRecordingAfterUT(
+            string recordingId, double cutoffUT, string reason)
+        {
+            if (string.IsNullOrEmpty(recordingId)
+                || double.IsNaN(cutoffUT)
+                || double.IsInfinity(cutoffUT))
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PurgeEventsForRecordingAfterUT: invalid input rec={recordingId ?? "<none>"} " +
+                    $"cutoff={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} ({reason}) - skipping");
+                return 0;
+            }
+
+            var liveRemoved = new List<GameStateEvent>();
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (!string.IsNullOrEmpty(e.recordingId)
+                    && string.Equals(e.recordingId, recordingId, StringComparison.Ordinal)
+                    && e.ut > cutoffUT)
+                {
+                    liveRemoved.Add(e);
+                    events.RemoveAt(i);
+                }
+            }
+
+            var milestoneRemoved = MilestoneStore.PurgeTaggedEventsAfterUT(
+                recordingId, cutoffUT, reason);
+
+            var allPurged = new List<GameStateEvent>(liveRemoved.Count + milestoneRemoved.Count);
+            allPurged.AddRange(liveRemoved);
+            allPurged.AddRange(milestoneRemoved);
+            int snapshotsRemoved = PurgeOrphanedContractSnapshots(allPurged);
+
+            ParsekLog.Info("GameStateStore",
+                $"PurgeEventsForRecordingAfterUT ({reason}): rec={recordingId} " +
+                $"cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"live={liveRemoved.Count}, milestone={milestoneRemoved.Count}, " +
+                $"snapshots={snapshotsRemoved}");
+
+            return liveRemoved.Count + milestoneRemoved.Count;
+        }
+
+        /// <summary>
         /// #431: deletes contract snapshots whose corresponding <see cref="GameStateEventType.ContractAccepted"/>
         /// event appears in the purged list. Snapshots are only created by <see cref="AddContractSnapshot"/>
         /// from <c>GameStateRecorder.OnContractAccepted</c> — so they always follow the accept event's fate.
