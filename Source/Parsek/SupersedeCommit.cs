@@ -686,6 +686,17 @@ namespace Parsek
                     StringComparison.Ordinal))
                 return false;
 
+            // Session-local baseline: when the marker was created we
+            // snapshotted every existing BranchPoint.Id in the tree.
+            // Without that baseline, the load-time splice path
+            // (`SpliceMissingCommittedRecordingsIntoLoadedTree`) re-grafts
+            // pre-Re-Fly post-RP branch points back into the loaded tree
+            // and they look identical to session-authored ones — so the
+            // gate would auto-seal a stashed slot the player never
+            // mutated. Conservatively skip the gate when the baseline is
+            // absent (legacy markers created before this field shipped).
+            if (marker.PreSessionBranchPointIds == null) return false;
+
             ParsekScenario scenario = ParsekScenario.Instance;
             double? cutoffSource = TryResolveReFlyStructuralCutoffUT(
                 marker, scenario, out string cutoffOriginLabel);
@@ -699,6 +710,9 @@ namespace Parsek
                 : null;
             if (tree == null || tree.BranchPoints == null) return false;
 
+            HashSet<string> preSessionSet = new HashSet<string>(
+                marker.PreSessionBranchPointIds, StringComparer.Ordinal);
+
             // A small UT slack absorbs floating-point round-trip drift
             // between the resolved cutoff UT and a branch-point UT that
             // arose from the same physics frame. The rewind point itself
@@ -708,6 +722,7 @@ namespace Parsek
             double cutoff = cutoffSource.Value + UtSlackSeconds;
 
             int matchedCount = 0;
+            int spliceExcludedCount = 0;
             string firstBpId = null;
             BranchPointType? firstBpType = null;
             for (int i = 0; i < tree.BranchPoints.Count; i++)
@@ -716,6 +731,15 @@ namespace Parsek
                 if (bp == null) continue;
                 if (!IsStructuralBranchPointType(bp.Type)) continue;
                 if (bp.UT < cutoff) continue;
+                if (!string.IsNullOrEmpty(bp.Id)
+                    && preSessionSet.Contains(bp.Id))
+                {
+                    // Pre-existing BP re-spliced into the loaded tree by
+                    // SpliceMissingCommittedRecordingsIntoLoadedTree —
+                    // not a Re-Fly-session mutation.
+                    spliceExcludedCount++;
+                    continue;
+                }
 
                 matchedCount++;
                 if (firstBpId == null)
@@ -729,10 +753,12 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             detail = $"branchPoints={matchedCount.ToString(ic)}" +
+                $" spliceExcluded={spliceExcludedCount.ToString(ic)}" +
                 $" firstBp={firstBpId ?? "<no-id>"}" +
                 $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
                 $" sinceUT={cutoffSource.Value.ToString("F2", ic)}" +
-                $" cutoffOrigin={cutoffOriginLabel}";
+                $" cutoffOrigin={cutoffOriginLabel}" +
+                $" baseline={marker.PreSessionBranchPointIds.Count.ToString(ic)}";
             return true;
         }
 

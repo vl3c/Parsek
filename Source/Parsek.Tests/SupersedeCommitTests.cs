@@ -156,6 +156,11 @@ namespace Parsek.Tests
                 SupersedeTargetId = supersedeTargetId,
                 RewindPointId = "rp_1",
                 InvokedUT = 0.0,
+                // Empty session-baseline: every structural BP currently
+                // in the tree counts as session-authored. Tests that
+                // need to seed pre-existing BPs as the baseline override
+                // this list explicitly.
+                PreSessionBranchPointIds = new List<string>(),
             };
         }
 
@@ -713,6 +718,144 @@ namespace Parsek.Tests
             Assert.NotNull(detail);
             Assert.Contains("cutoffOrigin=invokedUT", detail);
             Assert.Contains("sinceUT=300.00", detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_PreExistingPostRpBranchPoint_ExcludedByBaseline()
+        {
+            // Regression: the load-time
+            // SpliceMissingCommittedRecordingsIntoLoadedTree path re-grafts
+            // pre-Re-Fly post-RP branch points back into the loaded
+            // Re-Fly tree. Without the session baseline, a pre-existing
+            // structural BP authored before the player invoked Re-Fly
+            // would auto-seal a stashed slot the player never mutated.
+            // The marker's PreSessionBranchPointIds snapshot excludes
+            // those by id.
+            const string rpId = "rp_baseline_exclusion";
+            const string preExistingBpId = "bp_old_breakup";
+            var rec = Rec("rec_provisional", "tree_baseline");
+            var preExistingBp = new BranchPoint
+            {
+                Id = preExistingBpId,
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+            };
+            InstallTree("tree_baseline",
+                new List<Recording> { rec },
+                new List<BranchPoint> { preExistingBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_baseline";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            // The BP existed at marker creation — record it as pre-session
+            // so the gate excludes it from the structural-mutation count.
+            marker.PreSessionBranchPointIds = new List<string> { preExistingBpId };
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.Null(detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_BaselineExcludesOneBpButNewOneStillDetected()
+        {
+            // Mixed case: tree carries one pre-existing structural BP
+            // (excluded by the baseline) and one new session-authored BP
+            // (present in tree, NOT in baseline). The new BP must still
+            // trip the gate; the spliceExcluded counter in the detail
+            // string surfaces the excluded count for log audits.
+            const string rpId = "rp_mixed";
+            const string oldBpId = "bp_pre_session";
+            const string newBpId = "bp_new_decouple";
+            var rec = Rec("rec_provisional", "tree_mixed");
+            var oldBp = new BranchPoint
+            {
+                Id = oldBpId,
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+            };
+            var newBp = new BranchPoint
+            {
+                Id = newBpId,
+                Type = BranchPointType.Breakup,
+                UT = 250.0,
+            };
+            InstallTree("tree_mixed",
+                new List<Recording> { rec },
+                new List<BranchPoint> { oldBp, newBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_mixed";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            marker.PreSessionBranchPointIds = new List<string> { oldBpId };
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.NotNull(detail);
+            Assert.Contains($"firstBp={newBpId}", detail);
+            Assert.Contains("branchPoints=1", detail);
+            Assert.Contains("spliceExcluded=1", detail);
+            Assert.Contains("baseline=1", detail);
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_LegacyMarkerWithoutBaseline_GateSkipped()
+        {
+            // Legacy markers persisted before PreSessionBranchPointIds
+            // shipped have a null list. Without a baseline the gate cannot
+            // distinguish session-authored from spliced-in BPs, so it
+            // conservatively skips. Sessions in flight at upgrade time
+            // therefore preserve the pre-fix keep-open behavior on merge.
+            const string rpId = "rp_legacy";
+            var rec = Rec("rec_provisional", "tree_legacy");
+            var bp = new BranchPoint
+            {
+                Id = "bp_legacy",
+                Type = BranchPointType.Breakup,
+                UT = 200.0,
+            };
+            InstallTree("tree_legacy",
+                new List<Recording> { rec },
+                new List<BranchPoint> { bp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = "tree_legacy";
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 400.0;
+            marker.PreSessionBranchPointIds = null;
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+
+            string detail;
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(
+                rec, marker, out detail));
+            Assert.Null(detail);
         }
 
         [Fact]

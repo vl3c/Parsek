@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -61,6 +62,21 @@ namespace Parsek
         /// <summary>Wall-clock timestamp at invocation (ISO 8601 UTC; design §5.7).</summary>
         public string InvokedRealTime;
 
+        /// <summary>
+        /// Snapshot of <see cref="BranchPoint.Id"/>s that already existed
+        /// in the marker's tree at session-creation time. Used by
+        /// <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>
+        /// as a session-local baseline so structural-mutation auto-seal
+        /// fires only on branch points authored DURING this Re-Fly —
+        /// pre-existing BPs that the load-time
+        /// <c>SpliceMissingCommittedRecordingsIntoLoadedTree</c> path
+        /// re-grafts back into the loaded tree are excluded. Stored as
+        /// repeated <c>preSessionBranchPointId</c> values; absent on
+        /// markers created before this field shipped, in which case the
+        /// structural-mutation gate is conservatively skipped.
+        /// </summary>
+        public List<string> PreSessionBranchPointIds;
+
         internal const string NodeName = "REFLY_SESSION_MARKER";
 
         /// <summary>Saves into a dedicated child node on the parent.</summary>
@@ -78,6 +94,21 @@ namespace Parsek
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
                 node.AddValue("invokedRealTime", InvokedRealTime);
+            if (PreSessionBranchPointIds != null)
+            {
+                // Always emit the sentinel so absent-vs-empty round-trips
+                // safely. Round-trip readers distinguish "field present,
+                // empty list" (post-fix marker on a tree with no BPs at
+                // invocation) from "field absent" (legacy marker, gate
+                // conservatively skipped).
+                node.AddValue("preSessionBranchPointIdsPresent", "true");
+                for (int i = 0; i < PreSessionBranchPointIds.Count; i++)
+                {
+                    string id = PreSessionBranchPointIds[i];
+                    if (!string.IsNullOrEmpty(id))
+                        node.AddValue("preSessionBranchPointId", id);
+                }
+            }
         }
 
         /// <summary>Loads from a single <see cref="NodeName"/> node (caller supplies the node directly).</summary>
@@ -111,6 +142,21 @@ namespace Parsek
                 m.InvokedUT = ut;
 
             m.InvokedRealTime = node.GetValue("invokedRealTime");
+
+            string presentFlag = node.GetValue("preSessionBranchPointIdsPresent");
+            if (string.Equals(presentFlag, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                m.PreSessionBranchPointIds = new List<string>();
+                string[] ids = node.GetValues("preSessionBranchPointId");
+                if (ids != null)
+                {
+                    for (int i = 0; i < ids.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(ids[i]))
+                            m.PreSessionBranchPointIds.Add(ids[i]);
+                    }
+                }
+            }
 
             return m;
         }
