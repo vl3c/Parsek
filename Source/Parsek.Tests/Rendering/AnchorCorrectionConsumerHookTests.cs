@@ -196,6 +196,18 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void AllowPointHermiteInterpolation_ReFlyDisplayOffsetActive_UsesLinearPath()
+        {
+            bool result = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: true,
+                splineApplied: false,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("refly-display-offset-linearized", reason);
+        }
+
+        [Fact]
         public void AllowRenderAnchorCorrectionInterval_NoReFlyDisplayOffset_AppliesAnchor()
         {
             var expectedEps = new Vector3d(11.0, 22.0, 33.0);

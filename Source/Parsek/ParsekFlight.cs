@@ -16364,7 +16364,7 @@ namespace Parsek
 
             // Re-Fly tree display alignment is resolved before smoothing so
             // active Re-Fly ghosts do not mix the frozen display offset with
-            // a spline path that can disagree with the raw recorded bracket
+            // a smoothed path that can disagree with the raw recorded bracket
             // around optimizer boundaries. The hidden recording remains the
             // source of truth; this only chooses the rendering interpolant.
             Vector3d reFlyTreeOffset = Vector3d.zero;
@@ -16413,18 +16413,21 @@ namespace Parsek
                 }
             }
 
-            // Velocity-aware PointInterp fallback: for sparse atmospheric
-            // brackets, endpoint velocities often describe a smoother path
-            // than straight world-position lerp. The helper is deliberately
-            // guarded; if velocities are stale/frame-inconsistent or the
-            // cubic bows too far from the legacy line, rendering stays on
-            // the old lerp.
+            // Velocity-aware PointInterp fallback: for normal playback, endpoint
+            // velocities can describe a smoother path than straight world-position
+            // lerp. Active Re-Fly display alignment deliberately stays on the
+            // straight segment: recent playtest traces showed the cubic creating a
+            // small high-frequency bracket wobble after the first-frame pin had
+            // already aligned the ghost correctly.
             bool hermiteApplied = false;
             Vector3d rawHermitePos = Vector3d.zero;
             double hermiteDeviationMeters = double.NaN;
             double hermiteMaxDeviationMeters = ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-            string hermiteReason = splineApplied ? "spline-applied" : "not-evaluated";
-            if (!splineApplied)
+            bool allowHermite = allowPointHermiteInterpolation(
+                hasReFlyTreeOffset,
+                splineApplied,
+                out string hermiteReason);
+            if (allowHermite)
             {
                 if (TrajectoryMath.TryInterpolateWorldHermite(
                         posBefore,
@@ -16861,6 +16864,27 @@ namespace Parsek
 
             reason = status.ToString();
             return false;
+        }
+
+        internal static bool allowPointHermiteInterpolation(
+            bool hasReFlyTreeOffset,
+            bool splineApplied,
+            out string reason)
+        {
+            if (splineApplied)
+            {
+                reason = "spline-applied";
+                return false;
+            }
+
+            if (hasReFlyTreeOffset)
+            {
+                reason = "refly-display-offset-linearized";
+                return false;
+            }
+
+            reason = "eligible";
+            return true;
         }
 
         /// <summary>
