@@ -175,6 +175,27 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void AllowRenderCoBubbleBlend_ReFlyDisplayOffsetActive_SuppressesBlend()
+        {
+            bool result = ParsekFlight.allowRenderCoBubbleBlend(
+                "rec-refly-cobubble",
+                targetUT: 2050.0,
+                hasReFlyTreeOffset: true,
+                out Vector3d offset,
+                out string primaryRecordingId,
+                out CoBubbleBlendStatus status,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal(0.0, offset.x, 9);
+            Assert.Equal(0.0, offset.y, 9);
+            Assert.Equal(0.0, offset.z, 9);
+            Assert.Null(primaryRecordingId);
+            Assert.Equal(default(CoBubbleBlendStatus), status);
+            Assert.Equal("refly-display-offset-active", reason);
+        }
+
+        [Fact]
         public void AllowRenderAnchorCorrectionInterval_NoReFlyDisplayOffset_AppliesAnchor()
         {
             var expectedEps = new Vector3d(11.0, 22.0, 33.0);

@@ -505,6 +505,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void HighFidelityProximity_SelectsNearestFiniteSource()
+        {
+            Assert.Equal(25.0, FlightRecorder.SelectNearestHighFidelityProximityMeters(50.0, 25.0), 6);
+            Assert.Equal(50.0, FlightRecorder.SelectNearestHighFidelityProximityMeters(50.0, double.NaN), 6);
+            Assert.Equal(25.0, FlightRecorder.SelectNearestHighFidelityProximityMeters(double.NaN, 25.0), 6);
+            Assert.True(double.IsNaN(FlightRecorder.SelectNearestHighFidelityProximityMeters(double.NaN, double.PositiveInfinity)));
+        }
+
+        [Fact]
         public void HighFidelityProximity_RejectsInvalidOrOutsideRange()
         {
             Assert.Equal(200.0, FlightRecorder.HighFidelityProximityRangeMeters);

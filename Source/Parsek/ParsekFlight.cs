@@ -4567,6 +4567,10 @@ namespace Parsek
                             branchUT, newPid, hasController,
                             preSnapshot: preSnapshot,
                             preTrajectoryPoint: preTrajectoryPoint);
+                        pendingSplitRecorder?.RegisterHighFidelityProximityVessel(
+                            newPid,
+                            branchUT,
+                            "split-child-proximity");
                     }
 
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
@@ -16468,9 +16472,10 @@ namespace Parsek
             string coBubblePrimaryId = null;
             Vector3d coBubbleOffset = Vector3d.zero;
             Parsek.Rendering.CoBubbleBlendStatus blendStatus = default(Parsek.Rendering.CoBubbleBlendStatus);
-            if (allowCoBubbleBlend(recordingId, targetUT,
+            string coBubbleReason = "not-evaluated";
+            if (allowRenderCoBubbleBlend(recordingId, targetUT, hasReFlyTreeOffset,
                     out coBubbleOffset, out string primaryRecordingId,
-                    out blendStatus))
+                    out blendStatus, out coBubbleReason))
             {
                 if (TryComputeStandaloneWorldPositionForRecording(
                         primaryRecordingId, targetUT, bodyBefore,
@@ -16484,6 +16489,7 @@ namespace Parsek
                 }
                 else
                 {
+                    coBubbleReason = "primary-standalone-failed";
                     Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss(
                         recordingId, "primary-standalone-failed");
                 }
@@ -16545,6 +16551,7 @@ namespace Parsek
                     + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
                     + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
                     + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
+                    + " coBubbleReason=" + coBubbleReason
                     + " reFlyHit=" + (hasReFlyTreeOffset ? "true" : "false")
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero)
                     + " reFlyGhostPartPinHit=" + (reFlyGhostPartPinApplied ? "true" : "false")
@@ -16826,6 +16833,34 @@ namespace Parsek
         {
             return Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
                 recordingId, targetUT, out worldOffset, out status, out primaryRecordingId);
+        }
+
+        internal static bool allowRenderCoBubbleBlend(
+            string recordingId,
+            double targetUT,
+            bool hasReFlyTreeOffset,
+            out Vector3d worldOffset,
+            out string primaryRecordingId,
+            out Parsek.Rendering.CoBubbleBlendStatus status,
+            out string reason)
+        {
+            worldOffset = Vector3d.zero;
+            primaryRecordingId = null;
+            status = default(Parsek.Rendering.CoBubbleBlendStatus);
+            if (hasReFlyTreeOffset)
+            {
+                reason = "refly-display-offset-active";
+                return false;
+            }
+
+            if (allowCoBubbleBlend(recordingId, targetUT, out worldOffset, out primaryRecordingId, out status))
+            {
+                reason = "applied";
+                return true;
+            }
+
+            reason = status.ToString();
+            return false;
         }
 
         /// <summary>

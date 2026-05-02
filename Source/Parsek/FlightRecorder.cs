@@ -60,6 +60,7 @@ namespace Parsek
         private bool hasCurrentAnchorCandidate;
         private double currentAnchorDistanceMeters = double.NaN;
         private HashSet<uint> treeVesselPids;
+        private readonly HashSet<uint> highFidelityProximityVesselPids = new HashSet<uint>();
         private readonly List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
         private readonly List<RecordingAnchorCandidate> recordingAnchorCandidateBuffer =
             new List<RecordingAnchorCandidate>();
@@ -473,6 +474,26 @@ namespace Parsek
                 && distanceMeters <= HighFidelityProximityRangeMeters;
         }
 
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        internal static double SelectNearestHighFidelityProximityMeters(
+            double relativeAnchorDistanceMeters,
+            double splitChildDistanceMeters)
+        {
+            bool hasRelative = IsFinite(relativeAnchorDistanceMeters);
+            bool hasSplitChild = IsFinite(splitChildDistanceMeters);
+            if (hasRelative && hasSplitChild)
+                return Math.Min(relativeAnchorDistanceMeters, splitChildDistanceMeters);
+            if (hasRelative)
+                return relativeAnchorDistanceMeters;
+            if (hasSplitChild)
+                return splitChildDistanceMeters;
+            return double.NaN;
+        }
+
         internal static bool IsHighFidelitySamplingActive(
             double currentUT,
             double highFidelityUntilUT,
@@ -530,6 +551,25 @@ namespace Parsek
                     $"intervalPolicy=configured-min-sample-interval");
             }
         }
+
+        internal void RegisterHighFidelityProximityVessel(uint vesselPid, double eventUT, string reason)
+        {
+            if (vesselPid == 0u)
+                return;
+
+            bool added = highFidelityProximityVesselPids.Add(vesselPid);
+            ActivateHighFidelitySampling(eventUT, reason ?? "split-proximity");
+            if (added)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("Recorder",
+                    $"High-fidelity proximity target registered: pid={vesselPid} " +
+                    $"reason={reason ?? "split-proximity"} " +
+                    $"eventUT={eventUT.ToString("F2", ic)} " +
+                    $"range={HighFidelityProximityRangeMeters.ToString("F1", ic)}m");
+            }
+        }
+
         private const double snapshotRefreshIntervalUT = 10.0;
         private static readonly double finalizationCacheRefreshIntervalUT =
             RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
@@ -5202,6 +5242,9 @@ namespace Parsek
             LastRecordedAltitude = double.NaN;
             FinalizationCache = null;
             lastFinalizationCacheRefreshUT = double.MinValue;
+            highFidelitySamplingUntilUT = double.NaN;
+            highFidelitySamplingReason = null;
+            highFidelityProximityVesselPids.Clear();
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -6195,9 +6238,19 @@ namespace Parsek
                     5.0);
             }
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
-            double highFidelityProximityMeters = isRelativeMode
-                ? currentAnchorDistanceMeters
-                : double.NaN;
+            double splitChildProximityMeters = ResolveHighFidelitySplitChildProximityMeters(
+                v,
+                out string splitChildProximitySource);
+            double highFidelityProximityMeters = SelectNearestHighFidelityProximityMeters(
+                isRelativeMode ? currentAnchorDistanceMeters : double.NaN,
+                splitChildProximityMeters);
+            string highFidelityProximitySource =
+                IsFinite(splitChildProximityMeters)
+                && (!isRelativeMode
+                    || !IsFinite(currentAnchorDistanceMeters)
+                    || splitChildProximityMeters <= currentAnchorDistanceMeters)
+                    ? splitChildProximitySource
+                    : isRelativeMode ? "relative-anchor" : "(none)";
             bool highFidelityActive = IsHighFidelitySamplingActive(
                 currentUT,
                 highFidelitySamplingUntilUT,
@@ -6241,7 +6294,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
                     $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
                     $"highFidelity={highFidelityActive} reason={highFidelitySamplingReason ?? "(none)"} " +
-                    $"proximity={proximityText} " +
+                    $"proximity={proximityText} proximitySource={highFidelityProximitySource} " +
                     $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
                     $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
                 return;
@@ -6252,6 +6305,72 @@ namespace Parsek
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+        }
+
+        private double ResolveHighFidelitySplitChildProximityMeters(Vessel focus, out string source)
+        {
+            source = "(none)";
+            if (focus == null || highFidelityProximityVesselPids.Count == 0)
+                return double.NaN;
+
+            if (!TryGetVesselProximityWorldPosition(focus, out Vector3d focusWorld))
+                return double.NaN;
+
+            double nearest = double.NaN;
+            uint nearestPid = 0u;
+            foreach (uint pid in highFidelityProximityVesselPids)
+            {
+                if (pid == 0u || pid == focus.persistentId)
+                    continue;
+
+                Vessel target = FindVesselByPid(pid);
+                if (target == null)
+                    continue;
+
+                if (!TryGetVesselProximityWorldPosition(target, out Vector3d targetWorld))
+                    continue;
+
+                double distanceMeters = Vector3d.Distance(focusWorld, targetWorld);
+                if (!IsFinite(distanceMeters))
+                    continue;
+
+                if (!IsFinite(nearest) || distanceMeters < nearest)
+                {
+                    nearest = distanceMeters;
+                    nearestPid = pid;
+                }
+            }
+
+            if (nearestPid != 0u)
+                source = "split-child:" + nearestPid.ToString(CultureInfo.InvariantCulture);
+            return nearest;
+        }
+
+        private static bool TryGetVesselProximityWorldPosition(Vessel vessel, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (vessel == null)
+                return false;
+
+            if (vessel.rootPart != null && vessel.rootPart.transform != null)
+            {
+                worldPos = vessel.rootPart.transform.position;
+                return IsFinite(worldPos.x) && IsFinite(worldPos.y) && IsFinite(worldPos.z);
+            }
+
+            try
+            {
+                worldPos = vessel.GetWorldPos3D();
+                return IsFinite(worldPos.x) && IsFinite(worldPos.y) && IsFinite(worldPos.z);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("Recorder",
+                    "high-fidelity-proximity-vessel-position-failed|" + vessel.persistentId,
+                    $"High-fidelity proximity target position failed: pid={vessel.persistentId} reason={ex.Message}",
+                    5.0);
+                return false;
+            }
         }
 
         /// <summary>
