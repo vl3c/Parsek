@@ -500,17 +500,37 @@ namespace Parsek
                 return;
             }
 
-            // Step 10: scene transition.
-            DispatchScene(target, facility);
-
-            // Step 11: log end line. Append dispatched=true so greppers can
-            // filter on dispatched=<true|false> symmetrically across the
-            // success and failure paths.
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
                 : " facility=--";
+            bool suppressionArmed = false;
+            if (DiscardReFlyLoadSceneForTesting == null)
+            {
+                RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                    $"discardReFly sess={sessionId} target={target}{facilityText}");
+                suppressionArmed = true;
+            }
+
+            // Step 10: scene transition.
+            bool dispatched = DispatchScene(target, facility);
+            if (!dispatched && suppressionArmed)
+            {
+                if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                    target == RevertTarget.Prelaunch ? GameScenes.EDITOR : GameScenes.SPACECENTER,
+                    out string consumedReason))
+                {
+                    ParsekLog.Warn(SessionTag,
+                        "DiscardReFly: scene dispatch failed; consumed tree scene-exit " +
+                        $"commit suppression to prevent leak reason='{consumedReason}'");
+                }
+            }
+
+            // Step 11: log end line. Append dispatched=<true|false> so greppers can
+            // filter on dispatched=<true|false> symmetrically across the
+            // success and failure paths.
             ParsekLog.Info(SessionTag,
-                $"End reason=discardReFly sess={sessionId} target={target}{facilityText} dispatched=true");
+                $"End reason=discardReFly sess={sessionId} target={target}{facilityText} " +
+                $"dispatched={(dispatched ? "true" : "false")}");
         }
 
         /// <summary>
@@ -684,14 +704,14 @@ namespace Parsek
             }
         }
 
-        private static void DispatchScene(RevertTarget target, EditorFacility facility)
+        private static bool DispatchScene(RevertTarget target, EditorFacility facility)
         {
             var hook = DiscardReFlyLoadSceneForTesting;
             if (hook != null)
             {
                 hook(target == RevertTarget.Prelaunch ? GameScenes.EDITOR : GameScenes.SPACECENTER,
                     facility);
-                return;
+                return true;
             }
 
             try
@@ -712,11 +732,13 @@ namespace Parsek
                 {
                     HighLogic.LoadScene(GameScenes.SPACECENTER);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 ParsekLog.Error(PatchTag,
                     $"DiscardReFly: scene dispatch threw target={target} facility={facility}: {ex.GetType().Name}: {ex.Message}");
+                return false;
             }
         }
 

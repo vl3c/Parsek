@@ -19,6 +19,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 Discard Re-Fly scene-exit STASH reset
+
+- ~~Choosing `Discard Re-Fly` from the Re-Fly revert dialog could immediately auto-stash and auto-seal the discarded attempt, then remove it from STASH when the merge dialog's `Discard` button was clicked.~~ Source: `logs/2026-05-02_1821_refly-discard/`. Runtime trace: `DiscardReFly` cleared the marker and loaded the origin RP at 18:18:33, then the outgoing `OnSceneChangeRequested` path still saw an `activeTree`, ran `CommitTreeSceneExit (autoMerge off)`, stashed `Kerbal X` as `Finalized`, and showed the merge dialog. The later merge-dialog discard purged that pending tree from STASH.
+
+**Fix:** `DiscardReFlyHandler` now arms a one-shot scene-exit commit suppression before real `HighLogic.LoadScene` dispatch. `ParsekFlight.FinalizeTreeOnSceneChange` consumes that guard before background checkpoint / finalize / stash work, force-stops any active recorder, discards background recorder state without flushing or persisting sidecars, and drops the in-memory Re-Fly attempt without creating a pending tree. Test scene-dispatch hooks do not arm the guard, and a failed real scene dispatch consumes it immediately so it cannot leak into the next transition.
+
+**Coverage:** `ReFlyRevertDialogTests.DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression`, `SceneExitCommitSuppression_ConsumesOnce`, and `SceneExitCommitSuppression_DropsActiveTreeWithoutPendingStash`; `BackgroundRecorderTests.DiscardWithoutPersist_ClearsTrackingStateWithoutFlushing`; full headless xUnit suite passed.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 Re-Fly merge discard scope
 
 - ~~After a Re-Fly, using the scene-exit merge confirmation dialog's `Discard` button while going back to Space Center or another building could delete the whole mission recording instead of only the active Re-Fly attempt.~~ Source: user report on 2026-05-02. Root cause: the Re-Fly pending tree can reuse the committed mission tree id, but `MergeDialog.MergeDiscard` always called the ordinary full-tree discard path. That path invokes `TreeDiscardPurge.PurgeTree(treeId)`, whose committed-tree-first lookup resolves the original mission tree and removes its Rewind Points, supersede rows, tombstones, and related recording state. Fix: the merge-dialog discard button now detects an active Re-Fly marker scoped to the dialog tree and runs a session-scoped discard path: remove only attempt-owned provisional recordings/events/files, restore a sanitized committed mission tree through raw committed-list reattachment when the Re-Fly load had temporarily detached its committed copy, clear transient Re-Fly session state, promote the origin Rewind Point back to persistent, and recalculate career state without calling `TreeDiscardPurge` or replaying first-commit side effects. In-place continuations protect the origin recording id explicitly, purge only origin-tagged events after the RP UT, and trim the origin recording back to the rewind point before restoring a detached tree. Coverage: `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyMarkerTreeMismatch_FallsBackToRegularTreeDiscard`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_PreservesCommittedMissionTreeAndRp`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyPath_RestoresSanitizedTreeWhenCommittedCopyDetached`, `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlacePath_DoesNotRemoveOriginRecording`, and `MergeDialogResourcesAppliedTests.MergeDiscard_ReFlyInPlaceDetachedPath_TrimsOriginBackToRewindPoint`.
