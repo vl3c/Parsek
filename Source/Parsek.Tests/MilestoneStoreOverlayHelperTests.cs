@@ -128,6 +128,36 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// LastReplayedEventIndex >= eventIdx. Fails if the contract helper's cursor is off-by-one.
+        /// </summary>
+        [Fact]
+        public void GetCommittedContractAcceptIds_PastEvent_NotIncluded()
+        {
+            AddMilestone(
+                lastReplayedIndex: 0,
+                Event(GameStateEventType.ContractAccepted, "contract-replayed"));
+
+            var ids = MilestoneStore.GetCommittedContractAcceptIds();
+
+            Assert.Empty(ids);
+        }
+
+        /// <summary>
+        /// Event in a milestone that is hidden by the abandoned-branch filter. Fails if the contract helper bypasses IsEventVisibleToCurrentTimeline.
+        /// </summary>
+        [Fact]
+        public void GetCommittedContractAcceptIds_HiddenByTimelineFilter_NotIncluded()
+        {
+            AddMilestone(
+                lastReplayedIndex: -1,
+                Event(GameStateEventType.ContractAccepted, "contract-hidden", recordingId: "rec_hidden"));
+
+            var ids = MilestoneStore.GetCommittedContractAcceptIds();
+
+            Assert.Empty(ids);
+        }
+
+        /// <summary>
         /// Log-assertion test on the non-empty Verbose line. Fails if the helper stops emitting the non-empty count.
         /// </summary>
         [Fact]
@@ -184,6 +214,55 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Bob Kerman", names);
         }
 
+        /// <summary>
+        /// LastReplayedEventIndex >= eventIdx. Fails if the retire helper's cursor is off-by-one.
+        /// </summary>
+        [Fact]
+        public void GetCommittedKerbalRetireNames_PastEvent_NotIncluded()
+        {
+            AddMilestone(
+                lastReplayedIndex: 0,
+                Event(GameStateEventType.CrewRemoved, "Retired Kerman"));
+
+            var names = MilestoneStore.GetCommittedKerbalRetireNames();
+
+            Assert.Empty(names);
+        }
+
+        /// <summary>
+        /// Event in a milestone that is hidden by the abandoned-branch filter. Fails if the retire helper bypasses IsEventVisibleToCurrentTimeline.
+        /// </summary>
+        [Fact]
+        public void GetCommittedKerbalRetireNames_HiddenByTimelineFilter_NotIncluded()
+        {
+            AddMilestone(
+                lastReplayedIndex: -1,
+                Event(GameStateEventType.CrewRemoved, "Hidden Retire Kerman", recordingId: "rec_hidden"));
+
+            var names = MilestoneStore.GetCommittedKerbalRetireNames();
+
+            Assert.Empty(names);
+        }
+
+        /// <summary>
+        /// Uncommitted milestones are not part of the committed-future action set. Fails if any new overlay helper forgets the milestone Committed gate.
+        /// </summary>
+        [Theory]
+        [InlineData(GameStateEventType.ContractAccepted, "contract-uncommitted")]
+        [InlineData(GameStateEventType.CrewHired, "Uncommitted Hire Kerman")]
+        [InlineData(GameStateEventType.CrewRemoved, "Uncommitted Retire Kerman")]
+        public void NewOverlayHelpers_UncommittedMilestone_NotIncluded(GameStateEventType eventType, string key)
+        {
+            AddMilestone(
+                lastReplayedIndex: -1,
+                Event(eventType, key),
+                committed: false);
+
+            var values = QueryHelper(eventType);
+
+            Assert.Empty(values);
+        }
+
         private static GameStateEvent Event(
             GameStateEventType type,
             string key,
@@ -199,15 +278,60 @@ namespace Parsek.Tests
             };
         }
 
-        private static void AddMilestone(int lastReplayedIndex, params GameStateEvent[] events)
+        private static void AddMilestone(
+            int lastReplayedIndex,
+            GameStateEvent event0,
+            bool committed = true)
+        {
+            AddMilestone(lastReplayedIndex, new[] { event0 }, committed);
+        }
+
+        private static void AddMilestone(
+            int lastReplayedIndex,
+            GameStateEvent event0,
+            GameStateEvent event1,
+            bool committed = true)
+        {
+            AddMilestone(lastReplayedIndex, new[] { event0, event1 }, committed);
+        }
+
+        private static void AddMilestone(
+            int lastReplayedIndex,
+            GameStateEvent event0,
+            GameStateEvent event1,
+            GameStateEvent event2,
+            bool committed = true)
+        {
+            AddMilestone(lastReplayedIndex, new[] { event0, event1, event2 }, committed);
+        }
+
+        private static void AddMilestone(
+            int lastReplayedIndex,
+            GameStateEvent[] events,
+            bool committed = true)
         {
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
                 MilestoneId = Guid.NewGuid().ToString("N"),
-                Committed = true,
+                Committed = committed,
                 LastReplayedEventIndex = lastReplayedIndex,
                 Events = new List<GameStateEvent>(events)
             });
+        }
+
+        private static HashSet<string> QueryHelper(GameStateEventType eventType)
+        {
+            switch (eventType)
+            {
+                case GameStateEventType.ContractAccepted:
+                    return MilestoneStore.GetCommittedContractAcceptIds();
+                case GameStateEventType.CrewHired:
+                    return MilestoneStore.GetCommittedKerbalHireNames();
+                case GameStateEventType.CrewRemoved:
+                    return MilestoneStore.GetCommittedKerbalRetireNames();
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(eventType), eventType, null);
+            }
         }
     }
 }
