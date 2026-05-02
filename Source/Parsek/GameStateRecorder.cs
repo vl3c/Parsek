@@ -1250,16 +1250,18 @@ namespace Parsek
                     pendingSubject,
                     vesselName);
             }
-            else if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
-                     hasActiveUncommittedTree)
-            {
-                ParsekLog.Verbose("GameStateRecorder",
-                    $"OnScienceReceived: retained unowned science subject '{subject.id}' " +
-                    "because an uncommitted recording tree is active");
-            }
 
             if (!directLedgerHandled)
+            {
+                if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
+                    hasActiveUncommittedTree)
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: retained unowned science subject '{subject.id}' " +
+                        "because an uncommitted recording tree is active");
+                }
                 PendingScienceSubjects.Add(pendingSubject);
+            }
 
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1} " +

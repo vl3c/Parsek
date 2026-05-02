@@ -2411,7 +2411,8 @@ namespace Parsek
             Ledger.AddActions(scienceActions);
             GameStateStore.CommitScienceActions(scienceActions);
 
-            ParsekLog.Info(Tag,
+            // Verbose: paired Info "Science subject captured" already fires per subject; this row carries the direct-path detail without amplifying multi-subject recoveries.
+            ParsekLog.Verbose(Tag,
                 $"KSC science recorded: subject='{subject.subjectId}' " +
                 $"science={subject.science.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"method={scienceActions[0].Method} ut={subject.captureUT.ToString("F1", CultureInfo.InvariantCulture)} " +
