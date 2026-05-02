@@ -17369,6 +17369,205 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryFitReFlyPointTrendQuadratic(
+            IList<ReFlyPointTrendSample> samples,
+            double targetUT,
+            Vector3d rawWorld,
+            double maxCorrectionMeters,
+            double maxResidualMetersAllowed,
+            out Vector3d trendWorld,
+            out Vector3d correction,
+            out double maxResidualMeters,
+            out string reason)
+        {
+            trendWorld = Vector3d.zero;
+            correction = Vector3d.zero;
+            maxResidualMeters = double.NaN;
+            reason = null;
+
+            if (samples == null || samples.Count < ReFlyPointTrendMinSamples)
+            {
+                reason = "too-few-samples";
+                return false;
+            }
+            if (double.IsNaN(targetUT) || double.IsInfinity(targetUT))
+            {
+                reason = "target-ut-invalid";
+                return false;
+            }
+            if (!IsFiniteVector3d(rawWorld))
+            {
+                reason = "raw-world-non-finite";
+                return false;
+            }
+
+            double sumT = 0.0;
+            double sumTT = 0.0;
+            double sumTTT = 0.0;
+            double sumTTTT = 0.0;
+            double sumX = 0.0;
+            double sumY = 0.0;
+            double sumZ = 0.0;
+            double sumTX = 0.0;
+            double sumTY = 0.0;
+            double sumTZ = 0.0;
+            double sumTTX = 0.0;
+            double sumTTY = 0.0;
+            double sumTTZ = 0.0;
+            double previousUT = double.NegativeInfinity;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                ReFlyPointTrendSample sample = samples[i];
+                if (sample.UT <= previousUT)
+                {
+                    reason = "non-monotonic-ut";
+                    return false;
+                }
+                previousUT = sample.UT;
+                if (!IsFiniteVector3d(sample.World))
+                {
+                    reason = "sample-world-non-finite";
+                    return false;
+                }
+
+                double dt = sample.UT - targetUT;
+                double dt2 = dt * dt;
+                double dt3 = dt2 * dt;
+                double dt4 = dt2 * dt2;
+                sumT += dt;
+                sumTT += dt2;
+                sumTTT += dt3;
+                sumTTTT += dt4;
+                sumX += sample.World.x;
+                sumY += sample.World.y;
+                sumZ += sample.World.z;
+                sumTX += dt * sample.World.x;
+                sumTY += dt * sample.World.y;
+                sumTZ += dt * sample.World.z;
+                sumTTX += dt2 * sample.World.x;
+                sumTTY += dt2 * sample.World.y;
+                sumTTZ += dt2 * sample.World.z;
+            }
+
+            double count = samples.Count;
+            if (!TrySolveReFlyPointTrendQuadraticAxis(
+                    count, sumT, sumTT, sumTTT, sumTTTT,
+                    sumX, sumTX, sumTTX,
+                    out double interceptX, out double slopeX, out double curvatureX)
+                || !TrySolveReFlyPointTrendQuadraticAxis(
+                    count, sumT, sumTT, sumTTT, sumTTTT,
+                    sumY, sumTY, sumTTY,
+                    out double interceptY, out double slopeY, out double curvatureY)
+                || !TrySolveReFlyPointTrendQuadraticAxis(
+                    count, sumT, sumTT, sumTTT, sumTTTT,
+                    sumZ, sumTZ, sumTTZ,
+                    out double interceptZ, out double slopeZ, out double curvatureZ))
+            {
+                reason = "quadratic-degenerate-window";
+                return false;
+            }
+
+            trendWorld = new Vector3d(interceptX, interceptY, interceptZ);
+            correction = trendWorld - rawWorld;
+            if (!IsFiniteVector3d(trendWorld) || !IsFiniteVector3d(correction))
+            {
+                reason = "trend-non-finite";
+                return false;
+            }
+
+            double correctionMeters = correction.magnitude;
+            if (double.IsNaN(correctionMeters) || double.IsInfinity(correctionMeters))
+            {
+                reason = "correction-non-finite";
+                return false;
+            }
+            if (correctionMeters > maxCorrectionMeters)
+            {
+                reason = "correction-too-large";
+                return false;
+            }
+
+            maxResidualMeters = 0.0;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                double dt = samples[i].UT - targetUT;
+                double dt2 = dt * dt;
+                Vector3d predicted = new Vector3d(
+                    interceptX + slopeX * dt + curvatureX * dt2,
+                    interceptY + slopeY * dt + curvatureY * dt2,
+                    interceptZ + slopeZ * dt + curvatureZ * dt2);
+                double residual = (samples[i].World - predicted).magnitude;
+                if (double.IsNaN(residual) || double.IsInfinity(residual))
+                {
+                    reason = "residual-non-finite";
+                    return false;
+                }
+                if (residual > maxResidualMeters)
+                    maxResidualMeters = residual;
+            }
+
+            if (maxResidualMeters > maxResidualMetersAllowed)
+            {
+                reason = "residual-too-large";
+                return false;
+            }
+
+            reason = "applied";
+            return true;
+        }
+
+        private static bool TrySolveReFlyPointTrendQuadraticAxis(
+            double sum0,
+            double sumT,
+            double sumTT,
+            double sumTTT,
+            double sumTTTT,
+            double sumV,
+            double sumTV,
+            double sumTTV,
+            out double intercept,
+            out double slope,
+            out double curvature)
+        {
+            intercept = 0.0;
+            slope = 0.0;
+            curvature = 0.0;
+
+            double determinant = Determinant3x3(
+                sum0, sumT, sumTT,
+                sumT, sumTT, sumTTT,
+                sumTT, sumTTT, sumTTTT);
+            if (Math.Abs(determinant) <= ReFlyPointTrendQuadraticDeterminantEpsilon)
+                return false;
+
+            intercept = Determinant3x3(
+                sumV, sumT, sumTT,
+                sumTV, sumTT, sumTTT,
+                sumTTV, sumTTT, sumTTTT) / determinant;
+            slope = Determinant3x3(
+                sum0, sumV, sumTT,
+                sumT, sumTV, sumTTT,
+                sumTT, sumTTV, sumTTTT) / determinant;
+            curvature = Determinant3x3(
+                sum0, sumT, sumV,
+                sumT, sumTT, sumTV,
+                sumTT, sumTTT, sumTTV) / determinant;
+
+            return !(double.IsNaN(intercept) || double.IsInfinity(intercept)
+                || double.IsNaN(slope) || double.IsInfinity(slope)
+                || double.IsNaN(curvature) || double.IsInfinity(curvature));
+        }
+
+        private static double Determinant3x3(
+            double a00, double a01, double a02,
+            double a10, double a11, double a12,
+            double a20, double a21, double a22)
+        {
+            return a00 * (a11 * a22 - a12 * a21)
+                - a01 * (a10 * a22 - a12 * a20)
+                + a02 * (a10 * a21 - a11 * a20);
+        }
+
         private static Vector3d CaptureBodyFixedReFlyVector(
             Quaternion bodyWorldRotation,
             Vector3d worldVector)
@@ -19071,6 +19270,7 @@ namespace Parsek
         internal const int ReFlyPointTrendMinSamples = 4;
         internal const double ReFlyPointTrendMaxCorrectionMeters = 250.0;
         internal const double ReFlyPointTrendMaxResidualMeters = 50.0;
+        private const double ReFlyPointTrendQuadraticDeterminantEpsilon = 1e-12;
         private const double PointHermiteMaxDeviationCapMeters = 250.0;
         private const double PointHermiteMinDeviationMeters = 10.0;
         private const double PointHermiteDeviationFraction = 0.05;

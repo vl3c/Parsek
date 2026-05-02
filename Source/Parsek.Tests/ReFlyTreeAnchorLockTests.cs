@@ -827,6 +827,71 @@ namespace Parsek.Tests
             Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
         }
 
+        [Fact]
+        public void ReFlyPointTrendQuadraticFit_RecoversSparseParabola()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>();
+            for (int i = 0; i < 5; i++)
+            {
+                double ut = i * 3.0;
+                double dt = ut - 6.0;
+                samples.Add(new ParsekFlight.ReFlyPointTrendSample
+                {
+                    UT = ut,
+                    World = new Vector3d(
+                        100.0 + 12.0 * dt + 0.75 * dt * dt,
+                        -50.0 - 4.0 * dt + 2.0 * dt * dt,
+                        25.0 + 0.25 * dt * dt),
+                });
+            }
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrendQuadratic(
+                samples,
+                6.0,
+                new Vector3d(100.0, -80.0, 25.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                0.01,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(100.0, -50.0, 25.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, 30.0, 0.0), correction, 0.0001);
+            Assert.True(maxResidual < 0.001);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendQuadraticFit_RejectsStepResidual()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 200.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrendQuadratic(
+                samples,
+                2.0,
+                new Vector3d(20.0, 200.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("residual-too-large", reason);
+            Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
+            Assert.True(correction.magnitude < ParsekFlight.ReFlyPointTrendMaxCorrectionMeters);
+        }
+
         [Theory]
         [InlineData(SegmentEnvironment.Atmospheric, true)]
         [InlineData(SegmentEnvironment.ExoPropulsive, true)]
