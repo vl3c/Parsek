@@ -4,7 +4,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Contracts;
 using KSP.UI;
+using KSP.UI.Screens;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -11934,6 +11936,903 @@ namespace Parsek.InGameTests
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
                     "failed-activation-teardown");
+            }
+        }
+
+        #endregion
+
+        #region Stock UI Overlays (Game State UI Overlays Phase 5)
+
+        private const string StockUiOverlayTechObjectName = "Parsek_TechOverlay";
+        private const string StockUiOverlayKerbalObjectName = "Parsek_KerbalOverlay";
+        private const string StockUiOverlayContractObjectName = "Parsek_ContractOverlay";
+
+        [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §5.4: top resource singletons match ledger modules after RecalculateAndPatch and emit one public change event per resource delta.")]
+        public void TopBarReflectsLedgerAfterRecalc()
+        {
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                return;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Resource top bar verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                return;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null || Reputation.Instance == null)
+            {
+                InGameAssert.Skip("Funding/R&D/Reputation singletons are not all initialized");
+                return;
+            }
+            if (RecordingStore.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree())
+            {
+                InGameAssert.Skip("RecalculateAndPatch would defer KSP singleton patching while a live/pending tree exists");
+                return;
+            }
+
+            var (fundsBefore, scienceBefore, reputationBefore) = SnapshotFinancials();
+            int eventCountBefore = GameStateStore.EventCount;
+            int ledgerCountBefore = Ledger.Actions.Count;
+            int fundsEvents = 0;
+            int scienceEvents = 0;
+            int reputationEvents = 0;
+
+            void OnFundsChanged(double newFunds, TransactionReasons reason)
+            {
+                fundsEvents++;
+            }
+
+            void OnScienceChanged(float newScience, TransactionReasons reason)
+            {
+                scienceEvents++;
+            }
+
+            void OnReputationChanged(float newReputation, TransactionReasons reason)
+            {
+                reputationEvents++;
+            }
+
+            try
+            {
+                LedgerOrchestrator.Initialize();
+                string id = "phase5-topbar-" + System.Guid.NewGuid().ToString("N");
+                double ut = Planetarium.GetUniversalTime();
+                AddTopBarProbeActions(id, ut);
+
+                GameEvents.OnFundsChanged.Add(OnFundsChanged);
+                GameEvents.OnScienceChanged.Add(OnScienceChanged);
+                GameEvents.OnReputationChanged.Add(OnReputationChanged);
+
+                LedgerOrchestrator.RecalculateAndPatch();
+
+                InGameAssert.IsNotNull(LedgerOrchestrator.Funds, "FundsModule should be initialized after RecalculateAndPatch");
+                InGameAssert.IsNotNull(LedgerOrchestrator.Science, "ScienceModule should be initialized after RecalculateAndPatch");
+                InGameAssert.IsNotNull(LedgerOrchestrator.Reputation, "ReputationModule should be initialized after RecalculateAndPatch");
+
+                AssertDoubleNear(Funding.Instance.Funds, LedgerOrchestrator.Funds.GetAvailableFunds(), 0.01,
+                    "Funding.Instance.Funds should match FundsModule.GetAvailableFunds() after §5.4 patching");
+                AssertDoubleNear(ResearchAndDevelopment.Instance.Science, LedgerOrchestrator.Science.GetAvailableScience(), 0.01,
+                    "ResearchAndDevelopment.Instance.Science should match ScienceModule.GetAvailableScience() after §5.4 patching");
+                AssertDoubleNear(Reputation.Instance.reputation, LedgerOrchestrator.Reputation.GetRunningRep(), 0.01,
+                    "Reputation.Instance.reputation should match ReputationModule.GetRunningRep() after §5.4 patching");
+
+                InGameAssert.AreEqual(1, fundsEvents,
+                    "§5.4 expects exactly one OnFundsChanged event for the top-bar delta");
+                InGameAssert.AreEqual(1, scienceEvents,
+                    "§5.4 expects exactly one OnScienceChanged event for the top-bar delta");
+                InGameAssert.AreEqual(1, reputationEvents,
+                    "§5.4 expects exactly one OnReputationChanged event for the top-bar delta");
+            }
+            finally
+            {
+                GameEvents.OnFundsChanged.Remove(OnFundsChanged);
+                GameEvents.OnScienceChanged.Remove(OnScienceChanged);
+                GameEvents.OnReputationChanged.Remove(OnReputationChanged);
+                RestoreFinancials(fundsBefore, scienceBefore, reputationBefore);
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                Ledger.TruncateActionsForTesting(ledgerCountBefore);
+            }
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6: R&D decorates a committed-future TechResearched node with exactly one Parsek_TechOverlay child.")]
+        public IEnumerator RnDOverlayDecoratesCommittedFutureNode()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            Recording recording = null;
+            string recordingId = null;
+            RDController controller = null;
+            try
+            {
+                if (!TryEnterSpaceCenterBuilding<RnDBuilding>("R&D", out _))
+                    yield break;
+
+                yield return WaitForRdController(8f);
+                controller = RDController.Instance ?? Object.FindObjectOfType<RDController>();
+                if (!TryPickRdNode(controller, out RDNode node, out string techId, out string reason))
+                {
+                    InGameAssert.Skip(reason);
+                    yield break;
+                }
+
+                recordingId = "phase5-rnd-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.TechResearched,
+                    techId,
+                    "Phase 5 R&D overlay test");
+
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForNamedChildCount(node.transform, StockUiOverlayTechObjectName, 1,
+                    $"R&D node '{techId}' should get exactly one committed-future tech overlay", 5f);
+
+                InGameAssert.AreEqual(1, CountNamedChildren(node.transform, StockUiOverlayTechObjectName),
+                    "R&D committed-future node should have exactly one Parsek_TechOverlay child");
+            }
+            finally
+            {
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+                CloseRnDForOverlayTest(controller);
+            }
+
+            yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
+                "R&D close should strip committed-future tech overlays", 5f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6: Astronaut Complex decorates one reserved applicant and one committed-future hired applicant.")]
+        public IEnumerator AstronautOverlayDecoratesReservedAndFutureHired()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Astronaut Complex overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            KerbalRoster roster = HighLogic.CurrentGame.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
+                yield break;
+            }
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            KerbalsModule priorKerbalsModule = LedgerOrchestrator.Kerbals;
+            ProtoCrewMember reservedApplicant = null;
+            ProtoCrewMember futureApplicant = null;
+            Recording recording = null;
+            string recordingId = null;
+
+            string suffix = System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string reservedName = "PrskRes" + suffix + " Kerman";
+            string futureName = "PrskFut" + suffix + " Kerman";
+
+            try
+            {
+                using (SuppressionGuard.Crew())
+                {
+                    reservedApplicant = CreateApplicantForOverlayTest(roster, reservedName);
+                    futureApplicant = CreateApplicantForOverlayTest(roster, futureName);
+                }
+
+                var testKerbals = new KerbalsModule();
+                if (!TryInstallReservedKerbalForOverlayTest(testKerbals, reservedName))
+                    yield break;
+                LedgerOrchestrator.SetKerbalsForTesting(testKerbals);
+
+                recordingId = "phase5-astronaut-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.CrewHired,
+                    futureName,
+                    "Phase 5 Astronaut overlay test");
+
+                if (!TryEnterSpaceCenterBuilding<AstronautComplexFacility>("Astronaut Complex", out _))
+                    yield break;
+
+                yield return WaitForAstronautComplex(8f);
+                NotifyTimelineDataChangedForOverlayTest();
+
+                yield return WaitForCrewListItemOverlay(reservedName, StockUiOverlayKerbalObjectName,
+                    "reserved applicant should get a Parsek_KerbalOverlay badge", 8f);
+                yield return WaitForCrewListItemOverlay(futureName, StockUiOverlayKerbalObjectName,
+                    "future-hired applicant should get a Parsek_KerbalOverlay badge", 8f);
+
+                CrewListItem reservedRow = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), reservedName);
+                CrewListItem futureRow = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), futureName);
+                InGameAssert.AreEqual(1, CountNamedChildren(reservedRow.transform, StockUiOverlayKerbalObjectName),
+                    "Reserved applicant row should have exactly one Parsek_KerbalOverlay child");
+                InGameAssert.AreEqual(1, CountNamedChildren(futureRow.transform, StockUiOverlayKerbalObjectName),
+                    "Future-hired applicant row should have exactly one Parsek_KerbalOverlay child");
+            }
+            finally
+            {
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                LedgerOrchestrator.SetKerbalsForTesting(priorKerbalsModule);
+                using (SuppressionGuard.Crew())
+                {
+                    RemoveKerbalForOverlayTest(roster, reservedApplicant);
+                    RemoveKerbalForOverlayTest(roster, futureApplicant);
+                }
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+                CloseAstronautForOverlayTest();
+            }
+
+            yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
+                "Astronaut Complex close should strip committed-future kerbal overlays", 5f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6: Mission Control decorates a committed-future accepted offered contract.")]
+        public IEnumerator MissionControlOverlayDecoratesCommittedContract()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
+            {
+                InGameAssert.Skip(skipReason);
+                yield break;
+            }
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            Recording recording = null;
+            string recordingId = null;
+            try
+            {
+                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.ContractAccepted,
+                    contractKey,
+                    "contractTitle=" + contractTitle);
+
+                if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                    yield break;
+
+                yield return WaitForMissionControl(8f);
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowOverlay(contractTitle, StockUiOverlayContractObjectName,
+                    $"offered contract '{contractTitle}' should get a committed-future accept overlay", 8f);
+
+                MCListItem row = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), contractTitle);
+                InGameAssert.AreEqual(1, CountNamedChildren(row.transform, StockUiOverlayContractObjectName),
+                    "Mission Control committed contract row should have exactly one Parsek_ContractOverlay child");
+            }
+            finally
+            {
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+                CloseMissionControlForOverlayTest();
+            }
+
+            yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
+                "Mission Control close should strip committed-future contract overlays", 5f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Game-state UI overlays §8.6 / E16: R&D despawn strips Parsek_TechOverlay objects across repeated open/close cycles.")]
+        public IEnumerator OverlaysClearedOnDespawn()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            try
+            {
+                for (int cycle = 0; cycle < 2; cycle++)
+                {
+                    Recording recording = null;
+                    string recordingId = null;
+                    RDController controller = null;
+                    try
+                    {
+                        if (!TryEnterSpaceCenterBuilding<RnDBuilding>("R&D", out _))
+                            yield break;
+
+                        yield return WaitForRdController(8f);
+                        controller = RDController.Instance ?? Object.FindObjectOfType<RDController>();
+                        if (!TryPickRdNode(controller, out RDNode node, out string techId, out string reason))
+                        {
+                            InGameAssert.Skip(reason);
+                            yield break;
+                        }
+
+                        recordingId = "phase5-rnd-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                        recording = AddCommittedOverlayFixture(
+                            recordingId,
+                            GameStateEventType.TechResearched,
+                            techId,
+                            "Phase 5 R&D despawn overlay test");
+
+                        NotifyTimelineDataChangedForOverlayTest();
+                        yield return WaitForNamedChildCount(node.transform, StockUiOverlayTechObjectName, 1,
+                            $"R&D despawn cycle {cycle + 1} should create one tech overlay before close", 5f);
+                    }
+                    finally
+                    {
+                        RemoveCommittedOverlayFixture(recordingId, recording);
+                        CloseRnDForOverlayTest(controller);
+                    }
+
+                    yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
+                        $"R&D despawn cycle {cycle + 1} should leave no Parsek_TechOverlay objects alive", 5f);
+                }
+            }
+            finally
+            {
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+            }
+        }
+
+        private static void AddTopBarProbeActions(string id, double ut)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = ut + 0.01,
+                RecordingId = id,
+                FundsAwarded = 123.45f,
+                FundsSource = FundsEarningSource.Other,
+                Effective = true
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                UT = ut + 0.02,
+                RecordingId = id,
+                SubjectId = "parsek-overlay-topbar-" + id,
+                ExperimentId = "parsekOverlayTopBar",
+                Body = "Kerbin",
+                Situation = "SrfLanded",
+                Biome = "LaunchPad",
+                ScienceAwarded = 1.25f,
+                Method = ScienceMethod.Recovered,
+                TransmitScalar = 1f,
+                SubjectMaxValue = 1000f,
+                Effective = true
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.ReputationEarning,
+                UT = ut + 0.03,
+                RecordingId = id,
+                NominalRep = 7f,
+                RepSource = ReputationSource.Other,
+                Effective = true
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = ut + 0.04,
+                RecordingId = id,
+                NominalPenalty = 3f,
+                RepPenaltySource = ReputationPenaltySource.Other,
+                Effective = true
+            });
+        }
+
+        private static void AssertDoubleNear(double actual, double expected, double tolerance, string message)
+        {
+            InGameAssert.IsTrue(System.Math.Abs(actual - expected) <= tolerance,
+                $"{message}: expected={expected.ToString("R", CultureInfo.InvariantCulture)} actual={actual.ToString("R", CultureInfo.InvariantCulture)} tolerance={tolerance.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
+        private static bool TryEnableCommittedOverlaySetting(
+            out ParsekSettings settings,
+            out bool priorValue)
+        {
+            settings = ParsekSettings.Current;
+            priorValue = true;
+            if (settings == null)
+                return false;
+
+            priorValue = settings.showCommittedFutureOverlays;
+            settings.showCommittedFutureOverlays = true;
+            return true;
+        }
+
+        private static void RestoreCommittedOverlaySetting(
+            ParsekSettings settings,
+            bool priorValue,
+            bool settingCaptured)
+        {
+            if (settingCaptured && settings != null)
+                settings.showCommittedFutureOverlays = priorValue;
+        }
+
+        private static bool TryEnterSpaceCenterBuilding<T>(
+            string buildingName,
+            out T building)
+            where T : SpaceCenterBuilding
+        {
+            building = Object.FindObjectOfType<T>();
+            if (building == null)
+            {
+                InGameAssert.Skip($"{buildingName} building instance not found in Space Center scene");
+                return false;
+            }
+
+            try
+            {
+                building.EnterBuilding();
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                InGameAssert.Fail($"{buildingName} EnterBuilding threw: {ex}");
+                return false;
+            }
+        }
+
+        private static IEnumerator WaitForStockUiOverlayController(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<StockUiOverlayController>() != null,
+                "StockUiOverlayController KSPAddon should exist in SPACECENTER",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForRdController(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => RDController.Instance != null || Object.FindObjectOfType<RDController>() != null,
+                "RDController should exist after opening R&D",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForAstronautComplex(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<AstronautComplex>() != null,
+                "AstronautComplex should exist after opening the Astronaut Complex",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForMissionControl(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<MissionControl>() != null,
+                "MissionControl should exist after opening Mission Control",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitUntilTrue(
+            System.Func<bool> predicate,
+            string failureMessage,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (predicate())
+                    yield break;
+                yield return null;
+            }
+
+            InGameAssert.Fail($"{failureMessage} (timed out after {timeoutSeconds:F1}s)");
+        }
+
+        private static bool TryPickRdNode(
+            RDController controller,
+            out RDNode node,
+            out string techId,
+            out string reason)
+        {
+            node = null;
+            techId = null;
+            reason = null;
+
+            List<RDNode> nodes;
+            if (!TryGetRuntimeRdNodes(controller, out nodes))
+            {
+                reason = "RDController.nodes reflection lookup failed";
+                return false;
+            }
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                RDNode candidate = nodes[i];
+                if (candidate == null || candidate.transform == null || candidate.tech == null)
+                    continue;
+                if (string.IsNullOrEmpty(candidate.tech.techID))
+                    continue;
+
+                node = candidate;
+                techId = candidate.tech.techID;
+                return true;
+            }
+
+            reason = "No RDNode with a non-empty tech.techID was available";
+            return false;
+        }
+
+        private static bool TryGetRuntimeRdNodes(RDController controller, out List<RDNode> nodes)
+        {
+            nodes = null;
+            controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
+            if (controller == null)
+                return false;
+
+            FieldInfo field = typeof(RDController).GetField(
+                "nodes",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            nodes = field != null ? field.GetValue(controller) as List<RDNode> : null;
+            return nodes != null;
+        }
+
+        private static Recording AddCommittedOverlayFixture(
+            string recordingId,
+            GameStateEventType eventType,
+            string key,
+            string detail)
+        {
+            double now = Planetarium.GetUniversalTime();
+            var recording = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = "Phase 5 Stock UI Overlay Test",
+                ExplicitStartUT = now - 1.0,
+                ExplicitEndUT = now + 120.0,
+                MergeState = MergeState.Immutable
+            };
+            RecordingStore.AddCommittedInternal(recording);
+
+            var evt = new GameStateEvent
+            {
+                ut = now + 60.0,
+                eventType = eventType,
+                key = key,
+                detail = detail ?? "",
+                recordingId = recordingId,
+                epoch = 0u
+            };
+            var milestone = new Milestone
+            {
+                MilestoneId = "phase5-overlay-" + System.Guid.NewGuid().ToString("N"),
+                StartUT = evt.ut,
+                EndUT = evt.ut,
+                RecordingId = recordingId,
+                Epoch = 0u,
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent> { evt }
+            };
+            MilestoneStore.AddMilestoneForTesting(milestone);
+            return recording;
+        }
+
+        private static void RemoveCommittedOverlayFixture(string recordingId, Recording recording)
+        {
+            if (!string.IsNullOrEmpty(recordingId))
+            {
+                MilestoneStore.PurgeTaggedEvents(
+                    new HashSet<string> { recordingId },
+                    "phase5-stock-ui-overlay-test");
+            }
+            if (recording != null)
+                RecordingStore.RemoveCommittedInternal(recording);
+        }
+
+        private static void NotifyTimelineDataChangedForOverlayTest()
+        {
+            LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+        }
+
+        private static void CloseRnDForOverlayTest(RDController controller)
+        {
+            try
+            {
+                controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
+                RDController.OnRDTreeDespawn.Fire(controller);
+                GameEvents.onGUIRnDComplexDespawn.Fire();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner", $"Phase 5 R&D overlay close helper threw: {ex}");
+            }
+        }
+
+        private static void CloseAstronautForOverlayTest()
+        {
+            try
+            {
+                GameEvents.onGUIAstronautComplexDespawn.Fire();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner", $"Phase 5 Astronaut overlay close helper threw: {ex}");
+            }
+        }
+
+        private static void CloseMissionControlForOverlayTest()
+        {
+            try
+            {
+                GameEvents.onGUIMissionControlDespawn.Fire();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner", $"Phase 5 MissionControl overlay close helper threw: {ex}");
+            }
+        }
+
+        private static IEnumerator WaitForNamedChildCount(
+            Transform root,
+            string childName,
+            int expected,
+            string failureMessage,
+            float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => CountNamedChildren(root, childName) == expected,
+                $"{failureMessage}; expected={expected} actual={CountNamedChildren(root, childName)}",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForGlobalOverlayCount(
+            string objectName,
+            int expected,
+            string failureMessage,
+            float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => CountGlobalNamedTransforms(objectName) == expected,
+                $"{failureMessage}; expected={expected} actual={CountGlobalNamedTransforms(objectName)}",
+                timeoutSeconds);
+        }
+
+        private static int CountNamedChildren(Transform root, string childName)
+        {
+            if (root == null || string.IsNullOrEmpty(childName))
+                return 0;
+
+            int count = 0;
+            Transform[] children = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                Transform child = children[i];
+                if (child != null && child.gameObject != null && child.gameObject.name == childName)
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int CountGlobalNamedTransforms(string objectName)
+        {
+            int count = 0;
+            Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform transform = all[i];
+                if (transform != null && transform.gameObject != null && transform.gameObject.name == objectName)
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static ProtoCrewMember CreateApplicantForOverlayTest(KerbalRoster roster, string name)
+        {
+            ProtoCrewMember applicant = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Applicant);
+            InGameAssert.IsNotNull(applicant, $"Could not create applicant '{name}' for Astronaut overlay test");
+            applicant.ChangeName(name);
+            applicant.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+            return applicant;
+        }
+
+        private static bool TryInstallReservedKerbalForOverlayTest(KerbalsModule module, string name)
+        {
+            FieldInfo field = typeof(KerbalsModule).GetField(
+                "reservations",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null)
+            {
+                InGameAssert.Skip("KerbalsModule.reservations field missing; cannot install reserved applicant fixture");
+                return false;
+            }
+
+            field.SetValue(module, new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                [name] = new KerbalsModule.KerbalReservation
+                {
+                    KerbalName = name,
+                    ReservedUntilUT = double.PositiveInfinity,
+                    IsPermanent = false
+                }
+            });
+            return true;
+        }
+
+        private static void RemoveKerbalForOverlayTest(KerbalRoster roster, ProtoCrewMember member)
+        {
+            if (roster == null || member == null)
+                return;
+
+            try
+            {
+                roster.Remove(member);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner",
+                    $"Phase 5 Astronaut overlay applicant cleanup failed for '{member.name}': {ex}");
+            }
+        }
+
+        private static IEnumerator WaitForCrewListItemOverlay(
+            string kerbalName,
+            string overlayName,
+            string failureMessage,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                CrewListItem row = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), kerbalName);
+                if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
+                    yield break;
+                yield return null;
+            }
+
+            CrewListItem finalRow = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), kerbalName);
+            int actual = finalRow != null ? CountNamedChildren(finalRow.transform, overlayName) : -1;
+            InGameAssert.Fail($"{failureMessage}; rowFound={finalRow != null} overlayCount={actual}");
+        }
+
+        private static CrewListItem FindCrewListItemByName(AstronautComplex complex, string name)
+        {
+            if (complex == null || string.IsNullOrEmpty(name))
+                return null;
+
+            CrewListItem[] items = complex.GetComponentsInChildren<CrewListItem>(true);
+            for (int i = 0; i < items.Length; i++)
+            {
+                CrewListItem item = items[i];
+                if (item == null)
+                    continue;
+
+                try
+                {
+                    if (string.Equals(item.GetName(), name, System.StringComparison.Ordinal))
+                        return item;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.VerboseRateLimited("TestRunner", "phase5-crew-row-name-failed",
+                        $"Phase 5 CrewListItem.GetName failed while searching for '{name}': {ex.Message}");
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryPickOfferedContract(
+            out Contract contract,
+            out string contractKey,
+            out string contractTitle,
+            out string skipReason)
+        {
+            contract = null;
+            contractKey = null;
+            contractTitle = null;
+            skipReason = null;
+
+            var system = ContractSystem.Instance;
+            if (system == null || system.Contracts == null)
+            {
+                skipReason = "ContractSystem.Instance.Contracts is not available";
+                return false;
+            }
+
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract candidate = system.Contracts[i];
+                if (candidate == null)
+                    continue;
+                if (candidate.ContractState != Contract.State.Offered)
+                    continue;
+
+                string key = candidate.ContractGuid.ToString();
+                string title = candidate.Title;
+                if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(title))
+                    continue;
+
+                contract = candidate;
+                contractKey = key;
+                contractTitle = title;
+                return true;
+            }
+
+            skipReason = "No offered contract with a non-empty title/Guid is available";
+            return false;
+        }
+
+        private static IEnumerator WaitForMissionControlRowOverlay(
+            string title,
+            string overlayName,
+            string failureMessage,
+            float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                MCListItem row = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), title);
+                if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
+                    yield break;
+                yield return null;
+            }
+
+            MCListItem finalRow = FindMissionControlRowByTitle(Object.FindObjectOfType<MissionControl>(), title);
+            int actual = finalRow != null ? CountNamedChildren(finalRow.transform, overlayName) : -1;
+            InGameAssert.Fail($"{failureMessage}; rowFound={finalRow != null} overlayCount={actual}");
+        }
+
+        private static MCListItem FindMissionControlRowByTitle(MissionControl missionControl, string title)
+        {
+            if (missionControl == null || string.IsNullOrEmpty(title))
+                return null;
+
+            MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
+            for (int i = 0; i < rows.Length; i++)
+            {
+                MCListItem row = rows[i];
+                if (row == null)
+                    continue;
+
+                if (string.Equals(ExtractMissionControlRowTitleForTest(row), title, System.StringComparison.Ordinal))
+                    return row;
+            }
+
+            return null;
+        }
+
+        private static string ExtractMissionControlRowTitleForTest(MCListItem row)
+        {
+            try
+            {
+                FieldInfo field = typeof(MCListItem).GetField(
+                    "title",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                object titleComponent = field != null ? field.GetValue(row) : null;
+                if (titleComponent == null)
+                    return null;
+
+                PropertyInfo textProperty = titleComponent.GetType().GetProperty("text");
+                return textProperty != null
+                    ? textProperty.GetValue(titleComponent, null) as string
+                    : null;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("TestRunner", "phase5-mission-row-title-failed",
+                    $"Phase 5 MissionControl row title lookup failed: {ex.Message}");
+                return null;
             }
         }
 
