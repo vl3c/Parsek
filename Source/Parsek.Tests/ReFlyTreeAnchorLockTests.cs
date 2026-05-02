@@ -955,6 +955,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.5,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out Vector3d firstApplied,
                 out Quaternion _,
                 out double firstDelta,
@@ -972,6 +974,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.25,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out Vector3d secondApplied,
                 out Quaternion _,
                 out double secondDelta,
@@ -989,6 +993,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.75,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out Vector3d duplicateApplied,
                 out Quaternion _,
                 out double duplicateDelta,
@@ -1011,6 +1017,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.5,
                 100.0,
+                false,
+                Vector3d.zero,
                 out _,
                 out _,
                 out _,
@@ -1024,6 +1032,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.5,
                 100.0,
+                false,
+                Vector3d.zero,
                 out Vector3d applied,
                 out Quaternion _,
                 out double delta,
@@ -1049,6 +1059,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.5,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out _,
                 out _,
                 out _,
@@ -1062,6 +1074,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.414,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out Vector3d applied,
                 out Quaternion _,
                 out double delta,
@@ -1086,6 +1100,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.5,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out _,
                 out _,
                 out _,
@@ -1106,6 +1122,8 @@ namespace Parsek.Tests
                 Quaternion.identity,
                 0.25,
                 ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
                 out Vector3d applied,
                 out Quaternion _,
                 out double delta,
@@ -1116,6 +1134,89 @@ namespace Parsek.Tests
             Assert.Equal(0.0, delta, 3);
             Assert.False(state.hasPrevious);
             AssertVectorClose(new Vector3d(100.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_LiveRootRelativeFrameSuppressesNearRootWorldMotion()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(4.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(34.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                new Vector3d(30.0, 0.0, 0.0),
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-static", reason);
+            Assert.Equal(0.0, delta, 3);
+            Assert.True(state.liveRootRelativeFrame);
+            AssertVectorClose(new Vector3d(34.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_FrameChangeResetsBeforeBlending()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(4.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(34.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d applied,
+                out Quaternion _,
+                out double _,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("interpolation-frame-changed-reset", reason);
+            Assert.False(state.liveRootRelativeFrame);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(34.0, 0.0, 0.0), applied, 0.0001);
         }
 
         [Fact]

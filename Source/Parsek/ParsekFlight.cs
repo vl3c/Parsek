@@ -488,6 +488,7 @@ namespace Parsek
             public Vector3d currentPosition;
             public Quaternion previousRotation;
             public Quaternion currentRotation;
+            public bool liveRootRelativeFrame;
         }
 
         // Reset instead of blending across world-frame discontinuities such
@@ -495,6 +496,7 @@ namespace Parsek
         // Re-Fly ascent steps are tens of metres; blending hundreds of metres
         // renders the ghost visibly behind the correct pinned target.
         internal const double ReFlyRenderInterpolationResetMeters = 100.0;
+        internal const double ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters = 50.0;
         internal const double ReFlyRenderInterpolationMinTargetDeltaMeters = 0.001;
         internal const double ReFlyRenderInterpolationMinRotationDeltaDegrees = 0.01;
 
@@ -1696,6 +1698,10 @@ namespace Parsek
             double alpha = 1.0;
             double targetDeltaMeters = 0.0;
             bool interpolated = false;
+            bool liveRootRelativeFrame = false;
+            Vector3d liveRootWorld = Vector3d.zero;
+            double liveRootDistanceMeters = double.NaN;
+            string liveRootFrameReason = "disabled";
 
             int ghostId = entry.ghost.GetInstanceID();
             if (!entry.hasReFlyTreeOffset)
@@ -1707,6 +1713,12 @@ namespace Parsek
                 alpha = ComputeReFlyRenderInterpolationAlpha();
                 ReFlyRenderInterpolationState state;
                 reFlyRenderInterpolationStates.TryGetValue(ghostId, out state);
+                liveRootRelativeFrame = TryResolveReFlyRenderInterpolationLiveRootFrame(
+                    entry,
+                    targetPosition,
+                    out liveRootWorld,
+                    out liveRootDistanceMeters,
+                    out liveRootFrameReason);
                 interpolated = TryComputeReFlyRenderInterpolatedPose(
                     ref state,
                     entry.ghost,
@@ -1715,6 +1727,8 @@ namespace Parsek
                     targetRotation,
                     alpha,
                     ReFlyRenderInterpolationResetMeters,
+                    liveRootRelativeFrame,
+                    liveRootWorld,
                     out appliedPosition,
                     out appliedRotation,
                     out targetDeltaMeters,
@@ -1728,11 +1742,106 @@ namespace Parsek
                     alpha,
                     targetDeltaMeters,
                     reason,
-                    interpolated);
+                    interpolated,
+                    liveRootRelativeFrame,
+                    liveRootDistanceMeters,
+                    liveRootFrameReason);
             }
 
             entry.ghost.transform.position = appliedPosition;
             entry.ghost.transform.rotation = appliedRotation;
+        }
+
+        private static bool TryResolveReFlyRenderInterpolationLiveRootFrame(
+            GhostPosEntry entry,
+            Vector3d targetPosition,
+            out Vector3d liveRootWorld,
+            out double liveRootDistanceMeters,
+            out string reason)
+        {
+            liveRootWorld = Vector3d.zero;
+            liveRootDistanceMeters = double.NaN;
+            reason = "not-evaluated";
+
+            if (!entry.hasReFlyTreeOffset)
+            {
+                reason = "refly-offset-missing";
+                return false;
+            }
+            if (!IsFiniteVector3d(targetPosition))
+            {
+                reason = "target-non-finite";
+                return false;
+            }
+
+            string recordingId = ResolveGhostPosEntryRecordingId(entry);
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                reason = "recording-id-missing";
+                return false;
+            }
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                reason = "marker-missing";
+                return false;
+            }
+            uint selectedRootPartPid = marker.SelectedRootPartPersistentId;
+            if (selectedRootPartPid == 0u)
+            {
+                reason = "selected-root-part-missing";
+                return false;
+            }
+            if (!TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid) || activeReFlyPid == 0u)
+            {
+                reason = "active-pid-missing";
+                return false;
+            }
+
+            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
+            if (liveAnchor == null)
+            {
+                reason = "live-vessel-missing";
+                return false;
+            }
+            if (!TryResolveReFlyLiveAnchorWorld(
+                    liveAnchor,
+                    marker,
+                    out liveRootWorld,
+                    out string liveRootSource,
+                    out uint liveRootPartPid,
+                    out double _))
+            {
+                reason = "live-root-unresolved";
+                return false;
+            }
+            if (!string.Equals(liveRootSource, "root-part", StringComparison.Ordinal)
+                || liveRootPartPid != selectedRootPartPid)
+            {
+                reason = "live-root-not-selected-root-part";
+                return false;
+            }
+            if (!IsFiniteVector3d(liveRootWorld))
+            {
+                reason = "live-root-non-finite";
+                return false;
+            }
+
+            liveRootDistanceMeters = Vector3d.Distance(targetPosition, liveRootWorld);
+            if (double.IsNaN(liveRootDistanceMeters) || double.IsInfinity(liveRootDistanceMeters))
+            {
+                reason = "live-root-distance-non-finite";
+                return false;
+            }
+            if (liveRootDistanceMeters > ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters)
+            {
+                reason = "outside-near-live-root";
+                return false;
+            }
+
+            reason = "near-selected-root";
+            return true;
         }
 
         private static double ResolveGhostPosEntryTargetUT(GhostPosEntry entry)
@@ -1771,6 +1880,8 @@ namespace Parsek
             Quaternion targetRotation,
             double renderAlpha,
             double resetMeters,
+            bool useLiveRootRelativeFrame,
+            Vector3d liveRootWorld,
             out Vector3d appliedPosition,
             out Quaternion appliedRotation,
             out double targetDeltaMeters,
@@ -1786,6 +1897,17 @@ namespace Parsek
                 state = default(ReFlyRenderInterpolationState);
                 reason = "target-non-finite";
                 return false;
+            }
+            Vector3d targetPositionInFrame = targetPosition;
+            if (useLiveRootRelativeFrame)
+            {
+                if (!IsFiniteVector3d(liveRootWorld))
+                {
+                    state = default(ReFlyRenderInterpolationState);
+                    reason = "live-root-non-finite";
+                    return false;
+                }
+                targetPositionInFrame = targetPosition - liveRootWorld;
             }
             if (double.IsNaN(targetUT) || double.IsInfinity(targetUT))
             {
@@ -1805,15 +1927,29 @@ namespace Parsek
                 state.hasPrevious = false;
                 state.ghost = ghost;
                 state.currentTargetUT = targetUT;
-                state.previousPosition = targetPosition;
-                state.currentPosition = targetPosition;
+                state.previousPosition = targetPositionInFrame;
+                state.currentPosition = targetPositionInFrame;
                 state.previousRotation = targetRotation;
                 state.currentRotation = targetRotation;
+                state.liveRootRelativeFrame = useLiveRootRelativeFrame;
                 reason = "initialized";
                 return false;
             }
 
-            targetDeltaMeters = Vector3d.Distance(state.currentPosition, targetPosition);
+            if (state.liveRootRelativeFrame != useLiveRootRelativeFrame)
+            {
+                ResetReFlyRenderInterpolationState(
+                    ref state,
+                    ghost,
+                    targetUT,
+                    targetPositionInFrame,
+                    targetRotation,
+                    useLiveRootRelativeFrame);
+                reason = "interpolation-frame-changed-reset";
+                return false;
+            }
+
+            targetDeltaMeters = Vector3d.Distance(state.currentPosition, targetPositionInFrame);
             double rotationDeltaDegrees = QuaternionAngleDegreesManaged(state.currentRotation, targetRotation);
             bool targetChanged =
                 targetDeltaMeters > ReFlyRenderInterpolationMinTargetDeltaMeters
@@ -1825,7 +1961,8 @@ namespace Parsek
                 if (targetUT <= state.currentTargetUT - 1e-6)
                 {
                     ResetReFlyRenderInterpolationState(
-                        ref state, ghost, targetUT, targetPosition, targetRotation);
+                        ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
+                        useLiveRootRelativeFrame);
                     reason = "target-ut-regressed-reset";
                     return false;
                 }
@@ -1833,7 +1970,8 @@ namespace Parsek
                 if (targetDeltaMeters > resetMeters)
                 {
                     ResetReFlyRenderInterpolationState(
-                        ref state, ghost, targetUT, targetPosition, targetRotation);
+                        ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
+                        useLiveRootRelativeFrame);
                     reason = "target-jump-reset";
                     return false;
                 }
@@ -1842,7 +1980,7 @@ namespace Parsek
                 state.ghost = ghost;
                 state.previousPosition = state.currentPosition;
                 state.previousRotation = state.currentRotation;
-                state.currentPosition = targetPosition;
+                state.currentPosition = targetPositionInFrame;
                 state.currentRotation = targetRotation;
                 state.currentTargetUT = targetUT;
                 reason = "advanced-target";
@@ -1868,10 +2006,13 @@ namespace Parsek
                 return false;
             }
 
-            appliedPosition = LerpVector3d(
+            Vector3d appliedPositionInFrame = LerpVector3d(
                 state.previousPosition,
                 state.currentPosition,
                 renderAlpha);
+            appliedPosition = useLiveRootRelativeFrame
+                ? liveRootWorld + appliedPositionInFrame
+                : appliedPositionInFrame;
             appliedRotation = TrajectoryMath.PureSlerp(
                 state.previousRotation,
                 state.currentRotation,
@@ -1879,7 +2020,8 @@ namespace Parsek
             if (!IsFiniteVector3d(appliedPosition))
             {
                 ResetReFlyRenderInterpolationState(
-                    ref state, ghost, targetUT, targetPosition, targetRotation);
+                    ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
+                    useLiveRootRelativeFrame);
                 appliedPosition = targetPosition;
                 appliedRotation = targetRotation;
                 reason = "applied-non-finite-reset";
@@ -1896,14 +2038,32 @@ namespace Parsek
             Vector3d targetPosition,
             Quaternion targetRotation)
         {
+            ResetReFlyRenderInterpolationState(
+                ref state,
+                ghost,
+                targetUT,
+                targetPosition,
+                targetRotation,
+                useLiveRootRelativeFrame: false);
+        }
+
+        internal static void ResetReFlyRenderInterpolationState(
+            ref ReFlyRenderInterpolationState state,
+            GameObject ghost,
+            double targetUT,
+            Vector3d targetPositionInFrame,
+            Quaternion targetRotation,
+            bool useLiveRootRelativeFrame)
+        {
             state.initialized = true;
             state.hasPrevious = false;
             state.ghost = ghost;
             state.currentTargetUT = targetUT;
-            state.previousPosition = targetPosition;
-            state.currentPosition = targetPosition;
+            state.previousPosition = targetPositionInFrame;
+            state.currentPosition = targetPositionInFrame;
             state.previousRotation = targetRotation;
             state.currentRotation = targetRotation;
+            state.liveRootRelativeFrame = useLiveRootRelativeFrame;
         }
 
         private void ClearReFlyRenderInterpolationStateForGhostPartPin(
@@ -1957,7 +2117,10 @@ namespace Parsek
             double alpha,
             double targetDeltaMeters,
             string reason,
-            bool interpolated)
+            bool interpolated,
+            bool liveRootRelativeFrame,
+            double liveRootDistanceMeters,
+            string liveRootFrameReason)
         {
             string recordingId = ResolveGhostPosEntryRecordingId(entry);
             double currentUT = Planetarium.fetch != null
@@ -1980,6 +2143,9 @@ namespace Parsek
                 + " alpha=" + alpha.ToString("F3", CultureInfo.InvariantCulture)
                 + " targetDeltaMeters=" + targetDeltaMeters.ToString("F3", CultureInfo.InvariantCulture)
                 + " renderCorrectionMeters=" + renderCorrectionMeters.ToString("F3", CultureInfo.InvariantCulture)
+                + " interpolationFrame=" + (liveRootRelativeFrame ? "live-root-relative" : "world")
+                + " liveRootFrameReason=" + (liveRootFrameReason ?? "<none>")
+                + " liveRootDistanceMeters=" + liveRootDistanceMeters.ToString("F2", CultureInfo.InvariantCulture)
                 + " target=" + GhostRenderTrace.FormatVector3d(targetPosition)
                 + " applied=" + GhostRenderTrace.FormatVector3d(appliedPosition),
                 important: false,
