@@ -140,6 +140,24 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction RecordingScopedAction(
+            GameActionType type,
+            string recordingId,
+            string actionId)
+        {
+            return new GameAction
+            {
+                ActionId = actionId,
+                Type = type,
+                RecordingId = recordingId,
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+                NodeId = "survivability",
+                Cost = 5.0f,
+            };
+        }
+
         // =====================================================================
         // Membership rules
         // =====================================================================
@@ -193,21 +211,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DestroyedWithRecordingScopedScienceAction_NotMember()
+        public void DestroyedWithRecordingScopedScienceEarningAction_IsMember()
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_sci_crash",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_A",
-                UT = 12.0,
-                SubjectId = "crewReport@MunInSpaceLow",
-                ScienceAwarded = 1.5f,
-            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_A",
+                "act_sci_crash"));
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_A")
+                && l.Contains("reason=crashed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
+        }
+
+        [Fact]
+        public void DestroyedWithRecordingScopedScienceSpendingAction_NotMember()
+        {
+            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceSpending,
+                "rec_A",
+                "act_sci_spend_crash"));
 
             ParsekLog.ResetRateLimitsForTesting();
             logLines.Clear();
@@ -217,7 +256,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_A")
-                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
+                && l.Contains("reason=recordingAction:ScienceSpending:act_sci_spend_crash"));
         }
 
         [Fact]
@@ -285,21 +324,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StrandedEvaWithRecordingScopedScienceAction_NotMember()
+        public void StrandedEvaWithRecordingScopedScienceSpendingAction_NotMember()
         {
             var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_sci_eva",
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec_eva",
-                UT = 12.0,
-                SubjectId = "evaReport@MunSrfLandedMidlands",
-                ScienceAwarded = 1.5f,
-            });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceSpending,
+                "rec_eva",
+                "act_sci_spend_eva"));
 
             ParsekLog.ResetRateLimitsForTesting();
             logLines.Clear();
@@ -309,7 +343,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_eva")
-                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_eva"));
+                && l.Contains("reason=recordingAction:ScienceSpending:act_sci_spend_eva"));
         }
 
         [Fact]
