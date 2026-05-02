@@ -16185,7 +16185,7 @@ namespace Parsek
                     sectionIndex: splineSectionIdx,
                     pointFrameSource: pointFrameSource,
                     allowReFlyPointTrend:
-                        traj.TrackSections[splineSectionIdx].environment == SegmentEnvironment.Atmospheric);
+                        ShouldAllowReFlyPointTrend(traj.TrackSections[splineSectionIdx].environment));
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
                 RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
@@ -17233,6 +17233,7 @@ namespace Parsek
                 targetUT,
                 rawWorld,
                 ReFlyPointTrendMaxCorrectionMeters,
+                ReFlyPointTrendMaxResidualMeters,
                 out trendWorld,
                 out correction,
                 out maxResidualMeters,
@@ -17244,6 +17245,7 @@ namespace Parsek
             double targetUT,
             Vector3d rawWorld,
             double maxCorrectionMeters,
+            double maxResidualMetersAllowed,
             out Vector3d trendWorld,
             out Vector3d correction,
             out double maxResidualMeters,
@@ -17355,6 +17357,12 @@ namespace Parsek
                 }
                 if (residual > maxResidualMeters)
                     maxResidualMeters = residual;
+            }
+
+            if (maxResidualMeters > maxResidualMetersAllowed)
+            {
+                reason = "residual-too-large";
+                return false;
             }
 
             reason = "applied";
@@ -17616,6 +17624,13 @@ namespace Parsek
 
             reason = "eligible";
             return true;
+        }
+
+        internal static bool ShouldAllowReFlyPointTrend(SegmentEnvironment environment)
+        {
+            return environment == SegmentEnvironment.Atmospheric
+                || environment == SegmentEnvironment.ExoPropulsive
+                || environment == SegmentEnvironment.ExoBallistic;
         }
 
         /// <summary>
@@ -19055,6 +19070,7 @@ namespace Parsek
         internal const int ReFlyPointTrendHalfWindowSamples = 2;
         internal const int ReFlyPointTrendMinSamples = 4;
         internal const double ReFlyPointTrendMaxCorrectionMeters = 250.0;
+        internal const double ReFlyPointTrendMaxResidualMeters = 50.0;
         private const double PointHermiteMaxDeviationCapMeters = 250.0;
         private const double PointHermiteMinDeviationMeters = 10.0;
         private const double PointHermiteDeviationFraction = 0.05;

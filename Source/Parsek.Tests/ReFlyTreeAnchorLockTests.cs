@@ -755,6 +755,7 @@ namespace Parsek.Tests
                 2.0,
                 new Vector3d(20.0, 8.0, 0.0),
                 ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
                 out Vector3d trend,
                 out Vector3d correction,
                 out double maxResidual,
@@ -783,6 +784,7 @@ namespace Parsek.Tests
                 2.0,
                 new Vector3d(20.0, 1000.0, 0.0),
                 50.0,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
                 out Vector3d trend,
                 out Vector3d correction,
                 out double maxResidual,
@@ -793,6 +795,50 @@ namespace Parsek.Tests
             AssertVectorClose(new Vector3d(20.0, 0.0, 0.0), trend, 0.0001);
             AssertVectorClose(new Vector3d(0.0, -1000.0, 0.0), correction, 0.0001);
             Assert.True(double.IsNaN(maxResidual));
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_RejectsLargeResidual()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 200.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 200.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("residual-too-large", reason);
+            AssertVectorClose(new Vector3d(20.0, 40.0, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -160.0, 0.0), correction, 0.0001);
+            Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.Atmospheric, true)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, true)]
+        [InlineData(SegmentEnvironment.ExoBallistic, true)]
+        [InlineData(SegmentEnvironment.SurfaceMobile, false)]
+        [InlineData(SegmentEnvironment.SurfaceStationary, false)]
+        [InlineData(SegmentEnvironment.Approach, false)]
+        public void ShouldAllowReFlyPointTrend_GatesFlightEnvironments(
+            SegmentEnvironment environment,
+            bool expected)
+        {
+            Assert.Equal(expected, ParsekFlight.ShouldAllowReFlyPointTrend(environment));
         }
 
         [Fact]
