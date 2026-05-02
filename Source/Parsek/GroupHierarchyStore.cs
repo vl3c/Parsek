@@ -401,7 +401,15 @@ namespace Parsek
         /// </summary>
         internal static void SaveInto(ConfigNode node)
         {
-            PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
+            if (ShouldSkipPruneForActiveReFly())
+            {
+                ParsekLog.Verbose("GroupHierarchy",
+                    "Skipping group hierarchy prune reason=save while Re-Fly session is active");
+            }
+            else
+            {
+                PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
+            }
 
             if (groupParents.Count > 0)
             {
@@ -424,6 +432,25 @@ namespace Parsek
                     hiddenNode.AddValue("hideActive", "False");
                 ParsekLog.Info("GroupHierarchy", $"Saved hidden groups: {hiddenGroups.Count} entries, hideActive={hideActive}");
             }
+        }
+
+        private static bool ShouldSkipPruneForActiveReFly()
+        {
+            var scenario = ParsekScenario.Instance;
+            var marker = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            var validation = MarkerValidator.Validate(marker);
+            if (!validation.Valid)
+                return false;
+
+            // Active Re-Fly loads can temporarily detach the committed tree
+            // while the pending/active tree still owns its auto-generated
+            // groups. Committed-only pruning would treat those groups as stale.
+            return true;
         }
 
         /// <summary>
