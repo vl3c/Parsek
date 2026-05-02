@@ -656,8 +656,8 @@ namespace Parsek
             // #688 follow-up: preserve the captured pre-Re-Fly anchor
             // trajectory snapshot. Repair / splice paths that DeepClone a
             // recording (e.g. the active-tree refresh in ParsekScenario)
-            // would otherwise silently drop the snapshot, breaking the
-            // per-frame anchor for every other ghost in the active Re-Fly
+            // would otherwise silently drop the snapshot, breaking display
+            // alignment capture for every other ghost in the active Re-Fly
             // tree. The lists are cloned to keep the clone independent of
             // the source. ApplyPersistenceArtifactsFrom intentionally does
             // NOT copy these (they're [NonSerialized] live-session state),
@@ -729,7 +729,7 @@ namespace Parsek
         /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
         /// <see cref="SegmentEvents"/> are intentionally left at their
         /// default-empty initialisers — only position-history data matters
-        /// for the per-frame anchor sample, and emitting events from the
+        /// for the Re-Fly display alignment sample, and emitting events from the
         /// snapshot would re-fire structural events at every save. Returns
         /// null when no snapshot is captured for <paramref name="sessionId"/>.
         /// </summary>

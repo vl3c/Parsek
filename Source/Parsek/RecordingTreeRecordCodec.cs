@@ -263,12 +263,12 @@ namespace Parsek
                 recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
-            // at session start so the per-frame anchor offset can sample the
+            // at session start so Re-Fly display alignment can sample the
             // ORIGINAL active recording at any UT — even after the live
             // recording is trimmed past cutoffUT and re-extended with new
             // player flight data. The snapshot fields are [NonSerialized]
-            // and would otherwise vanish on F5/F9 mid-session, breaking the
-            // per-frame anchor for every other ghost in the Re-Fly tree.
+            // and would otherwise vanish on F5/F9 mid-session, breaking
+            // display alignment for every other ghost in the Re-Fly tree.
             // Encoded as a child PRE_REFLY_ANCHOR node containing a full
             // serialized trajectory (points/orbit segments/track sections);
             // SerializeTrajectoryInto is reused via a temp Recording so the

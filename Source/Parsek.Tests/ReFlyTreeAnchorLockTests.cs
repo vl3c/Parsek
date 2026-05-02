@@ -7,21 +7,19 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the Re-Fly tree anchor lock helpers in
-    /// <see cref="ParsekFlight"/>. The lock translates ghost positions in
-    /// the active Re-Fly tree by the per-frame offset
-    /// <c>live_active_world(now) - recorded_active_world(currentUT)</c> so
-    /// each ghost sits at its recorded relative offset from where the live
-    /// vessel actually is. The active recording's role is purely to define
-    /// inter-vessel relative geometry; its absolute world coordinates are
-    /// not the source of truth.
+    /// <see cref="ParsekFlight"/>. The lock captures a display-only
+    /// alignment once per recording per active Re-Fly session, stores it in
+    /// the body's rotating frame, and reprojects it while the hidden
+    /// recorded trajectory remains the source of truth. The live vessel is
+    /// only an initialization reference.
     ///
     /// <para>
     /// These tests exercise the parts that don't require a live KSP
     /// runtime: the recording-id → tree-id resolution path that decides
     /// which ghost positions get translated, the activation-gate decision
-    /// rule, the snapshot lifecycle, and the codec round-trip. The
-    /// per-frame offset compute itself is covered by the in-game test in
-    /// <c>RuntimeTests</c>.
+    /// rule, the snapshot lifecycle, the codec round-trip, and the pure
+    /// body-fixed alignment math. The live KSP capture path is covered by
+    /// in-game validation.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -286,7 +284,7 @@ namespace Parsek.Tests
         {
             // #688 follow-up: repair / splice paths that DeepClone a
             // recording must preserve the captured pre-Re-Fly anchor
-            // snapshot — otherwise the per-frame anchor falls back to the
+            // snapshot — otherwise display alignment falls back to the
             // trimmed live recording mid-session and ghosts in the active
             // Re-Fly tree misposition.
             var rec = new Recording
@@ -502,6 +500,119 @@ namespace Parsek.Tests
 
             Assert.True(ParsekFlight.IsRecordingInReFlyTreeMarker(
                 "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
+        }
+
+        // ============================================================
+        // Frozen Re-Fly display alignment
+        // ============================================================
+
+        [Fact]
+        public void ReFlyDisplayAlignment_CaptureAndProjectSameRotation_RecoversInitialDelta()
+        {
+            Quaternion bodyRotation = TrajectoryMath.PureAngleAxis(35f, Vector3.up);
+            Vector3d recorded = new Vector3d(1000.0, 2000.0, -3000.0);
+            Vector3d initialDelta = new Vector3d(12.5, -3.0, 44.0);
+            Vector3d live = recorded + initialDelta;
+
+            bool captured = ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                live,
+                recorded,
+                123.45,
+                "root-part",
+                3087746488u,
+                8.18,
+                out ReFlyDisplayAlignment alignment);
+
+            Assert.True(captured);
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d projected));
+            AssertVectorClose(initialDelta, projected, 0.0001);
+            Assert.Equal("sess-1", alignment.SessionId);
+            Assert.Equal("rec-ghost", alignment.RecordingId);
+            Assert.Equal("Kerbin", alignment.BodyName);
+            Assert.Equal("root-part", alignment.LiveAnchorSource);
+            Assert.Equal(3087746488u, alignment.LiveAnchorPartPid);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_ProjectAfterBodyRotation_DoesNotKeepStaleWorldVector()
+        {
+            Quaternion captureRotation = Quaternion.identity;
+            Quaternion laterRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            Vector3d recorded = Vector3d.zero;
+            Vector3d live = new Vector3d(10.0, 0.0, 0.0);
+
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                captureRotation,
+                live,
+                recorded,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryProject(laterRotation, out Vector3d projected));
+            Vector3 expected = TrajectoryMath.PureRotateVector(laterRotation, new Vector3(10f, 0f, 0f));
+            AssertVectorClose(new Vector3d(expected.x, expected.y, expected.z), projected, 0.0001);
+            Assert.True(Vector3d.Distance(live, projected) > 1.0);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_CaptureRejectsNonFiniteInputs()
+        {
+            bool captured = ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                Quaternion.identity,
+                new Vector3d(double.NaN, 0.0, 0.0),
+                Vector3d.zero,
+                0.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment);
+
+            Assert.False(captured);
+            Assert.Null(alignment.SessionId);
+            Assert.Null(alignment.RecordingId);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_SessionChangeClearsFrozenOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            var alignment = new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "rec-ghost",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 2.0, 3.0),
+            };
+
+            cache.ClearIfSessionChanged("sess-1");
+            cache.Store(alignment);
+
+            Assert.True(cache.TryGet("sess-1", "rec-ghost", out ReFlyDisplayAlignment found));
+            AssertVectorClose(new Vector3d(1.0, 2.0, 3.0), found.BodyFixedOffset, 0.0001);
+
+            cache.ClearIfSessionChanged("sess-1");
+            Assert.Equal(1, cache.Count);
+
+            cache.ClearIfSessionChanged("sess-2");
+            Assert.Equal(0, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-ghost", out _));
         }
 
         // ============================================================
@@ -797,7 +908,7 @@ namespace Parsek.Tests
             // section without an absoluteFrames shadow (legacy v6 format
             // or upgraded recording where the shadow was never written)
             // looks plausible to a section-presence-only check but is
-            // structurally unsampleable for the per-frame anchor model.
+            // structurally unsampleable for the Re-Fly display alignment model.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -1548,6 +1659,16 @@ namespace Parsek.Tests
                     },
                 },
             };
+        }
+
+        private static void AssertVectorClose(Vector3d expected, Vector3d actual, double tolerance)
+        {
+            Assert.True(
+                Math.Abs(expected.x - actual.x) <= tolerance
+                && Math.Abs(expected.y - actual.y) <= tolerance
+                && Math.Abs(expected.z - actual.z) <= tolerance,
+                $"Expected ({expected.x:R}, {expected.y:R}, {expected.z:R}) "
+                + $"but got ({actual.x:R}, {actual.y:R}, {actual.z:R})");
         }
     }
 }

@@ -340,7 +340,7 @@ namespace Parsek
 
             // #688 follow-up: drop any captured pre-Re-Fly anchor trajectory
             // snapshot now that the session is committed. The snapshot was
-            // only needed to feed the per-frame anchor offset while the live
+            // only needed to feed Re-Fly display alignment while the live
             // recording was being trimmed/extended; post-merge the recording's
             // own data is final and the snapshot would otherwise linger in
             // memory and in the .sfs as dead weight (the codec writes a

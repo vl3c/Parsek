@@ -59,8 +59,8 @@ namespace Parsek
         // Host-scene gate (#688 follow-up): when true, ActivateGhostVisualsIfNeeded
         // refuses to flip the ghost active. Set by the positioner while the
         // host has additional gating to apply — currently used so a ghost in
-        // the active Re-Fly tree stays hidden until the per-frame anchor
-        // offset has been resolved at least once. Cleared by the same
+        // the active Re-Fly tree stays hidden until the frozen display
+        // alignment has been resolved at least once. Cleared by the same
         // positioner the moment the gating condition lifts. Engine never
         // writes this field.
         public bool externalActivationDeferred;

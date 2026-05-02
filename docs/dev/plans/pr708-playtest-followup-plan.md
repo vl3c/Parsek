@@ -1,6 +1,6 @@
 # PR 708 playtest follow-up plan
 
-**Status:** draft for the next playtest log bundle.
+**Status:** active follow-up work. Baseline before the frozen-alignment fix is committed and pushed as `d329ffac` (`Seed Re-Fly split children from live root`) on `ghost-anchor-recording-chain-v11`.
 **Branch:** `ghost-anchor-recording-chain-v11`.
 **Scope:** remaining issues after Phases A-C of `ghost-anchor-recording-chain-plan.md`.
 **Non-goals:** no legacy v7-v10 migration, no live-PID fallback for non-loop Relative playback, no Phase D behaviour deletion until the D.0 product gate is explicit.
@@ -125,6 +125,12 @@ Runtime gate:
 
 ## 4. Fix track C - active Re-Fly ghost alignment
 
+Current evidence from `logs/2026-05-02_1202_pr708-refly-anchor-com-vs-hidden-trajectory/`:
+
+- The `d329ffac` seed replacement worked. The controlled child went from a stale seed `1122.31m` from the live root to a created child seed within `0.01m` of `Decoupler.2`.
+- The recorder-side v11 contract is correct. During active Re-Fly, the new Relative recording selected a hidden ghost `anchorRecordingId` with `source=Ghost`, not a live COM / PID anchor.
+- The display-side contract is still wrong for the desired behaviour. Playback logs `contract=ghost_world(t)=recorded_relative_offset(t)+live_active_anchor_world(now)`, so same-tree ghosts are translated every frame by current live vessel/root-part motion.
+
 The current architecture has two competing behaviours:
 
 - Phases A-C place non-loop Relative ghosts from recorded anchor chains.
@@ -136,47 +142,50 @@ displayOffset(t) = liveActiveAnchorWorld(now) - recordedActiveWorld(playbackUT)
 
 The 2026-05-02 narrow follow-up stores the selected slot root-part PID on the Re-Fly marker and resolves `liveActiveAnchorWorld` from that live part when available, falling back to the previous vessel-world position only for legacy or unresolved markers. This fixes the visible COM-initialization offset without changing the recorded-side math or removing the working Re-Fly tree translation.
 
-If later logs show the ghost still moves up/down or oscillates after root-part anchoring, the remaining product choices are:
+The next fix is the stabilized comparison overlay, not Phase D deletion. The rule is:
 
-1. Finish Phase D as originally planned.
-   - Remove the Re-Fly tree translation.
-   - Ghosts play at original recorded coordinates.
-   - The live Re-Fly vessel can visibly diverge from the ghosts.
+1. Recording data remains anchored to hidden ghost trajectories through `anchorRecordingId`.
+2. The live vessel/root part is used only to initialize a display alignment for a given recording in a given Re-Fly session.
+3. Once initialized, that recording's same-tree ghost display must not resample the live vessel; user input on the real vessel must not inject up/down translation into the ghost.
 
-2. Keep a Re-Fly comparison overlay, but stabilize it.
-   - Keep recorded-chain playback as the source of truth.
-   - Apply a display-only alignment transform to the active Re-Fly tree.
-   - Do not use live vessel PIDs as Relative anchors.
+Implementation target:
 
-If we choose option 2, replace the raw offset with a stable alignment model:
+- Replace the per-frame `(Time.frameCount, recordingId, currentUT)` memo in `TryGetReFlyTreeAnchorOffset` with a per-session, per-recording frozen display alignment.
+- Capture alignment at the first frame the recording is renderable in the active Re-Fly session, not at Re-Fly invocation time. For a tree member that appears later at separation, the capture point is that first renderable frame.
+- Compute the initial delta from the selected live root part when available, otherwise from the existing vessel-world fallback with an explicit log reason.
+- Store the frozen alignment as a body-fixed Cartesian metre offset:
 
-- Compute live-vs-recorded delta in a body-local trajectory frame, not raw world XYZ.
-- Use a sliding window over the active vessel, for example 5-15 seconds of samples.
-- Fit a low-frequency translation or time-shift instead of using the instantaneous frame delta.
-- Decompose delta into along-track, radial, and normal components.
-- Low-pass or clamp radial/normal components so orbital/body rotation does not become visible up/down ghost motion.
-- Apply the same smooth display transform to every ghost in the active Re-Fly tree for that frame.
-- Reset the filter on scene change, active marker change, body change, large UT jump, or structural event.
+```text
+bodyFixedOffset = inverse(body.bodyTransform.rotation) * (liveAnchorWorld0 - recordedAnchorWorld0)
+worldOffset(t) = body.bodyTransform.rotation * bodyFixedOffset
+```
+
+Do not store raw world XYZ and do not use simple latitude / longitude / altitude subtraction; both drift or distort under body rotation.
+
+- If a tree member never reaches a renderable capture point, prefer no offset over falling back to the old live-bobbing path. Log the skip.
+- Clear frozen alignments on Re-Fly session change/end, retry/revert/discard, load-time marker validation failure, and scene/session cleanup. The cache key must include `SessionId` so a second Re-Fly attempt cannot inherit the first attempt's offsets.
+- Remove the old per-frame live-anchor display calculation from the normal path. The default display path should log `contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset`.
 
 Tests:
 
-- Pure math tests for the alignment filter:
-  - constant offset passes through,
-  - sinusoidal vertical noise is attenuated,
-  - large discontinuity resets instead of smearing,
-  - body change resets,
-  - output is deterministic for the same sample window.
+- Pure math tests for the body-fixed alignment:
+  - initial world delta is recovered at the same body rotation,
+  - body rotation reprojects the stored offset instead of preserving stale world XYZ,
+  - different session ids do not share cached offsets,
+  - missing / non-finite recorded or live pose fails closed with a loggable reason.
+- Playback tests for the Re-Fly offset helper:
+  - the first successful call freezes the offset,
+  - later live-anchor movement does not change the returned offset,
+  - a later recording captures independently at its own first renderable UT,
+  - session change invalidates the frozen value.
 - Playback contract test that Relative resolver output is unchanged by the display alignment layer.
 
 Runtime gate:
 
 - Re-Fly a separated vessel while the sibling ghost is visible.
-- The sibling ghost should not bob vertically from the old hidden trajectory.
-- Logs must identify whether the session is using `recorded-coordinate` mode or `stabilized-refly-display-offset` mode.
-
-Decision needed before implementation:
-
-- Do we want Phase D recorded-coordinate behaviour now, or do we want the stabilized comparison overlay first?
+- The sibling ghost initializes at the separation point, then follows the hidden recorded trajectory plus the frozen body-fixed alignment.
+- Moving the real vessel after initialization should not move the sibling ghost up/down.
+- Logs must include `Re-Fly display alignment initialized` and `mode=frozen-body-fixed`; the old `per-frame` contract must not appear for the normal path.
 
 ---
 
