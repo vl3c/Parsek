@@ -19,6 +19,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 instant time-jump ledger recalculation
+
+- ~~Fast Forward and Real Spawn Control instant jumps advanced UT without immediately replaying the ledger, so funds/science/reputation/contracts/facilities could stay at their pre-jump values until another trigger fired.~~ Normal KSP time-warp exit already called `LedgerOrchestrator.RecalculateAndPatch()`, and Rewind/Re-Fly already used explicit cutoff/full-state recalculation, but Parsek's discrete jump paths were stale: `TimeJumpManager.ExecuteJump` still logged "game actions system not available, skipping recalculation", and `ExecuteForwardJump` never called the ledger at all.
+
+**Fix:** `TimeJumpManager` now has one shared post-jump helper that logs, calls `LedgerOrchestrator.RecalculateAndPatchForTimeJump(targetUT)`, and catches/logs patch failures. Epoch-shifted jumps (`Warp to Real` / departure warp) call it after UT changes, epoch shifts, and crossed-chain-tip spawning. Ordinary Fast Forward calls it after UT changes, converter timestamp repair, and off-rails restoration. The helper preserves the jump target as the ledger cutoff so future actions remain filtered until replay reaches their UT, while keeping the actual time jump successful even if recalculation logs a non-fatal failure.
+
+**Coverage:** `TimeJumpManagerTests` pins the recalculation hook, target-UT cutoff forwarding, and failure logging; `RewindUtCutoffTests` pins the time-jump orchestrator wrapper's target-UT filtering. Full headless xUnit suite passed after the fix.
+
+**Status:** CLOSED 2026-05-02.
+
+---
+
 ## Done - v0.9.1 Re-Fly merge auto-seal: focus override, focus-slot stable-terminal, structural mutation
 
 - ~~A successful Re-Fly of a non-focus debris/probe slot to a stable Orbiting / SubOrbital terminal merged as `MergeState.CommittedProvisional` (slot remained re-flyable) instead of sealing as `MergeState.Immutable`. Even when the merge did commit Immutable on the static focus slot, the rewind-point slot's `Sealed` flag stayed false so the Unfinished-Flight row remained re-flyable. Re-Fly sessions that produced structural side-offs (decouple, stage, undock, joint break) likewise stayed re-flyable when the chain tip qualified as a safe stable retry leaf.~~ Source: `logs/2026-05-01_2344_kerbal-x-not-sealed/`; verdict line `[Supersede] provisional=9b970d8957a0493cadd46cf41370646e mergeState=CommittedProvisional terminalKind=InFlight qualifies=True slot=1 rp=rp_4c6d0e5a3e1d4ab8b1e0399601cea850 focusSlot=0 classifierReason=stableLeafUnconcluded autoSeal=False`. The player Re-Flew the Kerbal X Probe (slot 1) and reached stable Kerbin orbit, but the rewind point's `FocusSlotIndex` was still 0 (the parent stage that was active at RP capture / staging), so the slot-aware classifier returned `stableLeafUnconcluded` and the merge kept the slot re-flyable. Per playtesting contract: a Re-Fly merge of the slot the player just flew themselves should auto-seal on a stable terminal (recording becomes Immutable, slot.Sealed=true), and any structural mutation during the Re-Fly is itself enough to seal the slot regardless of the tip's terminal classification. The existing background-vessel keep-open protection only applies to vessels the player switched away from before scene exit.

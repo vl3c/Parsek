@@ -808,6 +808,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TimeJumpRecalculate_UsesTargetUtCutoff()
+        {
+            // Time jumps should land the career snapshot at the selected UT, not at the
+            // full future ledger horizon.
+            AddAll(
+                FundsSeed(10000f),
+                FundsEarning(100.0, 500f, "rec-a"),
+                FundsSpending(300.0, 200f, "rec-b"),
+                FundsEarning(500.0, 9000f, "rec-c"));
+
+            LedgerOrchestrator.RecalculateAndPatchForTimeJump(400.0);
+
+            Assert.Equal(10300.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(200.0, LedgerOrchestrator.Funds.GetTotalCommittedSpendings(), 1);
+            Assert.Equal(500.0, LedgerOrchestrator.Funds.GetTotalEarnings(), 1);
+            AssertLogHasCutoffSummary(logLines, 4, 3, "400");
+        }
+
+        [Fact]
         public void Mixed_SpendingAfterCutoffReservesProjectedHeadroom()
         {
             // Visible/current aggregate fields still respect the cutoff, but available funds

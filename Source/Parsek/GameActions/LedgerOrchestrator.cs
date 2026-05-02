@@ -1255,6 +1255,21 @@ namespace Parsek
                 authoritativeRepeatableRecordState: false);
         }
 
+        /// <summary>
+        /// Post-time-jump recalculation that filters the committed ledger to the
+        /// newly selected UT without opting into rewind-only patch side effects.
+        /// This preserves pending/live-tree patch deferral and same-branch
+        /// repeatable-record preservation while keeping resources/contracts/facilities
+        /// at the jump target instead of at the full future timeline.
+        /// </summary>
+        internal static void RecalculateAndPatchForTimeJump(double utCutoff)
+        {
+            RecalculateAndPatchCore(
+                utCutoff,
+                bypassPatchDeferral: false,
+                authoritativeRepeatableRecordState: false);
+        }
+
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
 
         private static void SeedInitialResourceBalances()
