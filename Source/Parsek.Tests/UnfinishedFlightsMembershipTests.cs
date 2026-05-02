@@ -233,8 +233,13 @@ namespace Parsek.Tests
                 && l.Contains("reason=recordingAction:ScienceEarning:act_sci_crash"));
         }
 
+        // Negative twin of DestroyedWithRecordingScopedScienceEarningAction_NotMember.
+        // After the v0.9.x tightening, ScienceSpending (a KSC-scene tech-unlock
+        // that cannot reach the gate with a flight tag in practice) no longer
+        // retires a Destroyed crash from Unfinished Flights, so the slot stays
+        // retryable.
         [Fact]
-        public void DestroyedWithRecordingScopedScienceSpendingAction_NotMember()
+        public void DestroyedWithRecordingScopedScienceSpendingAction_IsMember()
         {
             var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
@@ -249,11 +254,10 @@ namespace Parsek.Tests
             logLines.Clear();
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
-            Assert.Empty(members);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("rec=rec_A")
-                && l.Contains("reason=recordingAction:ScienceSpending:act_sci_spend_crash"));
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:ScienceSpending"));
         }
 
         [Fact]
@@ -320,8 +324,37 @@ namespace Parsek.Tests
             Assert.Equal("rec_A", members[0].RecordingId);
         }
 
+        // Positive case for stranded EVA: a tagged ScienceEarning row
+        // (player pressed Crew Report / EVA Report on the stranded kerbal)
+        // retires the slot from Unfinished Flights.
         [Fact]
-        public void StrandedEvaWithRecordingScopedScienceSpendingAction_NotMember()
+        public void StrandedEvaWithRecordingScopedScienceEarningAction_NotMember()
+        {
+            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ScienceEarning,
+                "rec_eva",
+                "act_sci_eva"));
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_eva")
+                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_eva"));
+        }
+
+        // Negative twin of the stranded-EVA + ScienceEarning case above.
+        // ScienceSpending no longer retires a stranded EVA from Unfinished
+        // Flights — the kerbal stays retrievable.
+        [Fact]
+        public void StrandedEvaWithRecordingScopedScienceSpendingAction_IsMember()
         {
             var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
@@ -336,11 +369,10 @@ namespace Parsek.Tests
             logLines.Clear();
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
-            Assert.Empty(members);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("rec=rec_eva")
-                && l.Contains("reason=recordingAction:ScienceSpending:act_sci_spend_eva"));
+            Assert.Single(members);
+            Assert.Equal("rec_eva", members[0].RecordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("reason=recordingAction:ScienceSpending"));
         }
 
         [Fact]

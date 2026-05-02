@@ -108,26 +108,36 @@ namespace Parsek.Tests
 
         public static IEnumerable<object[]> RetryBlockingRecordingActionCases()
         {
+            // Columns: GameActionType, retryBlocking (Re-Fly/STASH gate), strictBlocking
+            // (legacy ledger-safety gate; preserved for non-retry callers).
+            //
+            // Retry-blocking is now narrowed to ScienceEarning only — see
+            // SupersedeCommit.IsRetryBlockingRecordingAction. Every KSC-scene
+            // "player action" still passes the strict gate (so audit/reconciliation
+            // call sites observe them) but does NOT auto-seal a Re-Fly retry,
+            // because in practice it cannot reach the gate with a flight tag and,
+            // for the one rollout-adoption case that does (FundsSpending(VesselBuild)),
+            // the cost is paid once and survives revert/retag.
             yield return new object[] { GameActionType.ScienceEarning, true, true };
-            yield return new object[] { GameActionType.ScienceSpending, true, true };
+            yield return new object[] { GameActionType.ScienceSpending, false, true };
             yield return new object[] { GameActionType.FundsEarning, false, true };
-            yield return new object[] { GameActionType.FundsSpending, true, true };
+            yield return new object[] { GameActionType.FundsSpending, false, true };
             yield return new object[] { GameActionType.MilestoneAchievement, false, true };
-            yield return new object[] { GameActionType.ContractAccept, true, true };
+            yield return new object[] { GameActionType.ContractAccept, false, true };
             yield return new object[] { GameActionType.ContractComplete, false, true };
             yield return new object[] { GameActionType.ContractFail, false, true };
-            yield return new object[] { GameActionType.ContractCancel, true, true };
+            yield return new object[] { GameActionType.ContractCancel, false, true };
             yield return new object[] { GameActionType.ReputationEarning, false, true };
             yield return new object[] { GameActionType.ReputationPenalty, false, true };
             yield return new object[] { GameActionType.KerbalAssignment, false, true };
-            yield return new object[] { GameActionType.KerbalHire, true, true };
+            yield return new object[] { GameActionType.KerbalHire, false, true };
             yield return new object[] { GameActionType.KerbalRescue, false, true };
             yield return new object[] { GameActionType.KerbalStandIn, false, true };
-            yield return new object[] { GameActionType.FacilityUpgrade, true, true };
+            yield return new object[] { GameActionType.FacilityUpgrade, false, true };
             yield return new object[] { GameActionType.FacilityDestruction, false, true };
-            yield return new object[] { GameActionType.FacilityRepair, true, true };
-            yield return new object[] { GameActionType.StrategyActivate, true, true };
-            yield return new object[] { GameActionType.StrategyDeactivate, true, true };
+            yield return new object[] { GameActionType.FacilityRepair, false, true };
+            yield return new object[] { GameActionType.StrategyActivate, false, true };
+            yield return new object[] { GameActionType.StrategyDeactivate, false, true };
             yield return new object[] { GameActionType.FundsInitial, false, false };
             yield return new object[] { GameActionType.ScienceInitial, false, false };
             yield return new object[] { GameActionType.ReputationInitial, false, false };
@@ -1312,7 +1322,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceSpendingAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1341,9 +1351,9 @@ namespace Parsek.Tests
                 }
             });
             Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
+                GameActionType.ScienceEarning,
                 "rec_origin",
-                "act_sci_spend_origin"));
+                "act_sci_earn_origin"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1354,9 +1364,9 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=recordingAction:ScienceSpending:act_sci_spend_origin")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceSpending:act_sci_spend_origin"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
         }
 
         [Fact]
@@ -1420,7 +1430,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceSpendingAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1453,9 +1463,9 @@ namespace Parsek.Tests
                 }
             });
             Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
+                GameActionType.ScienceEarning,
                 "rec_origin",
-                "act_sci_spend_origin"));
+                "act_sci_earn_origin"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1465,9 +1475,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceSpending:act_sci_spend_origin")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceSpending:act_sci_spend_origin"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
         }
 
         [Fact]
@@ -1604,7 +1614,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceSpendingAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_WithRecordingScopedScienceEarningAction_AutoSeals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1634,9 +1644,9 @@ namespace Parsek.Tests
                 }
             });
             Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
+                GameActionType.ScienceEarning,
                 "rec_provisional",
-                "act_sci_spend"));
+                "act_sci_earn"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1646,13 +1656,18 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceSpending:act_sci_spend")
+                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceSpending:act_sci_spend"));
+                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn"));
         }
 
+        // Negative twin of the ScienceEarning case above. After the v0.9.x
+        // tightening (auto-seal limited to intentional player actions taken on
+        // the vessel), ScienceSpending — a KSC-scene tech-unlock — no longer
+        // closes a Destroyed retry slot, even when it carries a flight-tagged
+        // RecordingId.
         [Fact]
-        public void DestroyedTerminal_WithRecordingScopedScienceSpendingAction_AutoSeals()
+        public void DestroyedTerminal_WithRecordingScopedScienceSpendingAction_StaysRetryable()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1688,15 +1703,9 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Supersede]")
-                && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceSpending:act_sci_spend")
-                && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceSpending:act_sci_spend"));
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.False(originSlot.Sealed);
+            Assert.Null(originSlot.SealedRealTime);
         }
 
         [Fact]

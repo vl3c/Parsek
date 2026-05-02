@@ -1261,13 +1261,32 @@ namespace Parsek
             if (!IsWorldStateChangingRecordingAction(action, sameTimelineActions))
                 return false;
 
-            // ScienceEarning is credited experiment data (collect/transmit/recover), not
-            // a passive consequence row like milestones or funds/reputation rewards.
-            if (action.Type == GameActionType.ScienceEarning)
-                return true;
-
-            return TimelineEntryDisplay.IsPlayerAction(
-                TimelineEntryDisplay.MapGameActionType(action.Type));
+            // Retry-blocking auto-seal fires only on intentional player actions taken
+            // on the vessel that produce sticky world-state effects. ScienceEarning
+            // (Crew Report / EVA Report / Surface Sample / Transmit / Recover) is the
+            // only ledger row in this category — every other GameActionType is either
+            //
+            //   - an automatic game consequence (MilestoneAchievement,
+            //     ContractComplete/Fail, FundsEarning, ReputationEarning/Penalty,
+            //     KerbalAssignment/Rescue/StandIn, FacilityDestruction) — denylisted
+            //     by IsWorldStateChangingRecordingAction or by exclusion here;
+            //
+            //   - a KSC-scene player action (ContractAccept/Cancel, KerbalHire,
+            //     FacilityUpgrade/Repair, StrategyActivate/Deactivate,
+            //     ScienceSpending) that cannot reach this gate with a flight-recording
+            //     tag because GameStateRecorder.Emit only stamps a tag in FLIGHT
+            //     scene with a live recorder; or
+            //
+            //   - a paid-once setup row (FundsSpending(VesselBuild) adopted to the
+            //     recording via TryAdoptRolloutAction) whose effect survives a
+            //     revert/retag without re-charging the player, so sealing on it
+            //     would punish retries for spending the player already accepted.
+            //
+            // Structural mutations (decouple / stage / undock / EVA / joint break)
+            // and hard safety terminals (Recovered / Docked / Boarded) seal via
+            // their own dedicated gates (HasReFlySessionStructuralMutation +
+            // IsHardSafetyTerminal), not through this predicate.
+            return action.Type == GameActionType.ScienceEarning;
         }
 
         private static void ApplyAutoSealAfterSafetyClose(
