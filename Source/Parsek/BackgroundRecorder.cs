@@ -2186,6 +2186,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Drops all background recording state without flushing or persisting
+        /// trajectory data. Used when the caller is intentionally discarding the
+        /// entire in-memory attempt, such as Discard Re-Fly loading the origin
+        /// rewind point.
+        /// </summary>
+        public void DiscardWithoutPersist(string reason)
+        {
+            UnsubscribePartEvents();
+
+            int onRailsCount = onRailsStates.Count;
+            int loadedCount = loadedStates.Count;
+            int finalizationCacheCount = finalizationCaches.Count;
+
+            onRailsStates.Clear();
+            loadedStates.Clear();
+            pendingInitialEnvironmentOverrides.Clear();
+            pendingInitialTrajectoryPoints.Clear();
+            finalizationCaches.Clear();
+
+            ParsekLog.Info("BgRecorder",
+                $"DiscardWithoutPersist: cleared background states without flushing " +
+                $"onRails={onRailsCount} loaded={loadedCount} caches={finalizationCacheCount} " +
+                $"reason='{(string.IsNullOrEmpty(reason) ? "<unspecified>" : reason)}'");
+        }
+
+        /// <summary>
         /// Finalizes all background recordings for tree commit.
         /// Closes all open orbit segments, flushes any pending trajectory data,
         /// and sets ExplicitEndUT on all background recordings.

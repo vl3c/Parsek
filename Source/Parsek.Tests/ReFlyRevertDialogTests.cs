@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -65,6 +67,24 @@ namespace Parsek.Tests
         // ---------- Helpers ---------------------------------------------
 
         private const string ProvisionalRecId = "rec_provisional_p12";
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
+        }
+
+        private static T GetPrivateField<T>(object target, string fieldName)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return (T)field.GetValue(target);
+        }
 
         private static ReFlySessionMarker MakeMarker(
             string sessionId = "sess_p12_test",
@@ -272,6 +292,78 @@ namespace Parsek.Tests
                 && l.Contains("sess=" + marker.SessionId)
                 && l.Contains("target=Launch")
                 && l.Contains("dispatched=true"));
+        }
+
+        [Fact]
+        public void DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+        }
+
+        [Fact]
+        public void SceneExitCommitSuppression_ConsumesOnce()
+        {
+            RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            Assert.True(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.True(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                GameScenes.SPACECENTER, out string reason));
+            Assert.Contains("discardReFly", reason);
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                GameScenes.SPACECENTER, out _));
+        }
+
+        [Fact]
+        public void SceneExitCommitSuppression_DropsActiveTreeWithoutPendingStash()
+        {
+            var activeRecording = new Recording
+            {
+                RecordingId = "rec_refly_active_guard",
+                VesselName = "ReFly Attempt",
+                TreeId = "tree_refly_guard",
+                MergeState = MergeState.NotCommitted,
+                FilesDirty = true,
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree_refly_guard",
+                TreeName = "ReFly Attempt",
+                RootRecordingId = activeRecording.RecordingId,
+                ActiveRecordingId = activeRecording.RecordingId,
+            };
+            tree.Recordings[activeRecording.RecordingId] = activeRecording;
+
+            var flight = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            SetPrivateField(flight, "activeTree", tree);
+
+            RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            flight.FinalizeTreeOnSceneChangeForTesting(GameScenes.SPACECENTER, 123.4);
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.Null(GetPrivateField<RecordingTree>(flight, "activeTree"));
+            Assert.True(activeRecording.FilesDirty,
+                "Suppressed discard must not flush dirty sidecar state.");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Flight]")
+                && l.Contains("suppressed tree scene-exit commit")
+                && l.Contains("without STASH"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Stashed pending tree") ||
+                l.Contains("CommitTreeSceneExit"));
         }
 
         [Fact]

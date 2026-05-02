@@ -2018,7 +2018,17 @@ namespace Parsek
             // Background recorder must be finalized BEFORE the tree commit so
             // its data is flushed to the tree recordings.
             if (activeTree != null)
+            {
                 FinalizeTreeOnSceneChange(scene);
+            }
+            else if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                scene,
+                out string suppressReason))
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnSceneChangeRequested: consumed tree scene-exit commit suppression " +
+                    $"with no active tree dest={scene} reason='{suppressReason ?? "<unspecified>"}'");
+            }
 
             // Stop manual playback
             StopPlayback();
@@ -2031,6 +2041,22 @@ namespace Parsek
 
         private void FinalizeTreeOnSceneChange(GameScenes scene)
         {
+            FinalizeTreeOnSceneChangeCore(
+                scene,
+                Planetarium.GetUniversalTime(),
+                logRecorderState: true);
+        }
+
+        internal void FinalizeTreeOnSceneChangeForTesting(GameScenes scene, double commitUT)
+        {
+            FinalizeTreeOnSceneChangeCore(scene, commitUT, logRecorderState: false);
+        }
+
+        private void FinalizeTreeOnSceneChangeCore(
+            GameScenes scene,
+            double commitUT,
+            bool logRecorderState)
+        {
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
             if (restoringActiveTree)
             {
@@ -2039,8 +2065,18 @@ namespace Parsek
                 return;
             }
 
-            double commitUT = Planetarium.GetUniversalTime();
-            ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
+            if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(scene, out string suppressReason))
+            {
+                DiscardActiveTreeForSuppressedSceneExit(
+                    scene,
+                    commitUT,
+                    suppressReason,
+                    logRecorderState);
+                return;
+            }
+
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
 
             // Checkpoint all background vessels before finalization.
             // This captures clean orbital reference points at the scene-change boundary.
@@ -2143,6 +2179,47 @@ namespace Parsek
                 backgroundRecorder = null;
             }
             activeTree = null;
+        }
+
+        private void DiscardActiveTreeForSuppressedSceneExit(
+            GameScenes scene,
+            double commitUT,
+            string suppressReason,
+            bool logRecorderState)
+        {
+            string treeName = activeTree.TreeName;
+            int recordingCount = activeTree.Recordings.Count;
+            string activeRecordingId = activeTree.ActiveRecordingId ?? "<none>";
+            ParsekLog.Info("Flight",
+                $"FinalizeTreeOnSceneChange: suppressed tree scene-exit commit " +
+                $"dest={scene} UT={commitUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"tree='{treeName}' recordings={recordingCount} active='{activeRecordingId}' " +
+                $"reason='{suppressReason ?? "<unspecified>"}' - discarding in-memory tree without STASH");
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
+
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                    recorder.ForceStop();
+                Patches.PhysicsFramePatch.ActiveRecorder = null;
+                recorder = null;
+            }
+
+            // The Re-Fly restore path installs a loaded/detached active tree:
+            // TryRestoreActiveTreeNode clones/reconciles committed recordings into
+            // that tree, so background recorder mutations from the attempt are
+            // discarded here instead of leaking into CommittedRecordings.
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.DiscardWithoutPersist(suppressReason);
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+
+            activeTree = null;
+            if (logRecorderState)
+                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
         }
 
         void OnVesselWillDestroy(Vessel v)
