@@ -1,7 +1,7 @@
 # Game-State UI Overlays — Design Pass
 
 **Branch:** `feat/game-state-ui-overlays` (worktree at `C:\Users\vlad3\Documents\Code\Parsek\Parsek-game-state-ui-overlays`)
-**Status:** design pass, pre-implementation. No code written yet.
+**Status:** implemented through phases 1-6 on this branch; retained as the implementation contract and review reference.
 
 The Parsek ledger and `KspStatePatcher` already make stock KSP singletons (Funding, R&D, Reputation, ProgressTracking, ContractSystem, AssetBase.RnDTechTree) reflect the committed timeline. What is still missing: the stock building UIs (R&D, Astronaut Complex, Mission Control) do not visually distinguish state that is "already lived" from state that the player has committed in the future. The player can still click a tech node that a pending recording will unlock, gets a blocking dialog, and has to mentally cross-reference the Parsek Career window. The same gap exists for kerbal hires and contract acceptance.
 

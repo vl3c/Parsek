@@ -4,7 +4,7 @@ using UnityEngine.UI;
 
 namespace Parsek
 {
-    internal sealed class OverlayBadge : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
+    internal sealed class OverlayBadge : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
         private const string TexturePath = "Parsek/Textures/clock_overlay";
         private const float TooltipWidth = 320f;
@@ -107,15 +107,6 @@ namespace Parsek
         public void OnPointerExit(PointerEventData eventData)
         {
             hovered = false;
-        }
-
-        public void OnPointerClick(PointerEventData eventData)
-        {
-            string button = eventData != null ? eventData.button.ToString() : "Unknown";
-            ParsekLog.VerboseRateLimited(
-                "StockUiOverlay",
-                "overlay-badge-click-" + (screen ?? "unknown"),
-                $"StockUiOverlay: badge clicked screen={screen} name={itemName} button={button}");
         }
 
         private void Update()

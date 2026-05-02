@@ -388,6 +388,7 @@ namespace Parsek
                 s.showCommittedFutureOverlays = showCommittedFutureOverlays;
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(showCommittedFutureOverlays);
                 ParsekLog.Info("UI", $"Setting changed: showCommittedFutureOverlays={showCommittedFutureOverlays}");
+                StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
             }
 
             bool blockCommittedActions = GUILayout.Toggle(s.blockCommittedActions,

@@ -66,6 +66,19 @@ namespace Parsek
         private bool astronautOpen;
         private bool missionOpen;
 
+        internal static void RefreshOpenScreensAfterSettingsChanged()
+        {
+            var controller = UnityEngine.Object.FindObjectOfType<StockUiOverlayController>();
+            if (controller == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "StockUiOverlay: settings changed but controller not present - RebuildAllVisible no-op");
+                return;
+            }
+
+            controller.ScheduleRebuildAllVisible("settings changed");
+        }
+
         private void Awake()
         {
             RDController.OnRDTreeSpawn.Add(OnRdTreeSpawn);
@@ -93,16 +106,21 @@ namespace Parsek
 
         private void OnTimelineDataChanged()
         {
+            ScheduleRebuildAllVisible("timeline changed");
+        }
+
+        private void ScheduleRebuildAllVisible(string reason)
+        {
             string screens = DescribeOpenScreens();
             if (string.IsNullOrEmpty(screens))
             {
                 ParsekLog.Verbose(Tag,
-                    "StockUiOverlay: timeline changed but no tracked screen open — RebuildAllVisible no-op");
+                    $"StockUiOverlay: {reason} but no tracked screen open - RebuildAllVisible no-op");
                 return;
             }
 
             ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: timeline changed — scheduling RebuildAllVisible for {screens}");
+                $"StockUiOverlay: {reason} - scheduling RebuildAllVisible for {screens}");
             StartCoroutine(RebuildAllVisibleNextFrame());
         }
 
