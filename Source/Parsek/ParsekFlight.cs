@@ -16335,6 +16335,16 @@ namespace Parsek
                     absoluteFrames = denseFrames;
                     pointFrameSource = "flat-dense-refly";
                 }
+                else if (!hasReFlyDisplayOffsetForFrameSelection
+                    && TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                        traj.TrackSections,
+                        splineSectionIdx,
+                        out List<TrajectoryPoint> bridgedFrames,
+                        out string bridgedFrameSource))
+                {
+                    absoluteFrames = bridgedFrames;
+                    pointFrameSource = bridgedFrameSource;
+                }
 
                 int absolutePlaybackIdx = playbackIdx;
                 InterpolateAndPosition(
@@ -22366,7 +22376,11 @@ namespace Parsek
                         LogCheckpointPointPlayback(traj, sectionIdx, section, playbackUT, worldPos);
                         return true;
                     }
-                    else if (TryGetAbsoluteSectionPlaybackFrames(section, out List<TrajectoryPoint> absoluteFrames))
+                    else if (TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                        traj.TrackSections,
+                        sectionIdx,
+                        out List<TrajectoryPoint> absoluteFrames,
+                        out _))
                     {
                         // Section-local absolute frames are authoritative at
                         // frame boundaries. The flat Points list can contain
@@ -22428,6 +22442,160 @@ namespace Parsek
 
             frames = section.frames;
             return true;
+        }
+
+        internal static bool TryGetAbsoluteSectionPlaybackFramesForPlayback(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            out List<TrajectoryPoint> frames,
+            out string frameSource)
+        {
+            frames = null;
+            frameSource = "section-frames";
+            if (trackSections == null
+                || sectionIdx < 0
+                || sectionIdx >= trackSections.Count)
+            {
+                return false;
+            }
+
+            TrackSection section = trackSections[sectionIdx];
+            if (!TryGetAbsoluteSectionPlaybackFrames(section, out List<TrajectoryPoint> sectionFrames))
+                return false;
+
+            frames = sectionFrames;
+            if (sectionFrames.Count == 0)
+                return true;
+
+            const double epsilonSeconds = 1e-6;
+            TrajectoryPoint first = sectionFrames[0];
+            TrajectoryPoint last = sectionFrames[sectionFrames.Count - 1];
+            TrajectoryPoint previousFrame = default(TrajectoryPoint);
+            TrajectoryPoint nextFrame = default(TrajectoryPoint);
+            bool prepend = section.startUT + epsilonSeconds < first.ut
+                && TryFindAdjacentAbsolutePlaybackFrame(
+                    trackSections,
+                    sectionIdx - 1,
+                    searchForward: false,
+                    requireBeforeUT: first.ut,
+                    requireAfterUT: double.NaN,
+                    bodyName: first.bodyName,
+                    out previousFrame);
+            bool append = last.ut + epsilonSeconds < section.endUT
+                && TryFindAdjacentAbsolutePlaybackFrame(
+                    trackSections,
+                    sectionIdx + 1,
+                    searchForward: true,
+                    requireBeforeUT: double.NaN,
+                    requireAfterUT: last.ut,
+                    bodyName: last.bodyName,
+                    out nextFrame);
+
+            if (!prepend && !append)
+                return true;
+
+            var bridged = new List<TrajectoryPoint>(
+                sectionFrames.Count + (prepend ? 1 : 0) + (append ? 1 : 0));
+            if (prepend)
+                bridged.Add(previousFrame);
+            bridged.AddRange(sectionFrames);
+            if (append)
+                bridged.Add(nextFrame);
+
+            frames = bridged;
+            frameSource = "section-frames-bridged";
+            return true;
+        }
+
+        private static bool TryFindAdjacentAbsolutePlaybackFrame(
+            List<TrackSection> trackSections,
+            int adjacentIdx,
+            bool searchForward,
+            double requireBeforeUT,
+            double requireAfterUT,
+            string bodyName,
+            out TrajectoryPoint frame)
+        {
+            frame = default(TrajectoryPoint);
+            if (trackSections == null
+                || adjacentIdx < 0
+                || adjacentIdx >= trackSections.Count)
+            {
+                return false;
+            }
+
+            List<TrajectoryPoint> adjacentFrames =
+                GetAbsolutePlaybackFrameList(trackSections[adjacentIdx]);
+            if (adjacentFrames == null || adjacentFrames.Count == 0)
+                return false;
+
+            if (searchForward)
+            {
+                for (int i = 0; i < adjacentFrames.Count; i++)
+                {
+                    TrajectoryPoint candidate = adjacentFrames[i];
+                    if (IsEligibleBoundaryBridgeFrame(
+                            candidate,
+                            requireBeforeUT,
+                            requireAfterUT,
+                            bodyName))
+                    {
+                        frame = candidate;
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = adjacentFrames.Count - 1; i >= 0; i--)
+                {
+                    TrajectoryPoint candidate = adjacentFrames[i];
+                    if (IsEligibleBoundaryBridgeFrame(
+                            candidate,
+                            requireBeforeUT,
+                            requireAfterUT,
+                            bodyName))
+                    {
+                        frame = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static List<TrajectoryPoint> GetAbsolutePlaybackFrameList(TrackSection section)
+        {
+            if (section.referenceFrame == ReferenceFrame.Absolute)
+                return section.frames;
+            if (section.referenceFrame == ReferenceFrame.Relative)
+                return section.absoluteFrames;
+            return null;
+        }
+
+        private static bool IsEligibleBoundaryBridgeFrame(
+            TrajectoryPoint candidate,
+            double requireBeforeUT,
+            double requireAfterUT,
+            string bodyName)
+        {
+            const double epsilonSeconds = 1e-6;
+            if (!double.IsNaN(requireBeforeUT)
+                && !(candidate.ut + epsilonSeconds < requireBeforeUT))
+            {
+                return false;
+            }
+
+            if (!double.IsNaN(requireAfterUT)
+                && !(candidate.ut > requireAfterUT + epsilonSeconds))
+            {
+                return false;
+            }
+
+            return string.IsNullOrEmpty(bodyName)
+                || string.IsNullOrEmpty(candidate.bodyName)
+                || string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal);
         }
 
         private sealed class ReFlyDenseAbsolutePlaybackFrameCacheEntry
@@ -24503,9 +24671,11 @@ namespace Parsek
             }
 
             if (sectionIdx >= 0
-                && TryGetAbsoluteSectionPlaybackFrames(
-                    rec.TrackSections[sectionIdx],
-                    out List<TrajectoryPoint> absoluteSectionFrames))
+                && TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                    rec.TrackSections,
+                    sectionIdx,
+                    out List<TrajectoryPoint> absoluteSectionFrames,
+                    out _))
             {
                 InterpolateAndPosition(
                     ghost,

@@ -125,6 +125,7 @@ Runtime gate:
 Status note:
 
 - Review follow-up: one-frame Relative sections already used section interval coverage; one-frame Absolute anchor sections now use the same interval rule so parent anchors do not disappear at split windows just because the section has one frame. A later review follow-up also makes v6+ recordings with missing `TrackSections` fail closed with `anchor-track-sections-missing` instead of interpreting flat Relative payloads as absolute world samples.
+- Watch-playback follow-up from `logs/2026-05-03_0059_newest/`: the controlled child seed was correct, but the parent absolute section ended at `2528.584` while its last section-local sample was still `2528.504`; normal Watch playback clamped to that stale sample until the next section activated, then jumped about `122m`. Normal absolute-section playback now borrows one adjacent absolute playback frame when the section's own frames do not bracket the declared boundary, using `absoluteFrames` only for Relative neighbours and never interpreting Relative metre-offset payloads as lat/lon/alt. `GhostRenderTrace` remains available but is behind a disabled-by-default diagnostics setting after the same bundle produced more than 200k render-trace rows.
 
 ---
 

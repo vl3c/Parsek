@@ -6,10 +6,10 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Gated render-path observability for ghost placement. The normal path
-    /// only updates cheap cursors; detailed rows open around first appearance,
-    /// Re-Fly display alignment, structural-event windows, section changes,
-    /// large transform deltas, and retire/hide guard paths.
+    /// Gated render-path observability for ghost placement. Detailed rows open
+    /// around first appearance, Re-Fly display alignment, structural-event
+    /// windows, section changes, large transform deltas, and retire/hide guard
+    /// paths only when the diagnostics setting is enabled.
     /// </summary>
     internal static class GhostRenderTrace
     {
@@ -62,6 +62,8 @@ namespace Parsek
         private static readonly Dictionary<string, double> detailedUntilByRecording =
             new Dictionary<string, double>(StringComparer.Ordinal);
 
+        internal static bool ForceEnabledForTesting;
+
         internal static void Reset()
         {
             states.Clear();
@@ -71,6 +73,8 @@ namespace Parsek
         internal static void OpenDetailedWindow(
             string recordingId, double currentUT, double seconds, string reason)
         {
+            if (!IsEnabled)
+                return;
             if (string.IsNullOrEmpty(recordingId))
                 return;
             if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
@@ -92,6 +96,8 @@ namespace Parsek
             double playbackUT,
             string path)
         {
+            if (!IsEnabled)
+                return;
             if (trajectory == null || string.IsNullOrEmpty(trajectory.RecordingId))
                 return;
 
@@ -156,6 +162,8 @@ namespace Parsek
             string path,
             bool retired)
         {
+            if (!IsEnabled)
+                return;
             if (trajectory == null || string.IsNullOrEmpty(trajectory.RecordingId))
                 return;
 
@@ -239,6 +247,8 @@ namespace Parsek
             bool important = false,
             bool force = false)
         {
+            if (!IsEnabled)
+                return;
             if (string.IsNullOrEmpty(recordingId))
                 return;
 
@@ -254,6 +264,8 @@ namespace Parsek
             bool important = false,
             bool force = false)
         {
+            if (!IsEnabled)
+                return false;
             if (string.IsNullOrEmpty(recordingId))
                 return false;
             return force || important || IsDetailedWindowOpen(recordingId, currentUT);
@@ -265,6 +277,8 @@ namespace Parsek
             double currentUT,
             string reason)
         {
+            if (!IsEnabled)
+                return;
             string recordingId = trajectory?.RecordingId;
             if (string.IsNullOrEmpty(recordingId))
                 return;
@@ -311,6 +325,8 @@ namespace Parsek
             Vector3d reFlyOffset,
             string reason = null)
         {
+            if (!IsEnabled)
+                return;
             double deltaMeters = Vector3d.Distance(before, after);
             bool important = IsLargePoseDelta(deltaMeters, 0.0);
             if (important)
@@ -348,6 +364,8 @@ namespace Parsek
             double altitudeAfter,
             double clearance)
         {
+            if (!IsEnabled)
+                return;
             OpenDetailedWindow(recordingId, currentUT, AnomalyWindowSeconds, "terrain-clamp");
             EmitPhase(
                 recordingId,
@@ -383,6 +401,8 @@ namespace Parsek
             Vector3d outputPosition,
             Vector3d reFlyOffset)
         {
+            if (!IsEnabled)
+                return;
             if (!success)
                 OpenDetailedWindow(recordingId, currentUT, AnomalyWindowSeconds, "relative-resolver-miss");
             if (!ShouldEmitPhase(recordingId, currentUT, important: !success, force: !success))
@@ -421,6 +441,8 @@ namespace Parsek
             double offsetMeters,
             bool force)
         {
+            if (!IsEnabled)
+                return;
             if (string.IsNullOrEmpty(recordingId))
                 return;
 
@@ -476,6 +498,10 @@ namespace Parsek
                 return Decision(true, false, "section-change");
             return Decision(false, false, "closed");
         }
+
+        private static bool IsEnabled =>
+            ForceEnabledForTesting
+            || (ParsekSettings.Current != null && ParsekSettings.Current.ghostRenderTracing);
 
         internal static bool IsLargePoseDelta(double deltaMeters, double expectedDeltaMeters)
         {

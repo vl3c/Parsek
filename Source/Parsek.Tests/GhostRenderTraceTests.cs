@@ -2,8 +2,22 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    public class GhostRenderTraceTests
+    public class GhostRenderTraceTests : System.IDisposable
     {
+        public GhostRenderTraceTests()
+        {
+            GhostRenderTrace.Reset();
+            GhostRenderTrace.ForceEnabledForTesting = false;
+            ParsekSettings.CurrentOverrideForTesting = null;
+        }
+
+        public void Dispose()
+        {
+            GhostRenderTrace.Reset();
+            GhostRenderTrace.ForceEnabledForTesting = false;
+            ParsekSettings.CurrentOverrideForTesting = null;
+        }
+
         [Fact]
         public void EvaluateGate_FirstSeenAndInitialWindow_EmitsThenCloses()
         {
@@ -90,6 +104,42 @@ namespace Parsek.Tests
             Assert.Contains("ghostIndex=7", prefix);
             Assert.Contains("currentUT=123.457", prefix);
             Assert.Contains("playbackUT=120.250", prefix);
+        }
+
+        [Fact]
+        public void ShouldEmitPhase_DisabledByDefault_ReturnsFalseEvenForForce()
+        {
+            GhostRenderTrace.OpenDetailedWindow("rec-disabled", 100.0, 10.0, "test");
+
+            Assert.False(GhostRenderTrace.ShouldEmitPhase(
+                "rec-disabled",
+                101.0,
+                important: true,
+                force: true));
+        }
+
+        [Fact]
+        public void ShouldEmitPhase_EnabledBySettings_UsesDetailedWindow()
+        {
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
+            {
+                ghostRenderTracing = true
+            };
+
+            GhostRenderTrace.OpenDetailedWindow("rec-enabled", 100.0, 2.0, "test");
+
+            Assert.True(GhostRenderTrace.ShouldEmitPhase("rec-enabled", 101.0));
+            Assert.False(GhostRenderTrace.ShouldEmitPhase("rec-enabled", 103.0));
+        }
+
+        [Fact]
+        public void ShouldEmitPhase_ForceEnabledForTesting_UsesDetailedWindow()
+        {
+            GhostRenderTrace.ForceEnabledForTesting = true;
+            GhostRenderTrace.OpenDetailedWindow("rec-force", 50.0, 1.0, "test");
+
+            Assert.True(GhostRenderTrace.ShouldEmitPhase("rec-force", 50.5));
+            Assert.False(GhostRenderTrace.ShouldEmitPhase("rec-force", 52.0));
         }
     }
 }

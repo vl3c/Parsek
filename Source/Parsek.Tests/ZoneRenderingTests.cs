@@ -286,6 +286,137 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_AppendsNextAbsoluteFrameWhenSectionEndIsUnbracketed()
+        {
+            var currentFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 2528.064, bodyName = "Kerbin", altitude = 10.0 },
+                new TrajectoryPoint { ut = 2528.284, bodyName = "Kerbin", altitude = 20.0 },
+                new TrajectoryPoint { ut = 2528.504, bodyName = "Kerbin", altitude = 30.0 }
+            };
+            var nextFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 2528.504, bodyName = "Kerbin", altitude = 30.0 },
+                new TrajectoryPoint { ut = 2528.724, bodyName = "Kerbin", altitude = 40.0 }
+            };
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 2528.084,
+                    endUT = 2528.584,
+                    frames = currentFrames
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 2528.584,
+                    endUT = 2530.000,
+                    frames = nextFrames
+                }
+            };
+
+            Assert.True(ParsekFlight.TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                sections,
+                0,
+                out List<TrajectoryPoint> playbackFrames,
+                out string frameSource));
+
+            Assert.Equal("section-frames-bridged", frameSource);
+            Assert.Equal(4, playbackFrames.Count);
+            Assert.Equal(2528.724, playbackFrames[3].ut, 3);
+            Assert.DoesNotContain(playbackFrames.GetRange(3, 1), p => p.ut == 2528.504);
+        }
+
+        [Fact]
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeAbsoluteShadowOnly()
+        {
+            var currentFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin", altitude = 100.0 },
+                new TrajectoryPoint { ut = 10.4, bodyName = "Kerbin", altitude = 120.0 }
+            };
+            var relativeOffsetFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.6, bodyName = "Kerbin", altitude = -5000.0 }
+            };
+            var relativeAbsoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.6, bodyName = "Kerbin", altitude = 140.0 }
+            };
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 10.0,
+                    endUT = 10.5,
+                    frames = currentFrames
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 10.5,
+                    endUT = 11.0,
+                    frames = relativeOffsetFrames,
+                    absoluteFrames = relativeAbsoluteFrames
+                }
+            };
+
+            Assert.True(ParsekFlight.TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                sections,
+                0,
+                out List<TrajectoryPoint> playbackFrames,
+                out string frameSource));
+
+            Assert.Equal("section-frames-bridged", frameSource);
+            Assert.Equal(3, playbackFrames.Count);
+            Assert.Equal(140.0, playbackFrames[2].altitude);
+            Assert.DoesNotContain(playbackFrames, p => p.altitude == -5000.0);
+        }
+
+        [Fact]
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_DoesNotBridgeAcrossBodyChange()
+        {
+            var currentFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin", altitude = 100.0 },
+                new TrajectoryPoint { ut = 20.4, bodyName = "Kerbin", altitude = 120.0 }
+            };
+            var nextFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 20.6, bodyName = "Mun", altitude = 140.0 }
+            };
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 20.0,
+                    endUT = 20.5,
+                    frames = currentFrames
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 20.5,
+                    endUT = 21.0,
+                    frames = nextFrames
+                }
+            };
+
+            Assert.True(ParsekFlight.TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                sections,
+                0,
+                out List<TrajectoryPoint> playbackFrames,
+                out string frameSource));
+
+            Assert.Equal("section-frames", frameSource);
+            Assert.Same(currentFrames, playbackFrames);
+        }
+
+        [Fact]
         public void ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression()
         {
             var (shouldHide, skipPartEvents, skipPositioning) =

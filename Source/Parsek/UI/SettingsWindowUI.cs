@@ -380,6 +380,15 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
             }
 
+            bool ghostRenderTracing = GUILayout.Toggle(s.ghostRenderTracing,
+                new GUIContent(" Ghost render tracing",
+                    "Write detailed per-ghost render placement diagnostics to KSP.log. Leave off unless investigating playback placement."));
+            if (ghostRenderTracing != s.ghostRenderTracing)
+            {
+                s.ghostRenderTracing = ghostRenderTracing;
+                ParsekLog.Info("UI", $"Setting changed: ghostRenderTracing={s.ghostRenderTracing}");
+            }
+
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
                 new GUIContent(" Write readable sidecar mirrors",
                     "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
