@@ -401,6 +401,7 @@ namespace Parsek
             {
                 s.blockCommittedActions = blockCommittedActions;
                 ParsekSettingsPersistence.RecordBlockCommittedActions(blockCommittedActions);
+                // No overlay refresh here: this setting only gates click-block predicates.
                 ParsekLog.Info("UI", $"Setting changed: blockCommittedActions={blockCommittedActions}");
             }
         }
