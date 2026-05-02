@@ -484,11 +484,27 @@ no-op when never classified, no-op when verdict is non-Destroyed
 (Orbiting/Landed/Splashed survive), null-safe path, and an end-to-end test
 that walks `RecordingFinalizationCacheProducer.TryBuildAlreadyClassifiedDestroyedSkip`
 before and after the clear to prove the cache short-circuit is actually
-released. The narrower NullSolver-rejection option (refusing to stamp
-Destroyed when the live-orbit fallback altitude is catastrophically
-sub-surface) was deferred — the existing `BallisticExtrapolator` sub-surface
-test pins the current behaviour as intentional, and reversing it without
-deeper analysis would risk legitimate torn-down-vessel detection.
+released.
+
+**Follow-up (2026-05-03, `logs/2026-05-03_0005_pr708-visual-good-seal-rewind-regression`):**
+the same transient fallback also poisoned a freshly split `Kerbal X Probe`
+recording before Re-Fly resume had a chance to clear it. The recording's first
+authored point was valid at roughly 57 km and matched the live root part within
+1 cm, but the `NullSolver` live-orbit fallback reported an origin-adjacent
+state near -600 km altitude and stamped `TerminalState=Destroyed`. That made
+the merge keep the slot retryable as `classifierReason=crashed`, which in turn
+hid the regular mission-group Rewind affordance because the rows were classified
+as Unfinished Flights.
+
+**Follow-up fix:** the finalizer keeps the normal `NullSolver` destroyed-vessel
+path, but rejects the sub-surface verdict when the recording itself has a fresh
+same-start surface point on the same body above the sub-surface threshold. The
+guard logs `suppressing sub-surface Destroyed` with the live altitude, recorded
+altitude, point source, and UT delta, then returns without mutating terminal
+state. Stale points still allow the intentional Destroyed classification, so
+real torn-down vessels remain covered. Regression coverage:
+`TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed`
+and `_StaleRecordedPointStillClassifiesDestroyed`.
 
 ## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 
