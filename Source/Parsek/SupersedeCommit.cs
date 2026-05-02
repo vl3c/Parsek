@@ -1752,7 +1752,7 @@ namespace Parsek
         /// <summary>
         /// Design invariant for re-fly merge supersede targets: the recording
         /// pointed at by <see cref="RecordingSupersedeRelation.NewRecordingId"/>
-        /// must have at least one trajectory point AND a non-null terminal
+        /// must have playable trajectory payload AND a non-null terminal
         /// state. Returns true iff the target satisfies both clauses;
         /// otherwise <paramref name="reason"/> carries one of "null recording",
         /// "null Points", "empty Points", or "null TerminalState".
@@ -1764,12 +1764,13 @@ namespace Parsek
                 reason = "null recording";
                 return false;
             }
-            if (rec.Points == null)
+            bool hasPlayablePayload = HasPlayableSupersedePayload(rec);
+            if (rec.Points == null && !hasPlayablePayload)
             {
                 reason = "null Points";
                 return false;
             }
-            if (rec.Points.Count == 0)
+            if (!hasPlayablePayload)
             {
                 reason = "empty Points";
                 return false;
@@ -1781,6 +1782,26 @@ namespace Parsek
             }
             reason = null;
             return true;
+        }
+
+        private static bool HasPlayableSupersedePayload(Recording rec)
+        {
+            if (rec == null)
+                return false;
+            if (rec.Points != null && rec.Points.Count > 0)
+                return true;
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                return true;
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool RelationExists(
