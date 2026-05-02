@@ -25,7 +25,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** terminal-orbit real spawns now run `TerminalOrbitSpawnSafety` before `SpawnAtPosition`. The safety gate allows stable propagated terminal orbits, defers when the current propagated altitude is below `atmosphereDepth + 5 km` and a future safe altitude is reachable, and refuses materialization when the propagated orbit cannot remain safe (including periapsis below the safety altitude). The policy keeps held ghosts and map ProtoVessels visible while the terminal real spawn is pending/deferred/cannot-spawn, skips repeated unsafe retry attempts, and marks a terminal-orbit spawn-death as cannot-spawn-safely instead of rearming the spawn loop. Logs now include the safety decision, deferred/cannot reason, retained map-presence reason, and spawn-after-defer success.
 
-**Status:** CLOSED 2026-05-02. Runtime validation still needs an in-game replay of the retained save/log scenario to confirm the map marker remains visible and KSP.log contains no pressure-destruction retry loop.
+**Status:** CLOSED 2026-05-02. Runtime validation still needs an in-game replay of the retained save/log scenario to confirm the map marker remains visible and KSP.log contains no pressure-destruction retry loop. The cannot-spawn flag is transient and clears on reload/rewind/reconcile paths; there is no dedicated manual retry button yet.
 
 ---
 

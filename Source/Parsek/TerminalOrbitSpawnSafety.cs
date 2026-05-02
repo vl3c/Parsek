@@ -10,6 +10,13 @@ namespace Parsek
         CannotSpawnSafely,
     }
 
+    internal enum TerminalOrbitDeferredSpawnState
+    {
+        None,
+        Hold,
+        Ready,
+    }
+
     internal struct TerminalOrbitSpawnSafetyDecision
     {
         internal TerminalOrbitSpawnSafetyAction Action;
@@ -152,23 +159,31 @@ namespace Parsek
             double currentUT,
             out string reason)
         {
+            return GetDeferredSpawnState(rec, currentUT, out reason) == TerminalOrbitDeferredSpawnState.Hold;
+        }
+
+        internal static TerminalOrbitDeferredSpawnState GetDeferredSpawnState(
+            Recording rec,
+            double currentUT,
+            out string reason)
+        {
             reason = null;
             if (rec == null)
-                return false;
+                return TerminalOrbitDeferredSpawnState.None;
 
             if (rec.TerminalSpawnCannotSpawnSafely)
             {
                 reason = rec.TerminalSpawnSafetyReasonCode ?? ReasonPeriapsisBelowSafeAltitude;
-                return true;
+                return TerminalOrbitDeferredSpawnState.Hold;
             }
 
             if (!rec.TerminalSpawnSafetyDeferred)
-                return false;
+                return TerminalOrbitDeferredSpawnState.None;
 
             if (!IsFinite(rec.TerminalSpawnNextAttemptUT))
             {
                 reason = rec.TerminalSpawnSafetyReasonCode ?? ReasonCurrentAltitudeBelowSafeAltitude;
-                return true;
+                return TerminalOrbitDeferredSpawnState.Hold;
             }
 
             if (!IsFinite(currentUT) || currentUT < rec.TerminalSpawnNextAttemptUT)
@@ -179,10 +194,10 @@ namespace Parsek
                     rec.TerminalSpawnSafetyReasonCode ?? ReasonCurrentAltitudeBelowSafeAltitude,
                     rec.TerminalSpawnNextAttemptUT,
                     currentUT);
-                return true;
+                return TerminalOrbitDeferredSpawnState.Hold;
             }
 
-            return false;
+            return TerminalOrbitDeferredSpawnState.Ready;
         }
 
         internal static void MarkDeferred(

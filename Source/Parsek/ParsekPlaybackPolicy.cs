@@ -169,7 +169,6 @@ namespace Parsek
                     uint terminalOldPid = rec.SpawnedVesselPersistentId;
                     rec.VesselSpawned = false;
                     rec.SpawnedVesselPersistentId = 0;
-                    rec.SpawnAttempts = 0;
                     var decision = new TerminalOrbitSpawnSafetyDecision
                     {
                         Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
@@ -338,6 +337,9 @@ namespace Parsek
                     }
                     else
                     {
+                        ParsekLog.Verbose("Policy",
+                            $"Deferred spawn flushed without materializing: #{i} \"{rec.VesselName}\" " +
+                            $"id={rec.RecordingId} reason=non-terminal-spawn-failed-or-skipped");
                         flushedSpawnIds.Add(rec.RecordingId);
                         pendingSpawn = false;
                     }
@@ -867,22 +869,18 @@ namespace Parsek
             if (rec.VesselSpawned)
                 return HeldGhostAction.ReleaseSpawned;
 
-            bool terminalSpawnDeferredReady =
-                rec.TerminalSpawnSafetyDeferred
-                && TerminalOrbitSpawnSafety.IsFinite(rec.TerminalSpawnNextAttemptUT)
-                && TerminalOrbitSpawnSafety.IsFinite(currentUT)
-                && currentUT >= rec.TerminalSpawnNextAttemptUT;
-            if (TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(
-                rec,
-                currentUT,
-                out _))
-            {
+            TerminalOrbitDeferredSpawnState terminalDeferredState =
+                TerminalOrbitSpawnSafety.GetDeferredSpawnState(
+                    rec,
+                    currentUT,
+                    out _);
+            if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Hold)
                 return HeldGhostAction.Hold;
-            }
 
             // Timeout check
             float elapsed = currentTime - info.holdStartTime;
-            if (!terminalSpawnDeferredReady && elapsed >= timeoutSeconds)
+            if (terminalDeferredState != TerminalOrbitDeferredSpawnState.Ready
+                && elapsed >= timeoutSeconds)
                 return HeldGhostAction.Timeout;
 
             // Throttle retry attempts — avoid hammering spawn every frame
@@ -1248,6 +1246,7 @@ namespace Parsek
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;
+            PruneTerminalMapRetentionLogKeys(committed);
 
             // 2a. Segment-based orbit updates (existing)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
@@ -1537,6 +1536,50 @@ namespace Parsek
             }
 
             GhostMapPresence.EmitLifecycleSummary("flight-map-presence", currentUT);
+        }
+
+        private void PruneTerminalMapRetentionLogKeys(IReadOnlyList<Recording> committed)
+        {
+            if (terminalMapRetentionLoggedIds.Count == 0)
+                return;
+
+            if (committed == null || committed.Count == 0)
+            {
+                terminalMapRetentionLoggedIds.Clear();
+                return;
+            }
+
+            List<string> staleKeys = null;
+            foreach (string key in terminalMapRetentionLoggedIds)
+            {
+                bool found = false;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null)
+                        continue;
+
+                    if (string.Equals(rec.RecordingId, key, StringComparison.Ordinal)
+                        || (string.IsNullOrEmpty(rec.RecordingId)
+                            && key == i.ToString(CultureInfo.InvariantCulture)))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    if (staleKeys == null) staleKeys = new List<string>();
+                    staleKeys.Add(key);
+                }
+            }
+
+            if (staleKeys == null)
+                return;
+
+            for (int i = 0; i < staleKeys.Count; i++)
+                terminalMapRetentionLoggedIds.Remove(staleKeys[i]);
         }
 
         private static bool TryGetMapOrbitKey(

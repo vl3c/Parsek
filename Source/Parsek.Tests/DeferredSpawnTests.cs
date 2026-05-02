@@ -713,6 +713,7 @@ namespace Parsek.Tests
                 VesselSpawned = true,
                 SpawnedVesselPersistentId = 77777u,
                 SpawnAbandoned = false,
+                SpawnAttempts = 2,
                 SpawnDeathCount = 0,
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin",
@@ -736,6 +737,7 @@ namespace Parsek.Tests
 
                 Assert.False(rec.VesselSpawned);
                 Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+                Assert.Equal(2, rec.SpawnAttempts);
                 Assert.Equal(1, rec.SpawnDeathCount);
                 Assert.False(rec.SpawnAbandoned);
                 Assert.True(rec.TerminalSpawnCannotSpawnSafely);
@@ -745,6 +747,47 @@ namespace Parsek.Tests
                     l.Contains("[Policy]")
                     && l.Contains("Spawn-death detected for terminal orbit")
                     && l.Contains("will not be retried"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
+        public void RunSpawnDeathChecks_NonTerminalDeathAtLimit_UsesExistingAbandonPath()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-non-terminal-death-limit",
+                VesselName = "Non Terminal Death Probe",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 12345u,
+                SpawnAbandoned = false,
+                SpawnDeathCount = VesselSpawner.MaxSpawnDeathCycles - 1,
+                TerminalStateValue = TerminalState.Landed
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var scenario = new ParsekScenario { ActiveReFlySessionMarker = null };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host);
+
+                policy.RunSpawnDeathChecks();
+
+                Assert.True(rec.SpawnAbandoned);
+                Assert.True(rec.VesselSpawned);
+                Assert.Equal(12345u, rec.SpawnedVesselPersistentId);
+                Assert.Equal(VesselSpawner.MaxSpawnDeathCycles, rec.SpawnDeathCount);
+                Assert.False(rec.TerminalSpawnCannotSpawnSafely);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Policy]")
+                    && l.Contains("Spawn-death loop abandoned")
+                    && l.Contains("Non Terminal Death Probe"));
             }
             finally
             {

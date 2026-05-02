@@ -122,6 +122,33 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("max attempts"));
         }
 
+        [Fact]
+        public void SpawnOrRecoverIfTooClose_TerminalCannotSpawnSafely_ShortCircuitsBeforeRealSpawn()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-terminal-cannot",
+                VesselName = "Unsafe Terminal Probe",
+                SpawnAttempts = 1,
+                TerminalSpawnCannotSpawnSafely = true,
+                TerminalSpawnSafetyReasonCode = TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude,
+                TerminalSpawnSafetyDecisionUT = 123.0,
+                TerminalSpawnSafetyAltitude = 16909.4,
+                TerminalSpawnSafetySafeAltitude = 75000.0,
+                TerminalSpawnSafetyPeriapsisAltitude = 48000.0
+            };
+
+            VesselSpawner.SpawnOrRecoverIfTooClose(rec, 5);
+
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(1, rec.SpawnAttempts);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("terminal orbit cannot spawn safely")
+                && l.Contains(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude));
+            Assert.DoesNotContain(logLines, l => l.Contains("missing VesselSnapshot"));
+        }
+
         [Theory]
         [InlineData(0u, 0u, 0u, false)]
         [InlineData(777u, 777u, 0u, true)]

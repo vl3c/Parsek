@@ -288,6 +288,9 @@ namespace Parsek
         public bool WalkbackExhausted;           // True after TryWalkbackForEndOfRecordingSpawn scanned entire trajectory with no clear sub-step — distinct from SpawnAbandoned for diagnostics (transient, #264)
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
+
+        // Terminal-orbit spawn safety is transient and re-evaluated on the next
+        // spawn attempt; do not serialize these fields.
         public bool TerminalSpawnSafetyDeferred;  // True while terminal-orbit real spawn is waiting for a safe propagated UT (transient)
         public bool TerminalSpawnCannotSpawnSafely; // True when terminal orbit cannot be materialized safely as an on-rails vessel (transient)
         public string TerminalSpawnSafetyReasonCode;
