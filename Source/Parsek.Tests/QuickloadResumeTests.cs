@@ -473,6 +473,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryRestoreActiveTreeNode_RewindInProgress_ConsumesSuppressionAndClearsResumeHint()
+        {
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.pendingActiveTreeResumeRewindSave = "stale_rw";
+            RewindContext.BeginRewind(123.4, default(BudgetSummary), 0, 0, 0);
+            RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                "discardReFly sess=sess_guard target=Launch facility=--");
+
+            bool result = ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
+
+            Assert.False(result);
+            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.Null(ParsekScenario.pendingActiveTreeResumeRewindSave);
+            Assert.Null(RecordingStore.PendingTree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("rewind was already skipping restore"));
+        }
+
+        [Fact]
         public void TryRestoreActiveTreeNode_WithActiveTree_StashesAsLimbo()
         {
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");

@@ -2896,6 +2896,7 @@ namespace Parsek
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
+                pendingActiveTreeResumeRewindSave = null;
                 if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:rewind-in-progress",
                     out string rewindSuppressReason))
@@ -2921,7 +2922,7 @@ namespace Parsek
                 {
                     pendingActiveTreeResumeRewindSave = null;
                     ParsekLog.Info("Scenario",
-                        $"TryRestoreActiveTreeNode: suppressed saved active tree restore " +
+                        "TryRestoreActiveTreeNode: suppressed saved active tree restore " +
                         $"tree='{tree.TreeName}' id={tree.Id} recordings={tree.Recordings.Count} " +
                         $"activeRecId={tree.ActiveRecordingId ?? "<null>"} reason='{suppressReason}' - " +
                         "leaving committed mission tree intact and not stashing pending-Limbo");
