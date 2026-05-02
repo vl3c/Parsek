@@ -788,6 +788,10 @@ namespace Parsek
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
+        private readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
+            new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
+        private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
+            new HashSet<string>(StringComparer.Ordinal);
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
@@ -1924,6 +1928,8 @@ namespace Parsek
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
             reFlyDisplayAlignmentCache?.Clear();
+            reFlyDenseAbsolutePlaybackFrameCache.Clear();
+            loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
 
@@ -13143,6 +13149,8 @@ namespace Parsek
             orbitCache.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
+            reFlyDenseAbsolutePlaybackFrameCache.Clear();
+            loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
         }
 
         void UpdatePlayback()
@@ -15615,11 +15623,34 @@ namespace Parsek
             int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
                 ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
                 : -1;
+            bool hasReFlyDisplayOffsetForFrameSelection = false;
+            if (splineSectionIdx >= 0 && !string.IsNullOrEmpty(traj.RecordingId))
+            {
+                Vector3d ignoredFrameSelectionOffset;
+                hasReFlyDisplayOffsetForFrameSelection = TryGetReFlyTreeAnchorOffset(
+                    traj.RecordingId, ut, out ignoredFrameSelectionOffset);
+            }
+
             if (splineSectionIdx >= 0
                 && TryGetAbsoluteSectionPlaybackFrames(
                     traj.TrackSections[splineSectionIdx],
                     out List<TrajectoryPoint> absoluteFrames))
             {
+                string pointFrameSource = "section-frames";
+                if (hasReFlyDisplayOffsetForFrameSelection
+                    && TryGetDenseReFlyAbsolutePlaybackFrames(
+                        traj,
+                        splineSectionIdx,
+                        traj.TrackSections[splineSectionIdx],
+                        absoluteFrames,
+                        ut,
+                        out List<TrajectoryPoint> denseFrames,
+                        out string denseReason))
+                {
+                    absoluteFrames = denseFrames;
+                    pointFrameSource = "flat-dense-refly";
+                }
+
                 int absolutePlaybackIdx = playbackIdx;
                 InterpolateAndPosition(
                     state.ghost,
@@ -15632,7 +15663,8 @@ namespace Parsek
                     allowActivation: ShouldAutoActivateGhost(state),
                     skipOrbitSegments: true,
                     recordingId: traj.RecordingId,
-                    sectionIndex: splineSectionIdx);
+                    sectionIndex: splineSectionIdx,
+                    pointFrameSource: pointFrameSource);
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
                 RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
@@ -15646,7 +15678,8 @@ namespace Parsek
             InterpolateAndPosition(state.ghost, traj.Points, traj.OrbitSegments,
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
-                recordingId: traj.RecordingId, sectionIndex: splineSectionIdx);
+                recordingId: traj.RecordingId, sectionIndex: splineSectionIdx,
+                pointFrameSource: "flat-points");
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
             RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
@@ -16133,7 +16166,8 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
             double targetUT, bool allowActivation, out InterpolationResult interpResult,
-            string recordingId = null, int sectionIndex = -1)
+            string recordingId = null, int sectionIndex = -1,
+            string pointFrameSource = "input")
         {
             TrajectoryPoint before, after;
             float t;
@@ -16381,6 +16415,7 @@ namespace Parsek
                     targetUT,
                     "UpdatePath",
                     "mode=" + (coBubbleHit ? "CoBubble" : "PointInterp")
+                    + " pointFrameSource=" + (pointFrameSource ?? "input")
                     + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
                     + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
                     + " afterUT=" + after.ut.ToString("F3", CultureInfo.InvariantCulture)
@@ -21082,6 +21117,360 @@ namespace Parsek
             return true;
         }
 
+        private sealed class ReFlyDenseAbsolutePlaybackFrameCacheEntry
+        {
+            internal readonly List<TrajectoryPoint> Frames;
+            internal readonly int DenseFrameCount;
+            internal readonly string BuildReason;
+
+            internal ReFlyDenseAbsolutePlaybackFrameCacheEntry(
+                List<TrajectoryPoint> frames,
+                int denseFrameCount,
+                string buildReason)
+            {
+                Frames = frames;
+                DenseFrameCount = denseFrameCount;
+                BuildReason = buildReason;
+            }
+
+            internal bool Eligible => Frames != null && Frames.Count >= 2;
+        }
+
+        private bool TryGetDenseReFlyAbsolutePlaybackFrames(
+            IPlaybackTrajectory traj,
+            int sectionIdx,
+            TrackSection section,
+            List<TrajectoryPoint> sectionFrames,
+            double playbackUT,
+            out List<TrajectoryPoint> denseFrames,
+            out string reason)
+        {
+            denseFrames = null;
+            if (section.referenceFrame != ReferenceFrame.Absolute)
+            {
+                reason = "not-absolute";
+                return false;
+            }
+
+            if (!PointBelongsToSection(traj?.TrackSections, sectionIdx, section, playbackUT))
+            {
+                reason = "ut-outside-section";
+                return false;
+            }
+
+            if (sectionFrames == null || sectionFrames.Count == 0)
+            {
+                reason = "no-section-frames";
+                return false;
+            }
+
+            if (traj?.Points == null || traj.Points.Count == 0)
+            {
+                reason = "no-flat-points";
+                return false;
+            }
+
+            string recId = string.IsNullOrEmpty(traj?.RecordingId) ? "(null)" : traj.RecordingId;
+            string cacheKey = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|{1}|{2:R}|{3:R}|{4}|{5}|{6}",
+                recId,
+                sectionIdx,
+                section.startUT,
+                section.endUT,
+                traj.Points.Count,
+                traj.TrackSections?.Count ?? 0,
+                RecordingStore.StateVersion);
+
+            if (!reFlyDenseAbsolutePlaybackFrameCache.TryGetValue(
+                    cacheKey,
+                    out ReFlyDenseAbsolutePlaybackFrameCacheEntry entry))
+            {
+                denseFrames = BuildDenseAbsoluteFramesForSection(
+                    traj.TrackSections,
+                    sectionIdx,
+                    section,
+                    traj.Points);
+
+                string buildReason = "dense-built";
+                if (denseFrames.Count < 2)
+                    buildReason = "dense-too-small";
+                else if (denseFrames.Count <= sectionFrames.Count)
+                    buildReason = "dense-not-more-populated";
+                else
+                    buildReason = "dense-built-eligible";
+
+                entry = new ReFlyDenseAbsolutePlaybackFrameCacheEntry(
+                    buildReason == "dense-built-eligible" ? denseFrames : null,
+                    denseFrames.Count,
+                    buildReason);
+                reFlyDenseAbsolutePlaybackFrameCache[cacheKey] = entry;
+            }
+
+            if (!entry.Eligible)
+            {
+                reason = entry.BuildReason;
+                return false;
+            }
+
+            denseFrames = entry.Frames;
+            if (!TryGetBracketWidthSeconds(
+                    sectionFrames,
+                    playbackUT,
+                    out double sectionBracketSeconds))
+            {
+                reason = "no-section-bracket";
+                return false;
+            }
+
+            if (!TryGetBracketWidthSeconds(
+                    denseFrames,
+                    playbackUT,
+                    out double denseBracketSeconds))
+            {
+                reason = "no-dense-bracket";
+                return false;
+            }
+
+            if (!(denseBracketSeconds + 1e-6 < sectionBracketSeconds))
+            {
+                reason = "dense-bracket-not-tighter";
+                return false;
+            }
+
+            reason = "dense-bracket-tighter";
+            if (loggedReFlyDenseAbsolutePlaybackFrameSelections.Add(cacheKey))
+            {
+                ParsekLog.Info("Playback",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Re-Fly PointInterp using dense flat samples: rec={0} section={1} sectionUT=[{2:F3},{3:F3}] sectionFrames={4} denseFrames={5} sectionBracketSeconds={6:F3} denseBracketSeconds={7:F3} reason={8} buildReason={9}",
+                        recId,
+                        sectionIdx,
+                        section.startUT,
+                        section.endUT,
+                        sectionFrames?.Count ?? 0,
+                        entry.DenseFrameCount,
+                        sectionBracketSeconds,
+                        denseBracketSeconds,
+                        reason,
+                        entry.BuildReason));
+            }
+
+            return true;
+        }
+
+        internal static bool ShouldUseDenseReFlyAbsolutePlaybackFrames(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            TrackSection section,
+            List<TrajectoryPoint> sectionFrames,
+            List<TrajectoryPoint> flatPoints,
+            double playbackUT,
+            out int denseFrameCount,
+            out double sectionBracketSeconds,
+            out double denseBracketSeconds,
+            out string reason)
+        {
+            denseFrameCount = 0;
+            sectionBracketSeconds = double.NaN;
+            denseBracketSeconds = double.NaN;
+            reason = "not-evaluated";
+
+            if (section.referenceFrame != ReferenceFrame.Absolute)
+            {
+                reason = "not-absolute";
+                return false;
+            }
+
+            if (!PointBelongsToSection(trackSections, sectionIdx, section, playbackUT))
+            {
+                reason = "ut-outside-section";
+                return false;
+            }
+
+            if (sectionFrames == null || sectionFrames.Count == 0)
+            {
+                reason = "no-section-frames";
+                return false;
+            }
+
+            if (flatPoints == null || flatPoints.Count == 0)
+            {
+                reason = "no-flat-points";
+                return false;
+            }
+
+            denseFrameCount = CountDenseAbsoluteFramesForSection(
+                trackSections,
+                sectionIdx,
+                section,
+                flatPoints);
+            if (denseFrameCount < 2)
+            {
+                reason = "dense-too-small";
+                return false;
+            }
+
+            if (denseFrameCount <= sectionFrames.Count)
+            {
+                reason = "dense-not-more-populated";
+                return false;
+            }
+
+            if (!TryGetBracketWidthSeconds(
+                    sectionFrames,
+                    playbackUT,
+                    out sectionBracketSeconds))
+            {
+                reason = "no-section-bracket";
+                return false;
+            }
+
+            if (!TryGetDenseSectionBracketWidthSeconds(
+                    trackSections,
+                    sectionIdx,
+                    section,
+                    flatPoints,
+                    playbackUT,
+                    out denseBracketSeconds))
+            {
+                reason = "no-dense-bracket";
+                return false;
+            }
+
+            if (!(denseBracketSeconds + 1e-6 < sectionBracketSeconds))
+            {
+                reason = "dense-bracket-not-tighter";
+                return false;
+            }
+
+            reason = "dense-bracket-tighter";
+            return true;
+        }
+
+        private static List<TrajectoryPoint> BuildDenseAbsoluteFramesForSection(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            TrackSection section,
+            List<TrajectoryPoint> flatPoints)
+        {
+            var frames = new List<TrajectoryPoint>();
+            if (flatPoints == null)
+                return frames;
+
+            for (int i = 0; i < flatPoints.Count; i++)
+            {
+                TrajectoryPoint point = flatPoints[i];
+                if (PointBelongsToSection(trackSections, sectionIdx, section, point.ut))
+                    frames.Add(point);
+            }
+
+            return frames;
+        }
+
+        private static int CountDenseAbsoluteFramesForSection(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            TrackSection section,
+            List<TrajectoryPoint> flatPoints)
+        {
+            if (flatPoints == null)
+                return 0;
+
+            int count = 0;
+            for (int i = 0; i < flatPoints.Count; i++)
+            {
+                if (PointBelongsToSection(trackSections, sectionIdx, section, flatPoints[i].ut))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static bool TryGetDenseSectionBracketWidthSeconds(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            TrackSection section,
+            List<TrajectoryPoint> points,
+            double playbackUT,
+            out double bracketSeconds)
+        {
+            bracketSeconds = double.NaN;
+            if (points == null || points.Count == 0)
+                return false;
+
+            bool hasBefore = false;
+            bool hasAfter = false;
+            double beforeUT = 0.0;
+            double afterUT = 0.0;
+            for (int i = 0; i < points.Count; i++)
+            {
+                TrajectoryPoint point = points[i];
+                if (!PointBelongsToSection(trackSections, sectionIdx, section, point.ut))
+                    continue;
+
+                if (point.ut <= playbackUT && (!hasBefore || point.ut > beforeUT))
+                {
+                    beforeUT = point.ut;
+                    hasBefore = true;
+                }
+
+                if (point.ut >= playbackUT && (!hasAfter || point.ut < afterUT))
+                {
+                    afterUT = point.ut;
+                    hasAfter = true;
+                }
+            }
+
+            if (!hasBefore || !hasAfter)
+                return false;
+
+            bracketSeconds = System.Math.Max(0.0, afterUT - beforeUT);
+            return true;
+        }
+
+        private static bool TryGetBracketWidthSeconds(
+            List<TrajectoryPoint> points,
+            double playbackUT,
+            out double bracketSeconds)
+        {
+            bracketSeconds = double.NaN;
+            if (points == null || points.Count < 2)
+                return false;
+
+            int cachedIndex = 0;
+            if (!TrajectoryMath.InterpolatePoints(
+                    points,
+                    ref cachedIndex,
+                    playbackUT,
+                    out TrajectoryPoint before,
+                    out TrajectoryPoint after,
+                    out float ignoredT))
+            {
+                return false;
+            }
+
+            bracketSeconds = System.Math.Max(0.0, after.ut - before.ut);
+            return true;
+        }
+
+        private static bool PointBelongsToSection(
+            List<TrackSection> trackSections,
+            int sectionIdx,
+            TrackSection section,
+            double ut)
+        {
+            if (trackSections != null
+                && sectionIdx >= 0
+                && sectionIdx < trackSections.Count)
+            {
+                return TrajectoryMath.FindTrackSectionForUT(trackSections, ut) == sectionIdx;
+            }
+
+            return ut >= section.startUT && ut <= section.endUT;
+        }
+
         bool TryResolvePointWorldPosition(
             List<TrajectoryPoint> points,
             ref int cachedIndex,
@@ -23806,7 +24195,8 @@ namespace Parsek
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
             out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
-            string recordingId = null, int sectionIndex = -1)
+            string recordingId = null, int sectionIndex = -1,
+            string pointFrameSource = "input")
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -23851,7 +24241,7 @@ namespace Parsek
 
             // Fall through to point-based interpolation
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
-                recordingId, sectionIndex);
+                recordingId, sectionIndex, pointFrameSource);
         }
 
         #endregion

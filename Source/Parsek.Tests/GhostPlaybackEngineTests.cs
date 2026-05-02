@@ -320,6 +320,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_StaleLastPointUsesCheckpointSectionEnd()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "checkpoint-orbit-tail",
+                EndUTOverride = 340.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 321.776 },
+                },
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 321.776,
+                endUT = 340.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 321.776,
+                frames = traj.Points,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 321.776,
+                endUT = 340.0,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            double staleEndpointUT = GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj);
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                staleEndpointUT,
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(321.776, staleEndpointUT);
+            Assert.Equal(340.0, endpointUT);
+            Assert.Equal(1, sectionIndex);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_PartialCheckpointTailUsesNearestOrbitEndpoint()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "checkpoint-partial-tail",
+                EndUTOverride = 340.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 321.776 },
+                },
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 321.776,
+                endUT = 339.75,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 321.776,
+                frames = traj.Points,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 321.776,
+                endUT = 340.0,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(339.75, endpointUT);
+            Assert.Equal(1, sectionIndex);
+        }
+
+        [Fact]
         public void TryGetCheckpointBackedOrbitEndpointUT_AbsoluteSectionReturnsFalse()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);

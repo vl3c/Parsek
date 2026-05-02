@@ -2242,10 +2242,72 @@ namespace Parsek
             if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
                 return false;
 
-            if (!TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, endpointUT).HasValue)
+            double sectionEndpointUT = section.endUT;
+            if (!double.IsNaN(traj.EndUT)
+                && traj.EndUT >= section.startUT
+                && traj.EndUT <= section.endUT)
+            {
+                sectionEndpointUT = traj.EndUT;
+            }
+
+            if (TryResolveCheckpointBackedOrbitEndpointUT(
+                    traj.OrbitSegments,
+                    section,
+                    sectionEndpointUT,
+                    out orbitEndpointUT))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryResolveCheckpointBackedOrbitEndpointUT(
+            List<OrbitSegment> segments,
+            TrackSection section,
+            double desiredEndpointUT,
+            out double orbitEndpointUT)
+        {
+            orbitEndpointUT = 0.0;
+            if (segments == null || segments.Count == 0)
                 return false;
 
-            orbitEndpointUT = endpointUT;
+            if (TrajectoryMath.FindOrbitSegment(segments, desiredEndpointUT).HasValue)
+            {
+                orbitEndpointUT = desiredEndpointUT;
+                return true;
+            }
+
+            bool found = false;
+            double bestUT = 0.0;
+            double bestDistance = double.MaxValue;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (segment.endUT < section.startUT || segment.startUT > section.endUT)
+                    continue;
+
+                double candidateUT = desiredEndpointUT;
+                if (candidateUT < segment.startUT)
+                    candidateUT = segment.startUT;
+                else if (candidateUT > segment.endUT)
+                    candidateUT = segment.endUT;
+
+                double distance = System.Math.Abs(candidateUT - desiredEndpointUT);
+                if (!found
+                    || distance < bestDistance
+                    || (System.Math.Abs(distance - bestDistance) <= 1e-9 && candidateUT > bestUT))
+                {
+                    bestUT = candidateUT;
+                    bestDistance = distance;
+                    found = true;
+                }
+            }
+
+            if (!found)
+                return false;
+
+            orbitEndpointUT = bestUT;
             return true;
         }
 
