@@ -2244,11 +2244,86 @@ namespace Parsek
             return RecordingGroupStore.ReplaceGroupOnAll(groupName, parentGroup, committedRecordings);
         }
 
+        // Test seam: lets unit tests simulate the live-Unity-runtime context that
+        // <see cref="ResetForTesting"/>'s data-loss guard checks. Production code never
+        // sets this; xUnit tests in <c>RecordingStoreResetGuardTests</c> use it to verify
+        // the guard hard-fails when invoked alongside committed data inside an in-game
+        // test runner. <see cref="Application.isPlaying"/> is false outside Unity play
+        // mode (xUnit, command-line dotnet test) so the guard is otherwise harmless to
+        // existing xUnit callers that happen to add data before resetting.
+        internal static Func<bool> ApplicationIsPlayingForTesting;
+
+        // <see cref="UnityEngine.Application.isPlaying"/> is an extern (ECall) — fine
+        // at runtime inside KSP, but throws SecurityException when xUnit runs the
+        // assembly outside the Unity player. The JIT verifies the call before the
+        // surrounding try/catch frame is established when the access lives in the
+        // same method as the catch, so the exception escapes. Isolating the read in
+        // its own non-inlined method delays JIT verification until first call, where
+        // the catch around the call site can swallow the exception. Treating "throws"
+        // as "not in play mode" preserves existing xUnit <c>ResetForTesting()</c>
+        // callers (RecordingStoreTests, etc.) without forcing every one of them to
+        // set <see cref="ApplicationIsPlayingForTesting"/>.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool ReadUnityApplicationIsPlayingCore()
+        {
+            return Application.isPlaying;
+        }
+
+        private static bool TryReadUnityApplicationIsPlaying()
+        {
+            try { return ReadUnityApplicationIsPlayingCore(); }
+            catch (System.Security.SecurityException) { return false; }
+            catch (System.TypeInitializationException) { return false; }
+        }
+
         /// <summary>
         /// Resets state without Unity logging. For unit tests only.
+        /// <para>
+        /// Hard-fails when invoked while Unity is in play mode AND the store still
+        /// holds real committed data — the in-game test runner (Ctrl+Shift+T) shares
+        /// the static <see cref="committedRecordings"/> / <see cref="committedTrees"/>
+        /// list with the player's live save, so a stray <c>ResetForTesting()</c>
+        /// inside an in-game test would silently delete everything the player had
+        /// just recorded (observed in production 2026-05-01: 5 committed recordings
+        /// wiped by <c>PersistenceSplitOptimizerTest</c>). xUnit tests run with
+        /// <see cref="Application.isPlaying"/> = <c>false</c> and remain unaffected.
+        /// In-game tests must wrap mutations in
+        /// <see cref="RecordingStoreTestSnapshot.Capture"/> / <see cref="RecordingStoreTestSnapshot.Restore"/>
+        /// instead of calling this method.
+        /// </para>
         /// </summary>
         internal static void ResetForTesting()
         {
+            bool isPlaying;
+            if (ApplicationIsPlayingForTesting != null)
+            {
+                isPlaying = ApplicationIsPlayingForTesting();
+            }
+            else
+            {
+                isPlaying = TryReadUnityApplicationIsPlaying();
+            }
+            if (isPlaying)
+            {
+                int recCount = committedRecordings.Count;
+                int treeCount = committedTrees.Count;
+                bool hasPending = pendingTree != null;
+                if (recCount > 0 || treeCount > 0 || hasPending)
+                {
+                    string msg =
+                        $"ResetForTesting blocked: refusing to wipe live save data " +
+                        $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
+                        $"hasPendingTree={hasPending}). The in-game test runner shares " +
+                        $"static state with the player's save — call " +
+                        $"RecordingStoreTestSnapshot.Capture()/Restore() around the " +
+                        $"test body instead of ResetForTesting(). Production bug source: " +
+                        $"PersistenceSplitOptimizerTest 2026-05-01.";
+                    ParsekLog.Error("RecordingStore", msg);
+                    throw new InvalidOperationException(msg);
+                }
+            }
+
             committedRecordings.Clear();
             committedTrees.Clear();
             BumpStateVersion();
@@ -2277,6 +2352,33 @@ namespace Parsek
         internal static void SetPendingTreeStateForTesting(PendingTreeState state)
         {
             pendingTreeState = state;
+        }
+
+        /// <summary>
+        /// In-place restore of the four core fields a <see cref="RecordingStoreTestSnapshot"/>
+        /// captures: committed recordings, committed trees, pending tree slot + state,
+        /// and the auto-assigned-standalone-group dict. Bypasses the
+        /// <see cref="ResetForTesting"/> guard because the call site knows it's about to
+        /// re-install the very data the guard exists to protect. Used only by
+        /// <see cref="RecordingStoreTestSnapshot.Restore"/>.
+        /// </summary>
+        internal static void RestoreFromSnapshotForTesting(
+            List<Recording> snapshotRecordings,
+            List<RecordingTree> snapshotTrees,
+            RecordingTree snapshotPendingTree,
+            PendingTreeState snapshotPendingState,
+            Dictionary<string, string> snapshotAutoAssignedGroups)
+        {
+            committedRecordings.Clear();
+            if (snapshotRecordings != null)
+                committedRecordings.AddRange(snapshotRecordings);
+            committedTrees.Clear();
+            if (snapshotTrees != null)
+                committedTrees.AddRange(snapshotTrees);
+            pendingTree = snapshotPendingTree;
+            pendingTreeState = snapshotPendingState;
+            RecordingGroupStore.RestoreAutoAssignedStandaloneGroupsForTesting(snapshotAutoAssignedGroups);
+            BumpStateVersion();
         }
 
         /// <summary>
@@ -2777,6 +2879,7 @@ namespace Parsek
             rec.SpawnAbandoned = false;
             rec.WalkbackExhausted = false;
             rec.DuplicateBlockerRecovered = false;
+            TerminalOrbitSpawnSafety.Clear(rec);
             rec.LastAppliedResourceIndex = -1;
             // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
             // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the

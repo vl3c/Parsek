@@ -8,6 +8,7 @@ namespace Parsek
     /// </summary>
     public static class MergeDialog
     {
+        private const string DialogName = "ParsekMerge";
         private const string MergeLockId = "ParsekMergeDialog";
         // SplitAtSection writes back-to-back UT bounds; 50ms covers float
         // rounding and one-frame skew without bridging a real inter-recording gap.
@@ -28,12 +29,42 @@ namespace Parsek
 
         /// <summary>
         /// Clears the deferred merge dialog flag and removes the input lock.
-        /// Called from every button callback.
+        /// Called from button callbacks and popup teardown paths.
         /// </summary>
-        internal static void ClearPendingFlag()
+        internal static void ClearPendingFlag(string reason = null)
         {
+            bool wasPending = ParsekScenario.MergeDialogPending;
             ParsekScenario.MergeDialogPending = false;
             InputLockManager.RemoveControlLock(MergeLockId);
+            string message =
+                $"Cleared pending flag and input lock " +
+                $"(reason='{FormatClearReason(reason)}', wasPending={wasPending})";
+            if (wasPending)
+                ParsekLog.Info("MergeDialog", message);
+            else
+                ParsekLog.Verbose("MergeDialog", message);
+        }
+
+        /// <summary>
+        /// Dismisses the visible merge popup, if any, and always clears the
+        /// deferred flag/input lock that were armed when the dialog opened.
+        /// Use this for non-button teardown paths such as scene/test cleanup.
+        /// </summary>
+        internal static void DismissAndClearPendingFlag(string reason)
+        {
+            try
+            {
+                PopupDialog.DismissPopup(DialogName);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"DismissAndClearPendingFlag: DismissPopup('{DialogName}') threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; continuing cleanup " +
+                    $"(reason='{FormatClearReason(reason)}')");
+            }
+
+            ClearPendingFlag(reason);
         }
 
         /// <summary>
@@ -165,13 +196,16 @@ namespace Parsek
                 })
             };
 
+            // Order matters: DismissPopup may invoke the previous popup's
+            // OnDismiss handler, which clears the lock armed by LockInput.
+            PopupDialog.DismissPopup(DialogName);
             LockInput();
-            PopupDialog.DismissPopup("ParsekMerge");
-            PopupDialog.SpawnPopupDialog(
+            ParsekScenario.MergeDialogPending = true;
+            PopupDialog popup = PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog(
-                    "ParsekMerge",
+                    DialogName,
                     message,
                     "Confirm Merge to Timeline",
                     HighLogic.UISkin,
@@ -180,10 +214,26 @@ namespace Parsek
                 false,
                 HighLogic.UISkin
             );
+            if (popup != null)
+            {
+                popup.OnDismiss += () =>
+                {
+                    ClearPendingFlag("popup teardown");
+                };
+            }
+            else
+            {
+                ClearPendingFlag("popup spawn returned null");
+                ParsekLog.Warn("MergeDialog",
+                    $"ShowTreeDialog: SpawnPopupDialog returned null for tree='{tree.TreeName}'");
+            }
         }
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        private static string FormatClearReason(string reason)
+            => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
 
         /// <summary>
         /// Locate the recording the active re-fly session targets. Tries the
@@ -277,7 +327,7 @@ namespace Parsek
                     "merge dialog Tree Merge", tree.Recordings.Count);
             }
 
-            ClearPendingFlag();
+            ClearPendingFlag("merge dialog commit button");
             OnTreeCommitted?.Invoke();
             if (spawnCount > 0)
                 ParsekLog.ScreenMessage(
@@ -317,7 +367,7 @@ namespace Parsek
             // in KSP and patching is deferred. Discard must now rebuild from the committed
             // ledger immediately after the pending tree is removed.
             ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
-            ClearPendingFlag();
+            ClearPendingFlag("merge dialog discard button");
             ParsekLog.ScreenMessage("Recording discarded", 2f);
             ParsekLog.Info("MergeDialog",
                 $"User chose: Tree Discard (tree='{tree.TreeName}', " +

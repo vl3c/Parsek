@@ -260,12 +260,22 @@ namespace Parsek
         /// re-launched. Returns the number of rows removed; emits a single INFO
         /// log line per dedup. Idempotent — running it on a healthy ledger is
         /// a no-op.
+        ///
+        /// <para>Also handles the adopted+unadopted scenario flagged in the
+        /// follow-up to PR #711: a recording adopts the original launch's
+        /// rollout (clearing its DedupKey), the player reverts and relaunches,
+        /// and a fresh unadopted row lands beside it. The adopted row carries
+        /// no DedupKey so its rollout context must be sourced from the
+        /// associated recording — that lookup is delegated to
+        /// <see cref="LedgerOrchestrator.FindRecordingById"/> via the resolver
+        /// below. The adopted row always wins the cluster.</para>
         /// </summary>
         internal static int RepairDuplicateRolloutActions()
         {
             int removed = LedgerRolloutAdoption.RepairDuplicateRolloutActions(
                 actions,
-                RemoveActionAt);
+                RemoveActionAt,
+                ResolveAdoptedRolloutContext);
 
             if (removed > 0)
             {
@@ -275,6 +285,22 @@ namespace Parsek
             }
 
             return removed;
+        }
+
+        /// <summary>
+        /// Resolver wired into <see cref="LedgerRolloutAdoption.RepairDuplicateRolloutActions"/>
+        /// for adopted rollout rows — adopted rows have no DedupKey so the
+        /// rollout-adoption context (PID/vessel/site) must come from the
+        /// recording the row was adopted into. Returns a default-zero
+        /// context when no recording can be found, which the repair pass
+        /// treats as "cannot match" and skips the row.
+        /// </summary>
+        private static LedgerRolloutAdoption.RolloutAdoptionContext ResolveAdoptedRolloutContext(string recordingId)
+        {
+            var rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            if (rec == null)
+                return default(LedgerRolloutAdoption.RolloutAdoptionContext);
+            return LedgerRolloutAdoption.CreateRolloutAdoptionContext(rec);
         }
 
         /// <summary>Clears all actions from the in-memory ledger.</summary>
