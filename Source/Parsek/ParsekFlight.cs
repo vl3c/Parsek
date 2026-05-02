@@ -17652,6 +17652,24 @@ namespace Parsek
         internal const double ReFlyDisplayAlignmentSuspiciousOffsetMeters = 50.0;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
 
+        internal struct ReFlyRecordedAnchorSampleDiagnostics
+        {
+            public int SectionIndex;
+            public ReferenceFrame SectionFrame;
+            public TrackSectionSource SectionSource;
+            public string FrameSource;
+            public double SectionStartUT;
+            public double SectionEndUT;
+            public int FrameCount;
+            public double BeforeUT;
+            public double AfterUT;
+            public float InterpolationT;
+            public bool ClampedToEndpoint;
+            public string BodyBeforeName;
+            public string BodyAfterName;
+            public Vector3 RecordedVelocity;
+        }
+
         /// <summary>
         /// Returns the frozen body-fixed display delta to apply to a ghost's
         /// rendered position when the ghost belongs to a tree whose Re-Fly
@@ -17758,7 +17776,16 @@ namespace Parsek
                 }
 
                 if (TryProjectReFlyDisplayAlignment(alignment, out delta, out string projectReason))
+                {
+                    LogReFlyDisplayAlignmentProjection(
+                        marker,
+                        recTreeId,
+                        recordingId,
+                        currentUT,
+                        alignment,
+                        delta);
                     return true;
+                }
 
                 ParsekLog.VerboseRateLimited(
                     "Playback",
@@ -17832,6 +17859,7 @@ namespace Parsek
                     + " body=" + (alignment.BodyName ?? "<none>")
                     + " captureUT=" + alignment.CaptureUT.ToString("F2", CultureInfo.InvariantCulture)
                     + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " projectedOffset=" + FormatVector3d(delta)
                     + " mode=frozen-body-fixed"
                     + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset");
                 return true;
@@ -17893,9 +17921,41 @@ namespace Parsek
                 + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
                 + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
                 + " liveAnchorVesselOffsetMeters=" + liveAnchorOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                + " projectedOffset=" + FormatVector3d(delta)
                 + " mode=frozen-body-fixed"
                 + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset");
             return true;
+        }
+
+        private void LogReFlyDisplayAlignmentProjection(
+            ReFlySessionMarker marker,
+            string recTreeId,
+            string recordingId,
+            double currentUT,
+            ReFlyDisplayAlignment alignment,
+            Vector3d projectedOffset)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "refly-display-alignment-projected|"
+                    + (recTreeId ?? "<no-tree>") + "|"
+                    + (marker?.SessionId ?? "<no-sess>") + "|"
+                    + (recordingId ?? "<no-rec>"),
+                "Re-Fly display alignment projected: tree="
+                    + ShortRecordingId(recTreeId)
+                    + " sess=" + ShortRecordingId(marker?.SessionId)
+                    + " rec=" + ShortRecordingId(recordingId)
+                    + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
+                    + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
+                    + " captureUT=" + alignment.CaptureUT.ToString("F3", CultureInfo.InvariantCulture)
+                    + " ageSeconds=" + (currentUT - alignment.CaptureUT).ToString("F3", CultureInfo.InvariantCulture)
+                    + " body=" + (alignment.BodyName ?? "<none>")
+                    + " source=" + (alignment.LiveAnchorSource ?? "<none>")
+                    + " liveAnchorPartPid=" + alignment.LiveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
+                    + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " projectedOffset=" + FormatVector3d(projectedOffset)
+                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset),
+                5.0);
         }
 
         internal static string BuildReFlyDisplayAlignmentScopeKey(ReFlySessionMarker marker)
@@ -18246,7 +18306,11 @@ namespace Parsek
             }
 
             List<TrackSection> sampleSections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
-            if (!TrySampleRecordedAbsoluteWorld(sampleSections, currentUT, out Vector3d recordedPos)
+            if (!TrySampleRecordedAbsoluteWorld(
+                    sampleSections,
+                    currentUT,
+                    out Vector3d recordedPos,
+                    out ReFlyRecordedAnchorSampleDiagnostics sampleDiagnostics)
                 || !IsFiniteVector3d(recordedPos))
             {
                 reason = "recorded-pos-unavailable";
@@ -18271,8 +18335,130 @@ namespace Parsek
                 return false;
             }
 
+            LogReFlyDisplayAlignmentCaptureDetail(
+                marker,
+                recTreeId,
+                recordingId,
+                currentUT,
+                liveAnchor,
+                activeReFlyPid,
+                livePos,
+                recordedPos,
+                body.name,
+                liveAnchorSource,
+                liveAnchorPartPid,
+                liveAnchorOffsetMeters,
+                sampleDiagnostics,
+                alignment);
+
             reason = "captured";
             return true;
+        }
+
+        private void LogReFlyDisplayAlignmentCaptureDetail(
+            ReFlySessionMarker marker,
+            string recTreeId,
+            string recordingId,
+            double currentUT,
+            Vessel liveAnchor,
+            uint activeReFlyPid,
+            Vector3d livePos,
+            Vector3d recordedPos,
+            string bodyName,
+            string liveAnchorSource,
+            uint liveAnchorPartPid,
+            double liveAnchorOffsetMeters,
+            ReFlyRecordedAnchorSampleDiagnostics sampleDiagnostics,
+            ReFlyDisplayAlignment alignment)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            Vector3 liveVelocity = FlightRecorder.SampleCurrentVelocity(liveAnchor);
+            Vector3 recordedVelocity = sampleDiagnostics.RecordedVelocity;
+            Vector3 velocityDelta = liveVelocity - recordedVelocity;
+            Vector3d worldDelta = livePos - recordedPos;
+            double deltaAlongRecordedVelocityMeters =
+                ProjectMetersAlongVelocity(worldDelta, recordedVelocity);
+            double recordedSpeed = recordedVelocity.magnitude;
+            double impliedRecordedTimeOffsetSeconds =
+                recordedSpeed > 0.001
+                    ? deltaAlongRecordedVelocityMeters / recordedSpeed
+                    : double.NaN;
+
+            Recording target = FindRecordingByIdInTrees(recordingId);
+            double targetStartUT = double.NaN;
+            bool hasTargetStart = target != null
+                && target.TryGetGhostActivationStartUT(out targetStartUT);
+            string targetStart = hasTargetStart
+                ? targetStartUT.ToString("F3", ic)
+                : "none";
+            string currentMinusTargetStart = hasTargetStart
+                ? (currentUT - targetStartUT).ToString("F3", ic)
+                : "NaN";
+
+            ParsekLog.Info(
+                "Playback",
+                "Re-Fly display alignment capture detail: tree="
+                    + ShortRecordingId(recTreeId)
+                    + " sess=" + ShortRecordingId(marker?.SessionId)
+                    + " rec=" + ShortRecordingId(recordingId)
+                    + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
+                    + " currentUT=" + currentUT.ToString("F3", ic)
+                    + " targetStartUT=" + targetStart
+                    + " currentMinusTargetStart=" + currentMinusTargetStart
+                    + " activePid=" + activeReFlyPid.ToString(ic)
+                    + " body=" + (bodyName ?? "<none>")
+                    + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
+                    + " selectedRootPartPid="
+                    + (marker?.SelectedRootPartPersistentId ?? 0u).ToString(ic)
+                    + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(ic)
+                    + " liveAnchorVesselOffsetMeters="
+                    + liveAnchorOffsetMeters.ToString("F2", ic)
+                    + " sampleSectionIndex="
+                    + sampleDiagnostics.SectionIndex.ToString(ic)
+                    + " sampleSectionFrame=" + sampleDiagnostics.SectionFrame
+                    + " sampleSectionSource=" + sampleDiagnostics.SectionSource
+                    + " sampleFrameSource=" + (sampleDiagnostics.FrameSource ?? "<none>")
+                    + " sampleSectionUT=["
+                    + sampleDiagnostics.SectionStartUT.ToString("F3", ic)
+                    + "," + sampleDiagnostics.SectionEndUT.ToString("F3", ic) + "]"
+                    + " sampleFrames=" + sampleDiagnostics.FrameCount.ToString(ic)
+                    + " sampleBeforeUT=" + sampleDiagnostics.BeforeUT.ToString("F3", ic)
+                    + " sampleAfterUT=" + sampleDiagnostics.AfterUT.ToString("F3", ic)
+                    + " currentMinusBefore="
+                    + (currentUT - sampleDiagnostics.BeforeUT).ToString("F3", ic)
+                    + " afterMinusCurrent="
+                    + (sampleDiagnostics.AfterUT - currentUT).ToString("F3", ic)
+                    + " sampleT=" + sampleDiagnostics.InterpolationT.ToString("F3", ic)
+                    + " sampleClamped=" + sampleDiagnostics.ClampedToEndpoint
+                    + " sampleBodies="
+                    + (sampleDiagnostics.BodyBeforeName ?? "<none>")
+                    + "->" + (sampleDiagnostics.BodyAfterName ?? "<none>")
+                    + " liveWorld=" + FormatVector3d(livePos)
+                    + " recordedWorld=" + FormatVector3d(recordedPos)
+                    + " live-recorded=" + FormatVector3d(worldDelta)
+                    + " initialWorldOffsetMeters="
+                    + alignment.InitialWorldOffsetMeters.ToString("F2", ic)
+                    + " liveVelocity=" + FormatVector3(liveVelocity)
+                    + " recordedVelocity=" + FormatVector3(recordedVelocity)
+                    + " velocityDelta=" + FormatVector3(velocityDelta)
+                    + " liveSpeed=" + liveVelocity.magnitude.ToString("F2", ic)
+                    + " recordedSpeed=" + recordedSpeed.ToString("F2", ic)
+                    + " deltaAlongRecordedVelocityMeters="
+                    + deltaAlongRecordedVelocityMeters.ToString("F2", ic)
+                    + " impliedRecordedTimeOffsetSeconds="
+                    + impliedRecordedTimeOffsetSeconds.ToString("F3", ic)
+                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset));
+        }
+
+        private static double ProjectMetersAlongVelocity(Vector3d delta, Vector3 velocity)
+        {
+            double speed = velocity.magnitude;
+            if (speed <= 0.001)
+                return double.NaN;
+
+            return (delta.x * velocity.x
+                + delta.y * velocity.y
+                + delta.z * velocity.z) / speed;
         }
 
         /// <summary>
@@ -18823,7 +19009,21 @@ namespace Parsek
         internal static bool TrySampleRecordedAbsoluteWorld(
             List<TrackSection> sections, double ut, out Vector3d worldPos)
         {
+            return TrySampleRecordedAbsoluteWorld(
+                sections,
+                ut,
+                out worldPos,
+                out _);
+        }
+
+        internal static bool TrySampleRecordedAbsoluteWorld(
+            List<TrackSection> sections,
+            double ut,
+            out Vector3d worldPos,
+            out ReFlyRecordedAnchorSampleDiagnostics diagnostics)
+        {
             worldPos = Vector3d.zero;
+            diagnostics = default(ReFlyRecordedAnchorSampleDiagnostics);
             if (sections == null || sections.Count == 0)
                 return false;
 
@@ -18843,16 +19043,25 @@ namespace Parsek
                 && section.frames != null && section.frames.Count > 0)
             {
                 frames = section.frames;
+                diagnostics.FrameSource = "absolute-frames";
             }
             else if (section.referenceFrame == ReferenceFrame.Relative
                 && section.absoluteFrames != null && section.absoluteFrames.Count > 0)
             {
                 frames = section.absoluteFrames;
+                diagnostics.FrameSource = "relative-absolute-shadow";
             }
             else
             {
                 return false;
             }
+
+            diagnostics.SectionIndex = sectionIdx;
+            diagnostics.SectionFrame = section.referenceFrame;
+            diagnostics.SectionSource = section.source;
+            diagnostics.SectionStartUT = section.startUT;
+            diagnostics.SectionEndUT = section.endUT;
+            diagnostics.FrameCount = frames.Count;
 
             int cachedIdx = 0;
             TrajectoryPoint before;
@@ -18866,6 +19075,13 @@ namespace Parsek
                 TrajectoryPoint clamp = (ut <= frames[0].ut)
                     ? frames[0]
                     : frames[frames.Count - 1];
+                diagnostics.BeforeUT = clamp.ut;
+                diagnostics.AfterUT = clamp.ut;
+                diagnostics.InterpolationT = 0f;
+                diagnostics.ClampedToEndpoint = true;
+                diagnostics.BodyBeforeName = clamp.bodyName;
+                diagnostics.BodyAfterName = clamp.bodyName;
+                diagnostics.RecordedVelocity = clamp.velocity;
                 CelestialBody bodyClamp = FlightGlobals.Bodies?.Find(b => b.name == clamp.bodyName);
                 if (bodyClamp == null)
                     return false;
@@ -18878,6 +19094,14 @@ namespace Parsek
             CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
                 return false;
+
+            diagnostics.BeforeUT = before.ut;
+            diagnostics.AfterUT = after.ut;
+            diagnostics.InterpolationT = t;
+            diagnostics.ClampedToEndpoint = false;
+            diagnostics.BodyBeforeName = before.bodyName;
+            diagnostics.BodyAfterName = after.bodyName;
+            diagnostics.RecordedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
 
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);

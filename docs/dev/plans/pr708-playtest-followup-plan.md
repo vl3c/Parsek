@@ -196,6 +196,7 @@ Status note:
 
 - Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable. Frozen alignments are invalidated if the active live Re-Fly vessel changes SOI/body or if the marker scope changes despite the same session id; capture logs now warn when the initial offset exceeds `50m`.
 - Follow-up from `logs/2026-05-02_1320_pr708-refly-optimizer-boundary-bad-init/`: optimizer-created chain successors inherit the nearest cached predecessor's frozen display alignment instead of capturing a second offset at the atmo/exo split. This keeps Re-Fly display alignment continuous across chain segments while still using the hidden recorded trajectory as the source of truth. Review follow-up: when a pending Re-Fly tree and stale committed tree share the same tree id, the pending topology wins for inherited alignment.
+- Diagnostic follow-up: each display-alignment capture now logs `liveWorld`, `recordedWorld`, `live-recorded`, sampled section/frame timing, live and recorded velocities, `deltaAlongRecordedVelocityMeters`, and `impliedRecordedTimeOffsetSeconds`; cache hits also emit a rate-limited projected-offset line. Use these fields in the next log bundle to tell whether the remaining init error is capture timing, root-part fallback, recorded hidden-path drift, or repeated cache invalidation.
 
 ---
 
