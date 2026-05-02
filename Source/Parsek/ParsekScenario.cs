@@ -2744,7 +2744,8 @@ namespace Parsek
                         }
                     }
 
-                    RepairMissingContiguousChainPredecessors(tree, "LoadRecordingTrees");
+                    if (RepairMissingContiguousChainPredecessors(tree, "LoadRecordingTrees") > 0)
+                        tree.RebuildBackgroundMap();
 
                     // Phase 8 review-pass-3: deferred co-bubble sweeps
                     // moved out of the per-tree loop. Cross-tree co-bubble
@@ -3028,7 +3029,8 @@ namespace Parsek
                 // post-split first half from the RP's frozen .sfs.
                 int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(
                     tree, tree.ActiveRecordingId);
-                RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode");
+                if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
+                    tree.RebuildBackgroundMap();
 
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then
@@ -3657,24 +3659,52 @@ namespace Parsek
         /// <para>
         /// Conservative criteria: a successor must have
         /// <c>ChainBranch == 0</c>, <c>ChainIndex == 1</c>, a non-empty
-        /// <c>ChainId</c>, a non-zero <c>VesselPersistentId</c>, and a finite
-        /// <c>StartUT</c>. A candidate predecessor must live in the same tree,
-        /// share the successor's <c>VesselPersistentId</c>, have an empty
-        /// <c>ChainId</c> AND <c>ChainIndex &lt; 0</c> (so we never overwrite an
-        /// existing chain assignment), have a strictly smaller <c>TreeOrder</c>,
-        /// and end within <see cref="ChainPredecessorRepairUTEpsilon"/> of the
-        /// successor's start. Multi-loss chains (length &gt; 2 with both [0]
-        /// and [1] orphaned) are not covered — the gate keeps the repair
-        /// narrow on purpose.
+        /// <c>ChainId</c>, a non-zero <c>VesselPersistentId</c>, a finite
+        /// <c>StartUT</c>, and a non-negative <c>TreeOrder</c>. A candidate
+        /// predecessor must live in the same tree (the tree's
+        /// <c>Id</c> must be set), share the successor's
+        /// <c>VesselPersistentId</c>, have an empty <c>ChainId</c> AND
+        /// <c>ChainIndex &lt; 0</c> (so we never overwrite an existing chain
+        /// assignment), carry a non-negative <c>TreeOrder</c> strictly less
+        /// than the successor's, and end within
+        /// <see cref="ChainPredecessorRepairUTEpsilon"/> of the successor's
+        /// start. Recordings without an assigned <c>TreeOrder</c> on either
+        /// side are rejected: the load-time
+        /// <see cref="RecordingTree.RebuildBackgroundMap"/> path always
+        /// assigns one before this repair can run, so an unset value at this
+        /// point is a sign the data has not been normalized and the safe
+        /// move is to skip rather than guess at chain ordering.
+        /// </para>
+        ///
+        /// <para>
+        /// Out of scope (gate keeps the repair narrow): orphaned
+        /// <c>ChainBranch &gt; 0</c> branches; chains where the surviving
+        /// successor's <c>ChainIndex</c> is anything other than <c>1</c>
+        /// (e.g. a length-3 chain that lost both <c>[0]</c> and <c>[1]</c>
+        /// — only the trailing-most index-1 successor's predecessor can be
+        /// rebuilt by this pass).
         /// </para>
         ///
         /// <para>
         /// On match the repair sets the predecessor's <c>ChainId</c>,
-        /// <c>ChainIndex = 0</c>, and <c>ChainBranch</c> from the successor and
-        /// calls <see cref="Recording.MarkFilesDirty"/> so the next OnSave
-        /// rewrites the predecessor's <c>.sfs</c> with the corrected shape.
-        /// Tie-break order on equal <c>EndUT</c> gaps: smaller <c>TreeOrder</c>,
-        /// then ordinal <c>RecordingId</c> — fully deterministic.
+        /// <c>ChainIndex = 0</c>, and <c>ChainBranch</c> from the successor
+        /// and calls <see cref="Recording.MarkFilesDirty"/> so the next
+        /// OnSave rewrites the predecessor's <c>.sfs</c> with the corrected
+        /// shape. The repair does NOT itself rebuild the tree's background
+        /// map; callers that batch repair with other tree mutations should
+        /// rebuild once at the end of their batch (the splice path already
+        /// does), and standalone callers must rebuild themselves when the
+        /// returned count is non-zero — chain field changes affect
+        /// <see cref="RecordingTree.IsBackgroundMapEligible"/>. Tie-break on
+        /// equal <c>EndUT</c> gaps: smaller <c>TreeOrder</c> first, then
+        /// ordinal <c>RecordingId</c> — fully deterministic.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent: a second call on a tree the first call already
+        /// healed finds no candidate (every former orphan now has
+        /// <c>ChainId</c> set, which the candidate gate rejects) and
+        /// returns 0.
         /// </para>
         /// </summary>
         internal static int RepairMissingContiguousChainPredecessors(
@@ -3702,6 +3732,9 @@ namespace Parsek
                 if (predecessor == null)
                     continue;
 
+                double predecessorEndUT = predecessor.EndUT;
+                double gapMs = Math.Abs(predecessorEndUT - successor.StartUT) * 1000.0;
+
                 predecessor.ChainId = successor.ChainId;
                 predecessor.ChainIndex = successor.ChainIndex - 1;
                 predecessor.ChainBranch = successor.ChainBranch;
@@ -3711,25 +3744,30 @@ namespace Parsek
                 reservedPredecessorIds.Add(predecessor.RecordingId);
                 repaired++;
 
+                // Logged BEFORE rebuild so a future log post-mortem sees the
+                // exact boundary-UT pair and gap that drove the decision.
+                // predecessor.ChainIndex is omitted from the line because
+                // the gate forces it to -1 going in and 0 coming out, so
+                // the field is tautological; predecessorEndUT + gapMs are
+                // the actually-diagnostic numbers when reviewing borderline
+                // matches near the 1ms epsilon.
                 ParsekLog.Info("Scenario", string.Format(
                     CultureInfo.InvariantCulture,
                     "RepairMissingChainPredecessor: context={0} tree={1} predecessor={2} successor={3} " +
-                    "chain={4} predecessorIdx={5} successorIdx={6} vesselPid={7} boundaryUT={8:R}",
+                    "chain={4} predecessorEndUT={5:R} successorStartUT={6:R} gapMs={7:F4} vesselPid={8}",
                     context ?? "unknown",
                     tree.Id ?? "",
                     predecessor.RecordingId ?? "",
                     successor.RecordingId ?? "",
                     successor.ChainId ?? "",
-                    predecessor.ChainIndex,
-                    successor.ChainIndex,
-                    successor.VesselPersistentId,
-                    successor.StartUT));
+                    predecessorEndUT,
+                    successor.StartUT,
+                    gapMs,
+                    successor.VesselPersistentId));
             }
 
             if (considered > 0 || repaired > 0)
             {
-                if (repaired > 0)
-                    tree.RebuildBackgroundMap();
                 ParsekLog.Verbose("Scenario", string.Format(
                     CultureInfo.InvariantCulture,
                     "RepairMissingChainPredecessor summary: context={0} tree={1} considered={2} repaired={3}",
@@ -3750,6 +3788,7 @@ namespace Parsek
                 && successor.ChainBranch == 0
                 && successor.ChainIndex == 1
                 && successor.VesselPersistentId != 0
+                && successor.TreeOrder >= 0
                 && IsFiniteChainBoundaryUT(successor.StartUT);
         }
 
@@ -3760,6 +3799,14 @@ namespace Parsek
         {
             Recording best = null;
             double bestGap = double.MaxValue;
+            // Note on outer-loop determinism: tree.Recordings is a Dictionary
+            // and its enumeration order is implementation-defined. With the
+            // gate's ChainBranch==0 / ChainIndex==1 / non-zero VesselPersistentId
+            // requirements, real-world chains have at most one matching
+            // successor per (vesselPid, branch) pair, so successor processing
+            // order is effectively unique. reservedPredecessorIds prevents
+            // a single predecessor being claimed by multiple successors in
+            // any pathological multi-successor case.
             foreach (var candidateKvp in tree.Recordings)
             {
                 Recording candidate = candidateKvp.Value;
@@ -3777,9 +3824,12 @@ namespace Parsek
                     continue;
                 if (!SameTreeForChainRepair(candidate, successor, tree))
                     continue;
-                if (candidate.TreeOrder >= 0
-                    && successor.TreeOrder >= 0
-                    && candidate.TreeOrder >= successor.TreeOrder)
+                // Strict TreeOrder gate: both sides must be set (>= 0) and
+                // candidate must come strictly before successor. The
+                // successor-side check is in
+                // IsRepairableMissingChainPredecessorSuccessor; this is the
+                // candidate-side counterpart.
+                if (candidate.TreeOrder < 0 || candidate.TreeOrder >= successor.TreeOrder)
                     continue;
 
                 double candidateEndUT = candidate.EndUT;
@@ -3809,12 +3859,10 @@ namespace Parsek
             int gapCmp = aGap.CompareTo(bGap);
             if (gapCmp != 0)
                 return gapCmp;
-            // Tie on gap: lower TreeOrder wins. Treat unset (-1) as larger
-            // than any explicit order so candidates with a known position
-            // beat ambiguous ones.
-            int aOrder = a.TreeOrder >= 0 ? a.TreeOrder : int.MaxValue;
-            int bOrder = b.TreeOrder >= 0 ? b.TreeOrder : int.MaxValue;
-            int orderCmp = aOrder.CompareTo(bOrder);
+            // Tie on gap: lower TreeOrder wins. Both sides have TreeOrder >= 0
+            // by the find-loop's strict gate, so no unset-ordering coercion
+            // is needed here.
+            int orderCmp = a.TreeOrder.CompareTo(b.TreeOrder);
             if (orderCmp != 0)
                 return orderCmp;
             // Final tie-break: ordinal RecordingId (always non-empty here —
@@ -3825,14 +3873,17 @@ namespace Parsek
         private static bool SameTreeForChainRepair(
             Recording candidate, Recording successor, RecordingTree tree)
         {
+            // Fail-closed when the tree has no Id: treating two un-treed
+            // recordings as same-tree would be a false positive in repair
+            // gating. In practice every loaded tree has a non-empty Id by
+            // construction; this guard exists so a future code path that
+            // somehow constructs a tree without one cannot accidentally
+            // pull untreed orphan recordings into a chain.
             string treeId = tree != null ? tree.Id : null;
-            if (!string.IsNullOrEmpty(treeId))
-            {
-                return string.Equals(candidate.TreeId, treeId, StringComparison.Ordinal)
-                    && string.Equals(successor.TreeId, treeId, StringComparison.Ordinal);
-            }
-
-            return string.Equals(candidate.TreeId, successor.TreeId, StringComparison.Ordinal);
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+            return string.Equals(candidate.TreeId, treeId, StringComparison.Ordinal)
+                && string.Equals(successor.TreeId, treeId, StringComparison.Ordinal);
         }
 
         private static bool IsFiniteChainBoundaryUT(double ut)
