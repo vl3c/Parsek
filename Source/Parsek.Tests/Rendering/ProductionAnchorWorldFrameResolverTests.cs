@@ -267,6 +267,45 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(focus.RecordingId, pose.ResolvedRecordingId);
         }
 
+        [Fact]
+        public void RelativeBoundary_ShadowResolverUsesAbsoluteFrames()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "focus",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+            };
+            var relSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0,
+                endUT = 10,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10,
+                        latitude = 100,
+                        longitude = 20,
+                        altitude = 3,
+                    },
+                },
+            };
+
+            bool resolved = ProductionAnchorWorldFrameResolver.TryResolveRelativeBoundaryShadowWorldPos(
+                rec,
+                relSection,
+                boundaryUT: 10,
+                side: AnchorSide.End,
+                absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                out Vector3d worldPos);
+
+            Assert.True(resolved);
+            Assert.Equal(100.0, worldPos.x, 6);
+            Assert.Equal(20.0, worldPos.y, 6);
+            Assert.Equal(3.0, worldPos.z, 6);
+        }
+
         // --- §7.5 OrbitalCheckpoint guard paths ---------------------------
 
         [Fact]

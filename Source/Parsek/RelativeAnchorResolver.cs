@@ -223,6 +223,16 @@ namespace Parsek
                 }
             }
 
+            if (recording.RecordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion)
+            {
+                WarnUnresolved(
+                    "anchor-track-sections-missing",
+                    recording.RecordingId,
+                    recording.RecordingId,
+                    ut);
+                return false;
+            }
+
             return TryResolveAbsoluteFramesPose(
                 context,
                 recording.Points,
@@ -411,6 +421,9 @@ namespace Parsek
                     continue;
                 if (TrajectoryMath.FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
                     continue;
+                // First chronological same-chain continuation covering the UT wins.
+                // Priority only breaks ties when the same chain index exists in
+                // multiple overlays, such as committed vs pending tree state.
                 if (best == null
                     || candidate.ChainIndex < best.ChainIndex
                     || (candidate.ChainIndex == best.ChainIndex && priority > bestPriority))
@@ -517,6 +530,8 @@ namespace Parsek
                 return false;
             }
 
+            // Resolve the parent at the focus UT, then apply the interpolated
+            // local relative frame in that rigid anchor frame.
             if (!TryResolveAnchorPose(context, anchorRecordingId, ut, visited, out AnchorPose parentPose))
                 return false;
 

@@ -116,6 +116,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void VerboseRateLimited_MessageFactoryRunsOnlyOnEmission()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            double now = 1000.0;
+            int factoryCalls = 0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", () =>
+            {
+                factoryCalls++;
+                return "tick";
+            }, 2.0);
+            now = 1000.5;
+            ParsekLog.VerboseRateLimited("UnitTest", "sample", () =>
+            {
+                factoryCalls++;
+                return "suppressed";
+            }, 2.0);
+
+            Assert.Single(lines);
+            Assert.Equal(1, factoryCalls);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] tick", lines[0]);
+        }
+
+        [Fact]
         public void ResetRateLimitsForTesting_AllowsImmediateReemit()
         {
             var lines = new List<string>();

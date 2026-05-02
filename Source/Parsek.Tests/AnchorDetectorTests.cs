@@ -356,7 +356,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsRecordingAnchorDAGOrderEligible_DifferentTreeOrUnassignedOrderAllowed()
+        public void IsRecordingAnchorDAGOrderEligible_DifferentTreeAllowedButSameTreeUnassignedRejected()
         {
             var focus = new Recording
             {
@@ -376,9 +376,16 @@ namespace Parsek.Tests
                 TreeId = "tree-a",
                 TreeOrder = -1
             };
+            var unassignedFocus = new Recording
+            {
+                RecordingId = "unassigned-focus",
+                TreeId = "tree-a",
+                TreeOrder = -1
+            };
 
             Assert.True(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, differentTree));
-            Assert.True(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, unassigned));
+            Assert.False(AnchorDetector.IsRecordingAnchorDAGOrderEligible(focus, unassigned));
+            Assert.False(AnchorDetector.IsRecordingAnchorDAGOrderEligible(unassignedFocus, focus));
         }
 
         [Fact]

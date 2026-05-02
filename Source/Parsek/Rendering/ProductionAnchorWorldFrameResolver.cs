@@ -41,42 +41,54 @@ namespace Parsek.Rendering
             TrackSection relSection = rec.TrackSections[relIdx];
             if (relSection.referenceFrame != ReferenceFrame.Relative) return false;
 
-            // V7+ absolute shadow path: the recorder stored the focused
-            // vessel's true world position alongside the anchor-local
-            // offset. When present, treat the boundary sample of the
-            // shadow as the high-fidelity reference — this is the exact
-            // reference the Phase 6 design doc cites for §7.4.
-            if (rec.RecordingFormatVersion >= RecordingStore.RelativeAbsoluteShadowFormatVersion
-                && relSection.absoluteFrames != null && relSection.absoluteFrames.Count > 0)
+            if (rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
             {
-                if (TryFindBoundaryShadowSample(relSection.absoluteFrames, boundaryUT, side, out TrajectoryPoint shadow))
+                // V11 path: resolve the anchor-local boundary through the
+                // recorded anchor chain. If the chain misses, fall back to the
+                // v7+ absolute shadow below instead of failing outright.
+                if (relSection.frames != null
+                    && relSection.frames.Count > 0
+                    && TryFindBoundaryFrameSample(relSection.frames, boundaryUT, side, out TrajectoryPoint pt)
+                    && TryBuildRelativeAnchorResolverContext(rec, out RelativeAnchorResolverContext context)
+                    && TryResolveKnownRelativeBoundaryPose(
+                        context,
+                        rec,
+                        relSection,
+                        relIdx,
+                        pt.ut,
+                        out AnchorPose pose))
                 {
-                    CelestialBody body = ResolveBody(shadow.bodyName);
-                    if (body != null)
-                    {
-                        worldPos = body.GetWorldSurfacePosition(shadow.latitude, shadow.longitude, shadow.altitude);
-                        return IsFinite(worldPos);
-                    }
+                    worldPos = pose.WorldPos;
+                    return IsFinite(worldPos);
                 }
-            }
 
-            // V11 no-shadow path: anchor-local offset -> recorded anchor chain.
-            // Missing/corrupt legacy anchor ids fail closed here; loop playback
-            // has its own explicit live-anchor resolver below.
-            if (relSection.frames == null || relSection.frames.Count == 0) return false;
-            if (!TryFindBoundaryFrameSample(relSection.frames, boundaryUT, side, out TrajectoryPoint pt)) return false;
+                if (TryResolveRelativeBoundaryShadowWorldPos(
+                        rec,
+                        relSection,
+                        boundaryUT,
+                        side,
+                        ResolveAbsoluteWorldPosition,
+                        out worldPos))
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-Anchor",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "relative-boundary-shadow-fallback|{0}|{1}|{2}",
+                            rec.RecordingId ?? "(none)",
+                            relIdx,
+                            side),
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "relative-boundary-shadow-fallback recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4}",
+                            rec.RecordingId ?? "(none)",
+                            relIdx,
+                            side,
+                            boundaryUT,
+                            relSection.anchorRecordingId ?? "(missing)"),
+                        5.0);
+                    return true;
+                }
 
-            if (!TryBuildRelativeAnchorResolverContext(
-                    rec,
-                    out RelativeAnchorResolverContext context)
-                || !TryResolveKnownRelativeBoundaryPose(
-                    context,
-                    rec,
-                    relSection,
-                    relIdx,
-                    pt.ut,
-                    out AnchorPose pose))
-            {
                 ParsekLog.WarnRateLimited("Pipeline-Anchor",
                     string.Format(
                         CultureInfo.InvariantCulture,
@@ -97,8 +109,15 @@ namespace Parsek.Rendering
                 return false;
             }
 
-            worldPos = pose.WorldPos;
-            return IsFinite(worldPos);
+            // V7-v10 compatibility fence: only the absolute shadow can safely
+            // represent the focused vessel boundary without v11 anchor ids.
+            return TryResolveRelativeBoundaryShadowWorldPos(
+                rec,
+                relSection,
+                boundaryUT,
+                side,
+                ResolveAbsoluteWorldPosition,
+                out worldPos);
         }
 
         internal static bool TryResolveKnownRelativeBoundaryPose(
@@ -264,6 +283,39 @@ namespace Parsek.Rendering
             List<TrajectoryPoint> shadow, double boundaryUT, AnchorSide side, out TrajectoryPoint pt)
         {
             return TryFindBoundaryFrameSample(shadow, boundaryUT, side, out pt);
+        }
+
+        internal static bool TryResolveRelativeBoundaryShadowWorldPos(
+            Recording rec,
+            TrackSection relSection,
+            double boundaryUT,
+            AnchorSide side,
+            Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver,
+            out Vector3d worldPos)
+        {
+            worldPos = default;
+            if (rec == null)
+                return false;
+            if (rec.RecordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
+                return false;
+            if (relSection.absoluteFrames == null || relSection.absoluteFrames.Count == 0)
+                return false;
+            if (absoluteWorldPositionResolver == null)
+                return false;
+            if (!TryFindBoundaryShadowSample(relSection.absoluteFrames, boundaryUT, side, out TrajectoryPoint shadow))
+                return false;
+
+            try
+            {
+                worldPos = absoluteWorldPositionResolver(shadow);
+            }
+            catch
+            {
+                worldPos = default;
+                return false;
+            }
+
+            return IsFinite(worldPos);
         }
 
         private static bool TryFindBoundaryFrameSample(

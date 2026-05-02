@@ -1,7 +1,7 @@
 # PR 708 playtest follow-up plan
 
 **Status:** active follow-up work. Baseline before the frozen-alignment fix is committed and pushed as `d329ffac` (`Seed Re-Fly split children from live root`) on `ghost-anchor-recording-chain-v11`.
-**Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, cache pre-Re-Fly synthetic anchor recordings, clear frozen alignment on marker-scope/body changes, and warn on suspiciously large initial offsets.
+**Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, cache pre-Re-Fly synthetic anchor recordings, clear frozen alignment on marker-scope/body changes, and warn on suspiciously large initial offsets. A later PR pass hardened the same-tree DAG fence for missing `TreeOrder`, sectionless v6+ resolver fallback, v11 boundary chain-miss shadow fallback, continuation tie-break documentation, and GuardSkip trace allocation.
 **Branch:** `ghost-anchor-recording-chain-v11`.
 **Scope:** remaining issues after Phases A-C of `ghost-anchor-recording-chain-plan.md`.
 **Non-goals:** no legacy v7-v10 migration, no live-PID fallback for non-loop Relative playback, no Phase D behaviour deletion until the D.0 product gate is explicit.
@@ -124,7 +124,7 @@ Runtime gate:
 
 Status note:
 
-- Review follow-up: one-frame Relative sections already used section interval coverage; one-frame Absolute anchor sections now use the same interval rule so parent anchors do not disappear at split windows just because the section has one frame.
+- Review follow-up: one-frame Relative sections already used section interval coverage; one-frame Absolute anchor sections now use the same interval rule so parent anchors do not disappear at split windows just because the section has one frame. A later review follow-up also makes v6+ recordings with missing `TrackSections` fail closed with `anchor-track-sections-missing` instead of interpreting flat Relative payloads as absolute world samples.
 
 ---
 
@@ -195,6 +195,7 @@ Runtime gate:
 Status note:
 
 - Implemented through `abb598b7`, with review follow-up tightening: distance / LOD checks only project an already captured frozen alignment and cannot create one before the ghost is renderable. Frozen alignments are invalidated if the active live Re-Fly vessel changes SOI/body or if the marker scope changes despite the same session id; capture logs now warn when the initial offset exceeds `50m`.
+- Review follow-up after the latest PR pass: same-tree anchor candidates with unknown `TreeOrder` now fail the hard DAG fence, and same-chain continuation selection is explicitly "first chronological covering segment wins" with tests. This keeps split-window uncertainty from silently choosing newer same-tree siblings.
 - Follow-up from `logs/2026-05-02_1320_pr708-refly-optimizer-boundary-bad-init/`: optimizer-created chain successors inherit the nearest cached predecessor's frozen display alignment instead of capturing a second offset at the atmo/exo split. This keeps Re-Fly display alignment continuous across chain segments while still using the hidden recorded trajectory as the source of truth. Review follow-up: when a pending Re-Fly tree and stale committed tree share the same tree id, the pending topology wins for inherited alignment.
 - Diagnostic follow-up: each display-alignment capture now logs `liveWorld`, `recordedWorld`, `live-recorded`, sampled section/frame timing, live and recorded velocities, `deltaAlongRecordedVelocityMeters`, and `impliedRecordedTimeOffsetSeconds`; cache hits also emit a rate-limited projected-offset line. Use these fields in the next log bundle to tell whether the remaining init error is capture timing, root-part fallback, recorded hidden-path drift, or repeated cache invalidation.
 - Recorded-path de-bob rollback: the frozen offset removed later live-vessel motion, but the first local recorded-path de-bob experiment did not safely smooth bobbing already present in the hidden recorded active trajectory. `logs/2026-05-02_1546_pr708-refly-smaller-bob-40m-init/` showed the de-bob correction toggling between zero, 6-7m offsets, and kilometre-scale rejected candidates near optimizer boundaries. Runtime Re-Fly display alignment is back to `recorded_world(t)+frozen_body_fixed_refly_offset`; de-bob fields remain in the capture/projection logs as `runtime-disabled` diagnostics only.

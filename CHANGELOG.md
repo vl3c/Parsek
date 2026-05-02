@@ -110,7 +110,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
-- Began the ghost-anchor recording-chain rearchitecture with v11 schema, recording-id anchor selection, chain-resolved non-loop Relative playback, same-tree DAG-order anchor fencing, frozen pre-Re-Fly anchor replay, and review follow-up hardening for split-window anchors and Re-Fly alignment invalidation.
+- Began the ghost-anchor recording-chain rearchitecture with v11 schema, recording-id anchor selection, chain-resolved non-loop Relative playback, same-tree DAG-order anchor fencing, frozen pre-Re-Fly anchor replay, and review hardening for split-window anchors, sectionless v6+ fail-closed handling, v11 boundary shadow fallback, and Re-Fly alignment invalidation.
 - Added Re-Fly display-alignment diagnostics that log capture-time live/recorded positions, section/frame timing, velocity mismatch, implied time offset, and rate-limited projected offsets.
 - Added gated GhostRenderTrace diagnostics for ghost render decisions across Update, LateUpdate, camera pre-cull, terrain clamp, Re-Fly alignment, and relative-anchor resolver paths.
 - Downgraded a benign in-place Re-Fly marker-rebuild warning from WARN to VERBOSE.

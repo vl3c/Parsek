@@ -376,6 +376,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_AnchorPastOptimizerSplit_ChoosesFirstChronologicalContinuation()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording earlierContinuation = MakeAbsoluteRecording(
+                "earlier-continuation",
+                tree.Id,
+                new Vector3d(110, 0, 0),
+                new Vector3d(120, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            earlierContinuation.ChainId = firstHalf.ChainId;
+            earlierContinuation.ChainIndex = 1;
+
+            Recording laterContinuation = MakeAbsoluteRecording(
+                "later-continuation",
+                tree.Id,
+                new Vector3d(1010, 0, 0),
+                new Vector3d(1020, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            laterContinuation.ChainId = firstHalf.ChainId;
+            laterContinuation.ChainIndex = 2;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(laterContinuation);
+            tree.AddOrReplaceRecording(earlierContinuation);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                12.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(113.0, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("successorRecordingId=earlier-continuation"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("successorRecordingId=later-continuation"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_V6OrNewerWithoutTrackSections_FailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            var recording = new Recording
+            {
+                RecordingId = "sectionless-v11",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                TreeId = tree.Id,
+                VesselName = "sectionless-v11",
+            };
+            recording.Points.Add(MakePoint(5.0, new Vector3d(1, 2, 3), Quaternion.identity));
+            tree.AddOrReplaceRecording(recording);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                recording.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-track-sections-missing") &&
+                l.Contains("recordingId=sectionless-v11"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_ActiveReFlyAnchorWithFrozenSnapshot_UsesSnapshot()
         {
             var tree = new RecordingTree { Id = "tree" };

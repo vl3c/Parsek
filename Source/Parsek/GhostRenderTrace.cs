@@ -268,9 +268,23 @@ namespace Parsek
             string recordingId = trajectory?.RecordingId;
             if (string.IsNullOrEmpty(recordingId))
                 return;
+            if (!ParsekLog.IsVerboseEnabled)
+                return;
 
             OpenDetailedWindow(recordingId, currentUT, AnomalyWindowSeconds, "guard-skip");
-            string message = BuildPrefix(
+            if (!ShouldEmitPhase(recordingId, currentUT))
+                return;
+
+            string key = "guard-skip-"
+                + ShortId(recordingId)
+                + "-"
+                + ghostIndex.ToString(CultureInfo.InvariantCulture)
+                + "-"
+                + GuardSkipReasonKey(reason);
+            ParsekLog.VerboseRateLimited(
+                "GhostRenderTrace",
+                key,
+                () => BuildPrefix(
                     recordingId,
                     ghostIndex,
                     currentUT,
@@ -280,14 +294,8 @@ namespace Parsek
                 + " reason=" + Token(reason)
                 + " vessel=" + Token(trajectory?.VesselName)
                 + " startUT=" + FormatDouble(trajectory.StartUT, "F3")
-                + " endUT=" + FormatDouble(trajectory.EndUT, "F3");
-            string key = "guard-skip-"
-                + ShortId(recordingId)
-                + "-"
-                + ghostIndex.ToString(CultureInfo.InvariantCulture)
-                + "-"
-                + GuardSkipReasonKey(reason);
-            ParsekLog.VerboseRateLimited("GhostRenderTrace", key, message, 1.0);
+                + " endUT=" + FormatDouble(trajectory.EndUT, "F3"),
+                1.0);
         }
 
         internal static void EmitReapply(

@@ -220,7 +220,7 @@ namespace Parsek
             if (!SameNonEmpty(focusRecording.TreeId, candidateRecording.TreeId))
                 return true;
             if (focusRecording.TreeOrder < 0 || candidateRecording.TreeOrder < 0)
-                return true;
+                return false;
 
             return candidateRecording.TreeOrder < focusRecording.TreeOrder;
         }
