@@ -857,6 +857,10 @@ namespace Parsek
             string priorOriginCreatingSessionId = null;
             string priorOriginProvisionalForRpId = null;
             bool taggedOriginForInPlace = false;
+            TryResolveSelectedSlotRootPartPersistentId(
+                rp,
+                selected.SlotIndex,
+                out uint selectedRootPartPersistentId);
 
             ReFlySessionMarker marker;
             try
@@ -907,6 +911,7 @@ namespace Parsek
                     OriginChildRecordingId = selected.OriginChildRecordingId,
                     SupersedeTargetId = priorTip,
                     RewindPointId = rp.RewindPointId,
+                    SelectedRootPartPersistentId = selectedRootPartPersistentId,
                     InvokedUT = SafeNow(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
                 };
@@ -977,6 +982,7 @@ namespace Parsek
                 $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
                 $"supersedeTarget={priorTip ?? "<none>"} " +
+                $"selectedRootPartPid={selectedRootPartPersistentId} " +
                 $"tree={treeIdForMarker ?? "<none>"} " +
                 $"inPlaceContinuation={inPlaceContinuation}");
         }
@@ -1339,6 +1345,23 @@ namespace Parsek
                     result.Add(kv.Key);
             }
             return result;
+        }
+
+        internal static bool TryResolveSelectedSlotRootPartPersistentId(
+            RewindPoint rp, int selectedSlotIndex, out uint rootPartPersistentId)
+        {
+            rootPartPersistentId = 0u;
+            Dictionary<uint, int> map = rp?.RootPartPidMap;
+            if (map == null) return false;
+            foreach (var kv in map)
+            {
+                if (kv.Key == 0u || kv.Value != selectedSlotIndex)
+                    continue;
+
+                rootPartPersistentId = kv.Key;
+                return true;
+            }
+            return false;
         }
 
         private static uint GetRootPartPersistentId(ConfigNode vessel)

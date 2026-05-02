@@ -18,6 +18,7 @@ namespace Parsek.Tests
                 OriginChildRecordingId = "rec_child0",
                 SupersedeTargetId = "rec_tip0",
                 RewindPointId = "rp_a1b2",
+                SelectedRootPartPersistentId = 3087746488u,
                 InvokedUT = 1742810.25,
                 InvokedRealTime = "2026-04-17T23:15:00Z"
             };
@@ -34,6 +35,7 @@ namespace Parsek.Tests
             Assert.Equal("rec_child0", restored.OriginChildRecordingId);
             Assert.Equal("rec_tip0", restored.SupersedeTargetId);
             Assert.Equal("rp_a1b2", restored.RewindPointId);
+            Assert.Equal(3087746488u, restored.SelectedRootPartPersistentId);
             Assert.Equal(1742810.25, restored.InvokedUT);
             Assert.Equal("2026-04-17T23:15:00Z", restored.InvokedRealTime);
         }
@@ -64,6 +66,7 @@ namespace Parsek.Tests
             Assert.Equal("rec_origin", restored.OriginChildRecordingId);
             Assert.Equal("rec_origin", restored.SupersedeTargetId);
             Assert.Equal("rp", restored.RewindPointId);
+            Assert.Equal(0u, restored.SelectedRootPartPersistentId);
             Assert.Equal(0.0, restored.InvokedUT);
             Assert.Null(restored.InvokedRealTime);
         }
@@ -82,6 +85,7 @@ namespace Parsek.Tests
             var restored = ReFlySessionMarker.LoadFrom(node);
 
             Assert.Null(restored.SupersedeTargetId);
+            Assert.Equal(0u, restored.SelectedRootPartPersistentId);
         }
     }
 }

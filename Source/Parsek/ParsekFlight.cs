@@ -17679,10 +17679,10 @@ namespace Parsek
         /// Returns the per-frame world-space delta to apply to a ghost's
         /// rendered position when the ghost belongs to a tree whose Re-Fly
         /// session is active. Recomputed every call as
-        /// <c>live_active_vessel_world(now) - recorded_active_world(currentUT)</c>
+        /// <c>live_active_anchor_world(now) - recorded_active_world(currentUT)</c>
         /// so each ghost sits at the recorded relative offset from where
-        /// the live vessel actually is, not where the recording said it
-        /// was.
+        /// the selected live Re-Fly anchor point actually is, not where the
+        /// recording said it was.
         /// </summary>
         internal bool TryGetReFlyTreeAnchorOffset(
             string recordingId, double currentUT, out Vector3d delta)
@@ -17733,7 +17733,13 @@ namespace Parsek
             }
 
             if (!TryComputeReFlyRecordingAnchorOffset(
-                    marker, currentUT, out Vector3d computed, out string reason))
+                    marker,
+                    currentUT,
+                    out Vector3d computed,
+                    out string reason,
+                    out string liveAnchorSource,
+                    out uint liveAnchorPartPid,
+                    out double liveAnchorOffsetMeters))
             {
                 ParsekLog.VerboseRateLimited(
                     "Playback",
@@ -17757,7 +17763,10 @@ namespace Parsek
                     + ShortRecordingId(recTreeId)
                     + " sess=" + ShortRecordingId(marker.SessionId)
                     + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                    + " contract=ghost_world(t)=recorded_relative_offset(t)+live_active_world(now)");
+                    + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
+                    + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
+                    + " liveAnchorVesselOffsetMeters=" + liveAnchorOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
+                    + " contract=ghost_world(t)=recorded_relative_offset(t)+live_active_anchor_world(now)");
             }
             delta = computed;
             return true;
@@ -18236,10 +18245,17 @@ namespace Parsek
 
         private bool TryComputeReFlyRecordingAnchorOffset(
             ReFlySessionMarker marker, double currentUT,
-            out Vector3d delta, out string reason)
+            out Vector3d delta,
+            out string reason,
+            out string liveAnchorSource,
+            out uint liveAnchorPartPid,
+            out double liveAnchorOffsetMeters)
         {
             delta = Vector3d.zero;
             reason = null;
+            liveAnchorSource = null;
+            liveAnchorPartPid = 0u;
+            liveAnchorOffsetMeters = double.NaN;
 
             if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
                 || activeReFlyPid == 0u)
@@ -18254,11 +18270,33 @@ namespace Parsek
                 reason = "live-vessel-missing";
                 return false;
             }
-            Vector3d livePos = liveAnchor.GetWorldPos3D();
-            if (!IsFiniteVector3d(livePos))
+            if (!TryResolveReFlyLiveAnchorWorld(
+                    liveAnchor,
+                    marker,
+                    out Vector3d livePos,
+                    out liveAnchorSource,
+                    out liveAnchorPartPid,
+                    out liveAnchorOffsetMeters))
             {
                 reason = "live-pos-non-finite";
                 return false;
+            }
+            if (marker != null
+                && marker.SelectedRootPartPersistentId != 0u
+                && !string.Equals(liveAnchorSource, "root-part", StringComparison.Ordinal))
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    "refly-live-anchor-rootpart-fallback|"
+                        + (marker.SessionId ?? "<no-sess>")
+                        + "|" + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture),
+                    "Re-Fly live anchor root-part fallback: active="
+                        + ShortRecordingId(marker.ActiveReFlyRecordingId)
+                        + " selectedRootPartPid="
+                        + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
+                        + " vesselPid=" + activeReFlyPid.ToString(CultureInfo.InvariantCulture),
+                    5.0);
             }
 
             Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
@@ -18296,6 +18334,73 @@ namespace Parsek
                 return false;
             }
             reason = "computed";
+            return true;
+        }
+
+        private static bool TryResolveReFlyLiveAnchorWorld(
+            Vessel liveAnchor,
+            ReFlySessionMarker marker,
+            out Vector3d livePos,
+            out string source,
+            out uint partPersistentId,
+            out double vesselOffsetMeters)
+        {
+            livePos = Vector3d.zero;
+            source = null;
+            partPersistentId = 0u;
+            vesselOffsetMeters = double.NaN;
+            if (liveAnchor == null)
+                return false;
+
+            Vector3d vesselPos = liveAnchor.GetWorldPos3D();
+            bool haveFiniteVesselPos = IsFiniteVector3d(vesselPos);
+            uint selectedRootPartPid = marker != null
+                ? marker.SelectedRootPartPersistentId
+                : 0u;
+            if (selectedRootPartPid != 0u)
+            {
+                partPersistentId = selectedRootPartPid;
+                IList<Part> parts = liveAnchor.parts;
+                if (parts != null)
+                {
+                    for (int i = 0; i < parts.Count; i++)
+                    {
+                        Part part = parts[i];
+                        if (part == null || part.persistentId != selectedRootPartPid)
+                            continue;
+                        if (part.transform == null)
+                        {
+                            source = "vessel-world-root-part-no-transform";
+                            break;
+                        }
+
+                        Vector3d partPos = part.transform.position;
+                        if (!IsFiniteVector3d(partPos))
+                        {
+                            source = "vessel-world-root-part-non-finite";
+                            break;
+                        }
+
+                        livePos = partPos;
+                        source = "root-part";
+                        vesselOffsetMeters = haveFiniteVesselPos
+                            ? Vector3d.Distance(vesselPos, partPos)
+                            : double.NaN;
+                        return true;
+                    }
+                }
+
+                if (source == null)
+                    source = "vessel-world-root-part-missing";
+            }
+
+            if (!haveFiniteVesselPos)
+                return false;
+
+            livePos = vesselPos;
+            if (source == null)
+                source = "vessel-world";
+            vesselOffsetMeters = 0.0;
             return true;
         }
 
