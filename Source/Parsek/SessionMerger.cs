@@ -180,6 +180,16 @@ namespace Parsek
                     return true;
                 }
 
+                if (TrySyncFlatTrajectoryPreservingPredictedOrbitTail(
+                        source,
+                        target,
+                        allowRelativeSections,
+                        out int preservedOrbitTailCount))
+                {
+                    flatSyncMode = "track-sections-preserved-predicted-orbit-tail:" + preservedOrbitTailCount;
+                    return true;
+                }
+
                 if (RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                         target, allowRelativeSections))
                 {
@@ -216,6 +226,156 @@ namespace Parsek
                 ? "track-sections"
                 : "track-sections-fallback";
             return rebuiltFlatTrajectory;
+        }
+
+        private static bool TrySyncFlatTrajectoryPreservingPredictedOrbitTail(
+            Recording source,
+            Recording target,
+            bool allowRelativeSections,
+            out int preservedOrbitTailCount)
+        {
+            preservedOrbitTailCount = 0;
+            if (source == null
+                || target == null
+                || source.OrbitSegments == null
+                || source.OrbitSegments.Count == 0
+                || !RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
+                    target.TrackSections, allowRelativeSections))
+            {
+                return false;
+            }
+
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            RecordingStore.RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
+
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            RecordingStore.RebuildOrbitSegmentsFromTrackSections(
+                target.TrackSections, rebuiltOrbitSegments);
+
+            double sectionEndUT = MaxTrackSectionEndUT(target.TrackSections);
+            int suffixStart = FindPredictedOrbitTailStart(
+                source.OrbitSegments, rebuiltOrbitSegments, sectionEndUT);
+            if (suffixStart < 0)
+                return false;
+
+            var mergedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
+            for (int i = suffixStart; i < source.OrbitSegments.Count; i++)
+            {
+                OrbitSegment segment = source.OrbitSegments[i];
+                if (mergedOrbitSegments.Count > 0
+                    && OrbitSegmentEquals(
+                        mergedOrbitSegments[mergedOrbitSegments.Count - 1],
+                        segment))
+                {
+                    continue;
+                }
+
+                mergedOrbitSegments.Add(segment);
+                preservedOrbitTailCount++;
+            }
+
+            if (preservedOrbitTailCount == 0)
+                return false;
+
+            target.Points = rebuiltPoints;
+            target.OrbitSegments = mergedOrbitSegments;
+            target.CachedStats = null;
+            target.CachedStatsPointCount = 0;
+            return true;
+        }
+
+        private static double MaxTrackSectionEndUT(List<TrackSection> sections)
+        {
+            double max = double.NegativeInfinity;
+            if (sections == null)
+                return max;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (sections[i].endUT > max)
+                    max = sections[i].endUT;
+            }
+
+            return max;
+        }
+
+        private static int FindPredictedOrbitTailStart(
+            List<OrbitSegment> sourceOrbitSegments,
+            List<OrbitSegment> rebuiltOrbitSegments,
+            double minStartUT)
+        {
+            if (sourceOrbitSegments == null
+                || rebuiltOrbitSegments == null
+                || sourceOrbitSegments.Count <= rebuiltOrbitSegments.Count)
+            {
+                return -1;
+            }
+
+            int start;
+            if (rebuiltOrbitSegments.Count > 0)
+            {
+                for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
+                {
+                    if (!OrbitSegmentEquals(sourceOrbitSegments[i], rebuiltOrbitSegments[i]))
+                        return -1;
+                }
+
+                start = rebuiltOrbitSegments.Count;
+            }
+            else
+            {
+                start = -1;
+                for (int i = 0; i < sourceOrbitSegments.Count; i++)
+                {
+                    if (sourceOrbitSegments[i].startUT + 1e-6 >= minStartUT)
+                    {
+                        start = i;
+                        break;
+                    }
+                }
+            }
+
+            if (start < 0 || start >= sourceOrbitSegments.Count)
+                return -1;
+
+            double previousStartUT = start > 0
+                ? sourceOrbitSegments[start - 1].startUT
+                : double.NegativeInfinity;
+            for (int i = start; i < sourceOrbitSegments.Count; i++)
+            {
+                OrbitSegment segment = sourceOrbitSegments[i];
+                if (!segment.isPredicted)
+                    return -1;
+                if (segment.startUT < previousStartUT)
+                    return -1;
+                if (segment.startUT + 1e-6 < minStartUT)
+                    return -1;
+                previousStartUT = segment.startUT;
+            }
+
+            return start;
+        }
+
+        private static bool OrbitSegmentEquals(OrbitSegment a, OrbitSegment b)
+        {
+            return a.startUT == b.startUT
+                && a.endUT == b.endUT
+                && a.inclination == b.inclination
+                && a.eccentricity == b.eccentricity
+                && a.semiMajorAxis == b.semiMajorAxis
+                && a.longitudeOfAscendingNode == b.longitudeOfAscendingNode
+                && a.argumentOfPeriapsis == b.argumentOfPeriapsis
+                && a.meanAnomalyAtEpoch == b.meanAnomalyAtEpoch
+                && a.epoch == b.epoch
+                && a.bodyName == b.bodyName
+                && a.isPredicted == b.isPredicted
+                && a.orbitalFrameRotation.x == b.orbitalFrameRotation.x
+                && a.orbitalFrameRotation.y == b.orbitalFrameRotation.y
+                && a.orbitalFrameRotation.z == b.orbitalFrameRotation.z
+                && a.orbitalFrameRotation.w == b.orbitalFrameRotation.w
+                && a.angularVelocity.x == b.angularVelocity.x
+                && a.angularVelocity.y == b.angularVelocity.y
+                && a.angularVelocity.z == b.angularVelocity.z;
         }
 
         /// <summary>

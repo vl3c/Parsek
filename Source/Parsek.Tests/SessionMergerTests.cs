@@ -836,6 +836,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeTree_PreservesOrbitOnlyPredictedTailWhenFlatPointsAreStale()
+        {
+            const double sectionEndUT = 729.417;
+            const double terminalUT = 2421.878;
+
+            var section = MakeSection(
+                710.297,
+                sectionEndUT,
+                TrackSectionSource.Active,
+                lat: -0.04,
+                lon: -74.3,
+                alt: 55000.0,
+                endLat: -0.03,
+                endLon: -74.0,
+                endAlt: 54000.0);
+            var rec = MakeRecording("rec-stale-orbit-tail", "Kerbal X", new List<TrackSection> { section });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(739.157, 1400.0, isPredicted: true),
+                MakeOrbitSegment(1400.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Stale Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-stale-orbit-tail"];
+
+            Assert.Equal(2, merged.Points.Count);
+            Assert.Equal(710.297, merged.Points[0].ut);
+            Assert.Equal(sectionEndUT, merged.Points[1].ut);
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(739.157, merged.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-stale-orbit-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
+        }
+
+        [Fact]
         public void MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy()
         {
             var section = new TrackSection
