@@ -12,6 +12,8 @@ namespace Parsek.Tests
         private readonly string tempDir;
         private readonly string tempPath;
         private readonly bool priorSuppressLogging;
+        private readonly Action<string> priorTestSink;
+        private readonly List<string> logLines = new List<string>();
 
         public ReFlySaveScrubTests()
         {
@@ -21,12 +23,15 @@ namespace Parsek.Tests
             Directory.CreateDirectory(tempDir);
             tempPath = Path.Combine(tempDir, "persistent.sfs");
             priorSuppressLogging = ParsekLog.SuppressLogging;
-            ParsekLog.SuppressLogging = true;
+            priorTestSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()
         {
             ParsekLog.SuppressLogging = priorSuppressLogging;
+            ParsekLog.TestSinkForTesting = priorTestSink;
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
             catch { }
         }
@@ -105,7 +110,7 @@ namespace Parsek.Tests
         public void ScrubQuicksaveToSelectedSlot_ClosesThrottleFieldsOnKeptVessels()
         {
             SaveTestGame(
-                MakeVessel(5000u, "Selected A", 444u, mainThrottle: "0.85",
+                MakeVessel(5000u, "Selected A", 444u, mainThrottle: "0.85", wheelThrottle: "0.5",
                     engineCurrentThrottle: "1", independentThrottlePercentage: "25"),
                 MakeVessel(5001u, "Selected B", 445u),
                 MakeVessel(6000u, "Other", 555u, mainThrottle: "1"));
@@ -132,15 +137,18 @@ namespace Parsek.Tests
             Assert.True(result.Applied);
             Assert.Equal(2, result.VesselsKept);
             Assert.Equal(1, result.VesselsRemoved);
-            Assert.Equal(4, result.ThrottleResets);
+            Assert.Equal(6, result.ThrottleResets);
 
             ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
             Assert.Equal(2, vessels.Length);
             Assert.Equal("0", vessels[0].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+            Assert.Equal("0", vessels[0].GetNode("CTRLSTATE")?.GetValue("wheelThrottle"));
             ConfigNode engineModule = vessels[0].GetNode("PART")?.GetNode("MODULE");
             Assert.Equal("0", engineModule?.GetValue("currentThrottle"));
             Assert.Equal("0", engineModule?.GetValue("independentThrottlePercentage"));
             Assert.Equal("0", vessels[1].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+            Assert.Equal("0", vessels[1].GetNode("CTRLSTATE")?.GetValue("wheelThrottle"));
+            Assert.Contains(logLines, l => l.Contains("[Rewind]") && l.Contains("throttleResets=6"));
         }
 
         [Fact]
@@ -301,6 +309,7 @@ namespace Parsek.Tests
             string name,
             uint rootPartPid,
             string mainThrottle = null,
+            string wheelThrottle = null,
             string engineCurrentThrottle = null,
             string independentThrottlePercentage = null)
         {
@@ -320,10 +329,13 @@ namespace Parsek.Tests
                 if (independentThrottlePercentage != null)
                     module.AddValue("independentThrottlePercentage", independentThrottlePercentage);
             }
-            if (mainThrottle != null)
+            if (mainThrottle != null || wheelThrottle != null)
             {
                 var ctrlState = vessel.AddNode("CTRLSTATE");
-                ctrlState.AddValue("mainThrottle", mainThrottle);
+                if (mainThrottle != null)
+                    ctrlState.AddValue("mainThrottle", mainThrottle);
+                if (wheelThrottle != null)
+                    ctrlState.AddValue("wheelThrottle", wheelThrottle);
             }
             return vessel;
         }

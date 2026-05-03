@@ -1449,10 +1449,16 @@ namespace Parsek
             if (vessel == null) return 0;
 
             int resetCount = 0;
+            // The temp save may contain uncontrolled debris with no CTRLSTATE;
+            // adding only throttle fields is harmless and prevents inherited player input.
             ConfigNode ctrlState = vessel.GetNode("CTRLSTATE") ?? vessel.AddNode("CTRLSTATE");
             if (SetOrAddValueAndReportChange(ctrlState, "mainThrottle", "0"))
                 resetCount++;
+            if (SetOrAddValueAndReportChange(ctrlState, "wheelThrottle", "0"))
+                resetCount++;
 
+            // Engine module fields are normalized only when present. Module-less
+            // debris has no engine throttle state to close.
             ConfigNode[] parts = vessel.GetNodes("PART");
             for (int partIndex = 0; partIndex < parts.Length; partIndex++)
             {
