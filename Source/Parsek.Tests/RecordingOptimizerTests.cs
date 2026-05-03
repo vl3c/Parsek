@@ -4212,6 +4212,69 @@ namespace Parsek.Tests
                 && l.Contains("ecc delta"));
         }
 
+        // Bulk-pass logging contract: when `RecordingStore.TrimBoringTailsForOptimization`
+        // walks every committed recording, it now passes `logSkipReason: false` and
+        // aggregates skip categories into a single summary line. Direct callers (and
+        // the existing per-recording skip-reason tests above) keep the verbose detail
+        // by leaving the default-arg overload alone.
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonFalse_SuppressesPerRecordingLogAndReportsCategory()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Same shape as TrimBoringTail_TooShort_LogsSkipReason above (25s, under
+            // the 30s minimum) — but the bulk-mode call must be silent and surface
+            // the category through the out parameter instead.
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-too-short-bulk";
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: false,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("too-short", skipCategory);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("TrimBoringTail: skipped"));
+        }
+
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonTrue_MatchesLegacyPerRecordingLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-too-short-direct";
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: true,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("too-short", skipCategory);
+            // Legacy per-recording detail still emitted for direct callers.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (too-short)")
+                && l.Contains("trim-too-short-direct"));
+        }
+
         #endregion
 
         #region RunOptimizationPass -- tree with branch points

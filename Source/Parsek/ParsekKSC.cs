@@ -206,6 +206,8 @@ namespace Parsek
             }
 
             int ghostCount = 0;
+            int loopingCount = 0;
+            var terminalCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             // [ERS-exempt] reason: ParsekKSC keys ghost dictionaries by committed
             // recording index (kscGhosts[i]); converting to ERS here would break
             // the index<->ghost correspondence.
@@ -218,16 +220,27 @@ namespace Parsek
                 if (ShouldShowInKSC(rec, supersedes))
                 {
                     ghostCount++;
-                    ParsekLog.Verbose("KSCGhost",
-                        $"Recording #{i} \"{rec.VesselName}\" eligible: " +
-                        $"UT=[{rec.StartUT:F1},{rec.EndUT:F1}] loop={rec.LoopPlayback} " +
-                        $"terminal={rec.TerminalStateValue} points={rec.Points.Count}");
+                    if (rec.LoopPlayback) loopingCount++;
+                    string termKey = rec.TerminalStateValue?.ToString() ?? "<null>";
+                    terminalCounts[termKey] = terminalCounts.TryGetValue(termKey, out int prev) ? prev + 1 : 1;
                 }
             }
 
             ParsekLog.Info("KSC",
                 $"ParsekKSC initialized, {committed.Count} committed recordings, " +
                 $"{ghostCount} eligible for KSC ghost playback");
+            // Eligibility breakdown — replaces the per-recording verbose enumeration
+            // that emitted hundreds of lines on every KSC entry for saves with many
+            // synthetic / showcase recordings.
+            if (ghostCount > 0)
+            {
+                var ordered = new List<KeyValuePair<string, int>>(terminalCounts);
+                ordered.Sort((a, b) => b.Value.CompareTo(a.Value));
+                var parts = new List<string>(ordered.Count);
+                foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+                ParsekLog.Verbose("KSCGhost",
+                    $"Eligible breakdown: looping={loopingCount} terminal({string.Join(", ", parts.ToArray())})");
+            }
         }
 
         void OnGUI()

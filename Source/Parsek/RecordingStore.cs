@@ -2008,18 +2008,48 @@ namespace Parsek
             // ghost sitting motionless on the surface or coasting in orbit.
             // ORDERING: after splits (which may create new leaf recordings) and before
             // PopulateLoopSyncParentIndices (which uses list indices).
+            //
+            // Logging: per-recording skip-reason verbose lines are suppressed and
+            // aggregated into a single summary at the end of the pass. A save with
+            // hundreds of recordings would otherwise emit hundreds of identical
+            // "skipped (too-short)" lines per scenario load.
             int trimCount = 0;
+            Dictionary<string, int> skipCounts = null;
             for (int i = 0; i < recordings.Count; i++)
             {
-                if (RecordingOptimizer.TrimBoringTail(recordings[i], recordings))
+                bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                    recordings[i],
+                    recordings,
+                    RecordingOptimizer.DefaultTailBufferSeconds,
+                    logSkipReason: false,
+                    skipCategory: out string skipCategory);
+                if (trimmed)
                 {
                     recordings[i].FilesDirty = true;
                     trimCount++;
+                }
+                else if (!string.IsNullOrEmpty(skipCategory))
+                {
+                    if (skipCounts == null)
+                        skipCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                    skipCounts[skipCategory] = skipCounts.TryGetValue(skipCategory, out int prev) ? prev + 1 : 1;
                 }
             }
             if (trimCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
+            if (skipCounts != null && skipCounts.Count > 0)
+            {
+                int totalSkipped = 0;
+                foreach (var n in skipCounts.Values) totalSkipped += n;
+                var ordered = new List<KeyValuePair<string, int>>(skipCounts);
+                ordered.Sort((a, b) => b.Value.CompareTo(a.Value));
+                var parts = new List<string>(ordered.Count);
+                foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
+                    string.Join(", ", parts.ToArray()));
+            }
         }
 
         /// <summary>
