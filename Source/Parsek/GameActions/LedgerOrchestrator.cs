@@ -779,10 +779,13 @@ namespace Parsek
 
         /// <summary>
         /// Removes actions from the candidate list that already exist in the ledger.
-        /// Matches on Type + UT (within epsilon) + key field (SubjectId, NodeId, FacilityId,
-        /// MilestoneId, or ContractId depending on type). This prevents double-adding KSC
-        /// events that were written to the ledger in real-time via OnKscSpending but also
-        /// fall within a recording's time range.
+        /// Matches on Type + occurrence UT (within epsilon) + key field (SubjectId, NodeId,
+        /// FacilityId, MilestoneId, or ContractId depending on type). Recording-commit
+        /// ScienceEarning rows use UT == recording end for timeline ordering, but preserve
+        /// the actual capture moment in StartUT. Direct KSC science rows store the capture
+        /// moment in UT == StartUT == EndUT, so science dedup compares the capture moment.
+        /// This prevents double-adding KSC events that were written to the ledger in real-time
+        /// via OnKscSpending but also fall within a recording's time range.
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
@@ -799,7 +802,8 @@ namespace Parsek
                 {
                     var e = existing[j];
                     if (e.Type != c.Type) continue;
-                    if (System.Math.Abs(e.UT - c.UT) > 0.1) continue;
+                    if (System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
+                        continue;
 
                     // Match on the type-specific key field
                     if (GetActionKey(e) == GetActionKey(c))
@@ -821,6 +825,25 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        internal static double GetDedupOccurrenceUt(GameAction action)
+        {
+            if (action.Type == GameActionType.ScienceEarning)
+            {
+                bool hasFiniteStartUt =
+                    !float.IsNaN(action.StartUT) &&
+                    !float.IsInfinity(action.StartUT);
+
+                // StartUT defaults to zero on old/synthetic rows. Treat it as populated only
+                // when the science row has an explicit window, or for legacy UT=0 migrations.
+                bool hasExplicitScienceWindow = action.StartUT > 0f || action.EndUT > 0f;
+                bool isLegacyZeroUtSynthetic = System.Math.Abs(action.UT) <= 0.1;
+                if (hasFiniteStartUt && (hasExplicitScienceWindow || isLegacyZeroUtSynthetic))
+                    return action.StartUT;
+            }
+
+            return action.UT;
         }
 
         /// <summary>Returns the type-specific key field for deduplication matching.</summary>
@@ -2327,6 +2350,106 @@ namespace Parsek
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// Captures unowned stock science payouts directly into the ledger. Science
+        /// collected while a recording is live stays in <see cref="GameStateRecorder.PendingScienceSubjects"/>
+        /// and flows through <see cref="OnRecordingCommitted"/>; this path is for KSC /
+        /// pre-recording callbacks where no future recording commit can own the subject.
+        /// </summary>
+        /// <returns>
+        /// True when the subject was handled by the direct path, including duplicate
+        /// suppression. False means the caller should keep the subject pending.
+        /// </returns>
+        internal static bool TryRecordKscScienceSubject(
+            PendingScienceSubject subject,
+            string vesselName)
+        {
+            Initialize();
+
+            if (string.IsNullOrEmpty(subject.subjectId))
+            {
+                ParsekLog.Warn(Tag,
+                    "TryRecordKscScienceSubject: empty subjectId — retaining pending subject");
+                return false;
+            }
+
+            if (subject.science <= 0f)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryRecordKscScienceSubject: non-positive science for subject='{subject.subjectId}' " +
+                    $"science={subject.science.ToString("R", CultureInfo.InvariantCulture)} — retaining pending subject");
+                return false;
+            }
+
+            string recordingId = ResolveKscScienceRecordingId(subject, vesselName);
+            var routedSubject = subject;
+            routedSubject.recordingId = recordingId ?? "";
+
+            var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                new[] { routedSubject },
+                recordingId,
+                subject.captureUT,
+                subject.captureUT);
+
+            if (scienceActions.Count == 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"TryRecordKscScienceSubject: converter produced no action for subject='{subject.subjectId}' " +
+                    $"ut={subject.captureUT.ToString("F1", CultureInfo.InvariantCulture)} — retaining pending subject");
+                return false;
+            }
+
+            int beforeDedup = scienceActions.Count;
+            scienceActions = DeduplicateAgainstLedger(scienceActions);
+            if (scienceActions.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryRecordKscScienceSubject: duplicate direct ScienceEarning suppressed for " +
+                    $"subject='{subject.subjectId}' ut={subject.captureUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"deduped={beforeDedup}");
+                return true;
+            }
+
+            for (int i = 0; i < scienceActions.Count; i++)
+                scienceActions[i].Sequence = AllocateKscSequence();
+
+            Ledger.AddActions(scienceActions);
+            GameStateStore.CommitScienceActions(scienceActions);
+
+            // Verbose: paired Info "Science subject captured" already fires per subject; this row carries the direct-path detail without amplifying multi-subject recoveries.
+            ParsekLog.Verbose(Tag,
+                $"KSC science recorded: subject='{subject.subjectId}' " +
+                $"science={subject.science.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"method={scienceActions[0].Method} ut={subject.captureUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"recordingId={recordingId ?? "(none)"} vessel='{vesselName ?? ""}'");
+
+            RecalculateAndPatch();
+            return true;
+        }
+
+        private static string ResolveKscScienceRecordingId(
+            PendingScienceSubject subject,
+            string vesselName)
+        {
+            if (!string.Equals(
+                    subject.reasonKey ?? "",
+                    VesselRecoveryReasonKey,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (string.IsNullOrEmpty(vesselName))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveKscScienceRecordingId: recovery science subject='{subject.subjectId}' " +
+                    "has no vessel name — using null recording owner");
+                return null;
+            }
+
+            return PickRecoveryRecordingId(vesselName, subject.captureUT);
         }
 
         /// <summary>

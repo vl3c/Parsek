@@ -57,6 +57,7 @@ namespace Parsek
         {
             internal const double LoopFullFidelityMeters = PhysicsBubbleMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
+            internal const double PhysicsFidelityRestoreMeters = 2200.0;
 
             // Keep the watch camera available through typical ascent/coast ghosts
             // without letting it stay latched to whole-orbit distant playback.
@@ -172,9 +173,33 @@ namespace Parsek
 
         /// <summary>
         /// Initial post-activation window during which ghost visible frames
-        /// are clamped to a tight range to avoid spawn-time pop.
+        /// may be clamped to avoid spawn-time pop. Keep this tight: wider
+        /// clamping can fight co-bubble/chain rendering at optimizer splits.
         /// </summary>
-        internal const double InitialVisibleFrameClampWindowSeconds = 0.25;
+        internal const double InitialVisibleFrameClampWindowSeconds = 0.02;
+
+        /// <summary>
+        /// Initial hidden window for ghosts that activate directly into a
+        /// Relative section. These are often split successors whose first
+        /// render races visual construction, anchor resolution, and origin
+        /// settling; hiding only the fresh first appearance avoids a visible
+        /// one-frame pop without changing the recorded path.
+        /// </summary>
+        internal const double InitialRelativeActivationHiddenSeconds = 0.08;
+
+        /// <summary>
+        /// Maximum first-section duration that is treated as a synthetic
+        /// Absolute seed-to-live-root bridge and hidden on fresh activation.
+        /// Wider sections are real playback payload and must remain visible.
+        /// </summary>
+        internal const double InitialAbsoluteBridgeActivationHiddenMaxSeconds = 1.0;
+
+        /// <summary>
+        /// Minimum rendered-frame hold for fresh activation and predicted
+        /// orbit-tail handoff hides. This keeps the guard effective under
+        /// time warp, where the UT window can elapse inside one render tick.
+        /// </summary>
+        internal const int InitialActivationHiddenMinimumFrames = 2;
     }
 
     /// <summary>

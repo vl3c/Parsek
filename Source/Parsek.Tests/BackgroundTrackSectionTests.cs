@@ -1020,6 +1020,37 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Absolute, tree.Recordings[recId].TrackSections[0].referenceFrame);
         }
 
+        [Fact]
+        public void BackgroundRelativeSection_WritesAnchorRecordingIdAndClearsPid()
+        {
+            uint pid = 961;
+            string recId = "rec_rel";
+            string anchorId = "rec_anchor";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[anchorId] = new Recording
+            {
+                RecordingId = anchorId,
+                VesselName = "Anchor Vessel",
+                VesselPersistentId = 962u,
+                MergeState = MergeState.Immutable
+            };
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1000.0);
+            bgRecorder.StartRelativeTrackSectionForTesting(
+                pid, anchorId, SegmentEnvironment.Atmospheric, 1010.0);
+            bgRecorder.FinalizeAllForCommit(1050.0);
+
+            var sections = tree.Recordings[recId].TrackSections;
+            Assert.Equal(2, sections.Count);
+            TrackSection relative = sections[1];
+            Assert.Equal(ReferenceFrame.Relative, relative.referenceFrame);
+            Assert.Equal(anchorId, relative.anchorRecordingId);
+            Assert.Equal(0u, relative.anchorVesselId);
+            Assert.NotNull(relative.absoluteFrames);
+        }
+
         #endregion
     }
 }

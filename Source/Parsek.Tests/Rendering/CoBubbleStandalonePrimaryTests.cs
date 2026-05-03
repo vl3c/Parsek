@@ -50,9 +50,8 @@ namespace Parsek.Tests.Rendering
             // (the field name is a v5-era misnomer per CLAUDE.md "Rotation /
             // world frame"). The pre-fix code path read them as lat/lon/alt
             // and silently produced a sub-planetary position; the fix routes
-            // RELATIVE sections through TryResolveRelativeWorldPosition (or
-            // returns false when no ParsekFlight.Instance is available, as
-            // is the case in xUnit).
+            // RELATIVE sections through the recording-id anchor resolver and
+            // fails closed when legacy data has no anchorRecordingId.
             var rec = new Recording
             {
                 RecordingId = "primary-relative",
@@ -96,11 +95,10 @@ namespace Parsek.Tests.Rendering
 
             RecordingStore.AddCommittedInternal(rec);
 
-            // Without a live ParsekFlight.Instance the v6 RELATIVE path
-            // can't resolve the anchor pose; the helper must return false
-            // (HR-9 visible failure) rather than silently lat/lon/alt-as-
-            // degrees the offset to a sub-planetary position. The pre-fix
-            // path returned TRUE with a garbage worldPos.
+            // Legacy v6 data has no recording-id anchor. The helper must
+            // return false (HR-9 visible failure) rather than silently
+            // lat/lon/alt-as-degrees the offset to a sub-planetary position.
+            // The pre-fix path returned TRUE with a garbage worldPos.
             bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
                 "primary-relative", 105.0, fallbackBody: null,
                 out Vector3d worldPos);
@@ -111,7 +109,7 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.z);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("TryComputeStandaloneRelativeWorldPosition")
-                && l.Contains("ParsekFlight.Instance null"));
+                && l.Contains("legacy-anchor-recording-id-missing"));
         }
 
         [Fact]
@@ -317,31 +315,16 @@ namespace Parsek.Tests.Rendering
                 // FlightGlobals.Bodies is unavailable in xUnit, so the
                 // body resolver inside TryComputeStandaloneAbsoluteShadow
                 // returns null and the helper returns false — but the
-                // critical assertion for P1-C is that the live-anchor
-                // path was NOT taken (no "Instance null" log fires
-                // because the active-re-fly branch ran ahead of the
-                // Instance check). Without the fix, the active-re-fly
-                // dispatch never happened and the helper would have
-                // logged "ParsekFlight.Instance null" before returning
-                // false.
+                // critical assertion is that the live-anchor path was NOT
+                // taken. v11 data without anchorRecordingId is fenced as a
+                // format bug after trying the caller-owned shadow.
                 Assert.False(ok);
                 Assert.DoesNotContain(logLines, l => l.Contains("[Pipeline-CoBubble]")
                     && l.Contains("ParsekFlight.Instance null")
                     && l.Contains(rec.RecordingId));
-                // Phase 5 review-pass-3 P2-2: positively assert the
-                // no-shadow Verbose fires (rate-limit dedup key
-                // "primary-active-refly-no-shadow", visible message
-                // text "active-re-fly anchor matched but no absolute
-                // shadow available"). The active-re-fly branch ran
-                // (proved by no Instance-null log) and
-                // TryComputeStandaloneAbsoluteShadowWorldPosition
-                // returned false (FlightGlobals.Bodies unavailable in
-                // xUnit → caught TypeInitializationException → return
-                // false), so the no-shadow Verbose must fire — without
-                // this assertion a future refactor that drops the
-                // Verbose would still pass the no-Instance-null check.
                 Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
-                    && l.Contains("active-re-fly anchor matched but no absolute shadow available")
+                    && l.Contains("anchor-recording-id-missing")
+                    && l.Contains("legacyAnchorPid=12345")
                     && l.Contains(rec.RecordingId));
             }
             finally

@@ -202,7 +202,7 @@ namespace Parsek.Tests
         #region Test 3: RELATIVE reference frame with anchorVesselId
 
         [Fact]
-        public void RoundTrip_RelativeFrame_WithAnchorVesselId()
+        public void RoundTrip_LegacyRelativeFrame_WithAnchorVesselId()
         {
             var original = new TrackSection
             {
@@ -223,7 +223,10 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            RecordingStore.SerializeTrackSections(
+                parent,
+                tracks,
+                RecordingStore.StructuralEventFlagFormatVersion);
 
             var loaded = new List<TrackSection>();
             RecordingStore.DeserializeTrackSections(parent, loaded);
@@ -236,6 +239,48 @@ namespace Parsek.Tests
 
             for (int i = 0; i < 3; i++)
                 AssertPointsEqual(original.frames[i], result.frames[i], $"point[{i}]");
+        }
+
+        #endregion
+
+        #region v11 anchorRecordingId
+
+        [Fact]
+        public void RoundTrip_RelativeFrame_WithAnchorRecordingId()
+        {
+            var original = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoPropulsive,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 17500.0,
+                endUT = 17600.0,
+                sampleRateHz = 5.0f,
+                anchorRecordingId = "anchor-rec-1",
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(17500.0, 0.0, 0.0, 100, velX: 1f, velY: 2f, velZ: 3f),
+                    MakePoint(17600.0, 0.2, 0.2, 300, velX: 7f, velY: 8f, velZ: 9f),
+                },
+                checkpoints = new List<OrbitSegment>()
+            };
+
+            var parent = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(
+                parent,
+                new List<TrackSection> { original },
+                RecordingStore.RecordingAnchorChainFormatVersion);
+
+            ConfigNode tsNode = parent.GetNode("TRACK_SECTION");
+            Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));
+            Assert.Null(tsNode.GetValue("anchorPid"));
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(parent, loaded);
+
+            Assert.Single(loaded);
+            Assert.Equal("anchor-rec-1", loaded[0].anchorRecordingId);
+            Assert.Equal(0u, loaded[0].anchorVesselId);
         }
 
         #endregion

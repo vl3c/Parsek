@@ -171,6 +171,141 @@ namespace Parsek.Tests.Rendering
                     boundaryUT: 100, out w));
         }
 
+        [Fact]
+        public void RelativeBoundary_KnownSectionResolverDoesNotReselectFollowingAbsoluteSection()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            var root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = tree.Id,
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+            };
+            root.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10,
+                        latitude = 100,
+                        longitude = 0,
+                        altitude = 0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            var focus = new Recording
+            {
+                RecordingId = "focus",
+                TreeId = tree.Id,
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+            };
+            var relSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0,
+                endUT = 10,
+                anchorRecordingId = root.RecordingId,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10,
+                        latitude = 1,
+                        longitude = 2,
+                        altitude = 3,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            };
+            focus.TrackSections.Add(relSection);
+            focus.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 10,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10,
+                        latitude = 999,
+                        longitude = 999,
+                        altitude = 999,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(focus);
+            var context = new RelativeAnchorResolverContext(
+                tree,
+                focusRecordingId: focus.RecordingId,
+                focusTreeId: tree.Id,
+                absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                bodyWorldRotationResolver: p => Quaternion.identity);
+
+            bool resolved = ProductionAnchorWorldFrameResolver.TryResolveKnownRelativeBoundaryPose(
+                context,
+                focus,
+                relSection,
+                relIdx: 0,
+                ut: 10,
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(101.0, pose.WorldPos.x, 6);
+            Assert.Equal(2.0, pose.WorldPos.y, 6);
+            Assert.Equal(3.0, pose.WorldPos.z, 6);
+            Assert.Equal(0, pose.ResolvedSectionIndex);
+            Assert.Equal(focus.RecordingId, pose.ResolvedRecordingId);
+        }
+
+        [Fact]
+        public void RelativeBoundary_ShadowResolverUsesAbsoluteFrames()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "focus",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+            };
+            var relSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0,
+                endUT = 10,
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10,
+                        latitude = 100,
+                        longitude = 20,
+                        altitude = 3,
+                    },
+                },
+            };
+
+            bool resolved = ProductionAnchorWorldFrameResolver.TryResolveRelativeBoundaryShadowWorldPos(
+                rec,
+                relSection,
+                boundaryUT: 10,
+                side: AnchorSide.End,
+                absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                out Vector3d worldPos);
+
+            Assert.True(resolved);
+            Assert.Equal(100.0, worldPos.x, 6);
+            Assert.Equal(20.0, worldPos.y, 6);
+            Assert.Equal(3.0, worldPos.z, 6);
+        }
+
         // --- §7.5 OrbitalCheckpoint guard paths ---------------------------
 
         [Fact]

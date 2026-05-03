@@ -51,7 +51,7 @@ namespace Parsek.Tests
             var recorder = new FlightRecorder();
 
             recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Relative, 200.0);
-            SetCurrentTrackSectionAnchor(recorder, 123456789u);
+            SetCurrentTrackSectionAnchor(recorder, "anchor-rec");
 
             recorder.CheckpointOpenTrackSectionForSerialization(220.0);
             recorder.CloseCurrentTrackSection(240.0);
@@ -59,8 +59,10 @@ namespace Parsek.Tests
             Assert.Equal(2, recorder.TrackSections.Count);
             Assert.Equal(ReferenceFrame.Relative, recorder.TrackSections[0].referenceFrame);
             Assert.Equal(ReferenceFrame.Relative, recorder.TrackSections[1].referenceFrame);
-            Assert.Equal(123456789u, recorder.TrackSections[0].anchorVesselId);
-            Assert.Equal(123456789u, recorder.TrackSections[1].anchorVesselId);
+            Assert.Equal("anchor-rec", recorder.TrackSections[0].anchorRecordingId);
+            Assert.Equal("anchor-rec", recorder.TrackSections[1].anchorRecordingId);
+            Assert.Equal(0u, recorder.TrackSections[0].anchorVesselId);
+            Assert.Equal(0u, recorder.TrackSections[1].anchorVesselId);
         }
 
         [Fact]
@@ -84,7 +86,7 @@ namespace Parsek.Tests
             Assert.Empty(recorder.TrackSections[1].frames);
         }
 
-        private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, uint anchorPid)
+        private static void SetCurrentTrackSectionAnchor(FlightRecorder recorder, string anchorRecordingId)
         {
             var field = typeof(FlightRecorder).GetField(
                 "currentTrackSection",
@@ -93,7 +95,8 @@ namespace Parsek.Tests
             Assert.NotNull(field);
 
             var section = (TrackSection)field.GetValue(recorder);
-            section.anchorVesselId = anchorPid;
+            section.anchorRecordingId = anchorRecordingId;
+            section.anchorVesselId = 0u;
             field.SetValue(recorder, section);
         }
     }

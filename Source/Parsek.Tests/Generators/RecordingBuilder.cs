@@ -379,6 +379,7 @@ namespace Parsek.Tests.Generators
             double startUT, double endUT,
             List<TrajectoryPoint> frames = null, List<OrbitSegment> checkpoints = null,
             uint anchorVesselId = 0, float sampleRateHz = 0f,
+            string anchorRecordingId = null,
             bool isBoundarySeam = false)
         {
             var section = new TrackSection
@@ -391,6 +392,7 @@ namespace Parsek.Tests.Generators
                 frames = frames ?? new List<TrajectoryPoint>(),
                 checkpoints = checkpoints ?? new List<OrbitSegment>(),
                 anchorVesselId = anchorVesselId,
+                anchorRecordingId = anchorRecordingId,
                 sampleRateHz = sampleRateHz,
                 isBoundarySeam = isBoundarySeam
             };
@@ -556,7 +558,7 @@ namespace Parsek.Tests.Generators
             if (segmentEvents.Count > 0)
                 RecordingStore.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections);
+                RecordingStore.SerializeTrackSections(node, trackSections, formatVersion);
 
             return node;
         }
@@ -795,7 +797,7 @@ namespace Parsek.Tests.Generators
             if (segmentEvents.Count > 0)
                 RecordingStore.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections);
+                RecordingStore.SerializeTrackSections(node, trackSections, formatVersion);
 
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);

@@ -339,16 +339,10 @@ namespace Parsek
             // call site that commits while still in flight.
             ReFlyRevertButtonGate.Apply("SupersedeCommit:marker-cleared");
 
-            // #688 follow-up: drop any captured pre-Re-Fly anchor trajectory
-            // snapshot now that the session is committed. The snapshot was
-            // only needed to feed the per-frame anchor offset while the live
-            // recording was being trimmed/extended; post-merge the recording's
-            // own data is final and the snapshot would otherwise linger in
-            // memory and in the .sfs as dead weight (the codec writes a
-            // full PRE_REFLY_ANCHOR node whenever HasPreReFlyAnchorTrajectory
-            // returns true). Idempotent — clears all recordings tagged with
-            // this session id, even though under the in-place contract only
-            // one recording carries a snapshot per session.
+            // Drop any captured pre-Re-Fly snapshots now that the session is
+            // committed. They are only needed while the live recording is
+            // being trimmed/extended or until merge-discard can restore the
+            // in-place original.
             ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 
             ParsekLog.Info(SessionTag,
@@ -366,17 +360,23 @@ namespace Parsek
                 {
                     var rec = recordings[i];
                     if (rec == null) continue;
-                    if (!string.Equals(
-                            rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal))
+                    bool anchorMatches = string.Equals(
+                        rec.PreReFlyAnchorSessionId, sessionId, StringComparison.Ordinal);
+                    bool originalMatches = string.Equals(
+                        rec.PreReFlyOriginalSessionId, sessionId, StringComparison.Ordinal);
+                    if (!anchorMatches && !originalMatches)
                         continue;
-                    rec.ClearPreReFlyAnchorTrajectory();
+                    if (anchorMatches)
+                        rec.ClearPreReFlyAnchorTrajectory();
+                    if (originalMatches)
+                        rec.ClearPreReFlyOriginalRecording();
                     cleared++;
                 }
             }
             if (cleared > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"Cleared {cleared} pre-Re-Fly anchor snapshot(s) for sess={sessionId}");
+                    $"Cleared {cleared} pre-Re-Fly snapshot host(s) for sess={sessionId}");
             }
             return cleared;
         }
@@ -587,7 +587,7 @@ namespace Parsek
             }
 
             string actionSummary;
-            if (TryFindRecordingScopedWorldAction(rec, out actionSummary))
+            if (TryFindRetryBlockingWorldAction(rec, out actionSummary))
             {
                 closeReason = new ReFlyCloseReason
                 {
@@ -980,12 +980,34 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        // Strict mode intentionally stays available as the tested ledger-safety
+        // contract below retry mode. STASH/Re-Fly retry callers should use
+        // TryFindRetryBlockingWorldAction so automatic consequence rows do not
+        // close terminal-failure retries by themselves.
         internal static bool TryFindRecordingScopedWorldAction(
             Recording rec,
             out string actionSummary)
         {
+            return TryFindRecordingScopedWorldAction(
+                rec, retryBlockingOnly: false, out actionSummary);
+        }
+
+        internal static bool TryFindRetryBlockingWorldAction(
+            Recording rec,
+            out string actionSummary)
+        {
+            return TryFindRecordingScopedWorldAction(
+                rec, retryBlockingOnly: true, out actionSummary);
+        }
+
+        private static bool TryFindRecordingScopedWorldAction(
+            Recording rec,
+            bool retryBlockingOnly,
+            out string actionSummary)
+        {
             actionSummary = null;
-            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
+            string cacheKey = BuildWorldActionSafetyCacheKey(
+                rec, retryBlockingOnly);
             if (cacheKey == null)
                 return false;
 
@@ -998,14 +1020,16 @@ namespace Parsek
                 return cached.HasAction;
             }
 
-            var computed = ComputeRecordingScopedWorldAction(rec);
+            var computed = ComputeRecordingScopedWorldAction(
+                rec, retryBlockingOnly);
             CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
             actionSummary = computed.ActionSummary;
             return computed.HasAction;
         }
 
         private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
-            Recording rec)
+            Recording rec,
+            bool retryBlockingOnly)
         {
             var result = new WorldActionSafetyCacheEntry();
             var recordingIds = CollectRecordingIdsForSafetyGate(rec);
@@ -1020,7 +1044,10 @@ namespace Parsek
                     continue;
                 if (!recordingIds.Contains(action.RecordingId))
                     continue;
-                if (!IsWorldStateChangingRecordingAction(action, actions))
+                bool hasAction = retryBlockingOnly
+                    ? IsRetryBlockingRecordingAction(action, actions)
+                    : IsWorldStateChangingRecordingAction(action, actions);
+                if (!hasAction)
                     continue;
 
                 result.HasAction = true;
@@ -1086,12 +1113,17 @@ namespace Parsek
             worldActionSafetyCacheSupersedeVersion = supersedeVersion;
         }
 
-        private static string BuildWorldActionSafetyCacheKey(Recording rec)
+        private static string BuildWorldActionSafetyCacheKey(
+            Recording rec,
+            bool retryBlockingOnly)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return null;
 
-            return rec.RecordingId
+            string mode = retryBlockingOnly ? "retry" : "strict";
+            return mode
+                + WorldActionCacheKeySeparator
+                + rec.RecordingId
                 + WorldActionCacheKeySeparator
                 + (rec.SupersedeTargetId ?? string.Empty)
                 + WorldActionCacheKeySeparator
@@ -1220,6 +1252,41 @@ namespace Parsek
                 return false;
 
             return true;
+        }
+
+        internal static bool IsRetryBlockingRecordingAction(
+            GameAction action,
+            IReadOnlyList<GameAction> sameTimelineActions)
+        {
+            if (!IsWorldStateChangingRecordingAction(action, sameTimelineActions))
+                return false;
+
+            // Retry-blocking auto-seal fires only on intentional player actions taken
+            // on the vessel that produce sticky world-state effects. ScienceEarning
+            // (Crew Report / EVA Report / Surface Sample / Transmit / Recover) is the
+            // only ledger row in this category — every other GameActionType is either
+            //
+            //   - an automatic game consequence (MilestoneAchievement,
+            //     ContractComplete/Fail, FundsEarning, ReputationEarning/Penalty,
+            //     KerbalAssignment/Rescue/StandIn, FacilityDestruction) — denylisted
+            //     by IsWorldStateChangingRecordingAction or by exclusion here;
+            //
+            //   - a KSC-scene player action (ContractAccept/Cancel, KerbalHire,
+            //     FacilityUpgrade/Repair, StrategyActivate/Deactivate,
+            //     ScienceSpending) that cannot reach this gate with a flight-recording
+            //     tag because GameStateRecorder.Emit only stamps a tag in FLIGHT
+            //     scene with a live recorder; or
+            //
+            //   - a paid-once setup row (FundsSpending(VesselBuild) adopted to the
+            //     recording via TryAdoptRolloutAction) whose effect survives a
+            //     revert/retag without re-charging the player, so sealing on it
+            //     would punish retries for spending the player already accepted.
+            //
+            // Structural mutations (decouple / stage / undock / EVA / joint break)
+            // and hard safety terminals (Recovered / Docked / Boarded) seal via
+            // their own dedicated gates (HasReFlySessionStructuralMutation +
+            // IsHardSafetyTerminal), not through this predicate.
+            return action.Type == GameActionType.ScienceEarning;
         }
 
         private static void ApplyAutoSealAfterSafetyClose(
@@ -1685,7 +1752,7 @@ namespace Parsek
         /// <summary>
         /// Design invariant for re-fly merge supersede targets: the recording
         /// pointed at by <see cref="RecordingSupersedeRelation.NewRecordingId"/>
-        /// must have at least one trajectory point AND a non-null terminal
+        /// must have playable trajectory payload AND a non-null terminal
         /// state. Returns true iff the target satisfies both clauses;
         /// otherwise <paramref name="reason"/> carries one of "null recording",
         /// "null Points", "empty Points", or "null TerminalState".
@@ -1697,12 +1764,13 @@ namespace Parsek
                 reason = "null recording";
                 return false;
             }
-            if (rec.Points == null)
+            bool hasPlayablePayload = HasPlayableSupersedePayload(rec);
+            if (rec.Points == null && !hasPlayablePayload)
             {
                 reason = "null Points";
                 return false;
             }
-            if (rec.Points.Count == 0)
+            if (!hasPlayablePayload)
             {
                 reason = "empty Points";
                 return false;
@@ -1714,6 +1782,26 @@ namespace Parsek
             }
             reason = null;
             return true;
+        }
+
+        private static bool HasPlayableSupersedePayload(Recording rec)
+        {
+            if (rec == null)
+                return false;
+            if (rec.Points != null && rec.Points.Count > 0)
+                return true;
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                return true;
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool RelationExists(

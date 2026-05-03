@@ -37,6 +37,13 @@ namespace Parsek.Tests
             Assert.InRange(System.Math.Abs(expected.w - actual.w), 0, tolerance);
         }
 
+        private static void AssertVectorClose(Vector3d expected, Vector3d actual, double tolerance)
+        {
+            Assert.InRange(System.Math.Abs(expected.x - actual.x), 0.0, tolerance);
+            Assert.InRange(System.Math.Abs(expected.y - actual.y), 0.0, tolerance);
+            Assert.InRange(System.Math.Abs(expected.z - actual.z), 0.0, tolerance);
+        }
+
         [Fact]
         public void AngularDeltaDegrees_SimpleDelta_ReturnsAbsoluteDifference()
         {
@@ -105,6 +112,68 @@ namespace Parsek.Tests
             Assert.True(TrajectoryMath.AngularDeltaDegrees(10.0, 20.0) >= 0.0 - Eps);
             Assert.True(TrajectoryMath.AngularDeltaDegrees(20.0, 10.0) >= 0.0 - Eps);
             Assert.True(TrajectoryMath.AngularDeltaDegrees(359.0, 1.0) >= 0.0 - Eps);
+        }
+
+        [Fact]
+        public void TryInterpolateWorldHermite_ConstantVelocityMatchesLerp()
+        {
+            bool ok = TrajectoryMath.TryInterpolateWorldHermite(
+                new Vector3d(0.0, 0.0, 0.0),
+                new Vector3(10f, 0f, 0f),
+                new Vector3d(10.0, 0.0, 0.0),
+                new Vector3(10f, 0f, 0f),
+                1.0,
+                0.5f,
+                10.0,
+                out Vector3d result,
+                out double deviationMeters,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            Assert.Equal(0.0, deviationMeters, 6);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), result, 0.0001);
+        }
+
+        [Fact]
+        public void TryInterpolateWorldHermite_UsesEndpointVelocities()
+        {
+            bool ok = TrajectoryMath.TryInterpolateWorldHermite(
+                new Vector3d(0.0, 0.0, 0.0),
+                new Vector3(5f, 0f, 0f),
+                new Vector3d(10.0, 0.0, 0.0),
+                new Vector3(15f, 0f, 0f),
+                1.0,
+                0.5f,
+                10.0,
+                out Vector3d result,
+                out double deviationMeters,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            Assert.Equal(1.25, deviationMeters, 6);
+            AssertVectorClose(new Vector3d(3.75, 0.0, 0.0), result, 0.0001);
+        }
+
+        [Fact]
+        public void TryInterpolateWorldHermite_RejectsLargeBow()
+        {
+            bool ok = TrajectoryMath.TryInterpolateWorldHermite(
+                new Vector3d(0.0, 0.0, 0.0),
+                new Vector3(10f, 100f, 0f),
+                new Vector3d(10.0, 0.0, 0.0),
+                new Vector3(10f, -100f, 0f),
+                1.0,
+                0.5f,
+                5.0,
+                out _,
+                out double deviationMeters,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("deviation-too-large", reason);
+            Assert.True(deviationMeters > 5.0);
         }
     }
 }

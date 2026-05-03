@@ -154,6 +154,82 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void AllowRenderAnchorCorrectionInterval_ReFlyDisplayOffsetActive_SuppressesAnchor()
+        {
+            var expectedEps = new Vector3d(11.0, 22.0, 33.0);
+            SeedAnchor("rec-refly", sectionIndex: 2, epsilon: expectedEps);
+
+            bool result = ParsekFlight.allowRenderAnchorCorrectionInterval(
+                "rec-refly",
+                sectionIndex: 2,
+                targetUT: 2050.0,
+                hasReFlyTreeOffset: true,
+                out Vector3d epsilon,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal(0.0, epsilon.x, 9);
+            Assert.Equal(0.0, epsilon.y, 9);
+            Assert.Equal(0.0, epsilon.z, 9);
+            Assert.Equal("refly-display-offset-active", reason);
+        }
+
+        [Fact]
+        public void AllowRenderCoBubbleBlend_ReFlyDisplayOffsetActive_SuppressesBlend()
+        {
+            bool result = ParsekFlight.allowRenderCoBubbleBlend(
+                "rec-refly-cobubble",
+                targetUT: 2050.0,
+                hasReFlyTreeOffset: true,
+                out Vector3d offset,
+                out string primaryRecordingId,
+                out CoBubbleBlendStatus status,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal(0.0, offset.x, 9);
+            Assert.Equal(0.0, offset.y, 9);
+            Assert.Equal(0.0, offset.z, 9);
+            Assert.Null(primaryRecordingId);
+            Assert.Equal(default(CoBubbleBlendStatus), status);
+            Assert.Equal("refly-display-offset-active", reason);
+        }
+
+        [Fact]
+        public void AllowPointHermiteInterpolation_ReFlyDisplayOffsetActive_UsesLinearPath()
+        {
+            bool result = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: true,
+                splineApplied: false,
+                allowNormalPlaybackHermite: true,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("refly-display-offset-linearized", reason);
+        }
+
+        [Fact]
+        public void AllowRenderAnchorCorrectionInterval_NoReFlyDisplayOffset_AppliesAnchor()
+        {
+            var expectedEps = new Vector3d(11.0, 22.0, 33.0);
+            SeedAnchor("rec-render", sectionIndex: 2, epsilon: expectedEps);
+
+            bool result = ParsekFlight.allowRenderAnchorCorrectionInterval(
+                "rec-render",
+                sectionIndex: 2,
+                targetUT: 2050.0,
+                hasReFlyTreeOffset: false,
+                out Vector3d epsilon,
+                out string reason);
+
+            Assert.True(result);
+            Assert.Equal(expectedEps.x, epsilon.x, 9);
+            Assert.Equal(expectedEps.y, epsilon.y, 9);
+            Assert.Equal(expectedEps.z, epsilon.z, 9);
+            Assert.Equal("applied", reason);
+        }
+
+        [Fact]
         public void AllowAnchorCorrection_WrongSection_ReturnsFalse()
         {
             // What makes it fail: HR-9 — anchors are keyed by

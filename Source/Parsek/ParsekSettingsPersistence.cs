@@ -27,8 +27,10 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Currently tracks external-store-backed user-intent settings that
-    /// must survive rewind, quickload, and KSP session restart.
+    /// Tracks user-intent settings that must survive rewind, quickload,
+    /// KSP's save/scene GameParameters reloads, and session restart. Add
+    /// more fields here if additional settings need the same survival
+    /// semantics.
     /// </para>
     /// </summary>
     internal static class ParsekSettingsPersistence
@@ -41,6 +43,7 @@ namespace Parsek
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
         private const string ShowCommittedFutureOverlaysKey = "showCommittedFutureOverlays";
         private const string BlockCommittedActionsKey = "blockCommittedActions";
+        private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
@@ -53,6 +56,7 @@ namespace Parsek
         private static bool? storedShowGhostsInTrackingStation;
         private static bool? storedShowCommittedFutureOverlays;
         private static bool? storedBlockCommittedActions;
+        private static bool? storedGhostRenderTracing;
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
@@ -165,6 +169,17 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {BlockCommittedActionsKey} — using default");
                 }
 
+                string ghostRenderTracingStr = root.GetValue(GhostRenderTracingKey);
+                if (!string.IsNullOrEmpty(ghostRenderTracingStr)
+                    && bool.TryParse(ghostRenderTracingStr, out bool ghostRenderTracing))
+                {
+                    storedGhostRenderTracing = ghostRenderTracing;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostRenderTracingKey} — using default");
+                }
+
                 string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
                 if (!string.IsNullOrEmpty(useSplinesStr)
                     && bool.TryParse(useSplinesStr, out bool useSplines))
@@ -226,6 +241,7 @@ namespace Parsek
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
+                    $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
@@ -282,6 +298,15 @@ namespace Parsek
                 settings.blockCommittedActions = storedBlockCommittedActions.Value;
                 ParsekLog.Info(Tag,
                     $"Restored blockCommittedActions {prev} -> {storedBlockCommittedActions.Value} from persistent store");
+            }
+
+            if (storedGhostRenderTracing.HasValue
+                && storedGhostRenderTracing.Value != settings.ghostRenderTracing)
+            {
+                bool prev = settings.ghostRenderTracing;
+                settings.ghostRenderTracing = storedGhostRenderTracing.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored ghostRenderTracing {prev} -> {storedGhostRenderTracing.Value} from persistent store");
             }
 
             if (storedUseSmoothingSplines.HasValue
@@ -373,6 +398,26 @@ namespace Parsek
             LoadIfNeeded();
             storedBlockCommittedActions = value;
             Save();
+        }
+
+        internal static void RecordGhostRenderTracing(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordGhostRenderTracing: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedGhostRenderTracing.HasValue && storedGhostRenderTracing.Value == value) return;
+            storedGhostRenderTracing = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordGhostRenderTracing: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         internal static void RecordUseSmoothingSplines(bool value)
@@ -584,6 +629,8 @@ namespace Parsek
                     root.AddValue(ShowCommittedFutureOverlaysKey, storedShowCommittedFutureOverlays.Value.ToString());
                 if (storedBlockCommittedActions.HasValue)
                     root.AddValue(BlockCommittedActionsKey, storedBlockCommittedActions.Value.ToString());
+                if (storedGhostRenderTracing.HasValue)
+                    root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
                     root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
                 if (storedUseAnchorCorrection.HasValue)
@@ -601,6 +648,7 @@ namespace Parsek
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
+                    $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
@@ -625,6 +673,7 @@ namespace Parsek
             storedShowGhostsInTrackingStation = null;
             storedShowCommittedFutureOverlays = null;
             storedBlockCommittedActions = null;
+            storedGhostRenderTracing = null;
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
@@ -689,6 +738,8 @@ namespace Parsek
 
         internal static bool? GetStoredBlockCommittedActions() => storedBlockCommittedActions;
 
+        internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
+
         internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
 
         internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
@@ -724,6 +775,12 @@ namespace Parsek
         internal static void SetStoredBlockCommittedActionsForTesting(bool? value)
         {
             storedBlockCommittedActions = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredGhostRenderTracingForTesting(bool? value)
+        {
+            storedGhostRenderTracing = value;
             loaded = true;
         }
 

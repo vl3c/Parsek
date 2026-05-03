@@ -422,6 +422,23 @@ namespace Parsek
                 && !ShouldExitWatchForDistance(distanceMeters);
         }
 
+        internal static double ResolveWatchCutoffDistance(
+            double activeVesselDistanceMeters,
+            double renderDistanceMeters,
+            bool includeRenderDistance)
+        {
+            bool activeValid = IsFiniteWatchDistance(activeVesselDistanceMeters);
+            bool renderValid = IsFiniteWatchDistance(renderDistanceMeters);
+
+            if (!includeRenderDistance)
+                return activeValid ? activeVesselDistanceMeters : renderDistanceMeters;
+            if (activeValid && renderValid)
+                return Math.Max(activeVesselDistanceMeters, renderDistanceMeters);
+            if (activeValid)
+                return activeVesselDistanceMeters;
+            return renderDistanceMeters;
+        }
+
         // Pure predicate for the cutoff debounce: returns true when the
         // watched ghost has been over the exit cutoff for enough consecutive
         // frames that we should actually exit watch mode. Counter

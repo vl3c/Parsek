@@ -135,6 +135,7 @@ namespace Parsek.Tests
                 childHasController: true,
                 liveVesselAvailable: true,
                 capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 42.0,
                 propagatedSeedLiveRootResidualMeters: 270.0,
                 toleranceMeters: 50.0);
 
@@ -142,12 +143,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldPreferLiveBreakupChildSeed_ResidualWithinTolerance_KeepsCapturedSeed()
+        public void ShouldPreferLiveBreakupChildSeed_DirectSeedMissBeyondTolerance_ReturnsTrue()
         {
             bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
                 childHasController: true,
                 liveVesselAvailable: true,
                 capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 1118.66,
+                propagatedSeedLiveRootResidualMeters: 0.0,
+                toleranceMeters: 50.0);
+
+            Assert.True(preferLive);
+        }
+
+        [Fact]
+        public void ShouldPreferLiveBreakupChildSeed_DistanceAndResidualWithinTolerance_KeepsCapturedSeed()
+        {
+            bool preferLive = ParsekFlight.ShouldPreferLiveBreakupChildSeed(
+                childHasController: true,
+                liveVesselAvailable: true,
+                capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 42.0,
                 propagatedSeedLiveRootResidualMeters: 42.0,
                 toleranceMeters: 50.0);
 
@@ -161,6 +177,7 @@ namespace Parsek.Tests
                 childHasController: false,
                 liveVesselAvailable: true,
                 capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 270.0,
                 propagatedSeedLiveRootResidualMeters: 270.0,
                 toleranceMeters: 50.0));
 
@@ -168,6 +185,7 @@ namespace Parsek.Tests
                 childHasController: true,
                 liveVesselAvailable: false,
                 capturedSeedAvailable: true,
+                seedLiveRootDistanceMeters: 270.0,
                 propagatedSeedLiveRootResidualMeters: 270.0,
                 toleranceMeters: 50.0));
         }

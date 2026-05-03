@@ -54,7 +54,7 @@ namespace Parsek
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
         // Keep the short row actions aligned; GoTo stays wider for its text label.
-        private const float RowActionButtonWidth = 35f;
+        private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
 
         // Shared width for top filter/source/preset buttons: Overview, Details,

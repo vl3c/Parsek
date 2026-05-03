@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is10()
+        public void CurrentRecordingFormatVersion_Is11()
         {
-            Assert.Equal(10, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(11, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -63,6 +63,12 @@ namespace Parsek.Tests
         public void StructuralEventFlagFormatVersion_Is10()
         {
             Assert.Equal(10, RecordingStore.StructuralEventFlagFormatVersion);
+        }
+
+        [Fact]
+        public void RecordingAnchorChainFormatVersion_Is11()
+        {
+            Assert.Equal(11, RecordingStore.RecordingAnchorChainFormatVersion);
         }
 
         // Cross-codec sync guard. The binary `.prec` codec gates the seam-flag
@@ -92,6 +98,14 @@ namespace Parsek.Tests
             Assert.Equal(
                 RecordingStore.StructuralEventFlagFormatVersion,
                 TrajectorySidecarBinary.StructuralEventFlagBinaryVersion);
+        }
+
+        [Fact]
+        public void RecordingAnchorChain_FormatVersion_MatchesBinaryVersion()
+        {
+            Assert.Equal(
+                RecordingStore.RecordingAnchorChainFormatVersion,
+                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
         }
 
         [Fact]

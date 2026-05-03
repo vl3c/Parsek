@@ -191,6 +191,7 @@ namespace Parsek
                     defaults.AutoRecordOnFirstModificationAfterSwitch;
                 s.autoMerge = defaults.AutoMerge;
                 s.verboseLogging = defaults.VerboseLogging;
+                s.ghostRenderTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -202,6 +203,7 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
+                ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
@@ -414,6 +416,16 @@ namespace Parsek
             {
                 s.verboseLogging = verboseLogging;
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
+            }
+
+            bool ghostRenderTracing = GUILayout.Toggle(s.ghostRenderTracing,
+                new GUIContent(" Ghost render tracing",
+                    "Write detailed per-ghost render placement diagnostics to KSP.log. Leave off unless investigating playback placement."));
+            if (ghostRenderTracing != s.ghostRenderTracing)
+            {
+                s.ghostRenderTracing = ghostRenderTracing;
+                ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
+                ParsekLog.Info("UI", $"Setting changed: ghostRenderTracing={s.ghostRenderTracing}");
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,

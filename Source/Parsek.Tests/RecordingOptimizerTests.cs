@@ -112,6 +112,26 @@ namespace Parsek.Tests
             };
         }
 
+        private static OrbitSegment PredictedOrbitSegment(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.08,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = startUT,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            };
+        }
+
         #endregion
 
         #region CanAutoMerge
@@ -744,6 +764,74 @@ namespace Parsek.Tests
             Assert.Equal(rec.EndUT, rec.ExplicitEndUT);
             Assert.Equal(second.StartUT, second.ExplicitStartUT);
             Assert.Equal(second.EndUT, second.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void SplitAtSection_PreservesOrbitOnlyPredictedTailOnSecondHalf()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            const double startUT = 100.0;
+            const double splitUT = 150.0;
+            const double recordedEndUT = 180.0;
+            const double terminalUT = 760.0;
+
+            var p0 = PointAt(startUT, 12000.0);
+            var p1 = PointAt(splitUT, 72000.0);
+            var p2 = PointAt(recordedEndUT, 84000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "split-predicted-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = terminalUT
+            };
+            rec.Points.AddRange(new[] { p0, p1, p2 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT,
+                endUT = splitUT,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p0, p1 }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = splitUT,
+                endUT = recordedEndUT,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p1, p2 }
+            });
+            rec.OrbitSegments.Add(PredictedOrbitSegment(recordedEndUT, 400.0));
+            rec.OrbitSegments.Add(PredictedOrbitSegment(400.0, terminalUT));
+
+            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                rec, rec.TrackSections, allowRelativeSections: true));
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(rec.OrbitSegments);
+            Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(splitUT, rec.ExplicitEndUT);
+
+            Assert.Equal(TerminalState.Destroyed, second.TerminalStateValue);
+            Assert.Equal(splitUT, second.ExplicitStartUT);
+            Assert.Equal(terminalUT, second.ExplicitEndUT);
+            Assert.Equal(2, second.OrbitSegments.Count);
+            Assert.All(second.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(recordedEndUT, second.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, second.OrbitSegments[second.OrbitSegments.Count - 1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(second));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("SplitAtSection: split split-predicted-tail")
+                && l.Contains("flatSync=track-sections/track-sections-preserved-flat-tail:2"));
         }
 
         [Fact]
@@ -3134,6 +3222,105 @@ namespace Parsek.Tests
             var recordings = new List<Recording> { rec1, rec2 };
 
             Assert.False(RecordingOptimizer.TrimBoringTail(rec1, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_DestroyedTerminalWithPredictedTail_RefusesTrim()
+        {
+            // Regression for the Kerbal-X-ghost-destroyed-too-soon bug:
+            // optimizer split + sidecar finalize leaves a Destroyed leaf with a
+            // boring (ExoBallistic) last TrackSection and predicted orbit
+            // segments through the impact UT. The previous default-true branch
+            // of TailPreservesTerminalSpawnState let TrimBoringTail strip the
+            // predicted destruction tail, collapsing the ghost at the chain-
+            // segment boundary instead of riding the predicted impact arc.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = new Recording
+            {
+                RecordingId = "trim-destroyed-predicted-tail",
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 1837.7
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 145.0, bodyName = "Kerbin", altitude = 70000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0, bodyName = "Kerbin", altitude = 72000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 155.0, bodyName = "Kerbin", altitude = 74000 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 145.0,
+                endUT = 155.0
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 155.0,
+                endUT = 900.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 800000.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 900.0,
+                endUT = 1837.7,
+                bodyName = "Kerbin",
+                semiMajorAxis = 800000.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                "Destroyed-terminal recordings carry meaningful predicted-tail content; TrimBoringTail must refuse.");
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(1837.7, rec.OrbitSegments[rec.OrbitSegments.Count - 1].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-destroyed-predicted-tail")
+                && l.Contains("terminal=Destroyed"));
+            // Suppress the misleading "(terminal-mismatch) … tail still diverges from
+            // terminal state" line for unstable terminals — the tail wasn't compared,
+            // the gate refused upfront. Only the dedicated unstable-terminal log fires.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("(terminal-mismatch)"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_BoardedTerminal_RefusesTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-boarded";
+            rec.TerminalStateValue = TerminalState.Boarded;
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_RecoveredTerminal_RefusesTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-recovered";
+            rec.TerminalStateValue = TerminalState.Recovered;
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TailPreservesTerminalSpawnState_NullTerminal_AllowsTrim()
+        {
+            var rec = new Recording { RecordingId = "trim-null-terminal" };
+            Assert.True(RecordingOptimizer.TailPreservesTerminalSpawnState(rec, 100.0));
         }
 
         [Fact]

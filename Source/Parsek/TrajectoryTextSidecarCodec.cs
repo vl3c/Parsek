@@ -593,7 +593,15 @@ namespace Parsek
                 return false;
             }
 
-            bool healedPoints = TryHealMalformedFlatFallbackPointsFromTrackSections(rec);
+            bool healedPoints = TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+                    rec,
+                    out List<TrajectoryPoint> safeRelativePoints)
+                && !TrajectoryPointListsEqual(safeRelativePoints, rec.Points);
+            if (healedPoints)
+                rec.Points = safeRelativePoints;
+            else
+                healedPoints = TryHealMalformedFlatFallbackPointsFromTrackSections(rec);
+
             bool healedOrbitSegments = TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(rec);
             if (!healedPoints && !healedOrbitSegments)
                 return false;
@@ -602,6 +610,116 @@ namespace Parsek
             rec.CachedStatsPointCount = 0;
             rec.MarkFilesDirty();
             return true;
+        }
+
+        internal static List<TrajectoryPoint> GetFlatFallbackPointsForWrite(Recording rec)
+        {
+            if (TryBuildAbsoluteShadowFlatPointsForRelativeSections(rec, out List<TrajectoryPoint> points))
+                return points;
+
+            return rec?.Points;
+        }
+
+        internal static bool TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+            Recording rec,
+            out List<TrajectoryPoint> points)
+        {
+            points = new List<TrajectoryPoint>();
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            bool sawRelativeSection = false;
+            for (int t = 0; t < rec.TrackSections.Count; t++)
+            {
+                TrackSection section = rec.TrackSections[t];
+                List<TrajectoryPoint> sectionPoints = null;
+                switch (section.referenceFrame)
+                {
+                    case ReferenceFrame.Absolute:
+                        sectionPoints = section.frames;
+                        break;
+
+                    case ReferenceFrame.Relative:
+                        sawRelativeSection = true;
+                        sectionPoints = section.absoluteFrames;
+                        break;
+
+                    case ReferenceFrame.OrbitalCheckpoint:
+                        sectionPoints = section.frames;
+                        break;
+                }
+
+                if (section.referenceFrame == ReferenceFrame.Absolute
+                    || section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    if (sectionPoints == null || sectionPoints.Count == 0)
+                        return false;
+                }
+
+                AppendDedupedTrajectoryPoints(points, sectionPoints);
+            }
+
+            if (!sawRelativeSection || points.Count == 0)
+                return false;
+
+            if (!AppendSafeFlatFallbackTailOutsideFrameSections(rec, points))
+                return false;
+
+            return TrajectoryPointListIsMonotonicNonDecreasing(points);
+        }
+
+        private static bool AppendSafeFlatFallbackTailOutsideFrameSections(
+            Recording rec,
+            List<TrajectoryPoint> points)
+        {
+            if (rec?.Points == null || rec.Points.Count == 0 || points == null || points.Count == 0)
+                return true;
+
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                TrajectoryPoint point = rec.Points[i];
+                if (FrameTrackSectionCoversUT(rec.TrackSections, point.ut))
+                    continue;
+
+                if (points.Count > 0)
+                {
+                    TrajectoryPoint previous = points[points.Count - 1];
+                    if (point.ut < previous.ut)
+                        continue;
+                    if (point.ut == previous.ut && !TrajectoryPointEquals(point, previous))
+                        continue;
+                    if (TrajectoryPointEquals(point, previous))
+                        continue;
+                }
+
+                points.Add(point);
+            }
+
+            return TrajectoryPointListIsMonotonicNonDecreasing(points);
+        }
+
+        private static bool FrameTrackSectionCoversUT(List<TrackSection> tracks, double ut)
+        {
+            if (tracks == null)
+                return false;
+            if (double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
+
+            const double epsilon = 1e-6;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                TrackSection section = tracks[i];
+                if (section.referenceFrame != ReferenceFrame.Absolute
+                    && section.referenceFrame != ReferenceFrame.Relative)
+                {
+                    continue;
+                }
+
+                if (ut >= section.startUT - epsilon && ut <= section.endUT + epsilon)
+                    return true;
+            }
+
+            return false;
         }
 
         // #378: warn-threshold for the exact-match rebuild-and-compare check.
@@ -999,6 +1117,21 @@ namespace Parsek
             }
         }
 
+        private static void AppendDedupedTrajectoryPoints(
+            List<TrajectoryPoint> target,
+            List<TrajectoryPoint> source)
+        {
+            if (target == null || source == null)
+                return;
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                if (target.Count > 0 && TrajectoryPointEquals(target[target.Count - 1], source[i]))
+                    continue;
+                target.Add(source[i]);
+            }
+        }
+
         private static void AppendOrbitSegmentSuffix(
             List<OrbitSegment> target,
             List<OrbitSegment> source,
@@ -1060,11 +1193,16 @@ namespace Parsek
             bool useSectionAuthoritative = ShouldWriteSectionAuthoritativeTrajectory(rec);
             if (rec != null && rec.RecordingFormatVersion >= 1)
                 SetSectionAuthoritativeHeader(targetNode, useSectionAuthoritative);
+            List<TrajectoryPoint> flatFallbackPoints = useSectionAuthoritative
+                ? null
+                : GetFlatFallbackPointsForWrite(rec);
+            bool wroteSafeRelativeFlatFallback =
+                flatFallbackPoints != null && !ReferenceEquals(flatFallbackPoints, rec.Points);
 
             if (!useSectionAuthoritative)
             {
-                for (int i = 0; i < rec.Points.Count; i++)
-                    SerializePoint(targetNode, rec.Points[i], ic);
+                for (int i = 0; i < flatFallbackPoints.Count; i++)
+                    SerializePoint(targetNode, flatFallbackPoints[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
                     SerializeOrbitSegment(
@@ -1128,7 +1266,8 @@ namespace Parsek
                 {
                     ParsekLog.Verbose("RecordingStore",
                         $"SerializeTrajectoryInto: recording={rec.RecordingId} version={rec.RecordingFormatVersion} " +
-                        $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"used flat fallback path points={flatFallbackPoints.Count} originalPoints={rec.Points.Count} " +
+                        $"safeRelativeFlatFallback={wroteSafeRelativeFlatFallback} orbitSegments={rec.OrbitSegments.Count} " +
                         $"trackSections={rec.TrackSections?.Count ?? 0}");
                 }
             }
@@ -1430,7 +1569,11 @@ namespace Parsek
                 if (!float.IsNaN(track.maxAltitude))
                     tsNode.AddValue("maxAlt", track.maxAltitude.ToString("R", ic));
 
-                if (track.anchorVesselId != 0)
+                if (!string.IsNullOrEmpty(track.anchorRecordingId))
+                    tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
+
+                if (recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
+                    && track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
@@ -1584,6 +1727,7 @@ namespace Parsek
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))
                     section.anchorVesselId = anchorPid;
+                section.anchorRecordingId = tsNode.GetValue("anchorRecordingId");
 
                 // Producer-C boundary seam flag: defaults to false when absent — forward-tolerant
                 // for legacy text recordings that were written before v8.
