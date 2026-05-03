@@ -4214,11 +4214,12 @@ namespace Parsek
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
-            PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+            double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
+            PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
             // Hidden priming is allowed to apply persistent part state, but it
             // must not emit transient FX before the playback transform is visible.
             var visualPolicy = HiddenPrimeVisualPolicy();
-            ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+            ApplyFrameVisuals(index, traj, state, primePlaybackUT, TimeWarp.CurrentRate,
                 visualPolicy.skipPartEvents,
                 visualPolicy.suppressVisualFx,
                 visualPolicy.allowTransientEffects);
@@ -4597,45 +4598,27 @@ namespace Parsek
                         traj, playbackUT, result, "active orbit segment");
                 }
 
-                int cachedIndex = 0;
-                if (!TrajectoryMath.InterpolatePoints(
-                    traj.Points, ref cachedIndex, playbackUT,
-                    out TrajectoryPoint before, out TrajectoryPoint after, out float t))
+                if (TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+                        traj, playbackUT, out result, out string relativePointSource))
                 {
-                    if (!string.IsNullOrEmpty(before.bodyName))
+                    return LogPendingPlaybackInterpolationResolved(
+                        traj, playbackUT, result, relativePointSource);
+                }
+
+                if (!IsRelativeTrackSectionAtUT(traj.TrackSections, playbackUT))
+                {
+                    if (TryResolvePendingPointInterpolation(
+                            traj.Points, playbackUT, out result, out string pointSource))
                     {
-                        result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                         return LogPendingPlaybackInterpolationResolved(
-                            traj, playbackUT, result, "before-start point fallback");
+                            traj, playbackUT, result, pointSource);
                     }
                 }
                 else
                 {
-                    bool useBeforePoint = t == 0f && before.ut == after.ut;
-                    bool afterEndClamp = playbackUT > after.ut;
-                    string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
-                    if (!string.IsNullOrEmpty(bodyName))
-                    {
-                        result = new InterpolationResult(
-                            useBeforePoint ? before.velocity : Vector3.Lerp(before.velocity, after.velocity, t),
-                            bodyName,
-                            useBeforePoint
-                                ? before.altitude
-                                : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
-                        bool crossBodyTransition =
-                            !useBeforePoint
-                            && !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal);
-                        string pointSource = useBeforePoint
-                            ? "same-UT point segment"
-                            : afterEndClamp
-                                ? "point after-end clamp"
-                                : crossBodyTransition
-                                    ? FormattableString.Invariant(
-                                        $"cross-body point transition {before.bodyName ?? "(null)"}->{after.bodyName ?? "(null)"} (using upper-point body)")
-                                : "point interpolation";
-                        return LogPendingPlaybackInterpolationResolved(
-                            traj, playbackUT, result, pointSource);
-                    }
+                    string vesselName = traj.VesselName ?? "Unknown";
+                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} relative section active with no absolute shadow, skipping flat relative point metadata"));
                 }
             }
 
@@ -4682,6 +4665,111 @@ namespace Parsek
 
             return LogPendingPlaybackInterpolationUnresolved(
                 traj, playbackUT, "no points, surface metadata, orbit segment, or endpoint body");
+        }
+
+        private static bool TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out InterpolationResult result,
+            out string source)
+        {
+            result = InterpolationResult.Zero;
+            source = null;
+            if (!TryFindRelativeTrackSectionAtUT(traj?.TrackSections, playbackUT, out TrackSection section))
+                return false;
+            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                return false;
+
+            if (!TryResolvePendingPointInterpolation(
+                    section.absoluteFrames, playbackUT, out result, out string pointSource))
+            {
+                return false;
+            }
+
+            source = "relative absolute shadow " + pointSource;
+            return true;
+        }
+
+        private static bool TryResolvePendingPointInterpolation(
+            List<TrajectoryPoint> points,
+            double playbackUT,
+            out InterpolationResult result,
+            out string source)
+        {
+            result = InterpolationResult.Zero;
+            source = null;
+            if (points == null || points.Count == 0)
+                return false;
+
+            if (points.Count == 1)
+            {
+                TrajectoryPoint point = points[0];
+                if (string.IsNullOrEmpty(point.bodyName))
+                    return false;
+
+                result = new InterpolationResult(point.velocity, point.bodyName, point.altitude);
+                source = "single-point fallback";
+                return true;
+            }
+
+            int cachedIndex = 0;
+            if (!TrajectoryMath.InterpolatePoints(
+                    points, ref cachedIndex, playbackUT,
+                    out TrajectoryPoint before, out TrajectoryPoint after, out float t))
+            {
+                if (string.IsNullOrEmpty(before.bodyName))
+                    return false;
+
+                result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
+                source = "before-start point fallback";
+                return true;
+            }
+
+            bool useBeforePoint = t == 0f && before.ut == after.ut;
+            bool afterEndClamp = playbackUT > after.ut;
+            string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
+
+            result = new InterpolationResult(
+                useBeforePoint ? before.velocity : Vector3.Lerp(before.velocity, after.velocity, t),
+                bodyName,
+                useBeforePoint
+                    ? before.altitude
+                    : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            bool crossBodyTransition =
+                !useBeforePoint
+                && !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal);
+            source = useBeforePoint
+                ? "same-UT point segment"
+                : afterEndClamp
+                    ? "point after-end clamp"
+                    : crossBodyTransition
+                        ? FormattableString.Invariant(
+                            $"cross-body point transition {before.bodyName ?? "(null)"}->{after.bodyName ?? "(null)"} (using upper-point body)")
+                    : "point interpolation";
+            return true;
+        }
+
+        private static bool IsRelativeTrackSectionAtUT(
+            List<TrackSection> trackSections, double playbackUT)
+        {
+            return TryFindRelativeTrackSectionAtUT(trackSections, playbackUT, out _);
+        }
+
+        private static bool TryFindRelativeTrackSectionAtUT(
+            List<TrackSection> trackSections, double playbackUT, out TrackSection section)
+        {
+            section = default(TrackSection);
+            if (trackSections == null || trackSections.Count == 0)
+                return false;
+
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(trackSections, playbackUT);
+            if (sectionIndex < 0 || sectionIndex >= trackSections.Count)
+                return false;
+
+            section = trackSections[sectionIndex];
+            return section.referenceFrame == ReferenceFrame.Relative;
         }
 
         private static bool LogPendingPlaybackInterpolationResolved(

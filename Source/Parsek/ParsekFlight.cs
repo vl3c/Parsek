@@ -2583,7 +2583,7 @@ namespace Parsek
             engine?.Dispose();
 
             // Clear ParsekFlight-local state after engine disposal
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
@@ -13893,7 +13893,7 @@ namespace Parsek
                 ghostObject = null;
             }
 
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
@@ -15533,7 +15533,7 @@ namespace Parsek
             engine.DestroyAllGhosts();
 
             // Clear ParsekFlight-local state (positioning, proximity, diagnostics)
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
@@ -15605,7 +15605,7 @@ namespace Parsek
 
             // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
             // so after reindexing they would map to wrong recordings
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
 
             // Clear map marker waypoint cache (index-keyed, stale after reindex)
             ui?.ClearMapMarkerCache();
@@ -15649,7 +15649,7 @@ namespace Parsek
 
             watchMode.OnRecordingDeleted(index);
             engine.ReindexAfterDelete(index);
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -16962,7 +16962,7 @@ namespace Parsek
 
         void IGhostPositioner.ClearOrbitCache()
         {
-            orbitCache.Clear();
+            ClearOrbitPlaybackCaches();
         }
 
         bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
@@ -19279,8 +19279,22 @@ namespace Parsek
             return TrajectoryMath.FindOrbitSegment(segments, ut);
         }
 
+        private struct PredictedOrbitTailContinuityCacheEntry
+        {
+            public Vector3d rawOffset;
+            public string anchorSource;
+        }
+
         // Cache to avoid reconstructing Orbit objects every frame
         private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
+        private readonly Dictionary<string, PredictedOrbitTailContinuityCacheEntry> predictedOrbitTailContinuityCache =
+            new Dictionary<string, PredictedOrbitTailContinuityCacheEntry>();
+
+        private void ClearOrbitPlaybackCaches()
+        {
+            orbitCache?.Clear();
+            predictedOrbitTailContinuityCache?.Clear();
+        }
 
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
             string recordingId = null, IPlaybackTrajectory traj = null)
@@ -19475,10 +19489,8 @@ namespace Parsek
 
             if (!ShouldApplyPredictedOrbitTailContinuity(traj, segment, playbackUT))
                 return false;
-            if (!TryResolvePredictedOrbitTailContinuityAnchorWorldPosition(
-                    traj, out Vector3d anchorWorld, out anchorUT, out anchorSource))
-                return false;
 
+            anchorUT = traj.Points[traj.Points.Count - 1].ut;
             blendSeconds = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
                 anchorUT, segment.startUT);
             weight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
@@ -19486,10 +19498,52 @@ namespace Parsek
             if (weight <= 1e-6)
                 return false;
 
-            Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
-            rawOffset = anchorWorld - orbitAtAnchor;
-            if (!IsFiniteVector3d(rawOffset))
-                return false;
+            string cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
+            bool cacheHit = false;
+            if (predictedOrbitTailContinuityCache.TryGetValue(
+                    cacheKey, out PredictedOrbitTailContinuityCacheEntry cacheEntry)
+                && IsFiniteVector3d(cacheEntry.rawOffset))
+            {
+                rawOffset = cacheEntry.rawOffset;
+                anchorSource = cacheEntry.anchorSource;
+                cacheHit = true;
+            }
+            else
+            {
+                if (!TryResolvePredictedOrbitTailContinuityAnchorWorldPosition(
+                        traj, out Vector3d anchorWorld, out double resolvedAnchorUT, out anchorSource))
+                {
+                    return false;
+                }
+
+                if (Math.Abs(resolvedAnchorUT - anchorUT) > 1e-6)
+                {
+                    anchorUT = resolvedAnchorUT;
+                    blendSeconds = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                        anchorUT, segment.startUT);
+                    weight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                        anchorUT, playbackUT, blendSeconds);
+                    if (weight <= 1e-6)
+                        return false;
+                    cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
+                }
+
+                Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+                rawOffset = anchorWorld - orbitAtAnchor;
+                if (!IsFiniteVector3d(rawOffset))
+                    return false;
+
+                double candidateRawMeters = rawOffset.magnitude;
+                if (candidateRawMeters <= 0.01)
+                    return false;
+
+                predictedOrbitTailContinuityCache[cacheKey] =
+                    new PredictedOrbitTailContinuityCacheEntry
+                    {
+                        rawOffset = rawOffset,
+                        anchorSource = anchorSource
+                    };
+            }
 
             weightedOffset = rawOffset * weight;
             if (!IsFiniteVector3d(weightedOffset))
@@ -19516,9 +19570,31 @@ namespace Parsek
                     rawMeters,
                     weight,
                     blendSeconds,
-                    GhostRenderTrace.FormatVector3d(weightedOffset)),
+                    GhostRenderTrace.FormatVector3d(weightedOffset)
+                    + " cache=" + (cacheHit ? "hit" : "miss")),
                 5.0);
             return true;
+        }
+
+        private static string BuildPredictedOrbitTailContinuityCacheKey(
+            IPlaybackTrajectory traj,
+            OrbitSegment segment,
+            double anchorUT)
+        {
+            string recordingId = traj?.RecordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                recordingId = traj?.VesselName ?? "<no-recording-id>";
+
+            return string.Join("|",
+                recordingId,
+                segment.bodyName ?? "<no-body>",
+                anchorUT.ToString("R", CultureInfo.InvariantCulture),
+                segment.startUT.ToString("R", CultureInfo.InvariantCulture),
+                segment.endUT.ToString("R", CultureInfo.InvariantCulture),
+                segment.epoch.ToString("R", CultureInfo.InvariantCulture),
+                segment.semiMajorAxis.ToString("R", CultureInfo.InvariantCulture),
+                segment.eccentricity.ToString("R", CultureInfo.InvariantCulture),
+                segment.inclination.ToString("R", CultureInfo.InvariantCulture));
         }
 
         private static bool ShouldApplyPredictedOrbitTailContinuity(
