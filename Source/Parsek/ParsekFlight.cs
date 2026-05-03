@@ -378,7 +378,7 @@ namespace Parsek
 
         private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint, CoBubble }
 
-        private enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
+        internal enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
 
         private struct GhostPosEntry
         {
@@ -1206,7 +1206,7 @@ namespace Parsek
 
             ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
 
-            ClampGhostsToTerrain();
+            ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
 
             watchMode.UpdateWatchCamera();
         }
@@ -1220,7 +1220,7 @@ namespace Parsek
 
             ghostPreCullReapplyFrame = Time.frameCount;
             ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
-            ClampGhostsToTerrain();
+            ClampGhostsToTerrain(GhostPositionReapplyPhase.CameraPreCull);
             ghostPosEntries.Clear();
         }
 
@@ -1228,10 +1228,16 @@ namespace Parsek
         {
             PruneReFlyRenderInterpolationStatesIfNeeded();
 
+            int skippedNonReFlyPreCull = 0;
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
                 if (e.ghost == null || !e.ghost.activeSelf) continue;
+                if (!ShouldProcessGhostPositionReapply(phase, e.hasReFlyTreeOffset))
+                {
+                    skippedNonReFlyPreCull++;
+                    continue;
+                }
                 Vector3d positionBeforeReapply = e.ghost.transform.position;
 
                 switch (e.mode)
@@ -1701,6 +1707,8 @@ namespace Parsek
 
                 TraceGhostPositionReapply(e, phase, positionBeforeReapply, e.ghost.transform.position);
             }
+
+            LogSkippedNonReFlyCameraPreCull("reapply", skippedNonReFlyPreCull);
         }
 
         private void ApplyGhostReapplyTransform(
@@ -2261,6 +2269,25 @@ namespace Parsek
                 1.0);
         }
 
+        internal static bool ShouldProcessGhostPositionReapply(
+            GhostPositionReapplyPhase phase,
+            bool hasReFlyTreeOffset)
+        {
+            return phase != GhostPositionReapplyPhase.CameraPreCull || hasReFlyTreeOffset;
+        }
+
+        private static void LogSkippedNonReFlyCameraPreCull(string operation, int count)
+        {
+            if (count <= 0)
+                return;
+
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "ghost-camera-pre-cull-non-refly-skip-" + operation,
+                $"Ghost camera pre-cull skipped non-Re-Fly {operation} entries: count={count}",
+                1.0);
+        }
+
         private static string BuildGhostRenderTraceLiveRootComparison(
             string recordingId,
             Vector3d finalWorldPosition)
@@ -2347,16 +2374,22 @@ namespace Parsek
         /// Sub-orbital orbit reconstruction can place ghosts underground (periapsis
         /// below surface), and procedural terrain height varies between sessions.
         /// </summary>
-        private void ClampGhostsToTerrain()
+        private void ClampGhostsToTerrain(GhostPositionReapplyPhase phase)
         {
             Vector3d activeVesselPos = FlightGlobals.ActiveVessel != null
                 ? FlightGlobals.ActiveVessel.GetWorldPos3D()
                 : Vector3d.zero;
 
+            int skippedNonReFlyPreCull = 0;
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
                 if (e.ghost == null || !e.ghost.activeSelf) continue;
+                if (!ShouldProcessGhostPositionReapply(phase, e.hasReFlyTreeOffset))
+                {
+                    skippedNonReFlyPreCull++;
+                    continue;
+                }
                 if (e.mode == GhostPosMode.Relative) continue;
 
                 CelestialBody body = (e.mode == GhostPosMode.Orbit) ? e.orbitBody : e.bodyBefore;
@@ -2407,6 +2440,8 @@ namespace Parsek
                             alt, terrainHeight, clamped, clearance));
                 }
             }
+
+            LogSkippedNonReFlyCameraPreCull("terrain-clamp", skippedNonReFlyPreCull);
         }
 
         void OnGUI()

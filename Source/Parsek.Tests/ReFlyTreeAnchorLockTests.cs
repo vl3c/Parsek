@@ -987,6 +987,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldProcessGhostPositionReapply_LateUpdateProcessesAllEntries()
+        {
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.LateUpdate,
+                hasReFlyTreeOffset: false));
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.LateUpdate,
+                hasReFlyTreeOffset: true));
+        }
+
+        [Fact]
+        public void ShouldProcessGhostPositionReapply_CameraPreCullIsReFlyOnly()
+        {
+            Assert.False(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.CameraPreCull,
+                hasReFlyTreeOffset: false));
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.CameraPreCull,
+                hasReFlyTreeOffset: true));
+        }
+
+        [Fact]
         public void ReFlyRenderInterpolation_BlendsBetweenPhysicsTargets()
         {
             var state = new ParsekFlight.ReFlyRenderInterpolationState();
