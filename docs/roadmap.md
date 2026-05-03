@@ -285,9 +285,12 @@ The pre-implementation spec that drove v0.9 is archived at
 ### v0.9.1 — Unfinished Flights Stable Leaves & Re-Fly Hardening
 
 The 0.9.1 line shipped the Phase 12.5 Unfinished Flights stable-leaf extension
-and a focused Re-Fly hardening pass. Full design:
-[`docs/parsek-unfinished-flights-stable-leaves-design.md`](parsek-unfinished-flights-stable-leaves-design.md).
-Pre-implementation research note (R17) at
+and a focused Re-Fly hardening pass. Full design (now folded into the
+unified Rewind-to-Separation spec):
+[`docs/parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md).
+Pre-implementation spec for the stable-leaf extension is archived at
+[`docs/dev/done/parsek-unfinished-flights-stable-leaves-design.md`](dev/done/parsek-unfinished-flights-stable-leaves-design.md);
+research note (R17) at
 [`docs/dev/research/extending-rewind-to-stable-leaves.md`](dev/research/extending-rewind-to-stable-leaves.md).
 
 - **Broader Unfinished Flights predicate** — `IsUnfinishedFlight` now includes

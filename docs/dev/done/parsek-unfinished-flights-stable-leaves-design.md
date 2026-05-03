@@ -1,8 +1,13 @@
 # Parsek — Unfinished Flights: Stable-Leaf Extension
 
-*Forward-looking design specification for broadening v0.9's Unfinished Flights group to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved — alongside today's Crashed-only siblings. This document is the contract for the implementation PRs; it does not describe shipped behavior yet.*
+> **ARCHIVED PRE-IMPLEMENTATION SPEC.** Shipped in v0.9.1 and folded into the unified
+> Rewind-to-Separation design at [`docs/parsek-rewind-to-separation-design.md`](../../parsek-rewind-to-separation-design.md).
+> That document is the source of truth for what shipped; this file is preserved
+> as the historical pre-impl contract for archaeology only and is not maintained.
 
-*Status: planned for a 0.9.x patch. Promoted from the research note `docs/dev/research/extending-rewind-to-stable-leaves.md` (R17, merged in PR #634). Related docs: `parsek-rewind-to-separation-design.md` (the v0.9 source of truth this feature extends), `parsek-recording-finalization-design.md` (terminal-state contract this feature relies on), `parsek-flight-recorder-design.md` (recording DAG, branch-points, chain semantics), `parsek-timeline-design.md` (read-only consumer of ERS).*
+*Forward-looking design specification for broadening v0.9's Unfinished Flights group to include stable-but-unconcluded leaves of multi-controllable splits — probes deployed and forgotten in orbit, stranded EVA kerbals, sub-orbital coast that never resolved — alongside today's Crashed-only siblings. This document was the contract for the v0.9.1 implementation PRs.*
+
+*Status: shipped in v0.9.1; superseded by the merged `parsek-rewind-to-separation-design.md`. Promoted from the research note `docs/dev/research/extending-rewind-to-stable-leaves.md` (R17, merged in PR #634). Related docs: `parsek-rewind-to-separation-design.md` (now the single canonical spec), `parsek-recording-finalization-design.md` (terminal-state contract this feature relies on), `parsek-flight-recorder-design.md` (recording DAG, branch-points, chain semantics), `parsek-timeline-design.md` (read-only consumer of ERS).*
 
 ---
 
