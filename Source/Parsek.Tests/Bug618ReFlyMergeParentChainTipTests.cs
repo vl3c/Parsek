@@ -163,6 +163,8 @@ namespace Parsek.Tests
             Assert.True(decisions[UpperTip]);
             Assert.False(upperTip.VesselSpawned);
 
+            tree.Recordings[UpperHead].LoopPlayback = true; // block merge so the test exercises split handoff.
+            MakeUpperTipSplittable(tree);
             RecordingStore.StashPendingTree(tree);
             var scenario = new ParsekScenario
             {
@@ -186,10 +188,17 @@ namespace Parsek.Tests
 
             MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
 
-            Assert.True(upperTip.VesselSpawned);
-            Assert.Equal(100u, upperTip.SpawnedVesselPersistentId);
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.NotNull(finalUpperTip);
+            Assert.NotEqual(UpperTip, finalUpperTip.RecordingId);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.False(upperTip.VesselSpawned);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
@@ -413,6 +422,45 @@ namespace Parsek.Tests
                 rec.Points.Add(new TrajectoryPoint { ut = 101.0 + i });
                 i++;
             }
+        }
+
+        private static void MakeUpperTipSplittable(RecordingTree tree)
+        {
+            Recording upperTip = tree.Recordings[UpperTip];
+            upperTip.Points.Clear();
+            upperTip.Points.Add(Point(100.0));
+            upperTip.Points.Add(Point(110.0));
+            upperTip.Points.Add(Point(125.0));
+            upperTip.TrackSections.Clear();
+            upperTip.TrackSections.Add(Section(100.0, 110.0, SegmentEnvironment.Atmospheric));
+            upperTip.TrackSections.Add(Section(110.0, 125.0, SegmentEnvironment.ExoBallistic));
+        }
+
+        private static TrackSection Section(double startUT, double endUT, SegmentEnvironment environment)
+        {
+            return new TrackSection
+            {
+                startUT = startUT,
+                endUT = endUT,
+                environment = environment,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                frames = new List<TrajectoryPoint>
+                {
+                    Point(startUT),
+                    Point(endUT),
+                },
+            };
+        }
+
+        private static TrajectoryPoint Point(double ut)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = "Kerbin",
+                altitude = 100000.0,
+            };
         }
 
         private static ConfigNode Snapshot()

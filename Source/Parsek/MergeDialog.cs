@@ -306,13 +306,13 @@ namespace Parsek
                     : null;
 
             ApplyVesselDecisions(tree, decisions);
-            AdoptExistingSourceVesselsForRetainedParentChainTips(
-                tree, decisions, activeReFlyTargetId);
             RecordingStore.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
             RecordingStore.RunOptimizationPass();
+            AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree, decisions, activeReFlyTargetId);
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
             CrewReservationManager.SwapReservedCrewInFlight();
 
@@ -1422,17 +1422,25 @@ namespace Parsek
             {
                 if (string.IsNullOrEmpty(tipId)) continue;
 
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                {
+                    missing++;
+                    continue;
+                }
+
                 bool persist;
-                if (!decisions.TryGetValue(tipId, out persist) || !persist)
+                bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
+                    tree, decisions, rec, out persist);
+                if (hadDecision && !persist)
                 {
                     skippedNotSpawnable++;
                     continue;
                 }
 
-                Recording rec;
-                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                if (!hadDecision && !CanPersistVessel(rec, tree))
                 {
-                    missing++;
+                    skippedNotSpawnable++;
                     continue;
                 }
 
@@ -1453,6 +1461,61 @@ namespace Parsek
                 $"skippedNotSpawnable={skippedNotSpawnable} missing={missing} " +
                 $"activeTarget='{activeReFlyTargetId}'");
             return adoptedExistingSource;
+        }
+
+        private static bool TryResolvePersistDecisionForOptimizedTip(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            Recording rec,
+            out bool persist)
+        {
+            persist = false;
+            if (rec == null || decisions == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && decisions.TryGetValue(rec.RecordingId, out persist))
+            {
+                return true;
+            }
+
+            if (tree == null
+                || tree.Recordings == null
+                || string.IsNullOrEmpty(rec.ChainId))
+            {
+                return false;
+            }
+
+            Recording best = null;
+            bool bestDecision = false;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                bool candidateDecision;
+                if (!decisions.TryGetValue(candidate.RecordingId, out candidateDecision))
+                    continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, System.StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != rec.ChainBranch)
+                    continue;
+                if (!string.IsNullOrEmpty(rec.TreeId)
+                    && !string.Equals(candidate.TreeId, rec.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainIndex > rec.ChainIndex)
+                    continue;
+                if (best == null || candidate.ChainIndex > best.ChainIndex)
+                {
+                    best = candidate;
+                    bestDecision = candidateDecision;
+                }
+            }
+
+            if (best == null)
+                return false;
+
+            persist = bestDecision;
+            return true;
         }
 
         internal static HashSet<string> CollectActiveReFlyParentChainTerminalTipIds(
@@ -1593,6 +1656,15 @@ namespace Parsek
                         System.StringComparison.Ordinal))
                         return true;
                 }
+            }
+            if (!string.IsNullOrEmpty(parentRec.ChainId)
+                && string.Equals(parentRec.ChainId, terminalRec.ChainId, System.StringComparison.Ordinal)
+                && parentRec.ChainBranch == terminalRec.ChainBranch
+                && terminalRec.ChainIndex >= parentRec.ChainIndex
+                && (string.IsNullOrEmpty(parentRec.TreeId)
+                    || string.Equals(parentRec.TreeId, terminalRec.TreeId, System.StringComparison.Ordinal)))
+            {
+                return true;
             }
             return false;
         }
