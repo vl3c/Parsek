@@ -3285,6 +3285,11 @@ namespace Parsek.Tests
                 && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
                 && l.Contains("trim-destroyed-predicted-tail")
                 && l.Contains("terminal=Destroyed"));
+            // Suppress the misleading "(terminal-mismatch) … tail still diverges from
+            // terminal state" line for unstable terminals — the tail wasn't compared,
+            // the gate refused upfront. Only the dedicated unstable-terminal log fires.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("(terminal-mismatch)"));
         }
 
         [Fact]

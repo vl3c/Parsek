@@ -2083,6 +2083,23 @@ namespace Parsek
             }
         }
 
+        internal static bool IsUnstableTerminalState(TerminalState? terminal)
+        {
+            if (!terminal.HasValue)
+                return false;
+            switch (terminal.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
+                case TerminalState.Docked:
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
         private static void LogUnstableTerminalTrimRefusal(Recording rec, double trimUT)
         {
             ParsekLog.Verbose("Optimizer",
@@ -2531,10 +2548,20 @@ namespace Parsek
 
             if (!TailPreservesTerminalSpawnState(rec, trimUT))
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
-                    $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
-                    $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                // Unstable terminals (Destroyed/Boarded/Recovered/default) emit
+                // their own dedicated `refused trim for unstable terminal` log
+                // line from inside the gate; the (terminal-mismatch) wording
+                // here is only accurate for the stable-terminal shape-match
+                // failure path (the tail genuinely diverged from the terminal
+                // orbit/surface state). Skip the duplicate-and-misleading line
+                // for unstable terminals.
+                if (!IsUnstableTerminalState(rec.TerminalStateValue))
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
+                        $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
+                        $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                }
                 return false;
             }
 
