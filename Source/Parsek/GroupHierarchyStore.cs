@@ -182,22 +182,25 @@ namespace Parsek
         internal static int PruneUnusedHierarchyEntriesFromCommittedRecordings(string reason)
         {
             // [ERS-exempt] reason: this is a cleanup pass for the raw
-            // persisted group hierarchy. It must inspect all committed rows,
-            // then explicitly subtract relation-superseded ids so the
-            // hierarchy matches the recordings table's display-effective group
-            // membership without losing NotCommitted management rows.
-            var committed = RecordingStore.CommittedRecordings;
+            // persisted group hierarchy. It must inspect all known committed
+            // and pending rows, then explicitly subtract relation-superseded
+            // ids so the hierarchy matches the recordings table's
+            // display-effective group membership without losing NotCommitted
+            // management rows. Pending rows matter during active-tree restore:
+            // the mission tree can be temporarily detached from committed
+            // storage while still awaiting a deferred merge dialog.
+            var cleanupRecordings = RecordingStore.BuildKnownRecordingsForCleanup();
             var scenario = ParsekScenario.Instance;
             var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
-                committed,
+                cleanupRecordings,
                 object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
 
             var liveGroupNames = new HashSet<string>(StringComparer.Ordinal);
-            if (committed != null)
+            if (cleanupRecordings != null)
             {
-                for (int i = 0; i < committed.Count; i++)
+                for (int i = 0; i < cleanupRecordings.Count; i++)
                 {
-                    var rec = committed[i];
+                    var rec = cleanupRecordings[i];
                     if (rec == null)
                         continue;
                     if (!string.IsNullOrEmpty(rec.RecordingId)

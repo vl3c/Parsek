@@ -928,6 +928,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SupersedeEndpointsInPendingTree_NotRemovedAsFullyOrphaned()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_pending_supersede",
+                TreeName = "Pending Supersede",
+            };
+            var oldRec = Rec("rec_pending_old", MergeState.CommittedProvisional,
+                treeId: tree.Id);
+            var newRec = Rec("rec_pending_new", MergeState.CommittedProvisional,
+                treeId: tree.Id);
+            tree.AddOrReplaceRecording(oldRec);
+            tree.AddOrReplaceRecording(newRec);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+
+            var rel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_pending_tree",
+                OldRecordingId = oldRec.RecordingId,
+                NewRecordingId = newRec.RecordingId,
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { rel });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Same(rel, scenario.RecordingSupersedes[0]);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Fully orphaned relation=rsr_pending_tree"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("removedFullyOrphanSupersedes=0"));
+        }
+
+        [Fact]
         public void SupersedeFullyOrphanedByZombieDiscard_RemovedSameLoad()
         {
             InstallTree("tree_1",
