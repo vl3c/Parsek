@@ -1323,6 +1323,7 @@ namespace Parsek
 
             int forced = 0;
             int retainedSpawnable = 0;
+            int adoptedExistingSource = 0;
             int alreadyGhostOnly = 0;
             int missing = 0;
 
@@ -1357,6 +1358,13 @@ namespace Parsek
 
                 if (canPersist && !explicitlySuppressed)
                 {
+                    bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                        rec,
+                        "MergeDialog",
+                        $"BuildDefaultVesselDecisions parent-chain tip '{tipId}'");
+                    if (adopted)
+                        adoptedExistingSource++;
+
                     decisions[tipId] = true;
                     retainedSpawnable++;
                     ParsekLog.Info("MergeDialog",
@@ -1365,6 +1373,7 @@ namespace Parsek
                         $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
                         $"hasSnapshot={rec.VesselSnapshot != null} " +
                         $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                        $"adoptedExistingSource={adopted} " +
                         $"reason=normal-spawn-policy activeTarget='{activeReFlyTargetId}'");
                     continue;
                 }
@@ -1384,7 +1393,7 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
                 $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
-                $"retainedSpawnable={retainedSpawnable} " +
+                $"retainedSpawnable={retainedSpawnable} adoptedExistingSource={adoptedExistingSource} " +
                 $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
                 $"activeTarget='{activeReFlyTargetId}'");
         }

@@ -35,10 +35,12 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => false);
         }
 
         public void Dispose()
         {
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -66,6 +68,8 @@ namespace Parsek.Tests
 
             Assert.True(decisions.ContainsKey(UpperTip));
             Assert.True(decisions[UpperTip]);
+            Assert.False(tree.Recordings[UpperTip].VesselSpawned);
+            Assert.Equal(0u, tree.Recordings[UpperTip].SpawnedVesselPersistentId);
 
             Assert.True(decisions.ContainsKey(ActiveProbe));
             Assert.True(decisions[ActiveProbe]);
@@ -78,7 +82,44 @@ namespace Parsek.Tests
                 && l.Contains("parent-chain terminal tip")
                 && l.Contains(UpperTip)
                 && l.Contains("retaining")
+                && l.Contains("adoptedExistingSource=False")
                 && l.Contains("normal-spawn-policy"));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_ParentChainOptimizerTipWithExistingSource_AdoptsInsteadOfDuplicating()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Recording upperTip = tree.Recordings[UpperTip];
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.True(decisions[UpperTip]);
+            Assert.NotNull(upperTip.VesselSnapshot);
+            Assert.True(upperTip.VesselSpawned);
+            Assert.Equal(100u, upperTip.SpawnedVesselPersistentId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("source vessel pid=100 already exists")
+                && l.Contains("adopting instead of spawning duplicate"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("parent-chain terminal tip")
+                && l.Contains(UpperTip)
+                && l.Contains("adoptedExistingSource=True"));
         }
 
         [Fact]
