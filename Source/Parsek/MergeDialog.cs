@@ -308,6 +308,8 @@ namespace Parsek
                 CaptureOptimizationSurvivorHint(tree, activeReFlyTargetId);
 
             ApplyVesselDecisions(tree, decisions);
+            // Collect after ApplyVesselDecisions so candidates reflect the actual
+            // post-decision snapshot state, but before optimization renames/splits/merges tips.
             var retainedParentChainTipCandidates =
                 CollectRetainedParentChainTipAdoptionCandidates(
                     tree, decisions, activeReFlyTargetId);
@@ -1355,7 +1357,7 @@ namespace Parsek
             => TryCommitReFlySupersede(null);
 
         private static ReFlyMergeCommitResult TryCommitReFlySupersede(
-            RecordingOptimizationSurvivorHint activeReFlyTargetHint)
+            RecordingIdentityHint activeReFlyTargetHint)
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
@@ -1400,6 +1402,9 @@ namespace Parsek
                         $"chainId={provisional.ChainId ?? "<none>"} " +
                         $"chainBranch={provisional.ChainBranch} " +
                         $"sourcePid={provisional.VesselPersistentId}");
+                    // Keep the marker pointed at the optimized survivor for the
+                    // supersede cleanup below; MergeCommit's captured active target
+                    // remains the pre-optimization id by design.
                     marker.ActiveReFlyRecordingId = provisional.RecordingId;
                     provisionalId = provisional.RecordingId;
                 }
@@ -1864,7 +1869,7 @@ namespace Parsek
             return null;
         }
 
-        private sealed class RecordingOptimizationSurvivorHint
+        private sealed class RecordingIdentityHint
         {
             internal string RecordingId;
             internal string TreeId;
@@ -1873,7 +1878,7 @@ namespace Parsek
             internal uint VesselPersistentId;
         }
 
-        private static RecordingOptimizationSurvivorHint CaptureOptimizationSurvivorHint(
+        private static RecordingIdentityHint CaptureOptimizationSurvivorHint(
             RecordingTree tree,
             string recordingId)
         {
@@ -1888,7 +1893,15 @@ namespace Parsek
             if (!tree.Recordings.TryGetValue(recordingId, out rec) || rec == null)
                 return null;
 
-            return new RecordingOptimizationSurvivorHint
+            return CaptureRecordingIdentityHint(rec);
+        }
+
+        private static RecordingIdentityHint CaptureRecordingIdentityHint(Recording rec)
+        {
+            if (rec == null)
+                return null;
+
+            return new RecordingIdentityHint
             {
                 RecordingId = rec.RecordingId,
                 TreeId = rec.TreeId,
@@ -1899,7 +1912,7 @@ namespace Parsek
         }
 
         private static Recording ResolveOptimizedRecordingSurvivor(
-            RecordingOptimizationSurvivorHint hint,
+            RecordingIdentityHint hint,
             ReFlySessionMarker marker)
         {
             if (hint == null)
@@ -1947,10 +1960,27 @@ namespace Parsek
 
         private static bool IsOptimizationSurvivorForHint(
             Recording candidate,
-            RecordingOptimizationSurvivorHint hint)
+            RecordingIdentityHint hint)
+        {
+            return IsRecordingIdentityMatch(candidate, hint, allowExactRecordingId: false);
+        }
+
+        private static bool IsRecordingIdentityMatch(
+            Recording candidate,
+            RecordingIdentityHint hint,
+            bool allowExactRecordingId)
         {
             if (candidate == null || hint == null)
                 return false;
+            if (allowExactRecordingId
+                && !string.IsNullOrEmpty(hint.RecordingId)
+                && string.Equals(
+                    hint.RecordingId,
+                    candidate.RecordingId,
+                    System.StringComparison.Ordinal))
+            {
+                return true;
+            }
             if (string.IsNullOrEmpty(candidate.RecordingId))
                 return false;
             if (string.IsNullOrEmpty(hint.ChainId)
@@ -2526,7 +2556,7 @@ namespace Parsek
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             string activeReFlyTargetId,
-            List<ParentChainTipAdoptionCandidate> retainedParentChainTipCandidates)
+            List<RecordingIdentityHint> retainedParentChainTipCandidates)
         {
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return 0;
@@ -2606,7 +2636,7 @@ namespace Parsek
         private static List<Recording> CollectCurrentParentChainTipAdoptionRecords(
             RecordingTree tree,
             string activeReFlyTargetId,
-            List<ParentChainTipAdoptionCandidate> retainedParentChainTipCandidates)
+            List<RecordingIdentityHint> retainedParentChainTipCandidates)
         {
             var result = new List<Recording>();
             var seen = new HashSet<string>(System.StringComparer.Ordinal);
@@ -2666,21 +2696,12 @@ namespace Parsek
             result.Add(rec);
         }
 
-        private sealed class ParentChainTipAdoptionCandidate
-        {
-            internal string RecordingId;
-            internal string TreeId;
-            internal string ChainId;
-            internal int ChainBranch;
-            internal uint VesselPersistentId;
-        }
-
-        private static List<ParentChainTipAdoptionCandidate> CollectRetainedParentChainTipAdoptionCandidates(
+        private static List<RecordingIdentityHint> CollectRetainedParentChainTipAdoptionCandidates(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             string activeReFlyTargetId)
         {
-            var result = new List<ParentChainTipAdoptionCandidate>();
+            var result = new List<RecordingIdentityHint>();
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return result;
 
@@ -2705,14 +2726,9 @@ namespace Parsek
                 if (!CanPersistVessel(rec, tree))
                     continue;
 
-                result.Add(new ParentChainTipAdoptionCandidate
-                {
-                    RecordingId = rec.RecordingId,
-                    TreeId = rec.TreeId,
-                    ChainId = rec.ChainId,
-                    ChainBranch = rec.ChainBranch,
-                    VesselPersistentId = rec.VesselPersistentId,
-                });
+                var hint = CaptureRecordingIdentityHint(rec);
+                if (hint != null)
+                    result.Add(hint);
             }
 
             return result;
@@ -2720,59 +2736,25 @@ namespace Parsek
 
         private static bool IsRetainedParentChainTipAdoptionCandidate(
             Recording rec,
-            List<ParentChainTipAdoptionCandidate> candidates)
+            List<RecordingIdentityHint> candidates)
         {
             if (rec == null || candidates == null || candidates.Count == 0)
                 return false;
 
             for (int i = 0; i < candidates.Count; i++)
             {
-                ParentChainTipAdoptionCandidate candidate = candidates[i];
+                RecordingIdentityHint candidate = candidates[i];
                 if (candidate == null)
                     continue;
 
-                if (!string.IsNullOrEmpty(candidate.RecordingId)
-                    && string.Equals(
-                        candidate.RecordingId,
-                        rec.RecordingId,
-                        System.StringComparison.Ordinal))
-                {
+                if (IsRecordingIdentityMatch(rec, candidate, allowExactRecordingId: true))
                     return true;
-                }
-
-                if (candidate.VesselPersistentId == 0u
-                    || rec.VesselPersistentId == 0u
-                    || candidate.VesselPersistentId != rec.VesselPersistentId)
-                {
-                    continue;
-                }
-                if (string.IsNullOrEmpty(candidate.ChainId)
-                    || string.IsNullOrEmpty(rec.ChainId)
-                    || !string.Equals(
-                        candidate.ChainId,
-                        rec.ChainId,
-                        System.StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (candidate.ChainBranch != rec.ChainBranch)
-                    continue;
-                if (!string.IsNullOrEmpty(candidate.TreeId)
-                    && !string.Equals(
-                        candidate.TreeId,
-                        rec.TreeId,
-                        System.StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                return true;
             }
 
             return false;
         }
 
-        private static bool TryResolvePersistDecisionForOptimizedTip(
+        internal static bool TryResolvePersistDecisionForOptimizedTip(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             Recording rec,

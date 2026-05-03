@@ -516,6 +516,97 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CollectParentChainTips_UsesChainIdentityWhenTerminalHasNoBranchPointBacklink()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings[UpperTip].ChildBranchPointId = null;
+
+            var tips = MergeDialog.CollectActiveReFlyParentChainTerminalTipIds(
+                tree,
+                ActiveProbe);
+
+            Assert.Single(tips);
+            Assert.Contains(UpperTip, tips);
+        }
+
+        [Fact]
+        public void TryResolvePersistDecisionForOptimizedTip_UsesClosestSameChainPredecessorDecision()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings.Remove(UpperTip);
+            var optimizedTip = new Recording
+            {
+                RecordingId = "upper_tip_after_optimizer_618",
+                TreeId = TreeId,
+                VesselName = "Kerbal X Upper Stage",
+                VesselPersistentId = 100u,
+                ChainId = UpperChain,
+                ChainIndex = 2,
+                ChainBranch = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = Snapshot(),
+            };
+            tree.AddOrReplaceRecording(optimizedTip);
+            var decisions = new Dictionary<string, bool>
+            {
+                { UpperHead, false },
+                { ActiveProbe, true },
+            };
+
+            bool persist;
+            bool hadDecision = MergeDialog.TryResolvePersistDecisionForOptimizedTip(
+                tree,
+                decisions,
+                optimizedTip,
+                out persist);
+
+            Assert.True(hadDecision);
+            Assert.False(persist);
+        }
+
+        [Fact]
+        public void TryResolvePersistDecisionForOptimizedTip_ReturnsFalseWhenOptimizedTipLosesOriginalAndPredecessorDecision()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings.Remove(UpperTip);
+            var optimizedTip = new Recording
+            {
+                RecordingId = "upper_tip_after_optimizer_618",
+                TreeId = TreeId,
+                VesselName = "Kerbal X Upper Stage",
+                VesselPersistentId = 100u,
+                ChainId = UpperChain,
+                ChainIndex = 2,
+                ChainBranch = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = Snapshot(),
+            };
+            tree.AddOrReplaceRecording(optimizedTip);
+            var decisions = new Dictionary<string, bool>
+            {
+                { UpperTip, true },
+                { ActiveProbe, true },
+                { ProbeTip, false },
+            };
+
+            bool persist;
+            bool hadDecision = MergeDialog.TryResolvePersistDecisionForOptimizedTip(
+                tree,
+                decisions,
+                optimizedTip,
+                out persist);
+
+            Assert.False(hadDecision);
+            Assert.False(persist);
+        }
+
+        [Fact]
         public void ResolveChainTerminalRecording_UsesPendingTreeContext()
         {
             var tree = new RecordingTree { Id = TreeId, TreeName = "Pending" };
