@@ -2622,10 +2622,14 @@ namespace Parsek
         /// <summary>
         /// Builds the recording view used by load/save cleanup passes that
         /// reason over raw committed rows, while also protecting the pending
-        /// tree during deferred-merge windows. Intentionally excludes the
-        /// committed-tree dictionary: zombie cleanup removes rows from the
-        /// flat committed list, and the same sweep must not see those rows
-        /// again through the parallel tree store.
+        /// tree during deferred-merge windows. LoadTimeSweep uses it for
+        /// supersede endpoint existence; GroupHierarchyStore uses it for live
+        /// group collection. Intentionally excludes the committed-tree
+        /// dictionary: zombie cleanup removes rows from the flat committed
+        /// list, and the same sweep must not see those rows again through the
+        /// parallel tree store. The same exclusion keeps group pruning aligned
+        /// to the raw committed list plus the deferred pending tree, without
+        /// letting stale tree-only copies protect old hierarchy entries.
         /// </summary>
         internal static List<Recording> BuildKnownRecordingsForCleanup()
         {
@@ -2665,14 +2669,21 @@ namespace Parsek
         internal static HashSet<string> BuildKnownRecordingIdsForCleanup()
         {
             var knownIds = new HashSet<string>(StringComparer.Ordinal);
-            var knownRecordings = BuildKnownRecordingsForCleanup();
-            for (int i = 0; i < knownRecordings.Count; i++)
+            for (int i = 0; i < committedRecordings.Count; i++)
+                AddKnownRecordingId(knownIds, committedRecordings[i]);
+
+            if (pendingTree != null && pendingTree.Recordings != null)
             {
-                var rec = knownRecordings[i];
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                    knownIds.Add(rec.RecordingId);
+                foreach (var kvp in pendingTree.Recordings)
+                    AddKnownRecordingId(knownIds, kvp.Value);
             }
             return knownIds;
+        }
+
+        private static void AddKnownRecordingId(HashSet<string> knownIds, Recording rec)
+        {
+            if (!string.IsNullOrEmpty(rec?.RecordingId))
+                knownIds.Add(rec.RecordingId);
         }
 
         /// <summary>
@@ -2694,19 +2705,14 @@ namespace Parsek
         {
             var knownIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
-                    knownIds.Add(committedRecordings[i].RecordingId);
-            }
+                AddKnownRecordingId(knownIds, committedRecordings[i]);
+
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var treeRecordings = committedTrees[t]?.Recordings;
                 if (treeRecordings == null) continue;
                 foreach (var kvp in treeRecordings)
-                {
-                    if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
-                        knownIds.Add(kvp.Value.RecordingId);
-                }
+                    AddKnownRecordingId(knownIds, kvp.Value);
             }
 
             pendingTreeIdCount = 0;
@@ -2716,7 +2722,7 @@ namespace Parsek
                 {
                     if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
                     {
-                        knownIds.Add(kvp.Value.RecordingId);
+                        AddKnownRecordingId(knownIds, kvp.Value);
                         pendingTreeIdCount++;
                     }
                 }
