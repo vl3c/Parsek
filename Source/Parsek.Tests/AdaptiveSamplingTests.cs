@@ -526,6 +526,150 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ActiveReFlyTreeSampling_FullCadenceInside250Meters()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-root",
+            };
+
+            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+                FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
+                    activeRecordingId: "rec-optimizer-successor",
+                    activeTreeId: "tree-1",
+                    marker,
+                    currentUT: 650.0,
+                    proximityDistanceMeters: 250.0,
+                    out string reason);
+            float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMin: 0.2f,
+                configuredMax: 3.0f);
+            float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
+
+            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.Full, cadence);
+            Assert.Equal("active-refly-tree-full", reason);
+            Assert.Equal(0.2f, min);
+            Assert.Equal(0.2f, max);
+        }
+
+        [Fact]
+        public void ActiveReFlyTreeSampling_HalfCadenceBetween250And500Meters()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-root",
+            };
+
+            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+                FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
+                    activeRecordingId: "rec-optimizer-successor",
+                    activeTreeId: "tree-1",
+                    marker,
+                    currentUT: 650.0,
+                    proximityDistanceMeters: 500.0,
+                    out string reason);
+            float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMin: 0.2f,
+                configuredMax: 3.0f);
+            float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
+
+            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.Half, cadence);
+            Assert.Equal("active-refly-tree-half", reason);
+            Assert.Equal(0.4f, min);
+            Assert.Equal(0.4f, max);
+        }
+
+        [Fact]
+        public void ActiveReFlyTreeSampling_RejectsPast500Meters()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "rec-root",
+            };
+
+            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+                FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
+                    activeRecordingId: "rec-optimizer-successor",
+                    activeTreeId: "tree-1",
+                    marker,
+                    currentUT: 650.0,
+                    proximityDistanceMeters: 500.1,
+                    out string reason);
+            float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMin: 0.2f,
+                configuredMax: 3.0f);
+            float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                cadence,
+                highFidelityActive: false,
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
+
+            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal("proximity-out-of-range", reason);
+            Assert.Equal(0.2f, min);
+            Assert.Equal(3.0f, max);
+        }
+
+        [Fact]
+        public void ActiveReFlyTreeSampling_RejectsNormalRecordingWithoutMarker()
+        {
+            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+                FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
+                    activeRecordingId: "rec-normal",
+                    activeTreeId: "tree-1",
+                    marker: null,
+                    currentUT: 650.0,
+                    proximityDistanceMeters: 100.0,
+                    out string reason);
+
+            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal("marker-missing", reason);
+        }
+
+        [Fact]
+        public void ActiveReFlyTreeSampling_RejectsDifferentTree()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-refly",
+                ActiveReFlyRecordingId = "rec-root",
+            };
+
+            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+                FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
+                    activeRecordingId: "rec-other",
+                    activeTreeId: "tree-normal",
+                    marker,
+                    currentUT: 650.0,
+                    proximityDistanceMeters: 100.0,
+                    out string reason);
+
+            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal("tree-mismatch", reason);
+        }
+
+        [Fact]
         public void SectionGapStats_ComputesAverageMaxAndLargeGaps()
         {
             var frames = new List<TrajectoryPoint>

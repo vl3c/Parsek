@@ -34,6 +34,13 @@ namespace Parsek
             PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
 
+        internal enum ReFlyTreeSamplingCadence
+        {
+            None,
+            Full,
+            Half
+        }
+
         // Recording output
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
@@ -515,9 +522,92 @@ namespace Parsek
                 || IsHighFidelityProximityActive(proximityDistanceMeters);
         }
 
+        internal static ReFlyTreeSamplingCadence ResolveActiveReFlyTreeSamplingCadence(
+            string activeRecordingId,
+            string activeTreeId,
+            ReFlySessionMarker marker,
+            double currentUT,
+            double proximityDistanceMeters,
+            out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrEmpty(activeRecordingId))
+            {
+                reason = "active-recording-id-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (string.IsNullOrEmpty(activeTreeId))
+            {
+                reason = "active-tree-id-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (marker == null)
+            {
+                reason = "marker-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (string.IsNullOrEmpty(marker.SessionId))
+            {
+                reason = "marker-session-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (string.IsNullOrEmpty(marker.TreeId))
+            {
+                reason = "marker-tree-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                reason = "marker-active-recording-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (!IsFinite(currentUT))
+            {
+                reason = "ut-non-finite";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (!string.Equals(activeTreeId, marker.TreeId, StringComparison.Ordinal))
+            {
+                reason = "tree-mismatch";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (!IsFinite(proximityDistanceMeters))
+            {
+                reason = "proximity-missing";
+                return ReFlyTreeSamplingCadence.None;
+            }
+            if (proximityDistanceMeters <= ReFlyTreeFullFidelityProximityRangeMeters)
+            {
+                reason = "active-refly-tree-full";
+                return ReFlyTreeSamplingCadence.Full;
+            }
+            if (proximityDistanceMeters <= ReFlyTreeHalfFidelityProximityRangeMeters)
+            {
+                reason = "active-refly-tree-half";
+                return ReFlyTreeSamplingCadence.Half;
+            }
+
+            reason = "proximity-out-of-range";
+            return ReFlyTreeSamplingCadence.None;
+        }
+
         internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
         {
             return configuredMin;
+        }
+
+        internal static float ResolveEffectiveMinSampleInterval(
+            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            bool highFidelityActive,
+            float configuredMin,
+            float configuredMax)
+        {
+            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
+                return ResolveReFlyTreeCadenceSampleInterval(
+                    reFlyTreeCadence,
+                    configuredMax,
+                    configuredMin);
+            return ResolveEffectiveMinSampleInterval(highFidelityActive, configuredMin);
         }
 
         internal static float ResolveEffectiveMaxSampleInterval(
@@ -528,6 +618,34 @@ namespace Parsek
             return highFidelityActive
                 ? Math.Min(configuredMax, Math.Max(0f, configuredMin))
                 : configuredMax;
+        }
+
+        internal static float ResolveEffectiveMaxSampleInterval(
+            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            bool highFidelityActive,
+            float configuredMax,
+            float configuredMin)
+        {
+            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
+                return ResolveReFlyTreeCadenceSampleInterval(
+                    reFlyTreeCadence,
+                    configuredMax,
+                    configuredMin);
+            return ResolveEffectiveMaxSampleInterval(
+                highFidelityActive,
+                configuredMax,
+                configuredMin);
+        }
+
+        private static float ResolveReFlyTreeCadenceSampleInterval(
+            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            float configuredMax,
+            float configuredMin)
+        {
+            float configuredMinClamped = Math.Max(0f, configuredMin);
+            if (reFlyTreeCadence == ReFlyTreeSamplingCadence.Half)
+                configuredMinClamped *= 2f;
+            return Math.Min(configuredMax, configuredMinClamped);
         }
 
         internal static double ResolveHighFidelitySamplingWindowSeconds(float configuredMax)
@@ -588,6 +706,8 @@ namespace Parsek
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
         internal const double HighFidelityProximityRangeMeters = 200.0;
+        internal const double ReFlyTreeFullFidelityProximityRangeMeters = 250.0;
+        internal const double ReFlyTreeHalfFidelityProximityRangeMeters = 500.0;
         internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
@@ -602,6 +722,8 @@ namespace Parsek
         private bool hasLastRecordedWorldRotation;
         private double highFidelitySamplingUntilUT = double.NaN;
         private string highFidelitySamplingReason;
+        private double reFlyTreeSamplingProximityMeters = double.NaN;
+        private string reFlyTreeSamplingProximitySource;
 
         /// <summary>
         /// UT of the most recently sampled trajectory point. <c>double.NaN</c>
@@ -4488,6 +4610,24 @@ namespace Parsek
             surfaceMobileClearanceSumThisSection = 0.0;
         }
 
+        private void ConsiderReFlyTreeSamplingProximity(
+            Vector3d focusedWorldPosition,
+            Vector3d candidateWorldPosition,
+            string source)
+        {
+            double distance = Vector3d.Distance(focusedWorldPosition, candidateWorldPosition);
+            if (!IsFinite(distance))
+                return;
+            if (IsFinite(reFlyTreeSamplingProximityMeters)
+                && distance >= reFlyTreeSamplingProximityMeters)
+            {
+                return;
+            }
+
+            reFlyTreeSamplingProximityMeters = distance;
+            reFlyTreeSamplingProximitySource = source;
+        }
+
         /// <summary>
         /// Adds a finalized orbit segment to the current TrackSection's checkpoints list,
         /// if the current section is ORBITAL_CHECKPOINT. Called whenever an orbit segment
@@ -4640,13 +4780,16 @@ namespace Parsek
                 return recordingAnchorCandidateBuffer;
             }
 
+            Vector3d focusedWorldPosition = focusedVessel.GetWorldPos3D();
             AddLiveRecordingAnchorCandidates(
                 focusedVessel,
+                focusedWorldPosition,
                 focusRecording,
                 out liveScanned,
                 out liveAdded);
             AddExternalRecordingAnchorCandidates(
                 focusRecording,
+                focusedWorldPosition,
                 ut,
                 out ghostScanned,
                 out ghostAdded);
@@ -4662,6 +4805,7 @@ namespace Parsek
 
         private void AddLiveRecordingAnchorCandidates(
             Vessel focusedVessel,
+            Vector3d focusedWorldPosition,
             Recording focusRecording,
             out int scanned,
             out int added)
@@ -4678,8 +4822,17 @@ namespace Parsek
                     continue;
 
                 scanned++;
-                if (!TryResolveLivePeerRecordingId(vessel.persistentId, out string recordingId))
+                if (!TryResolveLivePeerRecordingId(
+                        vessel.persistentId,
+                        out string recordingId,
+                        skipActiveProvisional: false))
                     continue;
+                Vector3d candidateWorldPosition = vessel.GetWorldPos3D();
+                if (TryGetReFlyTreeSamplingCandidateRecording(recordingId, focusRecording, out _))
+                    ConsiderReFlyTreeSamplingProximity(
+                        focusedWorldPosition,
+                        candidateWorldPosition,
+                        "live-anchor");
                 if (!TryGetEligibleAnchorRecording(
                         recordingId,
                         focusRecording,
@@ -4693,7 +4846,7 @@ namespace Parsek
                 if (AnchorDetector.TryCreateRecordingAnchorCandidate(
                         focusRecording,
                         candidateRecording,
-                        vessel.GetWorldPos3D(),
+                        candidateWorldPosition,
                         vessel.transform.rotation,
                         AnchorCandidateSource.Live,
                         vessel.persistentId,
@@ -4708,6 +4861,7 @@ namespace Parsek
 
         private void AddExternalRecordingAnchorCandidates(
             Recording focusRecording,
+            Vector3d focusedWorldPosition,
             double ut,
             out int scanned,
             out int added)
@@ -4727,6 +4881,11 @@ namespace Parsek
             foreach (RecordingAnchorCandidate provided in candidates)
             {
                 scanned++;
+                if (TryGetReFlyTreeSamplingCandidateRecording(provided.RecordingId, focusRecording, out _))
+                    ConsiderReFlyTreeSamplingProximity(
+                        focusedWorldPosition,
+                        provided.WorldPos,
+                        provided.Source == AnchorCandidateSource.Live ? "live-anchor" : "ghost-anchor");
                 if (!TryGetEligibleAnchorRecording(
                         provided.RecordingId,
                         focusRecording,
@@ -4780,7 +4939,10 @@ namespace Parsek
             return true;
         }
 
-        private bool TryResolveLivePeerRecordingId(uint peerPid, out string recordingId)
+        private bool TryResolveLivePeerRecordingId(
+            uint peerPid,
+            out string recordingId,
+            bool skipActiveProvisional = true)
         {
             recordingId = null;
             if (peerPid == 0u || peerPid == RecordingVesselId)
@@ -4792,7 +4954,8 @@ namespace Parsek
             {
                 return false;
             }
-            if (IsStillBeingAppendedActiveProvisionalRecordingId(recordingId))
+            if (skipActiveProvisional
+                && IsStillBeingAppendedActiveProvisionalRecordingId(recordingId))
             {
                 ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-active-provisional-skip",
                     $"Recording anchor candidate skipped: recordingId={recordingId} " +
@@ -4802,6 +4965,23 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        private bool TryGetReFlyTreeSamplingCandidateRecording(
+            string recordingId,
+            Recording focusRecording,
+            out Recording candidateRecording)
+        {
+            candidateRecording = null;
+            if (string.IsNullOrWhiteSpace(recordingId))
+                return false;
+            if (ActiveTree?.Recordings == null
+                || !ActiveTree.Recordings.TryGetValue(recordingId, out candidateRecording))
+            {
+                return false;
+            }
+
+            return AnchorDetector.IsRecordingAnchorEligible(focusRecording, candidateRecording);
         }
 
         private bool TryGetEligibleAnchorRecording(
@@ -4923,6 +5103,8 @@ namespace Parsek
             // ground and don't need relative positioning. Also handles the case where a
             // vessel lands near a base — exits RELATIVE mode on landing.
             bool onSurface = ResolveAnchorOnSurface(environmentHysteresis, (int)v.situation);
+            reFlyTreeSamplingProximityMeters = double.NaN;
+            reFlyTreeSamplingProximitySource = null;
             if (onSurface && isRelativeMode)
             {
                 // Was flying in RELATIVE mode, just landed — exit RELATIVE
@@ -4957,10 +5139,11 @@ namespace Parsek
                     out int liveAdded,
                     out int ghostScanned,
                     out int ghostAdded);
+                Vector3d focusedWorldPosition = v.GetWorldPos3D();
                 var result = AnchorDetector.FindNearestRecordingAnchor(
                     ActiveTree?.ActiveRecordingId,
                     RecordingVesselId,
-                    v.GetWorldPos3D(),
+                    focusedWorldPosition,
                     candidates,
                     AnchorDetector.RelativeFrameRangeLimit(isRelativeMode));
 
@@ -5266,6 +5449,8 @@ namespace Parsek
             lastFinalizationCacheRefreshUT = double.MinValue;
             highFidelitySamplingUntilUT = double.NaN;
             highFidelitySamplingReason = null;
+            reFlyTreeSamplingProximityMeters = double.NaN;
+            reFlyTreeSamplingProximitySource = null;
             highFidelityProximityVesselPids.Clear();
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
@@ -6277,10 +6462,45 @@ namespace Parsek
                 currentUT,
                 highFidelitySamplingUntilUT,
                 highFidelityProximityMeters);
+            ReFlyTreeSamplingCadence reFlyTreeSamplingCadence =
+                ResolveActiveReFlyTreeSamplingCadence(
+                    ActiveTree?.ActiveRecordingId,
+                    ActiveTree?.Id,
+                    ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                    currentUT,
+                    reFlyTreeSamplingProximityMeters,
+                    out string reFlyRecordingSamplingReason);
+            bool reFlyRecordingSamplingActive =
+                reFlyTreeSamplingCadence != ReFlyTreeSamplingCadence.None;
+            if (reFlyRecordingSamplingActive)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                highFidelityActive = true;
+                ParsekLog.VerboseRateLimited("Recorder",
+                    "active-refly-sampling|" + (ActiveTree?.ActiveRecordingId ?? "<no-rec>"),
+                    $"Active Re-Fly tree sampling cadence active: " +
+                    $"recordingId={ActiveTree?.ActiveRecordingId ?? "(none)"} " +
+                    $"treeId={ActiveTree?.Id ?? "(none)"} " +
+                    $"cadence={reFlyTreeSamplingCadence} " +
+                    $"reason={reFlyRecordingSamplingReason ?? "(none)"} " +
+                    $"proximity={reFlyTreeSamplingProximityMeters.ToString("F1", ic)}m " +
+                    $"proximitySource={reFlyTreeSamplingProximitySource ?? "(none)"} " +
+                    $"fullRange={ReFlyTreeFullFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                    $"halfRange={ReFlyTreeHalfFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                    $"configuredMin={minSampleInterval.ToString("F3", ic)}s " +
+                    $"configuredMax={maxSampleInterval.ToString("F3", ic)}s",
+                    5.0);
+            }
+            string highFidelityReason = reFlyRecordingSamplingActive
+                    ? reFlyRecordingSamplingReason
+                    : highFidelitySamplingReason;
             float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
+                reFlyTreeSamplingCadence,
                 highFidelityActive,
-                minSampleInterval);
+                minSampleInterval,
+                maxSampleInterval);
             float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
+                reFlyTreeSamplingCadence,
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
@@ -6315,7 +6535,7 @@ namespace Parsek
                     : highFidelityProximityMeters.ToString("F1", ic) + "m";
                 ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
                     $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
-                    $"highFidelity={highFidelityActive} reason={highFidelitySamplingReason ?? "(none)"} " +
+                    $"highFidelity={highFidelityActive} reason={highFidelityReason ?? "(none)"} " +
                     $"proximity={proximityText} proximitySource={highFidelityProximitySource} " +
                     $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
                     $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
