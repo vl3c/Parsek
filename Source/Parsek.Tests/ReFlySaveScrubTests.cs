@@ -102,6 +102,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScrubQuicksaveToSelectedSlot_ClosesThrottleFieldsOnKeptVessels()
+        {
+            SaveTestGame(
+                MakeVessel(5000u, "Selected A", 444u, mainThrottle: "0.85",
+                    engineCurrentThrottle: "1", independentThrottlePercentage: "25"),
+                MakeVessel(5001u, "Selected B", 445u),
+                MakeVessel(6000u, "Other", 555u, mainThrottle: "1"));
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_throttle_zero",
+                PidSlotMap = new Dictionary<uint, int>
+                {
+                    { 5000u, 0 },
+                    { 5001u, 0 },
+                    { 6000u, 1 },
+                },
+                RootPartPidMap = new Dictionary<uint, int>
+                {
+                    { 444u, 0 },
+                    { 445u, 0 },
+                    { 555u, 1 },
+                },
+            };
+
+            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
+                tempPath, rp, selectedSlotIndex: 0);
+
+            Assert.True(result.Applied);
+            Assert.Equal(2, result.VesselsKept);
+            Assert.Equal(1, result.VesselsRemoved);
+            Assert.Equal(4, result.ThrottleResets);
+
+            ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
+            Assert.Equal(2, vessels.Length);
+            Assert.Equal("0", vessels[0].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+            ConfigNode engineModule = vessels[0].GetNode("PART")?.GetNode("MODULE");
+            Assert.Equal("0", engineModule?.GetValue("currentThrottle"));
+            Assert.Equal("0", engineModule?.GetValue("independentThrottlePercentage"));
+            Assert.Equal("0", vessels[1].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+        }
+
+        [Fact]
         public void ScrubQuicksaveToSelectedSlot_RefreshesRecordingSidecarEpochsFromCurrentSidecar()
         {
             const string recordingId = "rec_refly_epoch";
@@ -254,7 +296,13 @@ namespace Parsek.Tests
             return flightState;
         }
 
-        private static ConfigNode MakeVessel(uint vesselPid, string name, uint rootPartPid)
+        private static ConfigNode MakeVessel(
+            uint vesselPid,
+            string name,
+            uint rootPartPid,
+            string mainThrottle = null,
+            string engineCurrentThrottle = null,
+            string independentThrottlePercentage = null)
         {
             var vessel = new ConfigNode("VESSEL");
             vessel.AddValue("persistentId", vesselPid.ToString(CultureInfo.InvariantCulture));
@@ -263,6 +311,20 @@ namespace Parsek.Tests
             var part = vessel.AddNode("PART");
             part.AddValue("name", "mk1-3pod");
             part.AddValue("persistentId", rootPartPid.ToString(CultureInfo.InvariantCulture));
+            if (engineCurrentThrottle != null || independentThrottlePercentage != null)
+            {
+                var module = part.AddNode("MODULE");
+                module.AddValue("name", "ModuleEnginesFX");
+                if (engineCurrentThrottle != null)
+                    module.AddValue("currentThrottle", engineCurrentThrottle);
+                if (independentThrottlePercentage != null)
+                    module.AddValue("independentThrottlePercentage", independentThrottlePercentage);
+            }
+            if (mainThrottle != null)
+            {
+                var ctrlState = vessel.AddNode("CTRLSTATE");
+                ctrlState.AddValue("mainThrottle", mainThrottle);
+            }
             return vessel;
         }
     }

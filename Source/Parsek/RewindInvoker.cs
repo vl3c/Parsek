@@ -1200,6 +1200,7 @@ namespace Parsek
             public int VesselsKept;
             public int VesselsRemoved;
             public int SelectedActiveIndex;
+            public int ThrottleResets;
             public int SidecarEpochsRefreshed;
             public int SidecarEpochRefreshSkipped;
         }
@@ -1257,6 +1258,7 @@ namespace Parsek
 
                 if (keep)
                 {
+                    result.ThrottleResets += ForceReFlyVesselThrottleClosed(vessel);
                     if (result.SelectedActiveIndex < 0)
                         result.SelectedActiveIndex = keptIndex;
                     keptIndex++;
@@ -1293,6 +1295,7 @@ namespace Parsek
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
+                $"throttleResets={result.ThrottleResets} " +
                 $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
                 $"sidecarEpochRefreshSkipped={result.SidecarEpochRefreshSkipped} " +
                 $"path='{sfsPath}'");
@@ -1439,6 +1442,58 @@ namespace Parsek
                 CultureInfo.InvariantCulture, out parsed)
                 ? parsed
                 : 0u;
+        }
+
+        private static int ForceReFlyVesselThrottleClosed(ConfigNode vessel)
+        {
+            if (vessel == null) return 0;
+
+            int resetCount = 0;
+            ConfigNode ctrlState = vessel.GetNode("CTRLSTATE") ?? vessel.AddNode("CTRLSTATE");
+            if (SetOrAddValueAndReportChange(ctrlState, "mainThrottle", "0"))
+                resetCount++;
+
+            ConfigNode[] parts = vessel.GetNodes("PART");
+            for (int partIndex = 0; partIndex < parts.Length; partIndex++)
+            {
+                ConfigNode[] modules = parts[partIndex].GetNodes("MODULE");
+                for (int moduleIndex = 0; moduleIndex < modules.Length; moduleIndex++)
+                {
+                    ConfigNode module = modules[moduleIndex];
+                    string moduleName = module.GetValue("name");
+                    if (!IsEngineModuleName(moduleName))
+                        continue;
+
+                    if (SetExistingValueAndReportChange(module, "currentThrottle", "0"))
+                        resetCount++;
+                    if (SetExistingValueAndReportChange(module, "independentThrottlePercentage", "0"))
+                        resetCount++;
+                }
+            }
+
+            return resetCount;
+        }
+
+        private static bool IsEngineModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleEngines", StringComparison.Ordinal)
+                || string.Equals(moduleName, "ModuleEnginesFX", StringComparison.Ordinal);
+        }
+
+        private static bool SetOrAddValueAndReportChange(ConfigNode node, string name, string value)
+        {
+            if (node == null || string.IsNullOrEmpty(name)) return false;
+            string oldValue = node.GetValue(name);
+            SetOrAddValue(node, name, value);
+            return !string.Equals(oldValue, value, StringComparison.Ordinal);
+        }
+
+        private static bool SetExistingValueAndReportChange(ConfigNode node, string name, string value)
+        {
+            if (node == null || string.IsNullOrEmpty(name) || !node.HasValue(name)) return false;
+            string oldValue = node.GetValue(name);
+            node.SetValue(name, value);
+            return !string.Equals(oldValue, value, StringComparison.Ordinal);
         }
 
         private static void SetOrAddValue(ConfigNode node, string name, string value)
