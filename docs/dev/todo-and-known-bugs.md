@@ -42,6 +42,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 mission-group and subgroup launch rewind while owner is STASH
+
+- ~~After an in-place Re-Fly of `Kerbal X Probe` merged as a retryable destroyed outcome, the `Kerbal X` mission group and its nested recording blocks lost their launch Rewind buttons because aggregate headers either reused the row-level unfinished-flight suppression predicate or left the Rewind column blank.~~ Source: `logs/2026-05-03_1131_refly-merge-stash`; the merge logged `autoSeal=False` and kept the slot retryable by design, but aggregate headers then found no row-level legacy rewind candidate.
+
+**Fix:** group headers and nested recording blocks now use aggregate temporal-action helpers that do not inherit the row-level unfinished-flight suppression. The UF row still hides row-level launch rewind and exposes Re-Fly, while parent groups and subgroup blocks still expose launch rewind through the save owner; future aggregate blocks expose `FF` through their main future recording.
+
+**Coverage:** `RecordingsTableUITests.FindGroupLegacyRewindRecordingIndex_UnfinishedFlightOwnerStillSurfacesLaunchRewind`, aggregate forward/rewind helper coverage, source-inspection coverage for recording-block temporal buttons, plus existing destroyed Re-Fly supersede tests pin the retryable/unsealed merge policy.
+
+**Status:** CLOSED 2026-05-03.
+
+---
+
 ## Done - v0.9.1 Re-Fly discard auto-group hierarchy repair
 
 - ~~Discarding a Re-Fly attempt could drop the auto-generated `Debris` subgroup from the Recordings window and leave all debris recordings as direct children of the mission root group.~~ Source: `logs/2026-05-02_2049_debris-subgroup-discard-refly/`. The active Re-Fly marker was valid, but `LoadTimeSweep.Run` still pruned stale group hierarchy against a transiently empty committed-recording view, deleting `Kerbal X / Debris -> Kerbal X`. Later, merge-dialog discard restored the sanitized pending tree but did not reconstruct the auto-generated child-group metadata or debris row memberships before reattaching the tree.
@@ -144,7 +156,7 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 - ~~Recordings whose mission group showed the legacy `R` rewind button did not surface that same action to parent or ancestor groups.~~ Source: `logs/2026-05-01_1706_rewind-group-surface/`; the Recordings table group header used `FindGroupMainRecordingIndex` for both watch/status metadata and the Rewind/Forward column. That picked the earliest non-debris descendant, then called `ShouldShowLegacyRewindButton` only on that single recording. If a parent folder's chosen main row was not the rewind owner, the folder rendered no `R` even though a descendant mission group or row did.
 
-**Fix:** group Forward still targets the main future launch row, but group Rewind now resolves through `FindGroupLegacyRewindRecordingIndex`, which scans descendants and chooses the earliest recording that would draw row-level legacy `R`. This preserves row-level owner suppression for tree branches and Unfinished Flight rows while letting parent and ancestor groups expose the same launch rewind action as their eligible child.
+**Fix:** group Forward still targets the main future launch row, but group Rewind now resolves through aggregate launch-rewind ownership. Individual Unfinished Flight/STASH rows still suppress row-level legacy `R` so they can route to Re-Fly/Seal, while parent and ancestor groups expose the launch rewind action through the recording that owns the save.
 
 **Status:** CLOSED 2026-05-01.
 
