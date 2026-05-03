@@ -2620,6 +2620,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the recording view used by load/save cleanup passes that
+        /// reason over raw committed rows, while also protecting the pending
+        /// tree during deferred-merge windows. Intentionally excludes the
+        /// committed-tree dictionary: zombie cleanup removes rows from the
+        /// flat committed list, and the same sweep must not see those rows
+        /// again through the parallel tree store.
+        /// </summary>
+        internal static List<Recording> BuildKnownRecordingsForCleanup()
+        {
+            var recordings = new List<Recording>();
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+                AddKnownRecordingForCleanup(recordings, seenIds, committedRecordings[i]);
+
+            if (pendingTree != null && pendingTree.Recordings != null)
+            {
+                foreach (var kvp in pendingTree.Recordings)
+                    AddKnownRecordingForCleanup(recordings, seenIds, kvp.Value);
+            }
+
+            return recordings;
+        }
+
+        private static void AddKnownRecordingForCleanup(
+            List<Recording> recordings,
+            HashSet<string> seenIds,
+            Recording rec)
+        {
+            if (rec == null)
+                return;
+
+            if (string.IsNullOrEmpty(rec.RecordingId))
+            {
+                recordings.Add(rec);
+                return;
+            }
+
+            if (seenIds.Add(rec.RecordingId))
+                recordings.Add(rec);
+        }
+
+        internal static HashSet<string> BuildKnownRecordingIdsForCleanup()
+        {
+            var knownIds = new HashSet<string>(StringComparer.Ordinal);
+            var knownRecordings = BuildKnownRecordingsForCleanup();
+            for (int i = 0; i < knownRecordings.Count; i++)
+            {
+                var rec = knownRecordings[i];
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    knownIds.Add(rec.RecordingId);
+            }
+            return knownIds;
+        }
+
+        /// <summary>
         /// Builds the set of all recording IDs that are currently known to the store
         /// (committed recordings, committed trees, and the pending tree). Used by
         /// <see cref="CleanOrphanFiles"/> to decide which sidecar files to keep.
@@ -2636,7 +2692,7 @@ namespace Parsek
         /// </summary>
         internal static HashSet<string> BuildKnownRecordingIds(out int pendingTreeIdCount)
         {
-            var knownIds = new HashSet<string>();
+            var knownIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
@@ -2644,18 +2700,21 @@ namespace Parsek
             }
             for (int t = 0; t < committedTrees.Count; t++)
             {
-                foreach (var kvp in committedTrees[t].Recordings)
+                var treeRecordings = committedTrees[t]?.Recordings;
+                if (treeRecordings == null) continue;
+                foreach (var kvp in treeRecordings)
                 {
-                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                    if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
                         knownIds.Add(kvp.Value.RecordingId);
                 }
             }
+
             pendingTreeIdCount = 0;
-            if (pendingTree != null)
+            if (pendingTree != null && pendingTree.Recordings != null)
             {
                 foreach (var kvp in pendingTree.Recordings)
                 {
-                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                    if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
                     {
                         knownIds.Add(kvp.Value.RecordingId);
                         pendingTreeIdCount++;
