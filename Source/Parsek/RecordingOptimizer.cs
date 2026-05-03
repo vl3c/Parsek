@@ -936,10 +936,26 @@ namespace Parsek
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
 
+            var secondFlatTailSource = new Recording
+            {
+                Points = second.Points != null
+                    ? new List<TrajectoryPoint>(second.Points)
+                    : null,
+                OrbitSegments = second.OrbitSegments != null
+                    ? new List<OrbitSegment>(second.OrbitSegments)
+                    : null
+            };
+
             bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                 original, allowRelativeSections: true);
-            bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
-                second, allowRelativeSections: true);
+            bool syncedSecondFlatTrajectory =
+                RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                    second,
+                    secondFlatTailSource,
+                    second.TrackSections,
+                    allowRelativeSections: true)
+                || RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                    second, allowRelativeSections: true);
 
             // Both halves now have their final trajectory/terminal payloads. Refresh the
             // persisted endpoint decision so optimizer outputs do not save stale or unknown data.
