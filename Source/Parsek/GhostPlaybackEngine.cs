@@ -4552,6 +4552,20 @@ namespace Parsek
                 && playbackUT <= bridgeEndUT + 1e-6;
         }
 
+        internal static bool ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            return TryResolveInitialAbsoluteToRelativePrimerEndUT(
+                    traj,
+                    out double activationStartUT,
+                    out double primerEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT <= primerEndUT + 1e-6;
+        }
+
         private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
             IPlaybackTrajectory traj,
             out double activationStartUT,
@@ -4597,6 +4611,62 @@ namespace Parsek
             return true;
         }
 
+        private static bool TryResolveInitialAbsoluteToRelativePrimerEndUT(
+            IPlaybackTrajectory traj,
+            out double activationStartUT,
+            out double primerEndUT)
+        {
+            activationStartUT = double.NaN;
+            primerEndUT = double.NaN;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            activationStartUT = ResolveGhostActivationStartUT(traj);
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            double maxEndUT = activationStartUT
+                + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds;
+            bool sawAbsolutePrimer = false;
+            for (int i = sectionIndex; i < traj.TrackSections.Count; i++)
+            {
+                TrackSection section = traj.TrackSections[i];
+                if (section.startUT > maxEndUT + 1e-6)
+                    return false;
+
+                if (section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    if (!sawAbsolutePrimer)
+                        return false;
+
+                    double relativeStartUT = Math.Max(section.startUT, activationStartUT);
+                    if (relativeStartUT <= activationStartUT + 1e-6
+                        || relativeStartUT > maxEndUT + 1e-6)
+                    {
+                        return false;
+                    }
+
+                    primerEndUT = relativeStartUT;
+                    return true;
+                }
+
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                    return false;
+
+                if (section.endUT > maxEndUT + 1e-6)
+                    return false;
+
+                sawAbsolutePrimer = true;
+            }
+
+            return false;
+        }
+
         internal static bool ShouldHoldInitialActivationHiddenThisFrame(
             IPlaybackTrajectory traj,
             GhostPlaybackState state,
@@ -4612,7 +4682,13 @@ namespace Parsek
             bool withinAbsoluteBridge = !withinRelativeWindow
                 && ShouldHoldInitialAbsoluteBridgeActivationHidden(
                     traj, state, playbackUT);
-            bool withinUtWindow = withinRelativeWindow || withinAbsoluteBridge;
+            bool withinAbsoluteToRelativePrimer = !withinRelativeWindow
+                && !withinAbsoluteBridge
+                && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                    traj, state, playbackUT);
+            bool withinUtWindow = withinRelativeWindow
+                || withinAbsoluteBridge
+                || withinAbsoluteToRelativePrimer;
             bool withinActivationSettle = !withinUtWindow
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !state.initialRelativeActivationHiddenPrimed;
@@ -4630,7 +4706,11 @@ namespace Parsek
             {
                 reason = withinRelativeWindow
                     ? "relative-start"
-                    : (withinAbsoluteBridge ? "absolute-seed-bridge" : "activation-settle");
+                    : (withinAbsoluteBridge
+                        ? "absolute-seed-bridge"
+                        : (withinAbsoluteToRelativePrimer
+                            ? "absolute-primer-to-relative"
+                            : "activation-settle"));
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }

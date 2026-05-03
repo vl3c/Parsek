@@ -3106,6 +3106,93 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_HoldsUntilRelativeStart()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.30,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.18, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.30, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.30,
+                endUT = 100.32,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.30, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.32, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.32,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.25));
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.32));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.33));
+
+            state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("absolute-primer-to-relative", reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_LongAbsoluteRun_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 101.50,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 101.50, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 101.50,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
         public void ShouldHoldInitialActivationHiddenThisFrame_HoldsFreshAbsoluteForMinimumFrames()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
