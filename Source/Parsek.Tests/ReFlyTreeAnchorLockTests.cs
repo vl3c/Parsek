@@ -943,6 +943,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PointHermiteInterpolation_DisabledForNormalPlaybackByDefault()
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: false,
+                splineApplied: false,
+                allowNormalPlaybackHermite: false,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("normal-playback-linearized", reason);
+        }
+
+        [Fact]
+        public void PointHermiteInterpolation_ExplicitGateKeepsLegacyEligibility()
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: false,
+                splineApplied: false,
+                allowNormalPlaybackHermite: true,
+                out string reason);
+
+            Assert.True(allowed);
+            Assert.Equal("eligible", reason);
+        }
+
+        [Theory]
+        [InlineData(true, false, "refly-display-offset-linearized")]
+        [InlineData(false, true, "spline-applied")]
+        public void PointHermiteInterpolation_ExistingSafetyGatesStillWin(
+            bool hasReFlyTreeOffset,
+            bool splineApplied,
+            string expectedReason)
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset,
+                splineApplied,
+                allowNormalPlaybackHermite: true,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Fact]
         public void ReFlyRenderInterpolation_BlendsBetweenPhysicsTargets()
         {
             var state = new ParsekFlight.ReFlyRenderInterpolationState();

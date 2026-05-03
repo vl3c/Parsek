@@ -1260,22 +1260,32 @@ namespace Parsek
                                 e.latBefore, e.lonBefore, e.altBefore);
                             Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                 e.latAfter, e.lonAfter, e.altAfter);
-                            double hermiteMaxDeviationMeters =
-                                ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-                            if (e.hasReFlyTreeOffset
-                                || !TrajectoryMath.TryInterpolateWorldHermite(
-                                    posBefore,
-                                    e.velocityBefore,
-                                    posAfter,
-                                    e.velocityAfter,
-                                    e.pointDeltaTimeSeconds,
-                                    e.t,
-                                    hermiteMaxDeviationMeters,
-                                    out pos,
-                                    out _,
+                            if (!allowPointHermiteInterpolation(
+                                    e.hasReFlyTreeOffset,
+                                    splineApplied: false,
+                                    allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                                     out _))
                             {
                                 pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                            }
+                            else
+                            {
+                                double hermiteMaxDeviationMeters =
+                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                                if (!TrajectoryMath.TryInterpolateWorldHermite(
+                                        posBefore,
+                                        e.velocityBefore,
+                                        posAfter,
+                                        e.velocityAfter,
+                                        e.pointDeltaTimeSeconds,
+                                        e.t,
+                                        hermiteMaxDeviationMeters,
+                                        out pos,
+                                        out _,
+                                        out _))
+                                {
+                                    pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                                }
                             }
                         }
                         if (e.hasReFlyPointTrendCorrection)
@@ -1637,22 +1647,32 @@ namespace Parsek
                                     e.latBefore, e.lonBefore, e.altBefore);
                                 Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                     e.latAfter, e.lonAfter, e.altAfter);
-                                double hermiteMaxDeviationMeters =
-                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-                                if (e.hasReFlyTreeOffset
-                                    || !TrajectoryMath.TryInterpolateWorldHermite(
-                                        posBefore,
-                                        e.velocityBefore,
-                                        posAfter,
-                                        e.velocityAfter,
-                                        e.pointDeltaTimeSeconds,
-                                        e.t,
-                                        hermiteMaxDeviationMeters,
-                                        out pos,
-                                        out _,
+                                if (!allowPointHermiteInterpolation(
+                                        e.hasReFlyTreeOffset,
+                                        splineApplied: false,
+                                        allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                                         out _))
                                 {
                                     pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                                }
+                                else
+                                {
+                                    double hermiteMaxDeviationMeters =
+                                        ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                                    if (!TrajectoryMath.TryInterpolateWorldHermite(
+                                            posBefore,
+                                            e.velocityBefore,
+                                            posAfter,
+                                            e.velocityAfter,
+                                            e.pointDeltaTimeSeconds,
+                                            e.t,
+                                            hermiteMaxDeviationMeters,
+                                            out pos,
+                                            out _,
+                                            out _))
+                                    {
+                                        pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                                    }
                                 }
                             }
                             if (e.hasReFlyPointTrendCorrection)
@@ -17000,12 +17020,11 @@ namespace Parsek
                 }
             }
 
-            // Velocity-aware PointInterp fallback: for normal playback, endpoint
-            // velocities can describe a smoother path than straight world-position
-            // lerp. Active Re-Fly display alignment deliberately stays on the
-            // straight segment: recent playtest traces showed the cubic creating a
-            // small high-frequency bracket wobble after the first-frame pin had
-            // already aligned the ghost correctly.
+            // Velocity-aware PointInterp was introduced during Re-Fly work, but it
+            // changes the visible path between recorded samples. Keep normal Watch
+            // and loop playback on the historical section-frame lerp unless a
+            // future product gate explicitly enables velocity-curved playback.
+            // Active Re-Fly display alignment also stays linear.
             bool hermiteApplied = false;
             Vector3d rawHermitePos = Vector3d.zero;
             double hermiteDeviationMeters = double.NaN;
@@ -17013,6 +17032,7 @@ namespace Parsek
             bool allowHermite = allowPointHermiteInterpolation(
                 hasReFlyTreeOffset,
                 splineApplied,
+                allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                 out string hermiteReason);
             if (allowHermite)
             {
@@ -18001,6 +18021,7 @@ namespace Parsek
         internal static bool allowPointHermiteInterpolation(
             bool hasReFlyTreeOffset,
             bool splineApplied,
+            bool allowNormalPlaybackHermite,
             out string reason)
         {
             if (splineApplied)
@@ -18012,6 +18033,12 @@ namespace Parsek
             if (hasReFlyTreeOffset)
             {
                 reason = "refly-display-offset-linearized";
+                return false;
+            }
+
+            if (!allowNormalPlaybackHermite)
+            {
+                reason = "normal-playback-linearized";
                 return false;
             }
 
@@ -19468,6 +19495,7 @@ namespace Parsek
         private const double PointHermiteMaxDeviationCapMeters = 250.0;
         private const double PointHermiteMinDeviationMeters = 10.0;
         private const double PointHermiteDeviationFraction = 0.05;
+        private const bool NormalPlaybackPointHermiteEnabled = false;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
         private string reFlyDebobSampleScopeKey;
         private string reFlyDebobSampleRecordingId;

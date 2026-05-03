@@ -188,6 +188,7 @@ namespace Parsek
                     defaults.AutoRecordOnFirstModificationAfterSwitch;
                 s.autoMerge = defaults.AutoMerge;
                 s.verboseLogging = defaults.VerboseLogging;
+                s.ghostRenderTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -195,6 +196,7 @@ namespace Parsek
                 s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
+                ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -386,6 +388,7 @@ namespace Parsek
             if (ghostRenderTracing != s.ghostRenderTracing)
             {
                 s.ghostRenderTracing = ghostRenderTracing;
+                ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekLog.Info("UI", $"Setting changed: ghostRenderTracing={s.ghostRenderTracing}");
             }
 

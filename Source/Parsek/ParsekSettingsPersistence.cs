@@ -27,9 +27,9 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Currently tracks <c>writeReadableSidecarMirrors</c> and
-    /// <c>showGhostsInTrackingStation</c> (#388). Add more fields here if
-    /// additional settings turn out to need the same survival semantics.
+    /// Tracks user-intent settings that must survive KSP's save/scene
+    /// GameParameters reloads. Add more fields here if additional settings
+    /// need the same survival semantics.
     /// </para>
     /// </summary>
     internal static class ParsekSettingsPersistence
@@ -40,6 +40,7 @@ namespace Parsek
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
+        private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
@@ -50,6 +51,7 @@ namespace Parsek
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
+        private static bool? storedGhostRenderTracing;
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
@@ -140,6 +142,17 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
+                string ghostRenderTracingStr = root.GetValue(GhostRenderTracingKey);
+                if (!string.IsNullOrEmpty(ghostRenderTracingStr)
+                    && bool.TryParse(ghostRenderTracingStr, out bool ghostRenderTracing))
+                {
+                    storedGhostRenderTracing = ghostRenderTracing;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostRenderTracingKey} — using default");
+                }
+
                 string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
                 if (!string.IsNullOrEmpty(useSplinesStr)
                     && bool.TryParse(useSplinesStr, out bool useSplines))
@@ -199,6 +212,7 @@ namespace Parsek
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
+                    $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
@@ -237,6 +251,15 @@ namespace Parsek
                 settings.showGhostsInTrackingStation = storedShowGhostsInTrackingStation.Value;
                 ParsekLog.Info(Tag,
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
+            }
+
+            if (storedGhostRenderTracing.HasValue
+                && storedGhostRenderTracing.Value != settings.ghostRenderTracing)
+            {
+                bool prev = settings.ghostRenderTracing;
+                settings.ghostRenderTracing = storedGhostRenderTracing.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored ghostRenderTracing {prev} -> {storedGhostRenderTracing.Value} from persistent store");
             }
 
             if (storedUseSmoothingSplines.HasValue
@@ -314,6 +337,26 @@ namespace Parsek
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
             Save();
+        }
+
+        internal static void RecordGhostRenderTracing(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordGhostRenderTracing: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedGhostRenderTracing.HasValue && storedGhostRenderTracing.Value == value) return;
+            storedGhostRenderTracing = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordGhostRenderTracing: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         internal static void RecordUseSmoothingSplines(bool value)
@@ -521,6 +564,8 @@ namespace Parsek
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
+                if (storedGhostRenderTracing.HasValue)
+                    root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
                     root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
                 if (storedUseAnchorCorrection.HasValue)
@@ -536,6 +581,7 @@ namespace Parsek
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                    $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
@@ -558,6 +604,7 @@ namespace Parsek
         {
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
+            storedGhostRenderTracing = null;
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
@@ -618,6 +665,8 @@ namespace Parsek
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
 
+        internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
+
         internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
 
         internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
@@ -641,6 +690,12 @@ namespace Parsek
         internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
         {
             storedShowGhostsInTrackingStation = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredGhostRenderTracingForTesting(bool? value)
+        {
+            storedGhostRenderTracing = value;
             loaded = true;
         }
 

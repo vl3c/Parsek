@@ -201,6 +201,7 @@ namespace Parsek.Tests.Rendering
             bool result = ParsekFlight.allowPointHermiteInterpolation(
                 hasReFlyTreeOffset: true,
                 splineApplied: false,
+                allowNormalPlaybackHermite: true,
                 out string reason);
 
             Assert.False(result);
