@@ -903,6 +903,10 @@ namespace Parsek
                 if (parentBoundaryPoint.HasValue)
                 {
                     TrajectoryPoint boundary = parentBoundaryPoint.Value;
+                    TryCanonicalizeBackgroundReFlyRecordingPoint(
+                        parentRec.RecordingId,
+                        ref boundary,
+                        "parent-branch-boundary");
                     if (HasStructuralEventPointAtUT(parentRec, boundary.ut))
                     {
                         ParsekLog.Verbose("BgRecorder",
@@ -1768,6 +1772,10 @@ namespace Parsek
             }
 
             TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref point,
+                "physics-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
 
@@ -2038,6 +2046,12 @@ namespace Parsek
                 if (v.orbit != null)
                 {
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
+                    TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                        recordingId,
+                        v,
+                        ut,
+                        ref state.currentOrbitSegment,
+                        "soi-change");
                     state.hasOpenOrbitSegment = true;
                 }
                 RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
@@ -2622,6 +2636,12 @@ namespace Parsek
 
                 // Open a fresh orbit segment with current orbital elements
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
+                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                    state.recordingId,
+                    v,
+                    ut,
+                    ref state.currentOrbitSegment,
+                    "checkpoint");
                 state.hasOpenOrbitSegment = true;
                 checkpointed++;
             }
@@ -2716,6 +2736,11 @@ namespace Parsek
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
                 initialTrajectoryPoint.ut = ut;
+            if (hasInitialTrajectoryPoint)
+                TryCanonicalizeBackgroundReFlyRecordingPoint(
+                    recordingId,
+                    ref initialTrajectoryPoint,
+                    "on-rails-initial");
             Recording treeRec;
             bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRec);
             if (hasInitialTrajectoryPoint && hasTreeRecording)
@@ -2789,6 +2814,12 @@ namespace Parsek
                     v,
                     hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
                     "Kerbin");
+                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                    recordingId,
+                    v,
+                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
+                    ref state.currentOrbitSegment,
+                    "on-rails-orbit");
                 state.hasOpenOrbitSegment = true;
 
                 if (hasTreeRecording)
@@ -2848,6 +2879,11 @@ namespace Parsek
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
                 initialTrajectoryPoint.ut = ut;
+            if (hasInitialTrajectoryPoint)
+                TryCanonicalizeBackgroundReFlyRecordingPoint(
+                    recordingId,
+                    ref initialTrajectoryPoint,
+                    "loaded-initial");
             SegmentEnvironment overrideEnv;
             SegmentEnvironment initialEnv;
             if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))
@@ -3302,6 +3338,34 @@ namespace Parsek
             };
         }
 
+        private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
+            string recordingId,
+            ref TrajectoryPoint point,
+            string context)
+        {
+            return FlightRecorder.TryCanonicalizeReFlyRecordingPoint(
+                recordingId,
+                ref point,
+                "BgRecorder",
+                context);
+        }
+
+        private static bool TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+            string recordingId,
+            Vessel vessel,
+            double startUT,
+            ref OrbitSegment segment,
+            string context)
+        {
+            return FlightRecorder.TryCanonicalizeReFlyRecordingOrbitSegment(
+                recordingId,
+                vessel,
+                startUT,
+                ref segment,
+                "BgRecorder",
+                context);
+        }
+
         private void FlushLoadedStateForOnRailsTransition(
             BackgroundVesselState loadedState,
             Recording flushRec,
@@ -3310,6 +3374,10 @@ namespace Parsek
             TrajectoryPoint boundaryPoint,
             double ut)
         {
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                loadedState.recordingId,
+                ref boundaryPoint,
+                "loaded-to-rails-boundary");
             SegmentEnvironment previousEnv = loadedState.trackSectionActive
                 ? loadedState.currentTrackSection.environment
                 : loadedState.environmentHysteresis != null
@@ -3362,7 +3430,12 @@ namespace Parsek
         {
             if (v == null) return;
 
-            AppendBoundaryPointToRecording(treeRec, CreateAbsoluteTrajectoryPointFromVessel(v, ut), v.persistentId);
+            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(v, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                treeRec?.RecordingId,
+                ref point,
+                "boundary-sample");
+            AppendBoundaryPointToRecording(treeRec, point, v.persistentId);
         }
 
         private void UpdateBackgroundAnchorDetection(
@@ -3730,6 +3803,10 @@ namespace Parsek
             }
 
             TrajectoryPoint absolutePoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref absolutePoint,
+                "relative-boundary");
             TrajectoryPoint relativePoint = absolutePoint;
             if (!ApplyBackgroundRelativeOffsetForAnchorPose(
                     state,
@@ -3766,8 +3843,15 @@ namespace Parsek
                 return false;
 
             int recordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            if (!FlightRecorder.TryResolveAbsolutePointWorldForRelativeOffset(
+                    point,
+                    vessel,
+                    out Vector3d focusWorldPos))
+            {
+                focusWorldPos = vessel.GetWorldPos3D();
+            }
             Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(
-                vessel.GetWorldPos3D(),
+                focusWorldPos,
                 anchorPose.WorldPos,
                 anchorPose.WorldRotation);
             point.latitude = offset.x;
@@ -3992,6 +4076,10 @@ namespace Parsek
             string reason)
         {
             TrajectoryPoint boundaryPoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref boundaryPoint,
+                "relative-exit");
             string oldAnchorRecordingId = state.currentAnchorRecordingId;
             uint oldDiagnosticPid = state.currentAnchorCandidate.DiagnosticPid;
             ClearBackgroundCurrentAnchor(state);
@@ -5364,6 +5452,12 @@ namespace Parsek
                     velocity,
                     preferRootPartSurfacePose);
                 point = FlightRecorder.ApplyStructuralEventFlag(point);
+                TryCanonicalizeBackgroundReFlyRecordingPoint(
+                    recordingId,
+                    ref point,
+                    "structural-event-" + (eventType ?? "unknown"));
+                TrajectoryPoint absolutePoint = point;
+                bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, v, eventUT);
                 ApplySurfaceClearanceToPoint(state, v, ref point);
 
                 if (!ApplyTrajectoryPointToRecording(treeRec, point))
@@ -5372,7 +5466,10 @@ namespace Parsek
                     continue;
                 }
 
-                AppendFrameToCurrentTrackSection(state, point);
+                AppendFrameToCurrentTrackSection(
+                    state,
+                    point,
+                    relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
                 state.lastRecordedUT = point.ut;
                 state.lastRecordedVelocity = point.velocity;
                 ActivateBackgroundHighFidelitySampling(
@@ -5384,7 +5481,7 @@ namespace Parsek
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
                         "BG structural event snapshot appended: event={0} ut={1:R} vesselId={2} recId={3} " +
-                        "flags={4} lat={5:R} lon={6:R} alt={7:R}",
+                        "flags={4} lat={5:R} lon={6:R} alt={7:R} relativeApplied={8}",
                         eventType ?? "unknown",
                         point.ut,
                         pid,
@@ -5392,7 +5489,8 @@ namespace Parsek
                         point.flags,
                         point.latitude,
                         point.longitude,
-                        point.altitude));
+                        point.altitude,
+                        relativeApplied ? "true" : "false"));
             }
 
             if (considered > appended)

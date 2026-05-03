@@ -15,6 +15,13 @@ namespace Parsek
     public class FlightRecorder
     {
         internal static Func<double> QuickloadResumeUTProviderForTesting;
+        internal delegate bool TryResolveReFlyRecordingFrameOffset(
+            string recordingId,
+            double currentUT,
+            out Vector3d offset,
+            out string reason);
+        internal static TryResolveReFlyRecordingFrameOffset
+            ReFlyRecordingFrameOffsetOverrideForTesting;
 
         internal enum VesselSwitchDecision
         {
@@ -477,6 +484,11 @@ namespace Parsek
         private static bool IsFinite(double value)
         {
             return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        internal static bool IsFiniteVector3d(Vector3d value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
         }
 
         internal static double SelectNearestHighFidelityProximityMeters(
@@ -6301,6 +6313,7 @@ namespace Parsek
             }
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT);
+            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
@@ -6505,8 +6518,15 @@ namespace Parsek
             Vector3d offset;
             if (useLocalContract)
             {
+                if (!TryResolveAbsolutePointWorldForRelativeOffset(
+                        point,
+                        v,
+                        out Vector3d focusWorldPos))
+                {
+                    focusWorldPos = v.GetWorldPos3D();
+                }
                 offset = TrajectoryMath.ComputeRelativeLocalOffset(
-                    v.GetWorldPos3D(),
+                    focusWorldPos,
                     anchorPose.WorldPos,
                     anchorPose.WorldRotation);
                 point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
@@ -6515,8 +6535,12 @@ namespace Parsek
             }
             else
             {
-                Vector3d focusPos = v.mainBody.GetWorldSurfacePosition(
-                    v.latitude, v.longitude, v.altitude);
+                Vector3d focusPos;
+                if (!TryResolveAbsolutePointWorldForRelativeOffset(point, v, out focusPos))
+                {
+                    focusPos = v.mainBody.GetWorldSurfacePosition(
+                        v.latitude, v.longitude, v.altitude);
+                }
                 offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
             }
 
@@ -6561,6 +6585,9 @@ namespace Parsek
                 v,
                 SampleCurrentVelocity(v),
                 boundaryUT);
+            TryCanonicalizeActiveReFlyRecordingPoint(
+                ref absolutePoint,
+                "relative-boundary");
             TrajectoryPoint relativePoint = absolutePoint;
             if (!ApplyRelativeOffsetForAnchorPose(
                     ref relativePoint,
@@ -6781,6 +6808,341 @@ namespace Parsek
             {
                 return null;
             }
+        }
+
+        private string ResolveActiveRecordingIdForFrameCanonicalization()
+        {
+            if (ActiveTree != null && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId))
+                return ActiveTree.ActiveRecordingId;
+            return FinalizationCache?.RecordingId;
+        }
+
+        private bool TryCanonicalizeActiveReFlyRecordingPoint(
+            ref TrajectoryPoint point,
+            string context)
+        {
+            return TryCanonicalizeReFlyRecordingPoint(
+                ResolveActiveRecordingIdForFrameCanonicalization(),
+                ref point,
+                "Recorder",
+                context);
+        }
+
+        private bool TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+            Vessel vessel,
+            double startUT,
+            ref OrbitSegment segment,
+            string context)
+        {
+            return TryCanonicalizeReFlyRecordingOrbitSegment(
+                ResolveActiveRecordingIdForFrameCanonicalization(),
+                vessel,
+                startUT,
+                ref segment,
+                "Recorder",
+                context);
+        }
+
+        internal static bool TryCanonicalizeReFlyRecordingPoint(
+            string recordingId,
+            ref TrajectoryPoint point,
+            string subsystem,
+            string context)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            if (body == null)
+                return false;
+
+            Vector3d rawWorld;
+            try
+            {
+                rawWorld = body.GetWorldSurfacePosition(
+                    point.latitude,
+                    point.longitude,
+                    point.altitude);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (!TryApplyReFlyRecordingFrameOffsetToWorld(
+                    recordingId,
+                    point.ut,
+                    rawWorld,
+                    out Vector3d canonicalWorld,
+                    out Vector3d appliedOffset,
+                    out string reason))
+            {
+                return false;
+            }
+
+            double latitude;
+            double longitude;
+            double altitude;
+            try
+            {
+                latitude = body.GetLatitude(canonicalWorld);
+                longitude = body.GetLongitude(canonicalWorld);
+                altitude = body.GetAltitude(canonicalWorld);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (!IsFinite(latitude) || !IsFinite(longitude) || !IsFinite(altitude))
+                return false;
+
+            point.latitude = latitude;
+            point.longitude = longitude;
+            point.altitude = altitude;
+            LogReFlyRecordingFrameCanonicalized(
+                subsystem,
+                recordingId,
+                context,
+                point.ut,
+                appliedOffset,
+                rawWorld,
+                canonicalWorld,
+                reason);
+            return true;
+        }
+
+        internal static bool TryCanonicalizeReFlyRecordingOrbitSegment(
+            string recordingId,
+            Vessel vessel,
+            double startUT,
+            ref OrbitSegment segment,
+            string subsystem,
+            string context)
+        {
+            if (string.IsNullOrEmpty(recordingId)
+                || vessel == null
+                || vessel.orbit == null
+                || vessel.mainBody == null)
+            {
+                return false;
+            }
+
+            Vector3d rawWorld;
+            Vector3d velocity;
+            try
+            {
+                rawWorld = vessel.orbit.getPositionAtUT(startUT);
+                velocity = vessel.orbit.getOrbitalVelocityAtUT(startUT);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (!IsFiniteVector3d(rawWorld))
+                return false;
+            if (!IsFiniteVector3d(velocity))
+                velocity = vessel.obt_velocity;
+            if (!IsFiniteVector3d(velocity))
+                return false;
+
+            if (!TryApplyReFlyRecordingFrameOffsetToWorld(
+                    recordingId,
+                    startUT,
+                    rawWorld,
+                    out Vector3d canonicalWorld,
+                    out Vector3d appliedOffset,
+                    out string reason))
+            {
+                return false;
+            }
+
+            Orbit canonicalOrbit;
+            try
+            {
+                canonicalOrbit = new Orbit();
+                canonicalOrbit.UpdateFromStateVectors(
+                    canonicalWorld,
+                    velocity,
+                    vessel.mainBody,
+                    startUT);
+            }
+            catch
+            {
+                return false;
+            }
+
+            OrbitSegment canonicalSegment = segment;
+            canonicalSegment.inclination = canonicalOrbit.inclination;
+            canonicalSegment.eccentricity = canonicalOrbit.eccentricity;
+            canonicalSegment.semiMajorAxis = canonicalOrbit.semiMajorAxis;
+            canonicalSegment.longitudeOfAscendingNode = canonicalOrbit.LAN;
+            canonicalSegment.argumentOfPeriapsis = canonicalOrbit.argumentOfPeriapsis;
+            canonicalSegment.meanAnomalyAtEpoch = canonicalOrbit.meanAnomalyAtEpoch;
+            canonicalSegment.epoch = canonicalOrbit.epoch;
+            canonicalSegment.bodyName = vessel.mainBody.name;
+
+            if (!IsFinite(canonicalSegment.inclination)
+                || !IsFinite(canonicalSegment.eccentricity)
+                || !IsFinite(canonicalSegment.semiMajorAxis)
+                || !IsFinite(canonicalSegment.longitudeOfAscendingNode)
+                || !IsFinite(canonicalSegment.argumentOfPeriapsis)
+                || !IsFinite(canonicalSegment.meanAnomalyAtEpoch)
+                || !IsFinite(canonicalSegment.epoch))
+            {
+                return false;
+            }
+
+            segment = canonicalSegment;
+            LogReFlyRecordingFrameCanonicalized(
+                subsystem,
+                recordingId,
+                context,
+                startUT,
+                appliedOffset,
+                rawWorld,
+                canonicalWorld,
+                reason);
+            return true;
+        }
+
+        internal static bool TryApplyReFlyRecordingFrameOffsetToWorld(
+            string recordingId,
+            double currentUT,
+            Vector3d rawWorld,
+            out Vector3d canonicalWorld,
+            out Vector3d appliedOffset,
+            out string reason)
+        {
+            canonicalWorld = rawWorld;
+            appliedOffset = Vector3d.zero;
+            reason = null;
+
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                reason = "recording-id-missing";
+                return false;
+            }
+            if (!IsFiniteVector3d(rawWorld))
+            {
+                reason = "raw-world-non-finite";
+                return false;
+            }
+            if (!TryResolveReFlyRecordingFrameOffsetForRecording(
+                    recordingId,
+                    currentUT,
+                    out appliedOffset,
+                    out reason))
+            {
+                return false;
+            }
+            if (!IsFiniteVector3d(appliedOffset))
+            {
+                reason = "offset-non-finite";
+                return false;
+            }
+
+            canonicalWorld = rawWorld - appliedOffset;
+            if (!IsFiniteVector3d(canonicalWorld))
+            {
+                reason = "canonical-world-non-finite";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryResolveReFlyRecordingFrameOffsetForRecording(
+            string recordingId,
+            double currentUT,
+            out Vector3d offset,
+            out string reason)
+        {
+            offset = Vector3d.zero;
+            reason = null;
+
+            if (ReFlyRecordingFrameOffsetOverrideForTesting != null)
+            {
+                return ReFlyRecordingFrameOffsetOverrideForTesting(
+                    recordingId,
+                    currentUT,
+                    out offset,
+                    out reason);
+            }
+
+            if (ParsekFlight.Instance == null)
+            {
+                reason = "flight-missing";
+                return false;
+            }
+
+            return ParsekFlight.Instance.TryGetReFlyRecordingFrameOffset(
+                recordingId,
+                currentUT,
+                out offset,
+                out reason);
+        }
+
+        internal static bool TryResolveAbsolutePointWorldForRelativeOffset(
+            TrajectoryPoint point,
+            Vessel fallbackVessel,
+            out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            if (body == null)
+                body = fallbackVessel?.mainBody;
+            if (body == null)
+                return false;
+
+            try
+            {
+                worldPos = body.GetWorldSurfacePosition(
+                    point.latitude,
+                    point.longitude,
+                    point.altitude);
+                return IsFiniteVector3d(worldPos);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void LogReFlyRecordingFrameCanonicalized(
+            string subsystem,
+            string recordingId,
+            string context,
+            double ut,
+            Vector3d appliedOffset,
+            Vector3d rawWorld,
+            Vector3d canonicalWorld,
+            string reason)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string logSubsystem = string.IsNullOrEmpty(subsystem) ? "Recorder" : subsystem;
+            ParsekLog.VerboseRateLimited(
+                logSubsystem,
+                "refly-recording-frame-canonicalized|"
+                    + (recordingId ?? "<no-rec>") + "|"
+                    + (context ?? "<none>"),
+                "Re-Fly recording frame canonicalized: rec="
+                    + (recordingId ?? "<none>")
+                    + " context=" + (context ?? "<none>")
+                    + " ut=" + ut.ToString("F3", ic)
+                    + " offsetMeters=" + appliedOffset.magnitude.ToString("F2", ic)
+                    + " offset=(" + appliedOffset.x.ToString("F2", ic)
+                    + "," + appliedOffset.y.ToString("F2", ic)
+                    + "," + appliedOffset.z.ToString("F2", ic) + ")"
+                    + " raw=(" + rawWorld.x.ToString("F2", ic)
+                    + "," + rawWorld.y.ToString("F2", ic)
+                    + "," + rawWorld.z.ToString("F2", ic) + ")"
+                    + " canonical=(" + canonicalWorld.x.ToString("F2", ic)
+                    + "," + canonicalWorld.y.ToString("F2", ic)
+                    + "," + canonicalWorld.z.ToString("F2", ic) + ")"
+                    + " reason=" + (reason ?? "<none>"),
+                5.0);
         }
 
         private void ForceExitRelativeToAbsolute(double ut, string reason)
@@ -7203,6 +7565,7 @@ namespace Parsek
                 v,
                 currentVelocity,
                 ut);
+            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "boundary-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
@@ -7220,6 +7583,7 @@ namespace Parsek
             }
 
             TrajectoryPoint seamPoint = BuildTrajectoryPoint(v, SampleCurrentVelocity(v), startUT);
+            TryCanonicalizeActiveReFlyRecordingPoint(ref seamPoint, "section-start-seam");
             AppendSectionStartSeamPoint(seamPoint, v, reason);
         }
 
@@ -7380,6 +7744,9 @@ namespace Parsek
                 // there's no sub-tick interpolation API to bracket against.
                 Vector3 velocity = SampleCurrentVelocity(v);
                 TrajectoryPoint point = BuildStructuralEventSnapshot(v, velocity, eventUT);
+                TryCanonicalizeActiveReFlyRecordingPoint(
+                    ref point,
+                    "structural-event-" + (eventType ?? "unknown"));
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
@@ -7450,6 +7817,7 @@ namespace Parsek
                 return;
             }
 
+            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "seed-" + (reason ?? "unknown"));
             CommitRecordedPoint(point, v);
             ParsekLog.Verbose("Recorder",
                 $"Seed point committed: reason={reason} UT={point.ut:F2}");
@@ -7754,6 +8122,11 @@ namespace Parsek
         private OrbitSegment CreateOrbitSegmentWithRotation(Vessel v, double startUT)
         {
             var segment = CreateOrbitSegmentFromVessel(v, startUT);
+            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+                v,
+                startUT,
+                ref segment,
+                "orbit-segment");
 
             // Capture orbital-frame-relative rotation
             Vector3d orbVel = v.obt_velocity;
@@ -7873,7 +8246,13 @@ namespace Parsek
 
             // Start new orbit segment in new SOI
             var v = data.host;
-            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
+            double soiUT = Planetarium.GetUniversalTime();
+            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, soiUT);
+            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+                v,
+                soiUT,
+                ref currentOrbitSegment,
+                "soi-change");
 
             // Capture orbital-frame-relative rotation for new SOI
             Vector3d orbVel = v.obt_velocity;
@@ -7889,7 +8268,6 @@ namespace Parsek
             // Close current TrackSection and start a new one at the SOI boundary (#251).
             // Without this, a single TrackSection spans both SOIs and the optimizer cannot
             // split at the SOI boundary (it only splits at section boundaries).
-            double soiUT = Planetarium.GetUniversalTime();
             CloseCurrentTrackSection(soiUT);
             SegmentEnvironment currentEnv = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment
@@ -8026,7 +8404,13 @@ namespace Parsek
                  v.situation == Vessel.Situations.PRELAUNCH);
             if (v != null && v.orbit != null && !isSurfaceVessel)
             {
-                currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
+                double backgroundUT = Planetarium.GetUniversalTime();
+                currentOrbitSegment = CreateOrbitSegmentFromVessel(v, backgroundUT);
+                TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+                    v,
+                    backgroundUT,
+                    ref currentOrbitSegment,
+                    "transition-to-background");
                 isOnRails = true;
             }
             else if (isSurfaceVessel)

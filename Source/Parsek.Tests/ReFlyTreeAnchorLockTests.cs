@@ -33,7 +33,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            FlightRecorder.ReFlyRecordingFrameOffsetOverrideForTesting = null;
             RecordingStore.Clear();
+            ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
         }
 
@@ -577,6 +579,150 @@ namespace Parsek.Tests
                 "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
         }
 
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_NoMarker_ReturnsFalse()
+        {
+            string reason;
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker: null,
+                activeReFlyRecording: null,
+                currentUT: 100.0,
+                out reason);
+
+            Assert.False(result);
+            Assert.Equal("marker-missing", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_RecordingOutsideTree_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-foreign",
+                "tree-2",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("tree-mismatch", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_RequiresPreReFlyAnchorSnapshot()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = "tree-1",
+            };
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("pre-refly-anchor-snapshot-missing", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_BeforeInvocation_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 100.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 99.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("before-invocation", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_PreReFlySnapshotAndTreeMatch_ReturnsTrue()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.True(result);
+            Assert.Equal("eligible", reason);
+        }
+
+        [Fact]
+        public void TryApplyReFlyRecordingFrameOffsetToWorld_SubtractsDisplayOffset()
+        {
+            FlightRecorder.ReFlyRecordingFrameOffsetOverrideForTesting =
+                (string recordingId, double currentUT, out Vector3d offset, out string reason) =>
+                {
+                    Assert.Equal("rec-A", recordingId);
+                    Assert.Equal(123.0, currentUT);
+                    offset = new Vector3d(10.0, -2.5, 4.0);
+                    reason = "test-offset";
+                    return true;
+                };
+
+            bool result = FlightRecorder.TryApplyReFlyRecordingFrameOffsetToWorld(
+                "rec-A",
+                123.0,
+                new Vector3d(100.0, 200.0, 300.0),
+                out Vector3d canonicalWorld,
+                out Vector3d appliedOffset,
+                out string applyReason);
+
+            Assert.True(result);
+            AssertVectorClose(new Vector3d(90.0, 202.5, 296.0), canonicalWorld, 0.0001);
+            AssertVectorClose(new Vector3d(10.0, -2.5, 4.0), appliedOffset, 0.0001);
+            Assert.Equal("test-offset", applyReason);
+        }
+
         // ============================================================
         // Frozen Re-Fly display alignment
         // ============================================================
@@ -1059,6 +1205,42 @@ namespace Parsek.Tests
 
             Assert.False(allowed);
             Assert.Equal(expectedReason, reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_DisabledForNormalPlaybackByDefault()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: false,
+                allowNormalPlaybackSplinePositioning: false,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("normal-playback-linearized", reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_ExplicitGateKeepsLegacyEligibility()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: false,
+                allowNormalPlaybackSplinePositioning: true,
+                out string reason);
+
+            Assert.True(allowed);
+            Assert.Equal("eligible", reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_ReFlyDisplayOffsetLinearizes()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: true,
+                allowNormalPlaybackSplinePositioning: true,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("refly-display-offset-linearized", reason);
         }
 
         [Fact]
@@ -2723,6 +2905,30 @@ namespace Parsek.Tests
             };
             tree.Recordings[recordingId] = rec;
             return tree;
+        }
+
+        private static Recording MakeReFlyAnchorSnapshotHost(
+            string recordingId,
+            string treeId,
+            string sessionId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = treeId,
+                VesselName = "Active Re-Fly",
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 10.0,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100.0,
+                bodyName = "Kerbin",
+            });
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(10.0, 200.0));
+            rec.CapturePreReFlyAnchorTrajectory(sessionId);
+            return rec;
         }
 
         /// <summary>

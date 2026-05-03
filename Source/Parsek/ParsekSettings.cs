@@ -68,14 +68,13 @@ namespace Parsek
 
         /// <summary>
         /// Phase 1 of the ghost trajectory rendering pipeline (design doc
-        /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, ABSOLUTE-frame
-        /// body-fixed ghost playback evaluates a Catmull-Rom smoothing
-        /// spline instead of the legacy <c>BracketPointAtUT</c>. Default
-        /// true; the flag exists so Phase 1 can ship behind a single rollout
-        /// gate and so tests can exercise the legacy fall-through.
+        /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, Catmull-Rom
+        /// smoothing splines are available to playback modes whose product
+        /// gate explicitly allows spline-positioned rendering. Normal
+        /// Watch/loop playback stays on section-frame lerp by default.
         /// </summary>
         [GameParameters.CustomParameterUI("Use smoothing splines",
-            toolTip = "When on (Phase 1), absolute-frame ghost playback uses Catmull-Rom splines instead of bracketed nearest-sample lookup")]
+            toolTip = "Developer gate for Catmull-Rom spline playback; normal Watch/loop playback remains linear by default")]
         public bool useSmoothingSplines
         {
             get { return _useSmoothingSplines; }

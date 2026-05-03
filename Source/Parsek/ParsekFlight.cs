@@ -15155,6 +15155,16 @@ namespace Parsek
             double ut)
         {
             cachedGhostRecordingAnchorCandidates.Clear();
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (!ShouldRecordGhostAnchorCandidates(marker))
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "ghost-recording-anchor-candidates-disabled",
+                    $"Ghost recording anchor candidates skipped: reason=no-active-refly " +
+                    $"focusRecordingId={focusedRecordingId ?? "(none)"} focusedVesselPid={focusedVesselPid}",
+                    5.0);
+                return cachedGhostRecordingAnchorCandidates;
+            }
+
             if (engine == null
                 || focusTree?.Recordings == null
                 || cachedTrajectories.Count == 0)
@@ -15167,7 +15177,6 @@ namespace Parsek
             int skippedScope = 0;
             int skippedActiveProvisional = 0;
             int unresolved = 0;
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             var context = BuildFlightRelativeAnchorResolverContext(
                 focusTree,
                 focusedRecordingId,
@@ -15239,6 +15248,11 @@ namespace Parsek
                 5.0);
 
             return cachedGhostRecordingAnchorCandidates;
+        }
+
+        internal static bool ShouldRecordGhostAnchorCandidates(ReFlySessionMarker marker)
+        {
+            return marker != null && !string.IsNullOrWhiteSpace(marker.ActiveReFlyRecordingId);
         }
 
         private static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
@@ -17012,19 +17026,25 @@ namespace Parsek
             Vector3d reFlyTreeOffset = Vector3d.zero;
             bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
                 recordingId, targetUT, out reFlyTreeOffset);
-            bool suppressSplineForReFlyDisplayAlignment = hasReFlyTreeOffset;
+            bool allowSplineForPlayback = allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset,
+                allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
+                out string splineReason);
 
             // Phase 1 smoothing splines (design doc §6.1, §17.3.1, §18 Phase 1).
             // Replace the lerped lat/lon/alt-derived world position with a
-            // Catmull-Rom spline evaluation when the section has a valid spline
-            // and the rollout flag is on. Rotation continues to come from the
-            // existing slerp — Phase 1 is position-only. Any precondition miss
-            // (no recordingId, no sectionIndex, flag off, store miss, or
-            // !IsValid) silently falls through to the legacy lerp result —
-            // that is acceptable per HR-9 because "no spline yet" is a normal
-            // state, not a failure.
+            // Catmull-Rom spline evaluation only when the playback-mode gate
+            // allows it, the section has a valid spline, and the rollout flag
+            // is on. Normal Watch/loop playback stays on the historical
+            // section-frame lerp unless a future product gate explicitly
+            // enables spline-positioned playback. Rotation continues to come
+            // from the existing slerp — Phase 1 is position-only. Any
+            // precondition miss (no recordingId, no sectionIndex, flag off,
+            // store miss, or !IsValid) silently falls through to the legacy
+            // lerp result — that is acceptable per HR-9 because "no spline
+            // yet" is a normal state, not a failure.
             bool splineApplied = false;
-            if (!suppressSplineForReFlyDisplayAlignment
+            if (allowSplineForPlayback
                 && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
             {
                 RecordSplineEvalForLogging();
@@ -17051,6 +17071,7 @@ namespace Parsek
                     {
                         interpolatedPos = splineWorld;
                         splineApplied = true;
+                        splineReason = "applied";
                     }
                 }
             }
@@ -17220,7 +17241,8 @@ namespace Parsek
                     + " hermiteMaxDeviationMeters=" + hermiteMaxDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " interpMode=" + (splineApplied ? "Spline" : hermiteApplied ? "Hermite" : "Lerp")
                     + " splineHit=" + (splineApplied ? "true" : "false")
-                    + " splineSuppressedForReFly=" + (suppressSplineForReFlyDisplayAlignment ? "true" : "false")
+                    + " splineSuppressedForReFly=" + (hasReFlyTreeOffset ? "true" : "false")
+                    + " splineReason=" + (splineReason ?? "<none>")
                     + " reFlyTrendHit=" + (reFlyPointTrendApplied ? "true" : "false")
                     + " reFlyTrendReason=" + (reFlyPointTrendReason ?? "<none>")
                     + " reFlyTrendSamples=" + reFlyPointTrendSamples.ToString(CultureInfo.InvariantCulture)
@@ -18081,6 +18103,27 @@ namespace Parsek
             return true;
         }
 
+        internal static bool allowSplinePositioningForPlayback(
+            bool hasReFlyTreeOffset,
+            bool allowNormalPlaybackSplinePositioning,
+            out string reason)
+        {
+            if (hasReFlyTreeOffset)
+            {
+                reason = "refly-display-offset-linearized";
+                return false;
+            }
+
+            if (!allowNormalPlaybackSplinePositioning)
+            {
+                reason = "normal-playback-linearized";
+                return false;
+            }
+
+            reason = "eligible";
+            return true;
+        }
+
         internal static bool ShouldAllowReFlyPointTrend(SegmentEnvironment environment)
         {
             return environment == SegmentEnvironment.Atmospheric
@@ -18091,9 +18134,9 @@ namespace Parsek
         /// <summary>
         /// Phase 5 helper: computes the standalone Stages 1+2+3+4 world
         /// position for an arbitrary recording id at <paramref name="ut"/>.
-        /// Uses the recording's <see cref="Recording.Points"/> +
-        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline +
-        /// <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
+        /// Uses the recording's <see cref="Recording.Points"/>, playback-mode
+        /// gated <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline,
+        /// and <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
         /// same composition the Update path uses for its own recording.
         /// HR-15: never reads live <see cref="Vessel"/> state. Returns false
         /// when the recording is missing, has no sample bracketing
@@ -18212,7 +18255,11 @@ namespace Parsek
             // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
             // through the Phase 5 blender — primaries always render
             // standalone, design doc §6.5).
-            if (allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
+            if (allowSplinePositioningForPlayback(
+                    hasReFlyTreeOffset: suppressAnchorCorrection,
+                    allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
+                    out _)
+                && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
             {
                 Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
                 if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
@@ -18566,6 +18613,15 @@ namespace Parsek
         /// </summary>
         private bool TryComputeLateUpdateSplineWorldPosition(in GhostPosEntry e, out Vector3d worldPos)
         {
+            if (!allowSplinePositioningForPlayback(
+                    e.hasReFlyTreeOffset,
+                    allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
+                    out _))
+            {
+                worldPos = default(Vector3d);
+                return false;
+            }
+
             return TryComputeLateUpdateSplineWorldPositionPure(
                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT, e.bodyBefore,
                 unknownFrameTagWarned, out worldPos);
@@ -19530,6 +19586,7 @@ namespace Parsek
         private const double PointHermiteMaxDeviationCapMeters = 250.0;
         private const double PointHermiteMinDeviationMeters = 10.0;
         private const double PointHermiteDeviationFraction = 0.05;
+        private const bool NormalPlaybackSplinePositioningEnabled = false;
         private const bool NormalPlaybackPointHermiteEnabled = false;
         private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
         private string reFlyDebobSampleScopeKey;
@@ -19612,6 +19669,60 @@ namespace Parsek
                 currentUT,
                 allowCapture: false,
                 out delta);
+        }
+
+        /// <summary>
+        /// Returns the display offset that active/background recorders must
+        /// subtract from live Re-Fly vessel samples before persisting them.
+        /// During Re-Fly, old tree ghosts are rendered as
+        /// recorded-position + frozen-display-offset so they line up with
+        /// the live attempt. New recordings made from that visually shifted
+        /// live attempt must be normalized back into the original tree's
+        /// recording frame, otherwise post-merge Watch mode compares one
+        /// sibling stored in the old frame with another stored in the
+        /// shifted Re-Fly display frame.
+        /// </summary>
+        internal bool TryGetReFlyRecordingFrameOffset(
+            string recordingId,
+            double currentUT,
+            out Vector3d delta,
+            out string reason)
+        {
+            delta = Vector3d.zero;
+            reason = null;
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            string recordingTreeId = ResolveTreeIdForRecording(recordingId);
+            Recording activeReFlyRecording = marker != null
+                ? FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId)
+                : null;
+
+            if (!ShouldCanonicalizeReFlyRecordingFrame(
+                    recordingId,
+                    recordingTreeId,
+                    marker,
+                    activeReFlyRecording,
+                    currentUT,
+                    out reason))
+            {
+                return false;
+            }
+
+            if (!TryGetReFlyTreeAnchorOffset(recordingId, currentUT, out delta))
+            {
+                reason = "offset-unavailable";
+                return false;
+            }
+
+            if (!IsFiniteVector3d(delta))
+            {
+                reason = "offset-non-finite";
+                delta = Vector3d.zero;
+                return false;
+            }
+
+            reason = "offset-applied";
+            return true;
         }
 
         private bool TryGetReFlyTreeAnchorOffsetUncached(
@@ -20477,6 +20588,77 @@ namespace Parsek
             string recTreeId = ResolveTreeIdForRecording(recordingId);
             return !string.IsNullOrEmpty(recTreeId)
                 && string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal);
+        }
+
+        internal static bool ShouldCanonicalizeReFlyRecordingFrame(
+            string recordingId,
+            string recordingTreeId,
+            ReFlySessionMarker marker,
+            Recording activeReFlyRecording,
+            double currentUT,
+            out string reason)
+        {
+            reason = null;
+
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                reason = "recording-id-missing";
+                return false;
+            }
+            if (marker == null)
+            {
+                reason = "marker-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.SessionId))
+            {
+                reason = "marker-session-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.TreeId))
+            {
+                reason = "marker-tree-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                reason = "marker-active-recording-missing";
+                return false;
+            }
+            if (!IsFinite(currentUT))
+            {
+                reason = "ut-non-finite";
+                return false;
+            }
+            if (IsFinite(marker.InvokedUT)
+                && currentUT < marker.InvokedUT - 0.001)
+            {
+                reason = "before-invocation";
+                return false;
+            }
+            if (string.IsNullOrEmpty(recordingTreeId))
+            {
+                reason = "recording-tree-missing";
+                return false;
+            }
+            if (!string.Equals(recordingTreeId, marker.TreeId, StringComparison.Ordinal))
+            {
+                reason = "tree-mismatch";
+                return false;
+            }
+            if (activeReFlyRecording == null)
+            {
+                reason = "active-refly-recording-missing";
+                return false;
+            }
+            if (!activeReFlyRecording.HasPreReFlyAnchorTrajectory(marker.SessionId))
+            {
+                reason = "pre-refly-anchor-snapshot-missing";
+                return false;
+            }
+
+            reason = "eligible";
+            return true;
         }
 
         private bool TryProjectReFlyDisplayAlignment(
