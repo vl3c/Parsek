@@ -3106,6 +3106,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_HoldsFreshAbsoluteForMinimumFrames()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string firstReason));
+            Assert.Equal("activation-settle", firstReason);
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.26, out string secondReason));
+            Assert.Equal("minimum-frames", secondReason);
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.27, out string finalReason));
+            Assert.Null(finalReason);
+        }
+
+        [Fact]
         public void ShouldHoldInitialRelativeActivationHiddenThisFrame_HoldsMinimumFramesAfterUtWindow()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);

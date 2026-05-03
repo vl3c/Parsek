@@ -4613,7 +4613,11 @@ namespace Parsek
                 && ShouldHoldInitialAbsoluteBridgeActivationHidden(
                     traj, state, playbackUT);
             bool withinUtWindow = withinRelativeWindow || withinAbsoluteBridge;
-            if (withinUtWindow && !state.initialRelativeActivationHiddenPrimed)
+            bool withinActivationSettle = !withinUtWindow
+                && CanEvaluateInitialActivationHidden(traj, state)
+                && !state.initialRelativeActivationHiddenPrimed;
+            bool shouldPrimeHiddenFrames = withinUtWindow || withinActivationSettle;
+            if (shouldPrimeHiddenFrames && !state.initialRelativeActivationHiddenPrimed)
             {
                 state.initialRelativeActivationHiddenPrimed = true;
                 state.initialRelativeActivationHiddenFramesRemaining =
@@ -4622,9 +4626,11 @@ namespace Parsek
                         GhostPlayback.InitialActivationHiddenMinimumFrames);
             }
 
-            if (withinUtWindow)
+            if (shouldPrimeHiddenFrames)
             {
-                reason = withinRelativeWindow ? "relative-start" : "absolute-seed-bridge";
+                reason = withinRelativeWindow
+                    ? "relative-start"
+                    : (withinAbsoluteBridge ? "absolute-seed-bridge" : "activation-settle");
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }
