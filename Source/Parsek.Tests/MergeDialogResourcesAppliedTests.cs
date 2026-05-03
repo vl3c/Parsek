@@ -54,6 +54,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             RecordingStore.SaveGameForTesting = null;
             MergeJournalOrchestrator.ResetTestOverrides();
+            RewindPointReaper.ResetTestOverrides();
             TreeDiscardPurge.ResetTestOverrides();
         }
 
@@ -68,6 +69,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             RecordingStore.SaveGameForTesting = null;
             MergeJournalOrchestrator.ResetTestOverrides();
+            RewindPointReaper.ResetTestOverrides();
             TreeDiscardPurge.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -621,6 +623,7 @@ namespace Parsek.Tests
             const string treeId = "tree-refly-inplace-committed-restore";
             const string sessionId = "sess-refly-inplace-committed-restore";
             const string rpId = "rp_merge_dialog";
+            const string sessionRpId = "rp-session-created-discard";
             const string originId = "rec-origin-inplace-committed-restore";
 
             var origin = MakeRecording(originId, treeId, 100.0, 260.0);
@@ -699,11 +702,39 @@ namespace Parsek.Tests
                     new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
                 },
             };
+            var sessionRp = new RewindPoint
+            {
+                RewindPointId = sessionRpId,
+                BranchPointId = "attempt-child-bp",
+                UT = 135.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+            };
+            var otherSessionRp = new RewindPoint
+            {
+                RewindPointId = "rp-other-session",
+                BranchPointId = "bp-preexisting",
+                UT = 136.0,
+                SessionProvisional = true,
+                CreatingSessionId = "different-session",
+            };
+            var deletedRps = new List<string>();
+            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            {
+                deletedRps.Add(id);
+                return true;
+            };
+            var durableSaveNames = new List<string>();
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                durableSaveNames.Add(saveName);
+                return saveName + ".sfs";
+            };
             var scenario = new ParsekScenario
             {
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
                 LedgerTombstones = new List<LedgerTombstone>(),
-                RewindPoints = new List<RewindPoint> { rp },
+                RewindPoints = new List<RewindPoint> { rp, sessionRp, otherSessionRp },
                 ActiveReFlySessionMarker = MakeMarker(
                     sessionId, treeId, originId, originId),
             };
@@ -731,9 +762,16 @@ namespace Parsek.Tests
             Assert.Null(restored.CreatingSessionId);
             Assert.Null(restored.ProvisionalForRpId);
             Assert.Null(restored.SupersedeTargetId);
+            Assert.True(restored.FilesDirty);
             Assert.False(restored.HasPreReFlyOriginalRecording(sessionId));
             Assert.False(rp.SessionProvisional);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.DoesNotContain(scenario.RewindPoints, point => point.RewindPointId == sessionRpId);
+            Assert.Contains(scenario.RewindPoints, point => point.RewindPointId == rpId);
+            Assert.Contains(scenario.RewindPoints, point => point.RewindPointId == "rp-other-session");
+            Assert.Contains(deletedRps, id => id == sessionRpId);
+            Assert.DoesNotContain(deletedRps, id => id == rpId);
+            Assert.Contains(durableSaveNames, name => name == "persistent");
             Assert.Contains(restoredTree.BranchPoints, bp => bp.Id == "bp-preexisting");
             Assert.DoesNotContain(restoredTree.BranchPoints, bp => bp.Id == "attempt-child-bp");
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => ReferenceEquals(r, origin));
@@ -745,12 +783,19 @@ namespace Parsek.Tests
                 && l.Contains(originId)
                 && l.Contains("updateCommittedStore=True")
                 && l.Contains("committedTreeReplacements=1")
-                && l.Contains("committedCopyAdded=True"));
+                && l.Contains("committedCopyAdded=True")
+                && l.Contains("dirtyQueuedForScenarioSave=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Discard removed session provisional RP")
+                && l.Contains(sessionRpId));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Re-Fly Attempt Discard")
                 && l.Contains("inPlaceOriginalRestored=True")
-                && l.Contains("restoredCommittedTree=False"));
+                && l.Contains("discardedSessionRps=1")
+                && l.Contains("restoredCommittedTree=False")
+                && l.Contains("durableSaved=True"));
         }
 
         [Fact]
@@ -916,6 +961,7 @@ namespace Parsek.Tests
             Assert.Null(restored.CreatingSessionId);
             Assert.Null(restored.ProvisionalForRpId);
             Assert.Null(restored.SupersedeTargetId);
+            Assert.True(restored.FilesDirty);
             Assert.False(restored.HasPreReFlyOriginalRecording(sessionId));
             Assert.False(rp.SessionProvisional);
             Assert.Null(scenario.ActiveReFlySessionMarker);
@@ -939,7 +985,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("RestoreSanitizedPendingTreeIfDetached")
-                && l.Contains("prunedSessionBranchPoints=1"));
+                && l.Contains("prunedSessionBranchPoints=1")
+                && l.Contains("dirtyQueuedForScenarioSave=1"));
         }
 
         // ================================================================

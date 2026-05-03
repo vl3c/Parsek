@@ -420,6 +420,7 @@ namespace Parsek
                 && !inPlaceOriginalRestored
                 && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
+            int discardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
             bool restoredCommittedTree = committedTreeDetached
                 && RestoreSanitizedPendingTreeIfDetached(tree, marker, attemptIds);
 
@@ -436,6 +437,7 @@ namespace Parsek
 
             LedgerOrchestrator.RecalculateAndPatch();
             ClearPendingFlag();
+            bool durableSaved = SaveDiscardedReFlyStateDurably(sessionId);
 
             ParsekLog.ScreenMessage("Re-Fly attempt discarded", 2f);
             ParsekLog.Info("MergeDialog",
@@ -447,7 +449,8 @@ namespace Parsek
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
                 $"transientCleared={transientCleared}, inPlaceTrimmed={inPlaceTrimmed}, " +
                 $"inPlaceOriginalRestored={inPlaceOriginalRestored}, " +
-                $"rpPromoted={rpPromoted}, restoredCommittedTree={restoredCommittedTree})");
+                $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
+                $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
                 $"End reason=discardReFlyAttemptFromMergeDialog sess={sessionId ?? "<no-id>"} " +
                 $"tree={tree.Id ?? "<none>"} active={marker.ActiveReFlyRecordingId ?? "<none>"} " +
@@ -738,8 +741,6 @@ namespace Parsek
             int committedTreeReplacements = 0;
             int committedTreePrunedBranchPoints = 0;
             bool committedCopyAdded = false;
-            bool dirtySaveAttempted = false;
-            bool dirtySaved = false;
             if (updateCommittedStore)
             {
                 prunedSessionBranchPoints += PruneSessionCreatedBranchPoints(tree, marker);
@@ -754,11 +755,6 @@ namespace Parsek
             {
                 RecordingStore.AddCommittedInternal(restored);
                 committedCopyAdded = true;
-                if (restored.FilesDirty)
-                {
-                    dirtySaveAttempted = true;
-                    dirtySaved = RecordingStore.SaveRecordingFiles(restored, incrementEpoch: false);
-                }
             }
 
             ParsekLog.Info("MergeDialog",
@@ -772,7 +768,7 @@ namespace Parsek
                 $"committedCopyAdded={committedCopyAdded} " +
                 $"prunedSessionBranchPoints={prunedSessionBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"committedTreePrunedBranchPoints={committedTreePrunedBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"dirtySaveAttempted={dirtySaveAttempted} dirtySaved={dirtySaved} " +
+                $"dirtyQueuedForScenarioSave={restored.FilesDirty} " +
                 $"explicitStartUT={restored.ExplicitStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"explicitEndUT={restored.ExplicitEndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
             return true;
@@ -971,8 +967,7 @@ namespace Parsek
             tree.RebuildBackgroundMap();
             int addedRecordings = 0;
             int skippedExisting = 0;
-            int dirtySaved = 0;
-            int dirtyFailed = 0;
+            int dirtyQueuedForScenarioSave = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null)
@@ -987,12 +982,7 @@ namespace Parsek
                     addedRecordings++;
                 }
                 if (rec.FilesDirty)
-                {
-                    if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
-                        dirtySaved++;
-                    else
-                        dirtyFailed++;
-                }
+                    dirtyQueuedForScenarioSave++;
             }
             RecordingStore.AddCommittedTreeInternal(tree);
             ParsekLog.Info("MergeDialog",
@@ -1002,7 +992,7 @@ namespace Parsek
                 $"prunedSessionBranchPoints={prunedSessionBranchPoints} " +
                 $"groupRepairs={groupRepairs} " +
                 $"addedRecordings={addedRecordings} skippedExisting={skippedExisting} " +
-                $"dirtySaved={dirtySaved} dirtyFailed={dirtyFailed}");
+                $"dirtyQueuedForScenarioSave={dirtyQueuedForScenarioSave}");
             return true;
         }
 
@@ -1240,6 +1230,97 @@ namespace Parsek
                     $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
             }
             return promoted;
+        }
+
+        private static int PurgeDiscardedSessionRewindPoints(
+            ParsekScenario scenario,
+            ReFlySessionMarker marker)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null
+                || marker == null
+                || string.IsNullOrEmpty(marker.SessionId))
+            {
+                return 0;
+            }
+
+            int removed = 0;
+            for (int i = scenario.RewindPoints.Count - 1; i >= 0; i--)
+            {
+                RewindPoint rp = scenario.RewindPoints[i];
+                if (rp == null)
+                    continue;
+                if (!rp.SessionProvisional)
+                    continue;
+                if (!string.Equals(rp.CreatingSessionId,
+                        marker.SessionId, System.StringComparison.Ordinal))
+                    continue;
+                if (!string.IsNullOrEmpty(marker.RewindPointId)
+                    && string.Equals(rp.RewindPointId,
+                        marker.RewindPointId, System.StringComparison.Ordinal))
+                    continue;
+
+                RewindPointReaper.TryDeleteQuicksaveFile(rp);
+                scenario.RewindPoints.RemoveAt(i);
+                RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
+                RewindPointReaper.ClearBranchPointBackref(rp);
+                ParsekLog.Info("ReFlySession",
+                    $"Discard removed session provisional RP rp={rp.RewindPointId ?? "<no-id>"} " +
+                    $"bp={rp.BranchPointId ?? "<no-bp>"} sess={marker.SessionId ?? "<no-id>"}");
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Info("ReFlySession",
+                    $"Discard removed {removed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"session provisional RP(s) sess={marker.SessionId ?? "<no-id>"}");
+            }
+            return removed;
+        }
+
+        private static bool SaveDiscardedReFlyStateDurably(string sessionId)
+        {
+            var saveFn = RecordingStore.SaveGameForTesting ?? GamePersistence.SaveGame;
+            if (RecordingStore.SaveGameForTesting == null)
+            {
+                if (HighLogic.LoadedScene == GameScenes.LOADING)
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"Discard Re-Fly durable save skipped during LOADING sess={sessionId ?? "<no-id>"}");
+                    return false;
+                }
+                if (HighLogic.CurrentGame == null
+                    || string.IsNullOrEmpty(HighLogic.SaveFolder))
+                {
+                    ParsekLog.Verbose("MergeDialog",
+                        $"Discard Re-Fly durable save skipped (no current game/save folder) " +
+                        $"sess={sessionId ?? "<no-id>"}");
+                    return false;
+                }
+            }
+
+            try
+            {
+                string result = saveFn("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"Discard Re-Fly durable save returned null sess={sessionId ?? "<no-id>"}");
+                    return false;
+                }
+
+                ParsekLog.Info("MergeDialog",
+                    $"Discard Re-Fly state persisted via persistent.sfs sess={sessionId ?? "<no-id>"}");
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"Discard Re-Fly durable save threw sess={sessionId ?? "<no-id>"} " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
