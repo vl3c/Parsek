@@ -1414,7 +1414,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecentPointFromOlderRecordingStillClassifiesDestroyed()
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecentPointFromOlderRecordingSuppressesSubSurfaceDestroyed()
         {
             var rec = new Recording
             {
@@ -1441,12 +1441,13 @@ namespace Parsek.Tests
 
             bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
 
-            Assert.True(built);
-            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.False(built);
             Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
-            Assert.DoesNotContain(logLines, l =>
+            Assert.Contains(logLines, l =>
                 l.Contains("suppressing sub-surface Destroyed")
-                && l.Contains("scene-exit-null-solver-older-recording-recent-point"));
+                && l.Contains("scene-exit-null-solver-older-recording-recent-point")
+                && l.Contains("recordingStartUT=490.000")
+                && l.Contains("pointUT=500.000"));
         }
 
         [Fact]

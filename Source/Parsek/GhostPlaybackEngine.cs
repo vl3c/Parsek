@@ -1094,13 +1094,14 @@ namespace Parsek
             // Position the ghost
             if (hasInterpolatedPoints)
             {
-                if (!TryPositionRelativeSectionAtPlaybackUT(
-                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
                 {
-                    if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
-                    else
-                        positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
+                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                }
+                else if (!TryPositionRelativeSectionAtPlaybackUT(
+                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                {
+                    positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
                 }
             }
             else if (hasPointData)
@@ -1108,13 +1109,14 @@ namespace Parsek
                 // Relative single-point sections store metre offsets in
                 // latitude/longitude/altitude fields; never fall through to
                 // PositionAtPoint for them.
-                if (!TryPositionRelativeSectionAtPlaybackUT(
-                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
                 {
-                    if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
-                    else
-                        positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                }
+                else if (!TryPositionRelativeSectionAtPlaybackUT(
+                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                {
+                    positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
                 }
             }
             else if (hasSurfaceData)
@@ -4265,15 +4267,15 @@ namespace Parsek
             if (!HasLoadedGhostVisuals(state) || traj == null || positioner == null)
                 return;
 
-            if (TryPositionRelativeSectionAtPlaybackUT(
-                    index, traj, state, playbackUT, suppressFx: true))
-                return;
-
             if (ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
                 return;
             }
+
+            if (TryPositionRelativeSectionAtPlaybackUT(
+                    index, traj, state, playbackUT, suppressFx: true))
+                return;
 
             bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
             bool hasSurfaceData = traj.SurfacePos.HasValue;

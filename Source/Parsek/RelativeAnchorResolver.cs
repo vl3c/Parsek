@@ -495,6 +495,37 @@ namespace Parsek
                 section.frames != null && section.frames.Count > 0
                     ? section.frames
                     : recording.Points;
+            if (frames == section.frames
+                && !FrameListCoversUT(frames, section.startUT, section.endUT, ut))
+            {
+                List<TrajectoryPoint> flatFallbackFrames = recording.Points;
+                if (TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+                        recording,
+                        out List<TrajectoryPoint> safeRelativeFlatPoints))
+                {
+                    flatFallbackFrames = safeRelativeFlatPoints;
+                }
+
+                if (FrameListCoversUT(flatFallbackFrames, section.startUT, section.endUT, ut))
+                {
+                    frames = flatFallbackFrames;
+                    ParsekLog.VerboseRateLimited(
+                        "RelativeAnchorResolver",
+                        "absolute-section-flat-fallback|"
+                            + (recording.RecordingId ?? "(none)") + "|"
+                            + sectionIndex.ToString(CultureInfo.InvariantCulture),
+                        "Absolute section anchor pose fell back to flat trajectory coverage: "
+                        + "recordingId=" + (recording.RecordingId ?? "(none)")
+                        + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                        + " ut=" + ut.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionStartUT=" + section.startUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionEndUT=" + section.endUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionFrameCount=" + (section.frames?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+                        + " flatFrameCount=" + flatFallbackFrames.Count.ToString(CultureInfo.InvariantCulture),
+                        5.0);
+                }
+            }
+
             return TryResolveAbsoluteFramesPose(
                 context,
                 frames,

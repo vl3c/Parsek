@@ -207,6 +207,39 @@ namespace Parsek.Tests
             Assert.True(restored.OrbitSegments[restored.OrbitSegments.Count - 1].isPredicted);
         }
 
+        [Fact]
+        public void WriteRead_RelativeFlatFallback_WritesAbsoluteShadowPointsAndPreservesOrbitTail()
+        {
+            Recording original = BuildRelativeFlatFallbackWithOrbitTailFixture();
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+
+            string path = Path.Combine(tempDir, "relative-flat-fallback-tail.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 22);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Equal(4, restored.Points.Count);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.Points[0]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.Points[1]);
+            AssertPointEqual(original.TrackSections[1].frames[1], restored.Points[2]);
+            AssertPointEqual(original.Points[4], restored.Points[3]);
+            Assert.NotEqual(original.TrackSections[0].frames[0].altitude, restored.Points[0].altitude);
+
+            Assert.Equal(2, restored.TrackSections.Count);
+            AssertPointEqual(original.TrackSections[0].frames[0], restored.TrackSections[0].frames[0]);
+            AssertPointEqual(original.TrackSections[0].frames[1], restored.TrackSections[0].frames[1]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
+
+            Assert.Single(restored.OrbitSegments);
+            AssertOrbitSegmentEqual(original.OrbitSegments[0], restored.OrbitSegments[0]);
+            Assert.True(restored.OrbitSegments[0].isPredicted);
+        }
+
         private static void WriteProbeOnlyBinary(string path, int version, int sidecarEpoch, string recordingId)
         {
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -480,6 +513,58 @@ namespace Parsek.Tests
                 maxAltitude = 6f,
                 frames = new List<TrajectoryPoint> { relativeA, relativeB },
                 absoluteFrames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
+        private static Recording BuildRelativeFlatFallbackWithOrbitTailFixture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "relative-flat-fallback-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Probe Booster",
+                VesselPersistentId = 22001u
+            };
+
+            var relativeA = MakePoint(10.0, -0.15, -5.80, 0.08, "Kerbin");
+            var relativeB = MakePoint(20.0, -0.18, -5.81, 0.09, "Kerbin");
+            var absoluteA = MakePoint(10.0, -0.19, -58.90, 69000.0, "Kerbin");
+            var absoluteB = MakePoint(20.0, -0.20, -58.80, 70000.0, "Kerbin");
+            var absoluteC = MakePoint(30.0, -0.21, -58.70, 71000.0, "Kerbin");
+            var absoluteTail = MakePoint(35.0, -0.22, -58.60, 71500.0, "Kerbin");
+
+            rec.Points.Add(relativeA);
+            rec.Points.Add(relativeB);
+            rec.Points.Add(absoluteB);
+            rec.Points.Add(absoluteC);
+            rec.Points.Add(absoluteTail);
+            rec.OrbitSegments.Add(MakeOrbitSegment(40.0, 330.0, isPredicted: true));
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = 10.0,
+                endUT = 20.0,
+                anchorRecordingId = "upper-stage",
+                sampleRateHz = 2f,
+                frames = new List<TrajectoryPoint> { relativeA, relativeB },
+                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                checkpoints = new List<OrbitSegment>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 20.0,
+                endUT = 30.0,
+                sampleRateHz = 2f,
+                frames = new List<TrajectoryPoint> { absoluteB, absoluteC },
                 checkpoints = new List<OrbitSegment>()
             });
 

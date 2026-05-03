@@ -521,7 +521,7 @@ namespace Parsek
                     bodies,
                     ref result);
 
-                if (ShouldSuppressSubSurfaceDestroyedFromRecordedStart(
+                if (ShouldSuppressSubSurfaceDestroyedFromRecordedPoint(
                     recording,
                     snapshot,
                     startState,
@@ -537,7 +537,7 @@ namespace Parsek
                         string.Format(
                             CultureInfo.InvariantCulture,
                             "TryFinalizeRecording: suppressing sub-surface Destroyed for '{0}' " +
-                            "because a fresh recorded surface point contradicts the live-orbit fallback " +
+                            "because a nearby recorded surface point contradicts the live-orbit fallback " +
                             "(snapshotFailure={1}, startUT={2:F3}, recordingStartUT={3:F3}, " +
                             "pointUT={4:F3}, deltaUT={5:F3}, source={6}, recordedBody={7}, " +
                             "liveBody={8}, recordedAlt={9:F1}, liveAlt={10:F1}, threshold={11:F1})",
@@ -587,7 +587,7 @@ namespace Parsek
             return applied;
         }
 
-        private static bool ShouldSuppressSubSurfaceDestroyedFromRecordedStart(
+        private static bool ShouldSuppressSubSurfaceDestroyedFromRecordedPoint(
             Recording recording,
             PatchedConicSnapshotResult snapshot,
             BallisticStateVector startState,
@@ -615,9 +615,6 @@ namespace Parsek
                 return false;
 
             recordingStartUT = recording.StartUT;
-            if (!IsFinite(recordingStartUT))
-                return false;
-
             string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
                 ? result.subSurfaceDestroyedBodyName
                 : startState.bodyName;
@@ -634,9 +631,6 @@ namespace Parsek
             }
 
             if (recordedPointDeltaUT > SubSurfaceRecordedPointContradictionWindowSeconds)
-                return false;
-            if (Math.Abs(recordedPoint.ut - recordingStartUT)
-                > SubSurfaceRecordedPointContradictionWindowSeconds)
                 return false;
 
             return true;

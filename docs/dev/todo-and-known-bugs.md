@@ -73,11 +73,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Post-Re-Fly Watch frame follow-up (2026-05-03):** `logs/2026-05-03_1307_pr708-watch-post-refly-booster-exo-instability/` initially suggested the post-Re-Fly booster/probe recording might be stored in a shifted display frame. The follow-up bundle `logs/2026-05-03_1443_pr708-watch-probe-booster-behind/` proved the opposite failure mode: subtracting the frozen Re-Fly display offset from recorder samples pushed the new probe continuation behind its upper-stage sibling. At UT `136.751335`, the new `b572600...` and prior `0413b484...` absolute shadows were `42.65m` from the upper-stage/root point, while the old superseded `d1a763...` path would have been `6.97m` away; the bad delta (`35.68m`) matched the Re-Fly recording-frame canonicalization offset. Fix: production now treats the frozen display offset as render-only and refuses recorder-side canonicalization with `display-offset-render-only`. Live vessel samples are already authored in KSP world/body coordinates; ordinary gameplay ghosts remain visual-only and non-Re-Fly recordings are untouched.
 
-**Predicted-tail Watch playback follow-up (2026-05-03):** PR #738 preserved unstable terminal predicted orbit tails correctly, but Watch playback still froze when a recording kept stale flat `Points` ending before the explicit destroyed terminal UT. `KSP.log` showed `591ac896...` at currentUT `161.482` clamped to the last flat point bracket `158.751->158.971` with `t=1.0000`, while two predicted `OrbitSegment`s through UT `1971` remained available. Fix: the engine now routes non-loop and watch-sync positioning through `PositionFromOrbit` once playback is past the last flat sample and a preserved orbit segment covers the playback UT, or when playback is inside the short gap before a nearby predicted segment starts; relative sections keep first chance so v11 metre-offset payloads are still resolved by the Relative anchor path instead of being misread as body LLA. `PositionFromOrbit` now carries the selected segment index into the orbit cache key so optimizer tail handoff cannot reuse a stale segment cache.
+**Predicted-tail Watch playback follow-up (2026-05-03):** PR #738 preserved unstable terminal predicted orbit tails correctly, but Watch playback still froze when a recording kept stale flat `Points` ending before the explicit destroyed terminal UT. `KSP.log` showed `591ac896...` at currentUT `161.482` clamped to the last flat point bracket `158.751->158.971` with `t=1.0000`, while two predicted `OrbitSegment`s through UT `1971` remained available. Fix: the engine now routes non-loop and watch-sync positioning through `PositionFromOrbit` once playback is past the last flat sample and a preserved orbit segment covers the playback UT, or when playback is inside the short gap before a nearby predicted segment starts. Follow-up from `logs/2026-05-03_1625_pr708-open-issues-recheck/`: orbit-tail dispatch now runs before stale Relative-section resolution once playback is beyond the sampled payload, so resolver warnings like `anchor-out-of-recorded-range` at the payload/orbit boundary do not hide a valid predicted tail. `PositionFromOrbit` now carries the selected segment index into the orbit cache key so optimizer tail handoff cannot reuse a stale segment cache.
 
 **Probe booster Watch FX follow-up (2026-05-03):** `logs/2026-05-03_1517_pr708-probe-booster-post-refly-glitches/` showed the post-Re-Fly Kerbal X Probe booster entering the preserved orbit-tail path correctly, but `KSP.log:65204` also recorded `EngineIgnited 'liquidEngineMainsail.v2' ... val=0.00` immediately after `Unpacking Kerbal X Probe` / `go_off_rails`. The event was real recorded data, not Watch playback inventing FX, and matched the older seed bug fixed by `PartStateSeeder.ShouldSkipZeroThrottleEngineSeed`: an idle staged engine can report `EngineIgnited` while `currentThrottle` is still zero, which should not create a plume/audio start. Fix: `FlightRecorder.CheckEngineTransition` now skips zero-throttle `EngineIgnited` transitions without marking the engine active, leaving a later positive-throttle transition eligible to emit the real ignition event.
 
 **Relative spike follow-up (2026-05-03):** The same bundle showed `41c4d46c...` storing one bad Relative local-offset sample at UT `150.4367028808671`: the offset jumped from about `(-0.08,-5.20,0.03)` to `(-1.82,38.02,-0.03)` and then back to `(-0.06,-5.45,0.03)`, while the section's `absoluteFrames` shadow stayed smooth. This points at a transient recorded-anchor pose error, not a real focus-vessel jump. Fix: recorded Relative playback now applies a narrow isolated-spike filter before anchor resolution. If one local-offset sample deviates by at least `15m` from the neighbour interpolation while the previous and next offsets are within `5m` of each other, playback replaces only that local offset with the neighbour-interpolated value and logs `Recorded Relative local-offset spike corrected`. Legitimate steady separation drift is not filtered because the neighbours do not agree.
+
+**Flat fallback sidecar follow-up (2026-05-03):** The newest bundle still showed non-section-authoritative v11 sidecars with Relative sections and mixed top-level `POINT`s: e.g. `98940967...` wrote a Relative local-offset point at UT `459.027805938674` followed by an Absolute LLA point at the same UT, while keeping predicted orbit segments outside the track sections. The writer could not switch these recordings to section-authoritative mode without dropping the top-level predicted orbit tail. Fix: flat-fallback serialization now derives top-level `POINT`s from Relative `absoluteFrames` plus Absolute section frames, preserves safe flat point tails outside frame-backed sections, leaves the Relative local-offset section payload intact, and keeps top-level `OrbitSegment`s. The read path heals older malformed flat fallbacks the same way and marks them dirty for resave. Absolute-section anchor resolution also falls back to that safe flat view when a declared section end extends past its local frame list.
 
 **Post-Re-Fly Watch activation follow-up (2026-05-03):** `logs/2026-05-03_1554_pr708-post-refly-watch-new-issues/` showed the post-Re-Fly booster/probe initial Watch position was correct after the render-only recording-frame fix, but a freshly activated Relative successor could still expose its first visual construction/origin-settle frame. Fix: a ghost whose first deferred playback frame lands in a Relative section stays visually hidden for the first `0.08s` while its transform and persistent visual state are still applied; transient FX stay suppressed during that hidden window. The same bundle also showed active Re-Fly root-part pinning skipped with `reFlyGhostPartPinReason=ghost-inactive` one frame before a successful pin. The part pin can now apply while the ghost is still inactive, so the first visible Re-Fly frame is already pinned instead of waiting for a later correction.
 
@@ -569,19 +571,19 @@ hid the regular mission-group Rewind affordance because the rows were classified
 as Unfinished Flights.
 
 **Follow-up fix:** the finalizer keeps the normal `NullSolver` destroyed-vessel
-path, but rejects the sub-surface verdict when the recording itself has a fresh
-same-start section-aware absolute surface point on the same body above the
-sub-surface threshold. Relative sections are checked via their `absoluteFrames`;
-flat `Recording.Points` are used only for sectionless legacy-style recordings so
-anchor-local relative offsets cannot masquerade as body altitude. The guard logs
-`suppressing sub-surface Destroyed` with the live altitude, recorded altitude,
-point source, and UT delta, then returns without mutating terminal state. Stale
-points, older recordings with a recent sample, body mismatches, and
-non-catastrophic fallback altitudes still allow the intentional Destroyed
-classification, so real torn-down vessels remain covered. Regression coverage:
+path, but rejects the sub-surface verdict when the recording itself has a recent
+section-aware absolute surface point near the fallback UT on the same body above
+the sub-surface threshold. Relative sections are checked via their
+`absoluteFrames`; flat `Recording.Points` are used only for sectionless
+legacy-style recordings so anchor-local relative offsets cannot masquerade as
+body altitude. The guard logs `suppressing sub-surface Destroyed` with the live
+altitude, recorded altitude, point source, and UT delta, then returns without
+mutating terminal state. Stale points, body mismatches, and non-catastrophic
+fallback altitudes still allow the intentional Destroyed classification, so real
+torn-down vessels remain covered. Regression coverage:
 `TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed`
-and the adjacent stale, relative-frame, body-mismatch, older-recording, and
-threshold guard cases.
+and the adjacent recent older-recording suppression plus stale, relative-frame,
+body-mismatch, and threshold guard cases.
 
 ## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 

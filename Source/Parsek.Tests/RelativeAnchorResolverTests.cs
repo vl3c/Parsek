@@ -219,6 +219,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_AbsoluteSectionFrameGap_UsesFlatFallbackCoverage()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+
+            var p0 = MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity);
+            var p10 = MakePoint(10.0, new Vector3d(110, 0, 0), Quaternion.identity);
+            var p20 = MakePoint(20.0, new Vector3d(120, 0, 0), Quaternion.identity);
+            TrackSection absoluteSection = absolute.TrackSections[0];
+            absoluteSection.endUT = 20.0;
+            absoluteSection.frames = new List<TrajectoryPoint> { p0, p10 };
+            absolute.TrackSections[0] = absoluteSection;
+            absolute.Points.Add(p0);
+            absolute.Points.Add(p10);
+            absolute.Points.Add(p20);
+
+            Recording relative = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: absolute.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(absolute);
+            tree.AddOrReplaceRecording(relative);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                relative.RecordingId,
+                15.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(116.0, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Absolute section anchor pose fell back to flat trajectory coverage") &&
+                l.Contains("recordingId=absolute-anchor"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors()
         {
             var tree = new RecordingTree { Id = "tree" };
