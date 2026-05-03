@@ -413,8 +413,9 @@ namespace Parsek
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
-            bool inPlaceOriginalRestored = committedTreeDetached
-                && RestoreInPlaceOriginalRecordingFromSnapshot(tree, marker);
+            bool inPlaceOriginalRestored =
+                RestoreInPlaceOriginalRecordingFromSnapshot(
+                    tree, marker, updateCommittedStore: !committedTreeDetached);
             bool inPlaceTrimmed = committedTreeDetached
                 && !inPlaceOriginalRestored
                 && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
@@ -693,7 +694,8 @@ namespace Parsek
 
         private static bool RestoreInPlaceOriginalRecordingFromSnapshot(
             RecordingTree tree,
-            ReFlySessionMarker marker)
+            ReFlySessionMarker marker,
+            bool updateCommittedStore)
         {
             if (tree == null || tree.Recordings == null || marker == null)
                 return false;
@@ -732,7 +734,32 @@ namespace Parsek
             restored.MarkFilesDirty();
 
             tree.Recordings[marker.OriginChildRecordingId] = restored;
+            int prunedSessionBranchPoints = 0;
+            int committedTreeReplacements = 0;
+            int committedTreePrunedBranchPoints = 0;
+            bool committedCopyAdded = false;
+            bool dirtySaveAttempted = false;
+            bool dirtySaved = false;
+            if (updateCommittedStore)
+            {
+                prunedSessionBranchPoints += PruneSessionCreatedBranchPoints(tree, marker);
+                tree.RebuildBackgroundMap();
+                committedTreeReplacements = ReplaceCommittedTreeRecordingById(
+                    tree.Id, marker.OriginChildRecordingId, restored);
+                committedTreePrunedBranchPoints = PruneSessionCreatedBranchPointsInCommittedTrees(
+                    tree.Id, tree, marker);
+            }
             int removedCommittedCopies = RemoveCommittedRecordingsById(marker.OriginChildRecordingId);
+            if (updateCommittedStore)
+            {
+                RecordingStore.AddCommittedInternal(restored);
+                committedCopyAdded = true;
+                if (restored.FilesDirty)
+                {
+                    dirtySaveAttempted = true;
+                    dirtySaved = RecordingStore.SaveRecordingFiles(restored, incrementEpoch: false);
+                }
+            }
 
             ParsekLog.Info("MergeDialog",
                 $"RestoreInPlaceOriginalRecordingFromSnapshot: rec={restored.RecordingId ?? "<none>"} " +
@@ -740,9 +767,79 @@ namespace Parsek
                 $"points={(restored.Points?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"trackSections={(restored.TrackSections?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"removedCommittedCopies={removedCommittedCopies.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"updateCommittedStore={updateCommittedStore} " +
+                $"committedTreeReplacements={committedTreeReplacements.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"committedCopyAdded={committedCopyAdded} " +
+                $"prunedSessionBranchPoints={prunedSessionBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"committedTreePrunedBranchPoints={committedTreePrunedBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"dirtySaveAttempted={dirtySaveAttempted} dirtySaved={dirtySaved} " +
                 $"explicitStartUT={restored.ExplicitStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"explicitEndUT={restored.ExplicitEndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
             return true;
+        }
+
+        private static int ReplaceCommittedTreeRecordingById(
+            string treeId,
+            string recordingId,
+            Recording restored)
+        {
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(recordingId)
+                || restored == null)
+            {
+                return 0;
+            }
+
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees == null || committedTrees.Count == 0)
+                return 0;
+
+            int replaced = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                RecordingTree committedTree = committedTrees[i];
+                if (committedTree == null || committedTree.Recordings == null)
+                    continue;
+                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
+                    continue;
+                if (!committedTree.Recordings.ContainsKey(recordingId))
+                    continue;
+
+                committedTree.Recordings[recordingId] = restored;
+                committedTree.RebuildBackgroundMap();
+                replaced++;
+            }
+
+            return replaced;
+        }
+
+        private static int PruneSessionCreatedBranchPointsInCommittedTrees(
+            string treeId,
+            RecordingTree dialogTree,
+            ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return 0;
+
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees == null || committedTrees.Count == 0)
+                return 0;
+
+            int pruned = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                RecordingTree committedTree = committedTrees[i];
+                if (committedTree == null || object.ReferenceEquals(committedTree, dialogTree))
+                    continue;
+                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
+                    continue;
+
+                int prunedFromTree = PruneSessionCreatedBranchPoints(committedTree, marker);
+                if (prunedFromTree > 0)
+                    committedTree.RebuildBackgroundMap();
+                pruned += prunedFromTree;
+            }
+
+            return pruned;
         }
 
         private static int RemoveCommittedRecordingsById(string recordingId)
@@ -949,6 +1046,11 @@ namespace Parsek
             if (marker == null || marker.PreSessionBranchPointIds == null)
                 return 0;
 
+            // A present-but-empty baseline is intentional: the marker was
+            // written by code that snapshots branch point IDs, and the tree had
+            // no branch points at invocation. In that case every current branch
+            // point is session-authored and must be discarded. A null baseline
+            // is the legacy/unknown case and is skipped above.
             var preSessionIds = new HashSet<string>(
                 marker.PreSessionBranchPointIds,
                 System.StringComparer.Ordinal);

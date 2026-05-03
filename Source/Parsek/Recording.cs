@@ -771,6 +771,8 @@ namespace Parsek
         {
             if (!HasPreReFlyOriginalRecording(sessionId))
                 return null;
+            // Return a defensive copy; the captured original is the rollback
+            // template and discard/restore callers mutate the returned recording.
             return DeepClone(PreReFlyOriginalRecording, preservePreReFlySnapshots: false);
         }
 
