@@ -3225,6 +3225,105 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_DestroyedTerminalWithPredictedTail_RefusesTrim()
+        {
+            // Regression for the Kerbal-X-ghost-destroyed-too-soon bug:
+            // optimizer split + sidecar finalize leaves a Destroyed leaf with a
+            // boring (ExoBallistic) last TrackSection and predicted orbit
+            // segments through the impact UT. The previous default-true branch
+            // of TailPreservesTerminalSpawnState let TrimBoringTail strip the
+            // predicted destruction tail, collapsing the ghost at the chain-
+            // segment boundary instead of riding the predicted impact arc.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = new Recording
+            {
+                RecordingId = "trim-destroyed-predicted-tail",
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 1837.7
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 145.0, bodyName = "Kerbin", altitude = 70000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0, bodyName = "Kerbin", altitude = 72000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 155.0, bodyName = "Kerbin", altitude = 74000 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 145.0,
+                endUT = 155.0
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 155.0,
+                endUT = 900.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 800000.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 900.0,
+                endUT = 1837.7,
+                bodyName = "Kerbin",
+                semiMajorAxis = 800000.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                "Destroyed-terminal recordings carry meaningful predicted-tail content; TrimBoringTail must refuse.");
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(1837.7, rec.OrbitSegments[rec.OrbitSegments.Count - 1].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-destroyed-predicted-tail")
+                && l.Contains("terminal=Destroyed"));
+            // Suppress the misleading "(terminal-mismatch) … tail still diverges from
+            // terminal state" line for unstable terminals — the tail wasn't compared,
+            // the gate refused upfront. Only the dedicated unstable-terminal log fires.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("(terminal-mismatch)"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_BoardedTerminal_RefusesTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-boarded";
+            rec.TerminalStateValue = TerminalState.Boarded;
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TrimBoringTail_RecoveredTerminal_RefusesTrim()
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-recovered";
+            rec.TerminalStateValue = TerminalState.Recovered;
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+        }
+
+        [Fact]
+        public void TailPreservesTerminalSpawnState_NullTerminal_AllowsTrim()
+        {
+            var rec = new Recording { RecordingId = "trim-null-terminal" };
+            Assert.True(RecordingOptimizer.TailPreservesTerminalSpawnState(rec, 100.0));
+        }
+
+        [Fact]
         public void TrimBoringTail_TrimsOrbitSegments()
         {
             var rec = MakeRecordingWithBoringTail(17000, 17050, 17650,

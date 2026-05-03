@@ -2051,6 +2051,10 @@ namespace Parsek
 
             switch (rec.TerminalStateValue.Value)
             {
+                // Stable terminals: vessel reached a settled trajectory or surface
+                // pose. Tail past lastInterestingUT is genuinely idle filler — safe
+                // to trim once the spawn-state shape check confirms the surviving
+                // payload still matches the terminal.
                 case TerminalState.Orbiting:
                 case TerminalState.SubOrbital:
                 case TerminalState.Docked:
@@ -2060,9 +2064,55 @@ namespace Parsek
                 case TerminalState.Splashed:
                     return TailMatchesTerminalSurfaceState(rec, trimUT);
 
+                // Outcome-bearing terminals: the trailing payload itself carries
+                // the meaningful content (predicted ballistic-to-impact for
+                // Destroyed, the boarding/recovery moment for Boarded/Recovered).
+                // Refuse to trim — the "boring environment" classification is
+                // misleading here. Trimming a Destroyed recording's predicted
+                // orbit tail collapses the ghost at the chain-segment boundary
+                // instead of riding the predicted impact arc.
+                case TerminalState.Destroyed:
+                case TerminalState.Recovered:
+                case TerminalState.Boarded:
+                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    return false;
+
+                default:
+                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    return false;
+            }
+        }
+
+        internal static bool IsUnstableTerminalState(TerminalState? terminal)
+        {
+            if (!terminal.HasValue)
+                return false;
+            switch (terminal.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
+                case TerminalState.Docked:
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                    return false;
                 default:
                     return true;
             }
+        }
+
+        private static void LogUnstableTerminalTrimRefusal(Recording rec, double trimUT)
+        {
+            ParsekLog.Verbose("Optimizer",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TailPreservesTerminalSpawnState: refused trim for unstable terminal " +
+                    "rec='{0}' terminal={1} trimUT={2:F1} explicitEndUT={3:F1} " +
+                    "(unstable terminals carry meaningful tail payload — see " +
+                    "RecordingOptimizer.TailPreservesTerminalSpawnState)",
+                    rec?.RecordingId ?? "(null)",
+                    rec?.TerminalStateValue?.ToString() ?? "(null)",
+                    trimUT,
+                    rec?.ExplicitEndUT ?? double.NaN));
         }
 
         private static bool TailMatchesTerminalOrbit(Recording rec, double trimUT)
@@ -2498,10 +2548,20 @@ namespace Parsek
 
             if (!TailPreservesTerminalSpawnState(rec, trimUT))
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
-                    $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
-                    $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                // Unstable terminals (Destroyed/Boarded/Recovered/default) emit
+                // their own dedicated `refused trim for unstable terminal` log
+                // line from inside the gate; the (terminal-mismatch) wording
+                // here is only accurate for the stable-terminal shape-match
+                // failure path (the tail genuinely diverged from the terminal
+                // orbit/surface state). Skip the duplicate-and-misleading line
+                // for unstable terminals.
+                if (!IsUnstableTerminalState(rec.TerminalStateValue))
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
+                        $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
+                        $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                }
                 return false;
             }
 
