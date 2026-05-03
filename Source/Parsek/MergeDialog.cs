@@ -299,7 +299,15 @@ namespace Parsek
                 return;
             }
 
+            var scenarioForAdoption = ParsekScenario.Instance;
+            string activeReFlyTargetId =
+                !object.ReferenceEquals(null, scenarioForAdoption)
+                    ? scenarioForAdoption.ActiveReFlySessionMarker?.ActiveReFlyRecordingId
+                    : null;
+
             ApplyVesselDecisions(tree, decisions);
+            AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree, decisions, activeReFlyTargetId);
             RecordingStore.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
@@ -1016,8 +1024,8 @@ namespace Parsek
                         notInTree++;
                         continue;
                     }
-                    bool wasGhostOnly;
-                    if (decisions.TryGetValue(suppressedId, out wasGhostOnly) && !wasGhostOnly)
+                    bool priorPersistDecision;
+                    if (decisions.TryGetValue(suppressedId, out priorPersistDecision) && !priorPersistDecision)
                     {
                         alreadyGhostOnly++;
                         continue;
@@ -1309,10 +1317,13 @@ namespace Parsek
             HashSet<string> suppressedRecordingIds)
         {
             // This runs only while BuildDefaultVesselDecisions is constructing
-            // the dialog's initial defaults. Parent-chain terminal tips can be
-            // stale old-future cleanup, but they can also be legitimate future
-            // materialized vessels. Keep the dialog aligned with the normal
-            // runtime spawn predicate unless the tip is explicitly suppressed.
+            // the dialog's initial defaults. Keep this path decision-only:
+            // MergeCommit stamps spawned state by adopting already-materialized
+            // source vessels only after the player actually accepts the merge.
+            // Parent-chain terminal tips can be stale old-future cleanup, but
+            // they can also be legitimate future materialized vessels. Keep the
+            // dialog aligned with the normal runtime spawn predicate unless the
+            // tip is explicitly suppressed.
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return;
 
@@ -1323,7 +1334,6 @@ namespace Parsek
 
             int forced = 0;
             int retainedSpawnable = 0;
-            int adoptedExistingSource = 0;
             int alreadyGhostOnly = 0;
             int missing = 0;
 
@@ -1358,13 +1368,6 @@ namespace Parsek
 
                 if (canPersist && !explicitlySuppressed)
                 {
-                    bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
-                        rec,
-                        "MergeDialog",
-                        $"BuildDefaultVesselDecisions parent-chain tip '{tipId}'");
-                    if (adopted)
-                        adoptedExistingSource++;
-
                     decisions[tipId] = true;
                     retainedSpawnable++;
                     ParsekLog.Info("MergeDialog",
@@ -1373,7 +1376,6 @@ namespace Parsek
                         $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
                         $"hasSnapshot={rec.VesselSnapshot != null} " +
                         $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
-                        $"adoptedExistingSource={adopted} " +
                         $"reason=normal-spawn-policy activeTarget='{activeReFlyTargetId}'");
                     continue;
                 }
@@ -1393,9 +1395,64 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
                 $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
-                $"retainedSpawnable={retainedSpawnable} adoptedExistingSource={adoptedExistingSource} " +
+                $"retainedSpawnable={retainedSpawnable} " +
                 $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
                 $"activeTarget='{activeReFlyTargetId}'");
+        }
+
+        internal static int AdoptExistingSourceVesselsForRetainedParentChainTips(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return 0;
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return 0;
+
+            int checkedSpawnable = 0;
+            int adoptedExistingSource = 0;
+            int skippedNotSpawnable = 0;
+            int missing = 0;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId)) continue;
+
+                bool persist;
+                if (!decisions.TryGetValue(tipId, out persist) || !persist)
+                {
+                    skippedNotSpawnable++;
+                    continue;
+                }
+
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                {
+                    missing++;
+                    continue;
+                }
+
+                checkedSpawnable++;
+                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                    rec,
+                    "MergeDialog",
+                    $"MergeCommit parent-chain tip '{tipId}'"))
+                {
+                    adoptedExistingSource++;
+                }
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"MergeCommit: active Re-Fly parent-chain adoption pass complete " +
+                $"candidates={parentTips.Count} checkedSpawnable={checkedSpawnable} " +
+                $"adoptedExistingSource={adoptedExistingSource} " +
+                $"skippedNotSpawnable={skippedNotSpawnable} missing={missing} " +
+                $"activeTarget='{activeReFlyTargetId}'");
+            return adoptedExistingSource;
         }
 
         internal static HashSet<string> CollectActiveReFlyParentChainTerminalTipIds(

@@ -82,12 +82,11 @@ namespace Parsek.Tests
                 && l.Contains("parent-chain terminal tip")
                 && l.Contains(UpperTip)
                 && l.Contains("retaining")
-                && l.Contains("adoptedExistingSource=False")
                 && l.Contains("normal-spawn-policy"));
         }
 
         [Fact]
-        public void BuildDefaultVesselDecisions_ParentChainOptimizerTipWithExistingSource_AdoptsInsteadOfDuplicating()
+        public void MergeCommitAdoption_ParentChainOptimizerTipWithExistingSource_AdoptsInsteadOfDuplicating()
         {
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
             var tree = BuildUpperStageToProbeTopology(
@@ -108,6 +107,15 @@ namespace Parsek.Tests
             Assert.True(decisions.ContainsKey(UpperTip));
             Assert.True(decisions[UpperTip]);
             Assert.NotNull(upperTip.VesselSnapshot);
+            Assert.False(upperTip.VesselSpawned);
+            Assert.Equal(0u, upperTip.SpawnedVesselPersistentId);
+
+            int adopted = MergeDialog.AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree,
+                decisions,
+                ActiveProbe);
+
+            Assert.Equal(1, adopted);
             Assert.True(upperTip.VesselSpawned);
             Assert.Equal(100u, upperTip.SpawnedVesselPersistentId);
 
@@ -117,9 +125,8 @@ namespace Parsek.Tests
                 && l.Contains("adopting instead of spawning duplicate"));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
-                && l.Contains("parent-chain terminal tip")
-                && l.Contains(UpperTip)
-                && l.Contains("adoptedExistingSource=True"));
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("adoptedExistingSource=1"));
         }
 
         [Fact]
