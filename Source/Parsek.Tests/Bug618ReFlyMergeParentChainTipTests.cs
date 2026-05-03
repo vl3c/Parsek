@@ -139,7 +139,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeCommit_ParentChainOptimizerTipWithExistingSource_AdoptsBeforeCommit()
+        public void MergeCommit_ParentChainOptimizerTipSplitByOptimizer_AdoptsFinalTip()
         {
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
             var tree = BuildUpperStageToProbeTopology(
@@ -202,6 +202,71 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ParentChainOptimizerTipMergedByOptimizer_AdoptsSurvivingRecording()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            SeedPointsForMergeCommit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperHead));
+            Assert.False(decisions[UpperHead]);
+            Assert.True(decisions[UpperTip]);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_adopt_merge",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ActiveProbe,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_adopt_merge",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Assert.False(committedTree.Recordings.ContainsKey(UpperTip));
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.NotNull(finalUpperTip);
+            Assert.Equal(UpperHead, finalUpperTip.RecordingId);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("retainedPreOptimizationTips=1")
                 && l.Contains("adoptedExistingSource=1"));
         }
 

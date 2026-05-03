@@ -306,13 +306,19 @@ namespace Parsek
                     : null;
 
             ApplyVesselDecisions(tree, decisions);
+            var retainedParentChainTipCandidates =
+                CollectRetainedParentChainTipAdoptionCandidates(
+                    tree, decisions, activeReFlyTargetId);
             RecordingStore.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
             RecordingStore.RunOptimizationPass();
             AdoptExistingSourceVesselsForRetainedParentChainTips(
-                tree, decisions, activeReFlyTargetId);
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
             CrewReservationManager.SwapReservedCrewInFlight();
 
@@ -1405,6 +1411,22 @@ namespace Parsek
             Dictionary<string, bool> decisions,
             string activeReFlyTargetId)
         {
+            var retainedParentChainTipCandidates =
+                CollectRetainedParentChainTipAdoptionCandidates(
+                    tree, decisions, activeReFlyTargetId);
+            return AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
+        }
+
+        private static int AdoptExistingSourceVesselsForRetainedParentChainTips(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId,
+            List<ParentChainTipAdoptionCandidate> retainedParentChainTipCandidates)
+        {
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return 0;
 
@@ -1429,19 +1451,34 @@ namespace Parsek
                     continue;
                 }
 
-                bool persist;
-                bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
-                    tree, decisions, rec, out persist);
-                if (hadDecision && !persist)
+                bool retainedByPreOptimizationTip =
+                    IsRetainedParentChainTipAdoptionCandidate(
+                        rec,
+                        retainedParentChainTipCandidates);
+                if (retainedByPreOptimizationTip)
                 {
-                    skippedNotSpawnable++;
-                    continue;
+                    if (!CanPersistVessel(rec, tree))
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
                 }
-
-                if (!hadDecision && !CanPersistVessel(rec, tree))
+                else
                 {
-                    skippedNotSpawnable++;
-                    continue;
+                    bool persist;
+                    bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
+                        tree, decisions, rec, out persist);
+                    if (hadDecision && !persist)
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
+
+                    if (!hadDecision && !CanPersistVessel(rec, tree))
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
                 }
 
                 checkedSpawnable++;
@@ -1459,8 +1496,115 @@ namespace Parsek
                 $"candidates={parentTips.Count} checkedSpawnable={checkedSpawnable} " +
                 $"adoptedExistingSource={adoptedExistingSource} " +
                 $"skippedNotSpawnable={skippedNotSpawnable} missing={missing} " +
+                $"retainedPreOptimizationTips={retainedParentChainTipCandidates?.Count ?? 0} " +
                 $"activeTarget='{activeReFlyTargetId}'");
             return adoptedExistingSource;
+        }
+
+        private sealed class ParentChainTipAdoptionCandidate
+        {
+            internal string RecordingId;
+            internal string TreeId;
+            internal string ChainId;
+            internal int ChainBranch;
+            internal uint VesselPersistentId;
+        }
+
+        private static List<ParentChainTipAdoptionCandidate> CollectRetainedParentChainTipAdoptionCandidates(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            var result = new List<ParentChainTipAdoptionCandidate>();
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return result;
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return result;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId)) continue;
+
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                    continue;
+
+                bool persist;
+                bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
+                    tree, decisions, rec, out persist);
+                if (hadDecision && !persist)
+                    continue;
+                if (!CanPersistVessel(rec, tree))
+                    continue;
+
+                result.Add(new ParentChainTipAdoptionCandidate
+                {
+                    RecordingId = rec.RecordingId,
+                    TreeId = rec.TreeId,
+                    ChainId = rec.ChainId,
+                    ChainBranch = rec.ChainBranch,
+                    VesselPersistentId = rec.VesselPersistentId,
+                });
+            }
+
+            return result;
+        }
+
+        private static bool IsRetainedParentChainTipAdoptionCandidate(
+            Recording rec,
+            List<ParentChainTipAdoptionCandidate> candidates)
+        {
+            if (rec == null || candidates == null || candidates.Count == 0)
+                return false;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                ParentChainTipAdoptionCandidate candidate = candidates[i];
+                if (candidate == null)
+                    continue;
+
+                if (!string.IsNullOrEmpty(candidate.RecordingId)
+                    && string.Equals(
+                        candidate.RecordingId,
+                        rec.RecordingId,
+                        System.StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (candidate.VesselPersistentId == 0u
+                    || rec.VesselPersistentId == 0u
+                    || candidate.VesselPersistentId != rec.VesselPersistentId)
+                {
+                    continue;
+                }
+                if (string.IsNullOrEmpty(candidate.ChainId)
+                    || string.IsNullOrEmpty(rec.ChainId)
+                    || !string.Equals(
+                        candidate.ChainId,
+                        rec.ChainId,
+                        System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (candidate.ChainBranch != rec.ChainBranch)
+                    continue;
+                if (!string.IsNullOrEmpty(candidate.TreeId)
+                    && !string.Equals(
+                        candidate.TreeId,
+                        rec.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
         }
 
         private static bool TryResolvePersistDecisionForOptimizedTip(
