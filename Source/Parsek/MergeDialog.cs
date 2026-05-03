@@ -1299,6 +1299,10 @@ namespace Parsek
                     return false;
                 }
             }
+            // SaveGameForTesting deliberately bypasses the scene/current-game
+            // guards above so xUnit can assert the durable-save call without
+            // constructing a live KSP HighLogic state. Test hooks ignore the
+            // SaveFolder argument.
 
             try
             {

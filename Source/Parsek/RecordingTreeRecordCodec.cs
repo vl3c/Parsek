@@ -319,6 +319,9 @@ namespace Parsek
                     rec.PreReFlyOriginalSessionId);
                 if (originalSnapshot != null)
                 {
+                    // Full rollback payload by design: #733 restores Discard
+                    // after the in-place attempt mutates the origin; #734
+                    // tracks replacing this with a forked-attempt model.
                     ConfigNode originalNode = recNode.AddNode("PRE_REFLY_ORIGINAL");
                     originalNode.AddValue("sessionId", rec.PreReFlyOriginalSessionId);
                     ConfigNode originalRecordingNode = originalNode.AddNode("RECORDING");
@@ -962,6 +965,7 @@ namespace Parsek
 
             ConfigNode wrapper = parent.AddNode(wrapperName);
             string nodeName = string.IsNullOrEmpty(snapshot.name) ? "SNAPSHOT" : snapshot.name;
+            wrapper.AddValue("nodeName", nodeName);
             wrapper.AddNode(nodeName, snapshot.CreateCopy());
         }
 
@@ -974,7 +978,16 @@ namespace Parsek
             if (wrapper == null || wrapper.nodes == null || wrapper.nodes.Count == 0)
                 return null;
 
-            ConfigNode snapshot = wrapper.nodes[0];
+            ConfigNode snapshot = null;
+            string nodeName = wrapper.GetValue("nodeName");
+            if (!string.IsNullOrEmpty(nodeName))
+                snapshot = wrapper.GetNode(nodeName);
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("VESSEL");
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("SNAPSHOT");
+            if (snapshot == null)
+                snapshot = wrapper.nodes[0];
             return snapshot != null ? snapshot.CreateCopy() : null;
         }
 

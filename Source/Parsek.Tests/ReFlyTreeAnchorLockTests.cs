@@ -376,6 +376,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Recording_DeepClone_PreservesMergeState()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-merge-state-clone",
+                MergeState = MergeState.CommittedProvisional,
+            };
+
+            var clone = Recording.DeepClone(rec);
+
+            Assert.NotNull(clone);
+            Assert.Equal(MergeState.CommittedProvisional, clone.MergeState);
+        }
+
+        [Fact]
         public void Recording_DeepClone_NoSnapshot_LeavesCloneFieldsNull()
         {
             var rec = new Recording
