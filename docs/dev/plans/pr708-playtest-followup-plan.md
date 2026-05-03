@@ -1,47 +1,45 @@
 # PR 708 playtest follow-up plan
 
-**Status:** active follow-up work. Baseline before the frozen-alignment fix is committed and pushed as `d329ffac` (`Seed Re-Fly split children from live root`) on `ghost-anchor-recording-chain-v11`.
+**Status:** PR 708 closeout record. Final accepted playtest bundle is `logs/2026-05-03_2007_pr708-final-watch-good`; branch closeout is `ghost-anchor-recording-chain-v11` at `5da3fd00` or later. Remaining work moves to D.0 / Phase D in `docs/dev/plans/ghost-anchor-recording-chain-plan.md` after PR 708 merges.
 **Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, cache pre-Re-Fly synthetic anchor recordings, clear frozen alignment on marker-scope/body changes, and warn on suspiciously large initial offsets. A later PR pass hardened the same-tree DAG fence for missing `TreeOrder`, sectionless v6+ resolver fallback, v11 boundary chain-miss shadow fallback, continuation tie-break documentation, and GuardSkip trace allocation.
 **Branch:** `ghost-anchor-recording-chain-v11`.
-**Scope:** remaining issues after Phases A-C of `ghost-anchor-recording-chain-plan.md`.
+**Scope:** historical playtest follow-up record for Phases A-C of `ghost-anchor-recording-chain-plan.md`, plus the stabilization fixes needed before merging PR 708.
 **Non-goals:** no legacy v7-v10 migration, no live-PID fallback for non-loop Relative playback, no Phase D behaviour deletion until the D.0 product gate is explicit.
 
 ---
 
-## 1. First step after the next playtest
+## 1. Closeout evidence
 
-Collect a fresh bundle immediately after the test session:
+Final accepted bundle:
 
 ```powershell
-python scripts/collect-logs.py pr708-ghost-anchor-retest
+logs/2026-05-03_2007_pr708-final-watch-good
 ```
 
-Then inspect only evidence from that bundle before changing code. The first pass should answer these questions:
+Closeout findings:
 
-1. Did KSP load the intended PR 708 DLL?
-   - Confirm the bundle git state points at `ghost-anchor-recording-chain-v11` head `20f43baa` or later.
-   - Confirm the run contains v11 recording logs and new DAG-fence logs if candidates are skipped.
+1. In-game playtest looked good for the PR 708 scope: Re-Fly alignment stayed stable, Watch separation playback stayed stable, Probe/debris initial activation no longer exposed the bad primer frames, and the 2300m renderer-LOD flicker was gone.
+2. `log-validation.txt` passed. The final `KSP.log` contained no Parsek errors or exception signatures in the closeout scan.
+3. Watch activation gates were visible in the log: the Probe/debris ghosts were hidden through Absolute primer / seed-bridge windows and first appeared after their stable Relative handoff.
+4. The deployed `GameData` DLL matched the built DLL by SHA-256 (`089BBEAD9DAC3F155DAEDEDEA420C43551A0F6E1581EA912C065B30EAE7CE7CF`) before the final playtest. Later docs-only commits did not change the DLL.
+5. Focused ghost tests passed `239/239`; broad non-live xUnit passed `10670/10670`. Full live-injection xUnit remains excluded when KSP locks runtime files.
+6. The transient pre-merge-dialog stranded-sidecar warning did not corrupt the retained save: captured `persistent.sfs` and `quicksave.sfs` both contain the final `RECORDING_TREE`. Track that warning as a separate post-PR708 hardening follow-up, not a PR708 merge blocker.
 
-2. Did same-tree anchor cycles disappear?
-   - Grep for `anchor-cycle-detected`.
-   - Grep for `recording-anchor-dag-order-skip` and `bg-recording-anchor-dag-order-skip`.
-   - Audit fresh `.prec.txt` sidecars for `Relative` sections and their `anchorRecordingId` values.
+Final self-review evidence:
 
-3. Are debris anchors semantically correct?
-   - For each separation, list parent recording id, child/debris recording ids, `TreeOrder`, branch point UT, and each Relative section's `anchorRecordingId`.
-   - Debris should prefer the parent or ancestor recording. It should not choose sibling debris merely because that sibling is closer.
+- `git fetch origin` + `git merge origin/main`: already up to date before closeout docs.
+- `git diff --check`: no whitespace errors.
+- Final bundle log gate: no `[Parsek][ERROR]`, exception signature, or `anchor-cycle-detected` hits.
+- Final retained save gate: both `persistent.sfs` and `quicksave.sfs` include one `RECORDING_TREE`.
+- Focused tests: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName~GhostPlaybackEngineTests|FullyQualifiedName~ZoneRenderingTests"` passed `239/239`.
+- Broad non-live tests: `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter "FullyQualifiedName!~InjectAllRecordings"` passed `10670/10670`.
+- Both test builds reported post-build `Access denied` warnings copying DLL/PDB/version into the live KSP `GameData` directory. That copy is `ContinueOnError`; the test assemblies built and passed. The deployed DLL had already been verified against the built DLL before the final in-game playtest.
 
-4. Are the bad first frames from resolver failure or recorder boundary data?
-   - Compare `[PlaybackTrace]` around each structural-event UT with `SeedRelativeBoundaryPoint` / `SeedBackgroundRelativeBoundaryPoint` logs.
-   - Flag one-point sections, zero-point sections, and `seed-liveRootDist` spikes.
+Post-merge continuation:
 
-5. Is active Re-Fly inaccuracy still caused by display translation?
-   - Grep for `TryGetReFlyTreeAnchorOffset`, Re-Fly tree offset logs, and Relative playback logs using `source=recorded`.
-   - Compare live active vessel position, hidden recorded active pose, and visible sibling ghost pose over the same UT window.
-
-6. Did terminal map/spawn fail again?
-   - Grep `GhostMap`, `left-orbit-segments`, `PlaybackCompleted`, `deferred spawn`, `SpawnAtPosition`, `spawn-death`, `pressure`, and `ORBITING`.
-   - Record the propagated altitude, body atmosphere depth, pressure if logged, terminal orbit periapsis, and current UT for every spawn attempt.
+- Do not add more PR708 stabilization work unless new evidence is a merge blocker.
+- Capture the explicit D.0 product-behaviour decision before Phase D deletion work.
+- If D.0 approves recorded-coordinate Re-Fly behaviour, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` and the active todo item `PR708 post-merge Phase D continuation`.
 
 ---
 
