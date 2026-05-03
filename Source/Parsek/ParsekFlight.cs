@@ -16858,17 +16858,40 @@ namespace Parsek
             GhostPlaybackState state, double ut)
         {
             if (state?.ghost == null || traj?.OrbitSegments == null) return;
-            // Find the orbit segment covering this UT
-            OrbitSegment? seg = FindOrbitSegment(traj.OrbitSegments, ut);
-            if (seg.HasValue)
+            bool foundSegment = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                traj, ut, out OrbitSegment seg, out int segmentIndex);
+            if (!foundSegment)
+            {
+                for (int i = 0; i < traj.OrbitSegments.Count; i++)
+                {
+                    OrbitSegment candidate = traj.OrbitSegments[i];
+                    bool inRange = i == traj.OrbitSegments.Count - 1
+                        ? ut >= candidate.startUT && ut <= candidate.endUT
+                        : ut >= candidate.startUT && ut < candidate.endUT;
+                    if (!inRange)
+                        continue;
+
+                    seg = candidate;
+                    segmentIndex = i;
+                    foundSegment = true;
+                    break;
+                }
+            }
+
+            if (foundSegment)
             {
                 if (PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
-                    index, traj, seg.Value, ut, out string logKey, out string logMessage))
+                    index, traj, seg, ut, out string logKey, out string logMessage))
                 {
                     ParsekLog.VerboseRateLimited("Playback", logKey, logMessage, 1.0);
                 }
 
-                PositionGhostFromOrbit(state.ghost, seg.Value, ut, index * 10000, traj.RecordingId);
+                PositionGhostFromOrbit(
+                    state.ghost,
+                    seg,
+                    ut,
+                    index * 10000 + Math.Max(0, segmentIndex),
+                    traj.RecordingId);
             }
             RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
@@ -19672,15 +19695,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the display offset that active/background recorders must
-        /// subtract from live Re-Fly vessel samples before persisting them.
-        /// During Re-Fly, old tree ghosts are rendered as
-        /// recorded-position + frozen-display-offset so they line up with
-        /// the live attempt. New recordings made from that visually shifted
-        /// live attempt must be normalized back into the original tree's
-        /// recording frame, otherwise post-merge Watch mode compares one
-        /// sibling stored in the old frame with another stored in the
-        /// shifted Re-Fly display frame.
+        /// Historical entry point for recorder-side frame normalization.
+        /// The Re-Fly display offset is render-only: it shifts old ghosts so
+        /// they visually line up with the live attempt, but the live vessel
+        /// samples are already authored in KSP world/body coordinates. Do not
+        /// subtract this display offset from persisted trajectory samples.
         /// </summary>
         internal bool TryGetReFlyRecordingFrameOffset(
             string recordingId,
@@ -20163,11 +20182,6 @@ namespace Parsek
             if (ghost == null)
             {
                 reason = "ghost-missing";
-                return false;
-            }
-            if (!ghost.activeSelf)
-            {
-                reason = "ghost-inactive";
                 return false;
             }
             if (body == null || body.bodyTransform == null)
@@ -20657,8 +20671,8 @@ namespace Parsek
                 return false;
             }
 
-            reason = "eligible";
-            return true;
+            reason = "display-offset-render-only";
+            return false;
         }
 
         private bool TryProjectReFlyDisplayAlignment(
@@ -25059,9 +25073,35 @@ namespace Parsek
             float t = (float)((targetUT - before.ut) / segmentDuration);
             t = Mathf.Clamp01(t);
 
-            double dx = before.latitude + (after.latitude - before.latitude) * t;
-            double dy = before.longitude + (after.longitude - before.longitude) * t;
-            double dz = before.altitude + (after.altitude - before.altitude) * t;
+            Vector3d beforeOffset = new Vector3d(before.latitude, before.longitude, before.altitude);
+            Vector3d afterOffset = new Vector3d(after.latitude, after.longitude, after.altitude);
+            bool correctedBefore = TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames,
+                indexBefore,
+                out Vector3d correctedBeforeOffset,
+                out double beforeSpikeDeviationMeters);
+            bool correctedAfter = TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames,
+                indexBefore + 1,
+                out Vector3d correctedAfterOffset,
+                out double afterSpikeDeviationMeters);
+            if (correctedBefore)
+                beforeOffset = correctedBeforeOffset;
+            if (correctedAfter)
+                afterOffset = correctedAfterOffset;
+            if (correctedBefore || correctedAfter)
+                LogRecordedRelativeOffsetSpikeCorrection(
+                    target,
+                    recordingIndex,
+                    indexBefore,
+                    correctedBefore,
+                    beforeSpikeDeviationMeters,
+                    correctedAfter,
+                    afterSpikeDeviationMeters);
+
+            double dx = beforeOffset.x + (afterOffset.x - beforeOffset.x) * t;
+            double dy = beforeOffset.y + (afterOffset.y - beforeOffset.y) * t;
+            double dz = beforeOffset.z + (afterOffset.z - beforeOffset.z) * t;
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
             interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
@@ -25190,6 +25230,93 @@ namespace Parsek
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 bodyName,
                 alt);
+        }
+
+        internal const double RecordedRelativeOffsetSpikeNeighborMaxMeters = 5.0;
+        internal const double RecordedRelativeOffsetSpikeMinDeviationMeters = 15.0;
+
+        internal static bool TryCorrectIsolatedRecordedRelativeOffsetSpike(
+            IList<TrajectoryPoint> frames,
+            int sampleIndex,
+            out Vector3d correctedOffset,
+            out double deviationMeters)
+        {
+            correctedOffset = Vector3d.zero;
+            deviationMeters = 0.0;
+            if (frames == null || sampleIndex <= 0 || sampleIndex >= frames.Count - 1)
+                return false;
+
+            TrajectoryPoint previous = frames[sampleIndex - 1];
+            TrajectoryPoint current = frames[sampleIndex];
+            TrajectoryPoint next = frames[sampleIndex + 1];
+            double span = next.ut - previous.ut;
+            if (span <= 0.0001 || current.ut < previous.ut || current.ut > next.ut)
+                return false;
+
+            Vector3d previousOffset = RecordedRelativeOffset(previous);
+            Vector3d currentOffset = RecordedRelativeOffset(current);
+            Vector3d nextOffset = RecordedRelativeOffset(next);
+            if (!IsFinite(previousOffset) || !IsFinite(currentOffset) || !IsFinite(nextOffset))
+                return false;
+
+            double neighborDistance = Vector3d.Distance(previousOffset, nextOffset);
+            if (neighborDistance > RecordedRelativeOffsetSpikeNeighborMaxMeters)
+                return false;
+
+            double t = (current.ut - previous.ut) / span;
+            t = Math.Max(0.0, Math.Min(1.0, t));
+            correctedOffset = previousOffset + (nextOffset - previousOffset) * t;
+            deviationMeters = Vector3d.Distance(currentOffset, correctedOffset);
+            if (deviationMeters < RecordedRelativeOffsetSpikeMinDeviationMeters)
+                return false;
+
+            double prevDistance = Vector3d.Distance(previousOffset, currentOffset);
+            double nextDistance = Vector3d.Distance(currentOffset, nextOffset);
+            return prevDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters
+                && nextDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters;
+        }
+
+        private static Vector3d RecordedRelativeOffset(TrajectoryPoint point)
+        {
+            return new Vector3d(point.latitude, point.longitude, point.altitude);
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
+                && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
+                && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
+        }
+
+        private static void LogRecordedRelativeOffsetSpikeCorrection(
+            RelativeSectionPlaybackTarget target,
+            int recordingIndex,
+            int indexBefore,
+            bool correctedBefore,
+            double beforeSpikeDeviationMeters,
+            bool correctedAfter,
+            double afterSpikeDeviationMeters)
+        {
+            string key = string.Concat(
+                "recorded-relative-offset-spike-corrected|",
+                target.RecordingId ?? "(none)",
+                "|",
+                target.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                "|",
+                indexBefore.ToString(CultureInfo.InvariantCulture),
+                "|",
+                correctedBefore ? "B" : "-",
+                correctedAfter ? "A" : "-");
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                key,
+                $"Recorded Relative local-offset spike corrected: recording=#{recordingIndex} " +
+                $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                $"sectionIndex={target.SectionIndex} bracketIndex={indexBefore} " +
+                $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                $"correctedBefore={correctedBefore} beforeDeviation={beforeSpikeDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                $"correctedAfter={correctedAfter} afterDeviation={afterSpikeDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)}m",
+                5.0);
         }
 
         private bool TryPositionGhostRecordedRelativeAt(

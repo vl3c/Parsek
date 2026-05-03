@@ -1097,7 +1097,10 @@ namespace Parsek
                 if (!TryPositionRelativeSectionAtPlaybackUT(
                         i, traj, state, visiblePlaybackUT, suppressVisualFx))
                 {
-                    positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
+                    if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
+                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    else
+                        positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
                 }
             }
             else if (hasPointData)
@@ -1108,7 +1111,7 @@ namespace Parsek
                 if (!TryPositionRelativeSectionAtPlaybackUT(
                         i, traj, state, visiblePlaybackUT, suppressVisualFx))
                 {
-                    if (ShouldPrimeSinglePointGhostFromOrbit(traj, visiblePlaybackUT))
+                    if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
                         positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
                     else
                         positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
@@ -1147,15 +1150,42 @@ namespace Parsek
             else
             {
                 bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                if (ShouldRestoreDeferredRuntimeFxState(
-                        activatedDeferredState,
-                        effectiveSuppressVisualFx))
-                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
-                    reason: "playback", requestedPlaybackUT: ctx.currentUT);
+                bool initialRelativeActivationHidden = ShouldHoldInitialRelativeActivationHidden(
+                    traj, state, visiblePlaybackUT);
+                if (initialRelativeActivationHidden)
+                {
+                    if (state.ghost != null && state.ghost.activeSelf)
+                        state.ghost.SetActive(false);
+                    ghostActive = false;
+                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                    ResetGhostAppearanceTracking(state);
+                    ParsekLog.VerboseRateLimited(
+                        "Engine",
+                        "initial-relative-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?") + "\" initial Relative activation hidden: "
+                        + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
+                        + " activationStart="
+                        + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
+                        + " window="
+                        + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s",
+                        5.0);
+                }
+                else
+                {
+                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                    if (ShouldRestoreDeferredRuntimeFxState(
+                            activatedDeferredState,
+                            effectiveSuppressVisualFx))
+                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                    TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                        reason: "playback", requestedPlaybackUT: ctx.currentUT);
+                }
             }
 
             // Targeted post-separation observability: emits one
@@ -4239,6 +4269,12 @@ namespace Parsek
                     index, traj, state, playbackUT, suppressFx: true))
                 return;
 
+            if (ShouldUseOrbitTailPlayback(traj, playbackUT))
+            {
+                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                return;
+            }
+
             bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
             bool hasSurfaceData = traj.SurfacePos.HasValue;
             bool hasOrbitData = traj.HasOrbitSegments;
@@ -4259,12 +4295,6 @@ namespace Parsek
             {
                 var firstPoint = traj.Points[0];
 
-                if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT))
-                {
-                    positioner.PositionFromOrbit(index, traj, state, playbackUT);
-                    return;
-                }
-
                 positioner.PositionAtPoint(index, traj, state, firstPoint);
                 return;
             }
@@ -4276,14 +4306,75 @@ namespace Parsek
         internal static bool ShouldPrimeSinglePointGhostFromOrbit(
             IPlaybackTrajectory traj, double playbackUT)
         {
-            if (traj?.Points == null || traj.Points.Count != 1 || !traj.HasOrbitSegments)
+            return traj?.Points != null
+                && traj.Points.Count == 1
+                && ShouldUseOrbitTailPlayback(traj, playbackUT);
+        }
+
+        internal static bool ShouldUseOrbitTailPlayback(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
+        }
+
+        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
+
+        internal static bool TryFindOrbitTailPlaybackSegment(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out OrbitSegment segment,
+            out int segmentIndex)
+        {
+            segment = default(OrbitSegment);
+            segmentIndex = -1;
+            if (traj?.Points == null
+                || traj.Points.Count == 0
+                || traj.OrbitSegments == null
+                || traj.OrbitSegments.Count == 0)
+            {
+                return false;
+            }
+
+            double lastPointUT = traj.Points[traj.Points.Count - 1].ut;
+            if (playbackUT <= lastPointUT + 1e-6)
                 return false;
 
-            // A single branch-boundary seed point should anchor the ghost only at the
-            // exact recording start; once playback advances and an orbit segment is live,
-            // orbit propagation should take over.
-            return playbackUT > traj.Points[0].ut + 1e-6
-                && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                bool inRange = i == traj.OrbitSegments.Count - 1
+                    ? playbackUT >= candidate.startUT && playbackUT <= candidate.endUT
+                    : playbackUT >= candidate.startUT && playbackUT < candidate.endUT;
+                if (!inRange)
+                    continue;
+
+                segment = candidate;
+                segmentIndex = i;
+                return true;
+            }
+
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!candidate.isPredicted)
+                    continue;
+                if (candidate.startUT <= lastPointUT + 1e-6)
+                    continue;
+
+                double gap = candidate.startUT - lastPointUT;
+                if (gap > PredictedOrbitTailBridgeMaxGapSeconds + 1e-6)
+                    continue;
+                if (playbackUT < candidate.startUT - 1e-6
+                    && playbackUT <= candidate.endUT
+                    && playbackUT > lastPointUT + 1e-6)
+                {
+                    segment = candidate;
+                    segmentIndex = i;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
@@ -4344,6 +4435,38 @@ namespace Parsek
                 return playbackUT;
 
             return activationStartUT;
+        }
+
+        internal static bool ShouldHoldInitialRelativeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (traj == null || state == null)
+                return false;
+            if (!state.deferVisibilityUntilPlaybackSync
+                || state.externalActivationDeferred
+                || state.appearanceCount != 0)
+            {
+                return false;
+            }
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            double activationLead = playbackUT - activationStartUT;
+            if (activationLead < -1e-6
+                || activationLead > GhostPlayback.InitialRelativeActivationHiddenSeconds)
+            {
+                return false;
+            }
+
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            return sectionIndex >= 0
+                && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
         }
 
         internal static bool TryResolvePendingPlaybackInterpolation(

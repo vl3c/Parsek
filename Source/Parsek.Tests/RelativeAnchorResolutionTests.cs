@@ -93,6 +93,70 @@ namespace Parsek.Tests
             Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
         }
 
+        [Fact]
+        public void RecordedRelativeOffsetSpike_CorrectsIsolatedSample()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                RelativeFrame(150.37670288086715, -0.080, -5.200, 0.030),
+                RelativeFrame(150.43670288086710, -1.820, 38.020, -0.030),
+                RelativeFrame(150.65670288086750, -0.060, -5.450, 0.030),
+            };
+
+            bool corrected = ParsekFlight.TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames, 1, out Vector3d correctedOffset, out double deviationMeters);
+
+            Assert.True(corrected);
+            Assert.InRange(correctedOffset.x, -0.09, -0.05);
+            Assert.InRange(correctedOffset.y, -5.30, -5.20);
+            Assert.InRange(correctedOffset.z, 0.02, 0.04);
+            Assert.True(deviationMeters > 40.0);
+        }
+
+        [Fact]
+        public void RecordedRelativeOffsetSpike_KeepsSteadyDrift()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                RelativeFrame(10.0, 0.0, 0.0, 0.0),
+                RelativeFrame(10.1, 0.0, 20.0, 0.0),
+                RelativeFrame(10.2, 0.0, 40.0, 0.0),
+            };
+
+            bool corrected = ParsekFlight.TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames, 1, out _, out _);
+
+            Assert.False(corrected);
+        }
+
+        [Fact]
+        public void RecordedRelativeOffsetSpike_KeepsEndpointSamples()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                RelativeFrame(10.0, 0.0, 0.0, 0.0),
+                RelativeFrame(10.1, 0.0, 40.0, 0.0),
+                RelativeFrame(10.2, 0.0, 0.0, 0.0),
+            };
+
+            Assert.False(ParsekFlight.TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames, 0, out _, out _));
+            Assert.False(ParsekFlight.TryCorrectIsolatedRecordedRelativeOffsetSpike(
+                frames, 2, out _, out _));
+        }
+
+        private static TrajectoryPoint RelativeFrame(double ut, double dx, double dy, double dz)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = dx,
+                longitude = dy,
+                altitude = dz,
+                bodyName = "Kerbin"
+            };
+        }
+
         #endregion
 
         #region ShouldBypassLiveAnchorForActiveReFly

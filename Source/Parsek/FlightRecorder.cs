@@ -3067,6 +3067,16 @@ namespace Parsek
 
             if (ignited && !wasActive)
             {
+                if (PartStateSeeder.ShouldSkipZeroThrottleEngineSeed(throttle))
+                {
+                    lastThrottleMap.Remove(key);
+                    ParsekLog.VerboseRateLimited("Recorder",
+                        "engine-zero-throttle-transition-skip|" + key.ToString(CultureInfo.InvariantCulture),
+                        $"Part event skipped: EngineIgnited pid={pid} midx={moduleIndex} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} (idle engine, #165)",
+                        5.0);
+                    return;
+                }
+
                 activeSet.Add(key);
                 events.Add(new PartEvent
                 {

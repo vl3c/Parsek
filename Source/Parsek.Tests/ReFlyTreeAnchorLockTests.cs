@@ -673,7 +673,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldCanonicalizeReFlyRecordingFrame_PreReFlySnapshotAndTreeMatch_ReturnsTrue()
+        public void ShouldCanonicalizeReFlyRecordingFrame_PreReFlySnapshotAndTreeMatch_ReturnsFalseBecauseDisplayOffsetIsRenderOnly()
         {
             var marker = new ReFlySessionMarker
             {
@@ -692,8 +692,8 @@ namespace Parsek.Tests
                 currentUT: 100.0,
                 out string reason);
 
-            Assert.True(result);
-            Assert.Equal("eligible", reason);
+            Assert.False(result);
+            Assert.Equal("display-offset-render-only", reason);
         }
 
         [Fact]

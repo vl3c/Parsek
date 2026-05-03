@@ -176,6 +176,15 @@ namespace Parsek
         /// clamping can fight co-bubble/chain rendering at optimizer splits.
         /// </summary>
         internal const double InitialVisibleFrameClampWindowSeconds = 0.02;
+
+        /// <summary>
+        /// Initial hidden window for ghosts that activate directly into a
+        /// Relative section. These are often split successors whose first
+        /// render races visual construction, anchor resolution, and origin
+        /// settling; hiding only the fresh first appearance avoids a visible
+        /// one-frame pop without changing the recorded path.
+        /// </summary>
+        internal const double InitialRelativeActivationHiddenSeconds = 0.08;
     }
 
     /// <summary>

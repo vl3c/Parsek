@@ -460,6 +460,144 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointInOrbitSegment_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_AtLastFlatPoint_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 158.971));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointOutsideOrbitSegment_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 200.0,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_BeforeNearPredictedSegmentStart_BridgesGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 498.168,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_BeforeDistantPredictedSegmentStart_DoesNotBridgeGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 499.0,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void TryFindOrbitTailPlaybackSegment_ReturnsSegmentIndexForBridge()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 450.0,
+                endUT = 470.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 690000.0,
+                isPredicted = false,
+            });
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 498.168,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            bool found = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                traj, 497.98, out OrbitSegment segment, out int segmentIndex);
+
+            Assert.True(found);
+            Assert.Equal(1, segmentIndex);
+            Assert.Equal(498.168, segment.startUT, 3);
+        }
+
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_UsesOrbitTailGate()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 158.971, bodyName = "Kerbin" },
+                },
+                EndUTOverride = 1971.0,
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 158.971));
+            Assert.True(GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 161.482));
+        }
+
+        [Fact]
         public void TryGetRelativeSectionAtUT_RelativeEndpointReturnsSectionTarget()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
@@ -2772,6 +2910,52 @@ namespace Parsek.Tests
             double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 217.98);
 
             Assert.Equal(217.98, visibleUT, 2);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_FreshRelativeStartWithinWindow_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_AfterWindowOrAbsolute_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.20));
+
+            TrackSection section = traj.TrackSections[0];
+            section.referenceFrame = ReferenceFrame.Absolute;
+            traj.TrackSections[0] = section;
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
         }
 
         [Fact]
