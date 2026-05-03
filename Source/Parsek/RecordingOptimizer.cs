@@ -2051,6 +2051,10 @@ namespace Parsek
 
             switch (rec.TerminalStateValue.Value)
             {
+                // Stable terminals: vessel reached a settled trajectory or surface
+                // pose. Tail past lastInterestingUT is genuinely idle filler — safe
+                // to trim once the spawn-state shape check confirms the surviving
+                // payload still matches the terminal.
                 case TerminalState.Orbiting:
                 case TerminalState.SubOrbital:
                 case TerminalState.Docked:
@@ -2060,9 +2064,38 @@ namespace Parsek
                 case TerminalState.Splashed:
                     return TailMatchesTerminalSurfaceState(rec, trimUT);
 
+                // Outcome-bearing terminals: the trailing payload itself carries
+                // the meaningful content (predicted ballistic-to-impact for
+                // Destroyed, the boarding/recovery moment for Boarded/Recovered).
+                // Refuse to trim — the "boring environment" classification is
+                // misleading here. Trimming a Destroyed recording's predicted
+                // orbit tail collapses the ghost at the chain-segment boundary
+                // instead of riding the predicted impact arc.
+                case TerminalState.Destroyed:
+                case TerminalState.Recovered:
+                case TerminalState.Boarded:
+                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    return false;
+
                 default:
-                    return true;
+                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    return false;
             }
+        }
+
+        private static void LogUnstableTerminalTrimRefusal(Recording rec, double trimUT)
+        {
+            ParsekLog.Verbose("Optimizer",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TailPreservesTerminalSpawnState: refused trim for unstable terminal " +
+                    "rec='{0}' terminal={1} trimUT={2:F1} explicitEndUT={3:F1} " +
+                    "(unstable terminals carry meaningful tail payload — see " +
+                    "RecordingOptimizer.TailPreservesTerminalSpawnState)",
+                    rec?.RecordingId ?? "(null)",
+                    rec?.TerminalStateValue?.ToString() ?? "(null)",
+                    trimUT,
+                    rec?.ExplicitEndUT ?? double.NaN));
         }
 
         private static bool TailMatchesTerminalOrbit(Recording rec, double trimUT)
