@@ -287,6 +287,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneUnusedHierarchyEntries_PendingTreeGroupsKeepHierarchyWhenCommittedEmpty()
+        {
+            GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
+            GroupHierarchyStore.hiddenGroups.Add("Kerbal X / Debris");
+
+            var root = MakeTreeRecording("pending-root", "Kerbal X", "tree-pending-groups");
+            root.RecordingGroups = new List<string> { "Kerbal X" };
+            var debris = MakeTreeRecording(
+                "pending-debris",
+                "Kerbal X Debris",
+                "tree-pending-groups",
+                isDebris: true);
+            debris.RecordingGroups = new List<string> { "Kerbal X / Debris" };
+            var tree = new RecordingTree
+            {
+                Id = "tree-pending-groups",
+                TreeName = "Kerbal X",
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(debris);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+
+            int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test-pending");
+
+            Assert.Equal(0, removed);
+            Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Debris", out var parent));
+            Assert.Equal("Kerbal X", parent);
+            Assert.Contains("Kerbal X / Debris", GroupHierarchyStore.HiddenGroups);
+        }
+
+        [Fact]
+        public void PruneUnusedHierarchyEntries_PendingTreeSupersededGroupsStillPruned()
+        {
+            GroupHierarchyStore.groupParents["Old Mission / Debris"] = "Old Mission";
+            GroupHierarchyStore.hiddenGroups.Add("Old Mission / Debris");
+
+            var oldRec = MakeTreeRecording("pending-old", "Old Booster", "tree-pending-superseded");
+            oldRec.RecordingGroups = new List<string> { "Old Mission / Debris" };
+            var newRec = MakeTreeRecording("pending-new", "New Booster", "tree-pending-superseded");
+            newRec.RecordingGroups = new List<string> { "Kerbal X" };
+            var tree = new RecordingTree
+            {
+                Id = "tree-pending-superseded",
+                TreeName = "Kerbal X",
+            };
+            tree.AddOrReplaceRecording(oldRec);
+            tree.AddOrReplaceRecording(newRec);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_pending_groups",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId,
+                    }
+                }
+            });
+
+            int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test-pending-superseded");
+
+            Assert.Equal(2, removed);
+            Assert.False(GroupHierarchyStore.HasGroupParent("Old Mission / Debris"));
+            Assert.DoesNotContain("Old Mission / Debris", GroupHierarchyStore.HiddenGroups);
+        }
+
+        [Fact]
         public void ClearCommitted_PrunesGroupHierarchy()
         {
             GroupHierarchyStore.groupParents["Stale / Debris"] = "Stale";

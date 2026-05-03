@@ -552,15 +552,16 @@ namespace Parsek
             if (scenario.RecordingSupersedes == null || scenario.RecordingSupersedes.Count == 0)
                 return result;
 
+            var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
             for (int i = scenario.RecordingSupersedes.Count - 1; i >= 0; i--)
             {
                 var rel = scenario.RecordingSupersedes[i];
                 if (rel == null) continue;
 
                 bool oldResolved = !string.IsNullOrEmpty(rel.OldRecordingId)
-                                   && RecordingExists(rel.OldRecordingId);
+                                   && RecordingExists(rel.OldRecordingId, knownRecordingIds);
                 bool newResolved = !string.IsNullOrEmpty(rel.NewRecordingId)
-                                   && RecordingExists(rel.NewRecordingId);
+                                   && RecordingExists(rel.NewRecordingId, knownRecordingIds);
                 if (oldResolved && newResolved) continue;
 
                 if (!oldResolved && !newResolved)
@@ -758,19 +759,12 @@ namespace Parsek
         // Shared helpers.
         // ------------------------------------------------------------------
 
-        private static bool RecordingExists(string recordingId)
+        private static bool RecordingExists(
+            string recordingId,
+            HashSet<string> knownRecordingIds)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
+            return knownRecordingIds != null && knownRecordingIds.Contains(recordingId);
         }
 
         private static void LogMarkerInvalid(ReFlySessionMarker marker, string reason, string details)

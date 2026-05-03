@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 pending-tree cleanup view for Re-Fly restore
+
+- ~~After Rewind + Watch, re-entering a spawned Re-Fly vessel could leave the Recordings window showing zero rows until the deferred merge dialog restored the mission tree, and that pending-tree window could also drop supersede rows and auto-generated group hierarchy.~~ Source: `logs/2026-05-03_0059_newest`. Runtime trace: `TryTakeCommittedTreeForSpawnedVesselRestore` detached the 13-recording `Kerbal X` tree from `CommittedTrees` / `CommittedRecordings` so the active vessel could own it again, then `OnSave` wrote `0 committed recordings` plus an `ACTIVE` tree. On the following KSC load, `TryRestoreActiveTreeNode` kept the in-memory finalized pending tree and skipped `.sfs` replacement, but `LoadTimeSweep.SweepOrphanSupersedes` still checked only committed recordings and removed a valid supersede relation as fully orphaned. The group hierarchy prune had the same committed-only view, so it could treat pending-tree-only mission/debris groups as stale.
+
+**Fix:** `RecordingStore.BuildKnownRecordingsForCleanup` now exposes a de-duplicated flat-committed plus pending-tree recording view. Load-time supersede orphan classification checks endpoint ids against that known set, and group hierarchy pruning gathers live group names from the same view while still subtracting relation-superseded recording ids. The view intentionally excludes the parallel committed-tree dictionary because load-time zombie cleanup removes rows from the flat committed list; including the tree dictionary would resurrect rows that the same sweep just discarded. The existing sidecar-preservation `BuildKnownRecordingIds` path keeps its broader committed-tree scan, now with defensive null-tolerant tree/recording iteration. The valid-Re-Fly-marker prune skip remains, but the post-marker deferred-merge window is now protected too. This does not remove the transient zero-row Recordings-table state; that UI still indexes raw committed recordings and needs a separate table-model migration if we want pending trees visible before merge.
+
+**Coverage:** `LoadTimeSweepTests.SupersedeEndpointsInPendingTree_NotRemovedAsFullyOrphaned`, `GroupManagementTests.PruneUnusedHierarchyEntries_PendingTreeGroupsKeepHierarchyWhenCommittedEmpty`, and `PruneUnusedHierarchyEntries_PendingTreeSupersededGroupsStillPruned`.
+
+**Status:** CLOSED 2026-05-03.
+
+---
+
 ## Done - v0.9.1 Orphan chain-predecessor load-time repair
 
 - ~~A same-vessel optimizer chain whose first half lost its `ChainId` (so the second half stayed `ChainIndex=1` while the predecessor read `chain=none`) made playback treat the successor as a fresh ghost on the chain boundary, rebuilding engine FX/audio mid-handoff.~~ Source: `logs/2026-05-02_2321_kerbalx-chain-handoff/`. The committed tree on disk had `d616325e` (Kerbal X SubOrbital) `chain=none` and `04eeb25e` (Kerbal X Orbiting) `chain=b7ebd1da... ChainIndex=1` — same vessel pid, contiguous UTs. The bad shape was loaded as-is by `LoadRecordingTrees`; `SpliceMissingCommittedRecordingsIntoLoadedTree` faithfully copied the broken committed state, so the rendering side never saw a chain to follow.
