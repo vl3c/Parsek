@@ -30,9 +30,13 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            GameStateStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => false);
@@ -41,12 +45,17 @@ namespace Parsek.Tests
         public void Dispose()
         {
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            GameStateStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            RecordingStore.SaveGameForTesting = null;
         }
 
         [Fact]
@@ -123,6 +132,64 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("source vessel pid=100 already exists")
                 && l.Contains("adopting instead of spawning duplicate"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ParentChainOptimizerTipWithExistingSource_AdoptsBeforeCommit()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            SeedPointsForMergeCommit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Recording upperTip = tree.Recordings[UpperTip];
+            Assert.True(decisions[UpperTip]);
+            Assert.False(upperTip.VesselSpawned);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_adopt",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ActiveProbe,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_adopt",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            Assert.True(upperTip.VesselSpawned);
+            Assert.Equal(100u, upperTip.SpawnedVesselPersistentId);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
@@ -329,6 +396,23 @@ namespace Parsek.Tests
             });
 
             return tree;
+        }
+
+        private static void SeedPointsForMergeCommit(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+
+            int i = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                rec.Points.Clear();
+                rec.Points.Add(new TrajectoryPoint { ut = 100.0 + i });
+                rec.Points.Add(new TrajectoryPoint { ut = 101.0 + i });
+                i++;
+            }
         }
 
         private static ConfigNode Snapshot()
