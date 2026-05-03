@@ -948,14 +948,30 @@ namespace Parsek
 
             bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                 original, allowRelativeSections: true);
-            bool syncedSecondFlatTrajectory =
+            string originalFlatSyncMode = syncedOriginalFlatTrajectory
+                ? "track-sections"
+                : "unchanged";
+
+            bool preservedSecondFlatTail =
                 RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
                     second,
                     secondFlatTailSource,
                     second.TrackSections,
-                    allowRelativeSections: true)
-                || RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                    allowRelativeSections: true);
+            string secondFlatSyncMode;
+            if (preservedSecondFlatTail)
+            {
+                secondFlatSyncMode = "track-sections-preserved-flat-tail:" +
+                    CountPredictedOrbitSegments(second.OrbitSegments).ToString(CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
                     second, allowRelativeSections: true);
+                secondFlatSyncMode = syncedSecondFlatTrajectory
+                    ? "track-sections"
+                    : "unchanged";
+            }
 
             // Both halves now have their final trajectory/terminal payloads. Refresh the
             // persisted endpoint decision so optimizer outputs do not save stale or unknown data.
@@ -978,7 +994,7 @@ namespace Parsek
                 $"SplitAtSection: split {original.RecordingId} at UT={splitUT:F1} " +
                 $"(first: {original.Points.Count} pts/{original.TrackSections.Count} sections, " +
                 $"second: {second.Points.Count} pts/{second.TrackSections.Count} sections, " +
-                $"flatSync={syncedOriginalFlatTrajectory}/{syncedSecondFlatTrajectory})");
+                $"flatSync={originalFlatSyncMode}/{secondFlatSyncMode})");
 
             return second;
         }
@@ -1007,6 +1023,21 @@ namespace Parsek
         }
 
         #region Private helpers
+
+        private static int CountPredictedOrbitSegments(List<OrbitSegment> orbitSegments)
+        {
+            if (orbitSegments == null)
+                return 0;
+
+            int count = 0;
+            for (int i = 0; i < orbitSegments.Count; i++)
+            {
+                if (orbitSegments[i].isPredicted)
+                    count++;
+            }
+
+            return count;
+        }
 
         /// <summary>
         /// Returns a coarse environment class for split decisions. ExoPropulsive and

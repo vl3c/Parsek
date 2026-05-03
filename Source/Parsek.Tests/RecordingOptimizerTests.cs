@@ -769,6 +769,10 @@ namespace Parsek.Tests
         [Fact]
         public void SplitAtSection_PreservesOrbitOnlyPredictedTailOnSecondHalf()
         {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
             const double startUT = 100.0;
             const double splitUT = 150.0;
             const double recordedEndUT = 180.0;
@@ -824,6 +828,10 @@ namespace Parsek.Tests
             Assert.Equal(recordedEndUT, second.OrbitSegments[0].startUT);
             Assert.Equal(terminalUT, second.OrbitSegments[second.OrbitSegments.Count - 1].endUT);
             Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(second));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("SplitAtSection: split split-predicted-tail")
+                && l.Contains("flatSync=track-sections/track-sections-preserved-flat-tail:2"));
         }
 
         [Fact]
