@@ -340,6 +340,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeCommit_ActiveTipMergedThenSplitByOptimizer_ResolvesOriginHead()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: null,
+                probeTipTerminal: TerminalState.Orbiting);
+            SeedPointsForMergeCommit(tree);
+            MakeActiveProbeTipMergeThenSplit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ProbeTip);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_active_tip_merged_split",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ProbeTip,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_active_tip_merged_split",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Assert.True(committedTree.Recordings.ContainsKey(ActiveProbe));
+            Assert.False(committedTree.Recordings.ContainsKey(ProbeTip));
+            Recording finalProbeTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[ActiveProbe],
+                committedTree);
+            Assert.NotNull(finalProbeTip);
+            Assert.NotEqual(ActiveProbe, finalProbeTip.RecordingId);
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolved optimized-away active Re-Fly recording")
+                && l.Contains(ProbeTip)
+                && l.Contains(ActiveProbe));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation detected"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("retainedPreOptimizationTips=1")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
         public void BuildDefaultVesselDecisions_SuppressedParentChainOptimizerTip_DefaultsGhostOnly()
         {
             var tree = BuildUpperStageToProbeTopology(
@@ -568,6 +643,24 @@ namespace Parsek.Tests
             upperTip.TrackSections.Clear();
             upperTip.TrackSections.Add(Section(100.0, 110.0, SegmentEnvironment.Atmospheric));
             upperTip.TrackSections.Add(Section(110.0, 125.0, SegmentEnvironment.ExoBallistic));
+        }
+
+        private static void MakeActiveProbeTipMergeThenSplit(RecordingTree tree)
+        {
+            Recording activeProbe = tree.Recordings[ActiveProbe];
+            activeProbe.Points.Clear();
+            activeProbe.Points.Add(Point(100.0));
+            activeProbe.Points.Add(Point(105.0));
+            activeProbe.TrackSections.Clear();
+
+            Recording probeTip = tree.Recordings[ProbeTip];
+            probeTip.Points.Clear();
+            probeTip.Points.Add(Point(105.0));
+            probeTip.Points.Add(Point(115.0));
+            probeTip.Points.Add(Point(130.0));
+            probeTip.TrackSections.Clear();
+            probeTip.TrackSections.Add(Section(105.0, 115.0, SegmentEnvironment.Atmospheric));
+            probeTip.TrackSections.Add(Section(115.0, 130.0, SegmentEnvironment.ExoBallistic));
         }
 
         private static TrackSection Section(double startUT, double endUT, SegmentEnvironment environment)

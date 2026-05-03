@@ -430,7 +430,9 @@ namespace Parsek
             Recording provisional = FindCommittedRecording(provisionalId);
             if (provisional == null)
             {
-                provisional = ResolveOptimizedRecordingSurvivor(activeReFlyTargetHint);
+                provisional = ResolveOptimizedRecordingSurvivor(
+                    activeReFlyTargetHint,
+                    marker);
                 if (provisional != null)
                 {
                     ParsekLog.Info("MergeDialog",
@@ -940,7 +942,8 @@ namespace Parsek
         }
 
         private static Recording ResolveOptimizedRecordingSurvivor(
-            RecordingOptimizationSurvivorHint hint)
+            RecordingOptimizationSurvivorHint hint,
+            ReFlySessionMarker marker)
         {
             if (hint == null)
                 return null;
@@ -948,6 +951,18 @@ namespace Parsek
             Recording exact = FindCommittedRecording(hint.RecordingId);
             if (exact != null)
                 return exact;
+
+            Recording origin = marker != null
+                ? FindCommittedRecording(marker.OriginChildRecordingId)
+                : null;
+            if (IsOptimizationSurvivorForHint(origin, hint))
+                return origin;
+
+            Recording supersedeTarget = marker != null
+                ? FindCommittedRecording(marker.SupersedeTargetId)
+                : null;
+            if (IsOptimizationSurvivorForHint(supersedeTarget, hint))
+                return supersedeTarget;
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null
@@ -963,31 +978,51 @@ namespace Parsek
                 Recording candidate = committed[i];
                 if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
                     continue;
-                if (!string.IsNullOrEmpty(hint.TreeId)
-                    && !string.Equals(
-                        candidate.TreeId,
-                        hint.TreeId,
-                        System.StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (!string.Equals(
-                    candidate.ChainId,
-                    hint.ChainId,
-                    System.StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (candidate.ChainBranch != hint.ChainBranch)
-                    continue;
-                if (candidate.VesselPersistentId != hint.VesselPersistentId)
+                if (!IsOptimizationSurvivorForHint(candidate, hint))
                     continue;
 
-                if (best == null || candidate.ChainIndex > best.ChainIndex)
+                if (best == null || candidate.ChainIndex < best.ChainIndex)
                     best = candidate;
             }
 
             return best;
+        }
+
+        private static bool IsOptimizationSurvivorForHint(
+            Recording candidate,
+            RecordingOptimizationSurvivorHint hint)
+        {
+            if (candidate == null || hint == null)
+                return false;
+            if (string.IsNullOrEmpty(candidate.RecordingId))
+                return false;
+            if (string.IsNullOrEmpty(hint.ChainId)
+                || string.IsNullOrEmpty(candidate.ChainId)
+                || !string.Equals(
+                    candidate.ChainId,
+                    hint.ChainId,
+                    System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (candidate.ChainBranch != hint.ChainBranch)
+                return false;
+            if (hint.VesselPersistentId == 0u
+                || candidate.VesselPersistentId == 0u
+                || candidate.VesselPersistentId != hint.VesselPersistentId)
+            {
+                return false;
+            }
+            if (!string.IsNullOrEmpty(hint.TreeId)
+                && !string.Equals(
+                    candidate.TreeId,
+                    hint.TreeId,
+                    System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         #region Extracted helpers
