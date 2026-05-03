@@ -112,6 +112,26 @@ namespace Parsek.Tests
             };
         }
 
+        private static OrbitSegment PredictedOrbitSegment(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                inclination = 1.25,
+                eccentricity = 0.08,
+                semiMajorAxis = 800000.0,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = startUT,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero
+            };
+        }
+
         #endregion
 
         #region CanAutoMerge
@@ -744,6 +764,66 @@ namespace Parsek.Tests
             Assert.Equal(rec.EndUT, rec.ExplicitEndUT);
             Assert.Equal(second.StartUT, second.ExplicitStartUT);
             Assert.Equal(second.EndUT, second.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void SplitAtSection_PreservesOrbitOnlyPredictedTailOnSecondHalf()
+        {
+            const double startUT = 100.0;
+            const double splitUT = 150.0;
+            const double recordedEndUT = 180.0;
+            const double terminalUT = 760.0;
+
+            var p0 = PointAt(startUT, 12000.0);
+            var p1 = PointAt(splitUT, 72000.0);
+            var p2 = PointAt(recordedEndUT, 84000.0);
+
+            var rec = new Recording
+            {
+                RecordingId = "split-predicted-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = terminalUT
+            };
+            rec.Points.AddRange(new[] { p0, p1, p2 });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT,
+                endUT = splitUT,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p0, p1 }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = splitUT,
+                endUT = recordedEndUT,
+                sampleRateHz = 1f,
+                frames = new List<TrajectoryPoint> { p1, p2 }
+            });
+            rec.OrbitSegments.Add(PredictedOrbitSegment(recordedEndUT, 400.0));
+            rec.OrbitSegments.Add(PredictedOrbitSegment(400.0, terminalUT));
+
+            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                rec, rec.TrackSections, allowRelativeSections: true));
+
+            var second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Empty(rec.OrbitSegments);
+            Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(splitUT, rec.ExplicitEndUT);
+
+            Assert.Equal(TerminalState.Destroyed, second.TerminalStateValue);
+            Assert.Equal(splitUT, second.ExplicitStartUT);
+            Assert.Equal(terminalUT, second.ExplicitEndUT);
+            Assert.Equal(2, second.OrbitSegments.Count);
+            Assert.All(second.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(recordedEndUT, second.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, second.OrbitSegments[second.OrbitSegments.Count - 1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(second));
         }
 
         [Fact]
