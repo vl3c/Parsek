@@ -35,6 +35,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 in-place Re-Fly discard original restore
+
+- ~~Choosing `Discard` from the merge dialog after an in-place Re-Fly could overwrite the original recording with the trimmed active attempt, leaving a 0-second-looking recording that later classified like a closed downstream branch.~~ Source: `logs/2026-05-03_0039_pr708-refly-discard-zero-second/`. The on-disk `d8c2fc8ce5694795a4ef055c5925d650.prec.txt` had one `POINT`, zero `TrackSections`, and two same-UT `PART_EVENT`s after Discard, while the earlier merge logs for Kerbal X Probe showed a full multi-section trajectory. The discard path protected the origin id from deletion, then called `TrimInPlaceAttemptBackToOriginRewindPoint` on that same origin object and saved dirty sidecars while restoring the detached pending tree. The deeper cause is upstream of Discard: in-place Re-Fly can rebind the recorder to the original committed `Recording` object after quickload, so the active attempt mutates the origin's trajectory before Discard has any chance to restore it.
+
+**Fix:** in-place Re-Fly invocation now captures a full pre-session original-recording snapshot alongside the existing display-anchor trajectory snapshot and persists it through active-session saves as `PRE_REFLY_ORIGINAL`. Merge-dialog discard restores that original snapshot, including the original `MergeState`, whether the committed tree was detached or still present; prunes branch points created after the marker's pre-session baseline; removes same-session provisional rewind points except for the promoted origin RP; keeps the restored recording dirty so the normal scenario save writes sidecars and matching `.sfs` metadata together; and falls back to the old trim-to-rewind-point behavior only for older active sessions that lack the snapshot. `Recording.DeepClone` now preserves `MergeState` so rollback snapshots and committed-tree splice clones keep their committed/provisional state. Active in-place Re-Fly saves intentionally carry a temporary duplicate original payload in `.sfs` until commit/discard/orphan-session cleanup clears it. This is the conservative v0.9.1 repair; GitHub issue #734 tracks the cleaner architecture of forking the in-place attempt instead of mutating the origin recording object.
+
+**Coverage:** `AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder` pins original-snapshot capture, `RecordingTreeRecordCodec_RoundTrip_PreservesPreReFlyOriginalSnapshot` pins save/load durability including merge state, and `MergeDiscard_ReFlyInPlaceDetachedPath_RestoresPreReFlyOriginalSnapshot` / `MergeDiscard_ReFlyInPlaceCommittedTreePath_RestoresPreReFlyOriginalSnapshot` pin discard restoration without the trim fallback, queued scenario-save durability, session branch-point pruning, and same-session RP cleanup across both detached and still-committed tree paths.
+
+**Status:** CLOSED 2026-05-03.
+
+---
+
 ## Active - v0.9.1 ghost-watch separation jitter observability
 
 - New `[PlaybackTrace]` per-frame log line for the 5-second window after each structural separation event during ghost playback. Source: user reported "wobble and jitter" during ghost watch of `Kerbal X Probe` separation in `logs/2026-05-01_1731_watch-separation-wobble/`. The recording's track sections around UT 41.74 (upper-stage decouple) showed `ABS [..., 41.78] frames=2 → REL [41.78, 42.24] frames=1 → REL [42.24, 42.28] frames=2 → ABS [42.28, ...]`: a 0.46-second relative section with one shadow point. The forward-bridge mechanism interpolates linearly across the gap to the next absolute section's first frame at 42.28, but the live KSP.log has no per-frame ghost world position to confirm whether the visual jitter comes from the sparse interpolation, a section-boundary handoff, or an anchor offset glitch. **Why this exists:** the existing one-shot `[GhostAppearance]` line on first ghost activation and the section-level `RELATIVE absolute shadow playback` summary do not show per-frame motion; we cannot tell from current logs whether two consecutive frames are a smooth 50 m/s of motion or a 1 km teleport. **Wire-up (`Source/Parsek/PlaybackTrace.cs` + `GhostPlaybackEngine.cs`):** a `MaybeEmitFrame` call sits after the positioner block in `GhostPlaybackEngine.RenderInRangeGhost` (after `state.ghost.transform.position` is final, before / outside the retired branch). The call is a no-op outside the gate window. **Gate:** `IsInPostStructuralEventWindow(traj, currentUT)` returns true when `currentUT` is within `PostEventWindowSeconds = 5.0` of a `TrajectoryPoint` carrying `TrajectoryPointFlags.StructuralEventSnapshot` (bit 0). Per-recording cache of structural-event UTs (sorted ascending, defensive) lazily built on first query and cleared on `DestroyAllGhosts`. **Output line:** `rec=<short> #<idx> ut=<F3> sec=<idx> [<startUT>,<endUT>] ref=<Absolute|Relative|...> worldPos=(x,y,z) dM=<F2> dSpd=<F1> [sectionCrossed]` — the `dM` / `dSpd` come from the previous trace frame for this same `(recordingId, ghostIdx)` cursor, and `sectionCrossed` flags the frame where `FindTrackSectionForUT` returned a different section index than the previous trace frame. **On by default:** no settings toggle — the trace fires automatically whenever a ghost is within 5 s of a structural-event flag in its trajectory, and stays silent during cruise. The retired (anchor-unresolvable) branch in `RenderInRangeGhost` skips the trace because its (0,0,0) transform would pollute the delta computation; the next non-retired frame establishes a fresh cursor. **Coverage:** 16 unit tests in `PlaybackTraceTests.cs` — gate (null/empty rec id, no flags, exact-match / 0.5s / 4s / 5s / 5.001s / way-after, multiple events tracking most-recent, defensive sort on unsorted Points, before-any-event), cache lifecycle (lazy populate, empty-list memoization, Reset clears), and end-to-end emission (outside-window silence, in-window line shape, two-frame delta math, section-crossed marker, missing-TrackSections fallback to `sec=-1` / `[?,?]`).
@@ -522,13 +534,18 @@ as Unfinished Flights.
 
 **Follow-up fix:** the finalizer keeps the normal `NullSolver` destroyed-vessel
 path, but rejects the sub-surface verdict when the recording itself has a fresh
-same-start surface point on the same body above the sub-surface threshold. The
-guard logs `suppressing sub-surface Destroyed` with the live altitude, recorded
-altitude, point source, and UT delta, then returns without mutating terminal
-state. Stale points still allow the intentional Destroyed classification, so
-real torn-down vessels remain covered. Regression coverage:
+same-start section-aware absolute surface point on the same body above the
+sub-surface threshold. Relative sections are checked via their `absoluteFrames`;
+flat `Recording.Points` are used only for sectionless legacy-style recordings so
+anchor-local relative offsets cannot masquerade as body altitude. The guard logs
+`suppressing sub-surface Destroyed` with the live altitude, recorded altitude,
+point source, and UT delta, then returns without mutating terminal state. Stale
+points, older recordings with a recent sample, body mismatches, and
+non-catastrophic fallback altitudes still allow the intentional Destroyed
+classification, so real torn-down vessels remain covered. Regression coverage:
 `TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed`
-and `_StaleRecordedPointStillClassifiesDestroyed`.
+and the adjacent stale, relative-frame, body-mismatch, older-recording, and
+threshold guard cases.
 
 ## ~~681. Esc-menu Revert to Launch grayed out during an active Re-Fly~~
 

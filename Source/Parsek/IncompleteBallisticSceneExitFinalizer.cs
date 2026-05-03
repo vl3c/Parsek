@@ -32,6 +32,9 @@ namespace Parsek
 
     internal static class IncompleteBallisticSceneExitFinalizer
     {
+        // This is not a sampling-cadence tolerance. It only admits the "fresh split"
+        // signature where the first authored sample and live fallback state land on
+        // effectively the same physics moment.
         private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
 
         private static bool? flightGlobalsRuntimeAvailableForTesting;
@@ -526,7 +529,7 @@ namespace Parsek
                     out TrajectoryPoint recordedPoint,
                     out string recordedPointSource,
                     out double recordedPointDeltaUT,
-                    out double earliestSurfacePointUT))
+                    out double recordingStartUT))
                 {
                     ParsekLog.WarnRateLimited(
                         "Extrapolator",
@@ -535,13 +538,13 @@ namespace Parsek
                             CultureInfo.InvariantCulture,
                             "TryFinalizeRecording: suppressing sub-surface Destroyed for '{0}' " +
                             "because a fresh recorded surface point contradicts the live-orbit fallback " +
-                            "(snapshotFailure={1}, startUT={2:F3}, earliestRecordedUT={3:F3}, " +
+                            "(snapshotFailure={1}, startUT={2:F3}, recordingStartUT={3:F3}, " +
                             "pointUT={4:F3}, deltaUT={5:F3}, source={6}, recordedBody={7}, " +
                             "liveBody={8}, recordedAlt={9:F1}, liveAlt={10:F1}, threshold={11:F1})",
                             recordingId,
                             snapshot.FailureReason,
                             startState.ut,
-                            earliestSurfacePointUT,
+                            recordingStartUT,
                             recordedPoint.ut,
                             recordedPointDeltaUT,
                             recordedPointSource ?? "(unknown)",
@@ -592,12 +595,12 @@ namespace Parsek
             out TrajectoryPoint recordedPoint,
             out string recordedPointSource,
             out double recordedPointDeltaUT,
-            out double earliestSurfacePointUT)
+            out double recordingStartUT)
         {
             recordedPoint = default(TrajectoryPoint);
             recordedPointSource = null;
             recordedPointDeltaUT = double.NaN;
-            earliestSurfacePointUT = double.NaN;
+            recordingStartUT = double.NaN;
 
             if (recording == null)
                 return false;
@@ -611,6 +614,10 @@ namespace Parsek
                 || result.subSurfaceDestroyedAltitude > result.subSurfaceDestroyedThreshold)
                 return false;
 
+            recordingStartUT = recording.StartUT;
+            if (!IsFinite(recordingStartUT))
+                return false;
+
             string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
                 ? result.subSurfaceDestroyedBodyName
                 : startState.bodyName;
@@ -621,15 +628,14 @@ namespace Parsek
                 result.subSurfaceDestroyedThreshold,
                 out recordedPoint,
                 out recordedPointSource,
-                out recordedPointDeltaUT,
-                out earliestSurfacePointUT))
+                out recordedPointDeltaUT))
             {
                 return false;
             }
 
             if (recordedPointDeltaUT > SubSurfaceRecordedPointContradictionWindowSeconds)
                 return false;
-            if (Math.Abs(recordedPoint.ut - earliestSurfacePointUT)
+            if (Math.Abs(recordedPoint.ut - recordingStartUT)
                 > SubSurfaceRecordedPointContradictionWindowSeconds)
                 return false;
 
@@ -643,32 +649,16 @@ namespace Parsek
             double subSurfaceThreshold,
             out TrajectoryPoint nearestPoint,
             out string nearestSource,
-            out double nearestDeltaUT,
-            out double earliestSurfacePointUT)
+            out double nearestDeltaUT)
         {
             nearestPoint = default(TrajectoryPoint);
             nearestSource = null;
             nearestDeltaUT = double.NaN;
-            earliestSurfacePointUT = double.NaN;
 
             bool found = false;
             double bestDelta = double.MaxValue;
-            double earliest = double.MaxValue;
 
-            if (recording.Points != null)
-                InspectRecordedSurfacePoints(
-                    recording.Points,
-                    "Points",
-                    targetUT,
-                    bodyName,
-                    subSurfaceThreshold,
-                    ref found,
-                    ref bestDelta,
-                    ref earliest,
-                    ref nearestPoint,
-                    ref nearestSource);
-
-            if (recording.TrackSections != null)
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
             {
                 for (int i = 0; i < recording.TrackSections.Count; i++)
                 {
@@ -683,7 +673,6 @@ namespace Parsek
                             subSurfaceThreshold,
                             ref found,
                             ref bestDelta,
-                            ref earliest,
                             ref nearestPoint,
                             ref nearestSource);
                     }
@@ -697,18 +686,29 @@ namespace Parsek
                             subSurfaceThreshold,
                             ref found,
                             ref bestDelta,
-                            ref earliest,
                             ref nearestPoint,
                             ref nearestSource);
                     }
                 }
+            }
+            else if (recording.Points != null)
+            {
+                InspectRecordedSurfacePoints(
+                    recording.Points,
+                    "Points",
+                    targetUT,
+                    bodyName,
+                    subSurfaceThreshold,
+                    ref found,
+                    ref bestDelta,
+                    ref nearestPoint,
+                    ref nearestSource);
             }
 
             if (!found)
                 return false;
 
             nearestDeltaUT = bestDelta;
-            earliestSurfacePointUT = earliest;
             return true;
         }
 
@@ -720,7 +720,6 @@ namespace Parsek
             double subSurfaceThreshold,
             ref bool found,
             ref double bestDelta,
-            ref double earliestSurfacePointUT,
             ref TrajectoryPoint nearestPoint,
             ref string nearestSource)
         {
@@ -740,9 +739,6 @@ namespace Parsek
                 }
                 if (point.altitude <= subSurfaceThreshold)
                     continue;
-
-                if (point.ut < earliestSurfacePointUT)
-                    earliestSurfacePointUT = point.ut;
 
                 double delta = Math.Abs(point.ut - targetUT);
                 if (!found || delta < bestDelta)

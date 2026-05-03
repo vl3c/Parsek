@@ -578,7 +578,11 @@ namespace Parsek.Tests
                 TreeId = "tree_origin",
                 MergeState = MergeState.Immutable,
                 VesselPersistentId = kOriginPid,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0,
             };
+            origin.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 200.0 });
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
@@ -614,6 +618,13 @@ namespace Parsek.Tests
             Assert.Equal("tree_origin", marker.TreeId);
             Assert.Equal("sess_inplace", origin.CreatingSessionId);
             Assert.Equal(rp.RewindPointId, origin.ProvisionalForRpId);
+            Assert.True(origin.HasPreReFlyOriginalRecording("sess_inplace"));
+            Recording originalSnapshot = origin.BuildPreReFlyOriginalRecording("sess_inplace");
+            Assert.NotNull(originalSnapshot);
+            Assert.Equal(2, originalSnapshot.Points.Count);
+            Assert.Equal(200.0, originalSnapshot.EndUT);
+            Assert.Null(originalSnapshot.CreatingSessionId);
+            Assert.Null(originalSnapshot.ProvisionalForRpId);
 
             // INFO log advertises the in-place continuation diagnosis so a
             // future regression that loses the detection is diagnosable.
@@ -894,6 +905,8 @@ namespace Parsek.Tests
             {
                 new TrajectoryPoint { ut = 12.0 },
             };
+            origin.Points.Add(new TrajectoryPoint { ut = 33.0 });
+            origin.CapturePreReFlyOriginalRecording("prior_original_session");
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
@@ -928,6 +941,7 @@ namespace Parsek.Tests
             Assert.Equal("prior_session", storedOrigin.PreReFlyAnchorSessionId);
             Assert.Single(storedOrigin.PreReFlyAnchorPoints);
             Assert.Equal(12.0, storedOrigin.PreReFlyAnchorPoints[0].ut);
+            Assert.True(storedOrigin.HasPreReFlyOriginalRecording("prior_original_session"));
             Assert.Equal("prior_session", storedOrigin.CreatingSessionId);
             Assert.Equal("prior_rp", storedOrigin.ProvisionalForRpId);
         }
@@ -960,6 +974,7 @@ namespace Parsek.Tests
             {
                 new TrajectoryPoint { ut = 12.0 },
             };
+            origin.CapturePreReFlyOriginalRecording("prior_original_session");
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
@@ -979,6 +994,7 @@ namespace Parsek.Tests
             Assert.Equal("prior_anchor_session", origin.PreReFlyAnchorSessionId);
             Assert.Single(origin.PreReFlyAnchorPoints);
             Assert.Equal(12.0, origin.PreReFlyAnchorPoints[0].ut);
+            Assert.True(origin.HasPreReFlyOriginalRecording("prior_original_session"));
             Assert.Equal("prior_session", origin.CreatingSessionId);
             Assert.Equal("prior_rp", origin.ProvisionalForRpId);
         }
