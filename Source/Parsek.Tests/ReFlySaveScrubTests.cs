@@ -12,6 +12,8 @@ namespace Parsek.Tests
         private readonly string tempDir;
         private readonly string tempPath;
         private readonly bool priorSuppressLogging;
+        private readonly Action<string> priorTestSink;
+        private readonly List<string> logLines = new List<string>();
 
         public ReFlySaveScrubTests()
         {
@@ -21,12 +23,15 @@ namespace Parsek.Tests
             Directory.CreateDirectory(tempDir);
             tempPath = Path.Combine(tempDir, "persistent.sfs");
             priorSuppressLogging = ParsekLog.SuppressLogging;
-            ParsekLog.SuppressLogging = true;
+            priorTestSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()
         {
             ParsekLog.SuppressLogging = priorSuppressLogging;
+            ParsekLog.TestSinkForTesting = priorTestSink;
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
             catch { }
         }
@@ -99,6 +104,51 @@ namespace Parsek.Tests
             ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
             Assert.Single(vessels);
             Assert.Equal("5000", vessels[0].GetValue("persistentId"));
+        }
+
+        [Fact]
+        public void ScrubQuicksaveToSelectedSlot_ClosesThrottleFieldsOnKeptVessels()
+        {
+            SaveTestGame(
+                MakeVessel(5000u, "Selected A", 444u, mainThrottle: "0.85", wheelThrottle: "0.5",
+                    engineCurrentThrottle: "1", independentThrottlePercentage: "25"),
+                MakeVessel(5001u, "Selected B", 445u),
+                MakeVessel(6000u, "Other", 555u, mainThrottle: "1"));
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_throttle_zero",
+                PidSlotMap = new Dictionary<uint, int>
+                {
+                    { 5000u, 0 },
+                    { 5001u, 0 },
+                    { 6000u, 1 },
+                },
+                RootPartPidMap = new Dictionary<uint, int>
+                {
+                    { 444u, 0 },
+                    { 445u, 0 },
+                    { 555u, 1 },
+                },
+            };
+
+            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
+                tempPath, rp, selectedSlotIndex: 0);
+
+            Assert.True(result.Applied);
+            Assert.Equal(2, result.VesselsKept);
+            Assert.Equal(1, result.VesselsRemoved);
+            Assert.Equal(6, result.ThrottleResets);
+
+            ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
+            Assert.Equal(2, vessels.Length);
+            Assert.Equal("0", vessels[0].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+            Assert.Equal("0", vessels[0].GetNode("CTRLSTATE")?.GetValue("wheelThrottle"));
+            ConfigNode engineModule = vessels[0].GetNode("PART")?.GetNode("MODULE");
+            Assert.Equal("0", engineModule?.GetValue("currentThrottle"));
+            Assert.Equal("0", engineModule?.GetValue("independentThrottlePercentage"));
+            Assert.Equal("0", vessels[1].GetNode("CTRLSTATE")?.GetValue("mainThrottle"));
+            Assert.Equal("0", vessels[1].GetNode("CTRLSTATE")?.GetValue("wheelThrottle"));
+            Assert.Contains(logLines, l => l.Contains("[Rewind]") && l.Contains("throttleResets=6"));
         }
 
         [Fact]
@@ -254,7 +304,14 @@ namespace Parsek.Tests
             return flightState;
         }
 
-        private static ConfigNode MakeVessel(uint vesselPid, string name, uint rootPartPid)
+        private static ConfigNode MakeVessel(
+            uint vesselPid,
+            string name,
+            uint rootPartPid,
+            string mainThrottle = null,
+            string wheelThrottle = null,
+            string engineCurrentThrottle = null,
+            string independentThrottlePercentage = null)
         {
             var vessel = new ConfigNode("VESSEL");
             vessel.AddValue("persistentId", vesselPid.ToString(CultureInfo.InvariantCulture));
@@ -263,6 +320,23 @@ namespace Parsek.Tests
             var part = vessel.AddNode("PART");
             part.AddValue("name", "mk1-3pod");
             part.AddValue("persistentId", rootPartPid.ToString(CultureInfo.InvariantCulture));
+            if (engineCurrentThrottle != null || independentThrottlePercentage != null)
+            {
+                var module = part.AddNode("MODULE");
+                module.AddValue("name", "ModuleEnginesFX");
+                if (engineCurrentThrottle != null)
+                    module.AddValue("currentThrottle", engineCurrentThrottle);
+                if (independentThrottlePercentage != null)
+                    module.AddValue("independentThrottlePercentage", independentThrottlePercentage);
+            }
+            if (mainThrottle != null || wheelThrottle != null)
+            {
+                var ctrlState = vessel.AddNode("CTRLSTATE");
+                if (mainThrottle != null)
+                    ctrlState.AddValue("mainThrottle", mainThrottle);
+                if (wheelThrottle != null)
+                    ctrlState.AddValue("wheelThrottle", wheelThrottle);
+            }
             return vessel;
         }
     }
