@@ -61,7 +61,8 @@ namespace Parsek
         public const int BoundarySeamFlagFormatVersion = 8;
         public const int TerrainGroundClearanceFormatVersion = 9;
         public const int StructuralEventFlagFormatVersion = 10;
-        public const int CurrentRecordingFormatVersion = StructuralEventFlagFormatVersion;
+        public const int RecordingAnchorChainFormatVersion = 11;
+        public const int CurrentRecordingFormatVersion = RecordingAnchorChainFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -107,6 +108,9 @@ namespace Parsek
         //     bump because the per-point layout is positional; legacy v9 readers stop short of
         //     the new byte (their stream alignment ends at recordedGroundClearance), and new
         //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
+        // v11: TrackSection.anchorRecordingId for non-loop Relative sections. This is a
+        //     private-development format break: v11 correctness is recording-id anchored,
+        //     while legacy pid-only Relative sections are fenced by playback follow-up phases.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {

@@ -7,21 +7,19 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the Re-Fly tree anchor lock helpers in
-    /// <see cref="ParsekFlight"/>. The lock translates ghost positions in
-    /// the active Re-Fly tree by the per-frame offset
-    /// <c>live_active_world(now) - recorded_active_world(currentUT)</c> so
-    /// each ghost sits at its recorded relative offset from where the live
-    /// vessel actually is. The active recording's role is purely to define
-    /// inter-vessel relative geometry; its absolute world coordinates are
-    /// not the source of truth.
+    /// <see cref="ParsekFlight"/>. The lock captures a display-only
+    /// alignment once per recording per active Re-Fly session, stores it in
+    /// the body's rotating frame, and reprojects it while the hidden
+    /// recorded trajectory remains the source of truth. The live vessel is
+    /// only an initialization reference.
     ///
     /// <para>
     /// These tests exercise the parts that don't require a live KSP
     /// runtime: the recording-id → tree-id resolution path that decides
     /// which ghost positions get translated, the activation-gate decision
-    /// rule, the snapshot lifecycle, and the codec round-trip. The
-    /// per-frame offset compute itself is covered by the in-game test in
-    /// <c>RuntimeTests</c>.
+    /// rule, the snapshot lifecycle, the codec round-trip, and the pure
+    /// body-fixed alignment math. The live KSP capture path is covered by
+    /// in-game validation.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -35,7 +33,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            FlightRecorder.ReFlyRecordingFrameOffsetOverrideForTesting = null;
             RecordingStore.Clear();
+            ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
         }
 
@@ -343,7 +343,7 @@ namespace Parsek.Tests
         {
             // #688 follow-up: repair / splice paths that DeepClone a
             // recording must preserve the captured pre-Re-Fly anchor
-            // snapshot — otherwise the per-frame anchor falls back to the
+            // snapshot — otherwise display alignment falls back to the
             // trimmed live recording mid-session and ghosts in the active
             // Re-Fly tree misposition.
             var rec = new Recording
@@ -577,6 +577,1316 @@ namespace Parsek.Tests
 
             Assert.True(ParsekFlight.IsRecordingInReFlyTreeMarker(
                 "rec-A", new ReFlySessionMarker { TreeId = "tree-1" }));
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_NoMarker_ReturnsFalse()
+        {
+            string reason;
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker: null,
+                activeReFlyRecording: null,
+                currentUT: 100.0,
+                out reason);
+
+            Assert.False(result);
+            Assert.Equal("marker-missing", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_RecordingOutsideTree_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-foreign",
+                "tree-2",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("tree-mismatch", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_RequiresPreReFlyAnchorSnapshot()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = new Recording
+            {
+                RecordingId = "active",
+                TreeId = "tree-1",
+            };
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("pre-refly-anchor-snapshot-missing", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_BeforeInvocation_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 100.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 99.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("before-invocation", reason);
+        }
+
+        [Fact]
+        public void ShouldCanonicalizeReFlyRecordingFrame_PreReFlySnapshotAndTreeMatch_ReturnsFalseBecauseDisplayOffsetIsRenderOnly()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 10.0,
+            };
+            var active = MakeReFlyAnchorSnapshotHost("active", "tree-1", "sess");
+
+            bool result = ParsekFlight.ShouldCanonicalizeReFlyRecordingFrame(
+                "rec-A",
+                "tree-1",
+                marker,
+                active,
+                currentUT: 100.0,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("display-offset-render-only", reason);
+        }
+
+        [Fact]
+        public void TryApplyReFlyRecordingFrameOffsetToWorld_SubtractsDisplayOffset()
+        {
+            FlightRecorder.ReFlyRecordingFrameOffsetOverrideForTesting =
+                (string recordingId, double currentUT, out Vector3d offset, out string reason) =>
+                {
+                    Assert.Equal("rec-A", recordingId);
+                    Assert.Equal(123.0, currentUT);
+                    offset = new Vector3d(10.0, -2.5, 4.0);
+                    reason = "test-offset";
+                    return true;
+                };
+
+            bool result = FlightRecorder.TryApplyReFlyRecordingFrameOffsetToWorld(
+                "rec-A",
+                123.0,
+                new Vector3d(100.0, 200.0, 300.0),
+                out Vector3d canonicalWorld,
+                out Vector3d appliedOffset,
+                out string applyReason);
+
+            Assert.True(result);
+            AssertVectorClose(new Vector3d(90.0, 202.5, 296.0), canonicalWorld, 0.0001);
+            AssertVectorClose(new Vector3d(10.0, -2.5, 4.0), appliedOffset, 0.0001);
+            Assert.Equal("test-offset", applyReason);
+        }
+
+        // ============================================================
+        // Frozen Re-Fly display alignment
+        // ============================================================
+
+        [Fact]
+        public void ReFlyDisplayAlignment_CaptureAndProjectSameRotation_RecoversInitialDelta()
+        {
+            Quaternion bodyRotation = TrajectoryMath.PureAngleAxis(35f, Vector3.up);
+            Vector3d recorded = new Vector3d(1000.0, 2000.0, -3000.0);
+            Vector3d initialDelta = new Vector3d(12.5, -3.0, 44.0);
+            Vector3d live = recorded + initialDelta;
+
+            bool captured = ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                live,
+                recorded,
+                123.45,
+                "root-part",
+                3087746488u,
+                8.18,
+                out ReFlyDisplayAlignment alignment);
+
+            Assert.True(captured);
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d projected));
+            AssertVectorClose(initialDelta, projected, 0.0001);
+            Assert.Equal("sess-1", alignment.SessionId);
+            Assert.Equal("rec-ghost", alignment.RecordingId);
+            Assert.Equal("Kerbin", alignment.BodyName);
+            Assert.Equal("root-part", alignment.LiveAnchorSource);
+            Assert.Equal(3087746488u, alignment.LiveAnchorPartPid);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_ProjectAfterBodyRotation_DoesNotKeepStaleWorldVector()
+        {
+            Quaternion captureRotation = Quaternion.identity;
+            Quaternion laterRotation = TrajectoryMath.PureAngleAxis(90f, Vector3.up);
+            Vector3d recorded = Vector3d.zero;
+            Vector3d live = new Vector3d(10.0, 0.0, 0.0);
+
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                captureRotation,
+                live,
+                recorded,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryProject(laterRotation, out Vector3d projected));
+            Vector3 expected = TrajectoryMath.PureRotateVector(laterRotation, new Vector3(10f, 0f, 0f));
+            AssertVectorClose(new Vector3d(expected.x, expected.y, expected.z), projected, 0.0001);
+            Assert.True(Vector3d.Distance(live, projected) > 1.0);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_LazyDebobReferencePreservesCurrentProjection()
+        {
+            Quaternion bodyRotation = Quaternion.identity;
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d before));
+            Vector3d correction = new Vector3d(0.0, 25.0, 0.0);
+            Assert.True(alignment.TryCaptureDebobReference(bodyRotation, correction, 11.0));
+            Assert.True(alignment.DebobReferenceCaptured);
+            Assert.Equal(11.0, alignment.DebobReferenceUT);
+            AssertVectorClose(correction, alignment.DebobReferenceCorrection, 0.0001);
+
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d afterReference));
+            AssertVectorClose(before, afterReference + correction, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_GhostPartPinAddsFrozenBodyFixedOffset()
+        {
+            Quaternion bodyRotation = Quaternion.identity;
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                bodyRotation,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Vector3d pinDelta = new Vector3d(0.0, -4.0, 3.0);
+            Assert.True(alignment.TryApplyGhostPartPin(bodyRotation, pinDelta, 3087746488u, 10.25));
+
+            Assert.True(alignment.GhostPartPinCaptured);
+            Assert.Equal(3087746488u, alignment.GhostPartPinPid);
+            Assert.Equal(10.25, alignment.GhostPartPinUT);
+            Assert.Equal(5.0, alignment.GhostPartPinMeters, 6);
+            Assert.True(alignment.TryProject(bodyRotation, out Vector3d projected));
+            AssertVectorClose(new Vector3d(10.0, -4.0, 3.0), projected, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_GhostPartPinRejectsSecondCapture()
+        {
+            Assert.True(ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                Quaternion.identity,
+                new Vector3d(10.0, 0.0, 0.0),
+                Vector3d.zero,
+                10.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment));
+
+            Assert.True(alignment.TryApplyGhostPartPin(
+                Quaternion.identity,
+                new Vector3d(1.0, 0.0, 0.0),
+                123u,
+                11.0));
+            Assert.False(alignment.TryApplyGhostPartPin(
+                Quaternion.identity,
+                new Vector3d(1.0, 0.0, 0.0),
+                123u,
+                12.0));
+            Assert.Equal(11.0, alignment.GhostPartPinUT);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignment_CaptureRejectsNonFiniteInputs()
+        {
+            bool captured = ReFlyDisplayAlignment.TryCapture(
+                "sess-1",
+                "tree-1",
+                "rec-ghost",
+                "Kerbin",
+                Quaternion.identity,
+                new Vector3d(double.NaN, 0.0, 0.0),
+                Vector3d.zero,
+                0.0,
+                "root-part",
+                1u,
+                0.0,
+                out ReFlyDisplayAlignment alignment);
+
+            Assert.False(captured);
+            Assert.Null(alignment.SessionId);
+            Assert.Null(alignment.RecordingId);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_RemovesMidpointJitter()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                10.0,
+                new Vector3d(5.0, 25.0, 0.0),
+                10.75,
+                new Vector3d(10.0, 0.0, 0.0),
+                11.5,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), baseline, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -25.0, 0.0), correction, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_LinearMotionReturnsZeroCorrection()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                1.0,
+                new Vector3d(5.0, 0.0, 0.0),
+                1.75,
+                new Vector3d(10.0, 0.0, 0.0),
+                2.5,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.True(ok, reason);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), baseline, 0.0001);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDebobCorrectionFromSamples_RejectsInvalidWindow()
+        {
+            bool ok = ParsekFlight.TryComputeReFlyDebobCorrectionFromSamples(
+                new Vector3d(0.0, 0.0, 0.0),
+                2.0,
+                new Vector3d(1.0, 1.0, 1.0),
+                1.0,
+                new Vector3d(2.0, 0.0, 0.0),
+                3.0,
+                ParsekFlight.ReFlyRecordedDebobMaxCorrectionMeters,
+                out Vector3d correction,
+                out Vector3d baseline,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("invalid-time-window", reason);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+            AssertVectorClose(Vector3d.zero, baseline, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_DrawsLineThroughAlternatingWave()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, -8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, -8.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 8.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 8.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(20.0, 1.6, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -6.4, 0.0), correction, 0.0001);
+            Assert.True(maxResidual > 0.0);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_RejectsLargeCorrection()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 1000.0, 0.0),
+                50.0,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("correction-too-large", reason);
+            AssertVectorClose(new Vector3d(20.0, 0.0, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -1000.0, 0.0), correction, 0.0001);
+            Assert.True(double.IsNaN(maxResidual));
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_RejectsLargeResidual()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 200.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                2.0,
+                new Vector3d(20.0, 200.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("residual-too-large", reason);
+            AssertVectorClose(new Vector3d(20.0, 40.0, 0.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, -160.0, 0.0), correction, 0.0001);
+            Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendQuadraticFit_RecoversSparseParabola()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>();
+            for (int i = 0; i < 5; i++)
+            {
+                double ut = i * 3.0;
+                double dt = ut - 6.0;
+                samples.Add(new ParsekFlight.ReFlyPointTrendSample
+                {
+                    UT = ut,
+                    World = new Vector3d(
+                        100.0 + 12.0 * dt + 0.75 * dt * dt,
+                        -50.0 - 4.0 * dt + 4.0 * dt * dt,
+                        25.0 + 0.25 * dt * dt),
+                });
+            }
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrendQuadratic(
+                samples,
+                6.0,
+                new Vector3d(100.0, -80.0, 25.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                0.01,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied", reason);
+            AssertVectorClose(new Vector3d(100.0, -50.0, 25.0), trend, 0.0001);
+            AssertVectorClose(new Vector3d(0.0, 30.0, 0.0), correction, 0.0001);
+            Assert.True(maxResidual < 0.001);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendQuadraticFit_RejectsStepResidual()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>
+            {
+                new ParsekFlight.ReFlyPointTrendSample { UT = 0.0, World = new Vector3d(0.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 1.0, World = new Vector3d(10.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 2.0, World = new Vector3d(20.0, 200.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 3.0, World = new Vector3d(30.0, 0.0, 0.0) },
+                new ParsekFlight.ReFlyPointTrendSample { UT = 4.0, World = new Vector3d(40.0, 0.0, 0.0) },
+            };
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrendQuadratic(
+                samples,
+                2.0,
+                new Vector3d(20.0, 200.0, 0.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("residual-too-large", reason);
+            Assert.True(maxResidual > ParsekFlight.ReFlyPointTrendMaxResidualMeters);
+            Assert.True(correction.magnitude < ParsekFlight.ReFlyPointTrendMaxCorrectionMeters);
+        }
+
+        [Fact]
+        public void ReFlyPointTrendFit_FallsBackToQuadraticForSparseParabola()
+        {
+            var samples = new List<ParsekFlight.ReFlyPointTrendSample>();
+            for (int i = 0; i < 5; i++)
+            {
+                double ut = i * 3.0;
+                double dt = ut - 6.0;
+                samples.Add(new ParsekFlight.ReFlyPointTrendSample
+                {
+                    UT = ut,
+                    World = new Vector3d(
+                        100.0 + 12.0 * dt + 0.75 * dt * dt,
+                        -50.0 - 4.0 * dt + 4.0 * dt * dt,
+                        25.0 + 0.25 * dt * dt),
+                });
+            }
+
+            bool ok = ParsekFlight.TryFitReFlyPointTrend(
+                samples,
+                6.0,
+                new Vector3d(100.0, -50.0, 25.0),
+                ParsekFlight.ReFlyPointTrendMaxCorrectionMeters,
+                ParsekFlight.ReFlyPointTrendMaxResidualMeters,
+                out Vector3d trend,
+                out Vector3d correction,
+                out double maxResidual,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal("applied-quadratic", reason);
+            AssertVectorClose(new Vector3d(100.0, -50.0, 25.0), trend, 0.0001);
+            AssertVectorClose(Vector3d.zero, correction, 0.0001);
+            Assert.True(maxResidual < 0.001);
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.Atmospheric, true)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, true)]
+        [InlineData(SegmentEnvironment.ExoBallistic, true)]
+        [InlineData(SegmentEnvironment.SurfaceMobile, false)]
+        [InlineData(SegmentEnvironment.SurfaceStationary, false)]
+        [InlineData(SegmentEnvironment.Approach, false)]
+        public void ShouldAllowReFlyPointTrend_GatesFlightEnvironments(
+            SegmentEnvironment environment,
+            bool expected)
+        {
+            Assert.Equal(expected, ParsekFlight.ShouldAllowReFlyPointTrend(environment));
+        }
+
+        [Fact]
+        public void PointHermiteInterpolation_DisabledForNormalPlaybackByDefault()
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: false,
+                splineApplied: false,
+                allowNormalPlaybackHermite: false,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("normal-playback-linearized", reason);
+        }
+
+        [Fact]
+        public void PointHermiteInterpolation_ExplicitGateKeepsLegacyEligibility()
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset: false,
+                splineApplied: false,
+                allowNormalPlaybackHermite: true,
+                out string reason);
+
+            Assert.True(allowed);
+            Assert.Equal("eligible", reason);
+        }
+
+        [Theory]
+        [InlineData(true, false, "refly-display-offset-linearized")]
+        [InlineData(false, true, "spline-applied")]
+        public void PointHermiteInterpolation_ExistingSafetyGatesStillWin(
+            bool hasReFlyTreeOffset,
+            bool splineApplied,
+            string expectedReason)
+        {
+            bool allowed = ParsekFlight.allowPointHermiteInterpolation(
+                hasReFlyTreeOffset,
+                splineApplied,
+                allowNormalPlaybackHermite: true,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_DisabledForNormalPlaybackByDefault()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: false,
+                allowNormalPlaybackSplinePositioning: false,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("normal-playback-linearized", reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_ExplicitGateKeepsLegacyEligibility()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: false,
+                allowNormalPlaybackSplinePositioning: true,
+                out string reason);
+
+            Assert.True(allowed);
+            Assert.Equal("eligible", reason);
+        }
+
+        [Fact]
+        public void SplinePositioning_ReFlyDisplayOffsetLinearizes()
+        {
+            bool allowed = ParsekFlight.allowSplinePositioningForPlayback(
+                hasReFlyTreeOffset: true,
+                allowNormalPlaybackSplinePositioning: true,
+                out string reason);
+
+            Assert.False(allowed);
+            Assert.Equal("refly-display-offset-linearized", reason);
+        }
+
+        [Fact]
+        public void ShouldProcessGhostPositionReapply_LateUpdateProcessesAllEntries()
+        {
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.LateUpdate,
+                hasReFlyTreeOffset: false));
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.LateUpdate,
+                hasReFlyTreeOffset: true));
+        }
+
+        [Fact]
+        public void ShouldProcessGhostPositionReapply_CameraPreCullIsReFlyOnly()
+        {
+            Assert.False(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.CameraPreCull,
+                hasReFlyTreeOffset: false));
+            Assert.True(ParsekFlight.ShouldProcessGhostPositionReapply(
+                ParsekFlight.GhostPositionReapplyPhase.CameraPreCull,
+                hasReFlyTreeOffset: true));
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_BlendsBetweenPhysicsTargets()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+
+            bool first = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d firstApplied,
+                out Quaternion _,
+                out double firstDelta,
+                out string firstReason);
+            Assert.False(first);
+            Assert.Equal("initialized", firstReason);
+            AssertVectorClose(Vector3d.zero, firstApplied, 0.0001);
+            Assert.Equal(0.0, firstDelta);
+
+            bool second = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(20.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.25,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d secondApplied,
+                out Quaternion _,
+                out double secondDelta,
+                out string secondReason);
+            Assert.True(second, secondReason);
+            Assert.Equal("advanced-target", secondReason);
+            Assert.Equal(20.0, secondDelta, 3);
+            AssertVectorClose(new Vector3d(5.0, 0.0, 0.0), secondApplied, 0.0001);
+
+            bool duplicate = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(20.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.75,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d duplicateApplied,
+                out Quaternion _,
+                out double duplicateDelta,
+                out string duplicateReason);
+            Assert.True(duplicate, duplicateReason);
+            Assert.Equal("duplicate-target", duplicateReason);
+            Assert.Equal(0.0, duplicateDelta, 3);
+            AssertVectorClose(new Vector3d(15.0, 0.0, 0.0), duplicateApplied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_ResetsAcrossLargeTargetJump()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                100.0,
+                false,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(500.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                100.0,
+                false,
+                Vector3d.zero,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-jump-reset", reason);
+            Assert.Equal(500.0, delta, 3);
+            AssertVectorClose(new Vector3d(500.0, 0.0, 0.0), applied, 0.0001);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(500.0, 0.0, 0.0), state.currentPosition, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_ResetsAcrossFloatingOriginSizedJump()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                120.78,
+                new Vector3d(-436.0, -2.0, -246.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                120.80,
+                new Vector3d(-4.0, 0.0, -3.0),
+                Quaternion.identity,
+                0.414,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-jump-reset", reason);
+            Assert.True(delta > ParsekFlight.ReFlyRenderInterpolationResetMeters);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(-4.0, 0.0, -3.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_ResetDropsPrePinHiddenTarget()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(0.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            ParsekFlight.ResetReFlyRenderInterpolationState(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(100.0, 0.0, 0.0),
+                Quaternion.identity);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(100.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.25,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("waiting-for-second-target", reason);
+            Assert.Equal(0.0, delta, 3);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(100.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_LiveRootRelativeFrameSuppressesNearRootWorldMotion()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(4.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(34.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                new Vector3d(30.0, 0.0, 0.0),
+                out Vector3d applied,
+                out Quaternion _,
+                out double delta,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("target-static", reason);
+            Assert.Equal(0.0, delta, 3);
+            Assert.True(state.liveRootRelativeFrame);
+            AssertVectorClose(new Vector3d(34.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyRenderInterpolation_FrameChangeResetsBeforeBlending()
+        {
+            var state = new ParsekFlight.ReFlyRenderInterpolationState();
+            ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.0,
+                new Vector3d(4.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                true,
+                Vector3d.zero,
+                out _,
+                out _,
+                out _,
+                out _);
+
+            bool ok = ParsekFlight.TryComputeReFlyRenderInterpolatedPose(
+                ref state,
+                null,
+                10.02,
+                new Vector3d(34.0, 0.0, 0.0),
+                Quaternion.identity,
+                0.5,
+                ParsekFlight.ReFlyRenderInterpolationResetMeters,
+                false,
+                Vector3d.zero,
+                out Vector3d applied,
+                out Quaternion _,
+                out double _,
+                out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("interpolation-frame-changed-reset", reason);
+            Assert.False(state.liveRootRelativeFrame);
+            Assert.False(state.hasPrevious);
+            AssertVectorClose(new Vector3d(34.0, 0.0, 0.0), applied, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_SessionChangeClearsFrozenOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            var alignment = new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "rec-ghost",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 2.0, 3.0),
+            };
+
+            cache.ClearIfSessionChanged("sess-1");
+            cache.Store(alignment);
+
+            Assert.True(cache.TryGet("sess-1", "rec-ghost", out ReFlyDisplayAlignment found));
+            AssertVectorClose(new Vector3d(1.0, 2.0, 3.0), found.BodyFixedOffset, 0.0001);
+
+            cache.ClearIfSessionChanged("sess-1");
+            Assert.Equal(1, cache.Count);
+
+            cache.ClearIfSessionChanged("sess-2");
+            Assert.Equal(0, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-ghost", out _));
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_StoreNewSessionClearsPriorOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-2",
+                RecordingId = "rec-b",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+            });
+
+            Assert.Equal(1, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+            Assert.True(cache.TryGet("sess-2", "rec-b", out ReFlyDisplayAlignment found));
+            AssertVectorClose(new Vector3d(2.0, 0.0, 0.0), found.BodyFixedOffset, 0.0001);
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_ScopeChangeClearsFrozenOffsets()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            Assert.True(cache.TryGet("sess-1", "rec-a", out _));
+
+            cache.ClearIfScopeChanged("sess-1", "scope-b");
+
+            Assert.Equal(0, cache.Count);
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentCache_RemoveDeletesOnlyMatchingSessionRecording()
+        {
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-a",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                RecordingId = "rec-b",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+            });
+
+            Assert.False(cache.Remove("sess-other", "rec-a"));
+            Assert.True(cache.Remove("sess-1", "rec-a"));
+            Assert.False(cache.TryGet("sess-1", "rec-a", out _));
+            Assert.True(cache.TryGet("sess-1", "rec-b", out _));
+        }
+
+        [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_UsesNearestCachedPredecessor()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "first-half",
+            };
+            tree.Recordings["first-half"] = new Recording
+            {
+                RecordingId = "first-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            tree.Recordings["middle-half"] = new Recording
+            {
+                RecordingId = "middle-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 0,
+            };
+            tree.Recordings["target-half"] = new Recording
+            {
+                RecordingId = "target-half",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 2,
+                ChainBranch = 0,
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "first-half",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 1.0,
+            });
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "middle-half",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(2.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 2.0,
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "target-half",
+                out ReFlyDisplayAlignment alignment,
+                out string inheritedFromRecordingId);
+
+            Assert.True(inherited);
+            Assert.Equal("middle-half", inheritedFromRecordingId);
+            Assert.Equal("target-half", alignment.RecordingId);
+            AssertVectorClose(new Vector3d(2.0, 0.0, 0.0), alignment.BodyFixedOffset, 0.0001);
+        }
+
+        [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_PrefersPendingTreeTopology()
+        {
+            var committed = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "committed-stale",
+            };
+            committed.Recordings["committed-stale"] = new Recording
+            {
+                RecordingId = "committed-stale",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            RecordingStore.CommittedTrees.Add(committed);
+
+            var pending = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "pending-first",
+            };
+            pending.Recordings["pending-first"] = new Recording
+            {
+                RecordingId = "pending-first",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            pending.Recordings["pending-target"] = new Recording
+            {
+                RecordingId = "pending-target",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 0,
+            };
+            RecordingStore.StashPendingTree(pending);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "pending-first",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(3.0, 0.0, 0.0),
+                InitialWorldOffsetMeters = 3.0,
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "pending-target",
+                out ReFlyDisplayAlignment alignment,
+                out string inheritedFromRecordingId);
+
+            Assert.True(inherited);
+            Assert.Equal("pending-first", inheritedFromRecordingId);
+            Assert.Equal("pending-target", alignment.RecordingId);
+            AssertVectorClose(new Vector3d(3.0, 0.0, 0.0), alignment.BodyFixedOffset, 0.0001);
+        }
+
+        [Fact]
+        public void TryInheritReFlyDisplayAlignmentForChainSuccessor_DifferentBranchIgnored()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "tree-1",
+                RootRecordingId = "first-half",
+            };
+            tree.Recordings["branch-0"] = new Recording
+            {
+                RecordingId = "branch-0",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ChainBranch = 0,
+            };
+            tree.Recordings["branch-1-target"] = new Recording
+            {
+                RecordingId = "branch-1-target",
+                TreeId = "tree-1",
+                ChainId = "chain-A",
+                ChainIndex = 1,
+                ChainBranch = 1,
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var cache = new ReFlyDisplayAlignmentCache();
+            cache.ClearIfScopeChanged("sess-1", "scope-a");
+            cache.Store(new ReFlyDisplayAlignment
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                RecordingId = "branch-0",
+                BodyName = "Kerbin",
+                BodyFixedOffset = new Vector3d(1.0, 0.0, 0.0),
+            });
+
+            bool inherited = ParsekFlight.TryInheritReFlyDisplayAlignmentForChainSuccessor(
+                cache,
+                new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    TreeId = "tree-1",
+                    ActiveReFlyRecordingId = "active",
+                },
+                "branch-1-target",
+                out _,
+                out _);
+
+            Assert.False(inherited);
+        }
+
+        [Fact]
+        public void BuildReFlyDisplayAlignmentScopeKey_ChangesWhenRetryMarkerFieldsChange()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-1",
+                TreeId = "tree-1",
+                ActiveReFlyRecordingId = "active",
+                OriginChildRecordingId = "origin",
+                SupersedeTargetId = "target",
+                RewindPointId = "rp-a",
+                SelectedRootPartPersistentId = 123u,
+                InvokedUT = 10.0,
+            };
+
+            string first = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+            marker.RewindPointId = "rp-b";
+            string second = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+            marker.RewindPointId = "rp-a";
+            marker.InvokedUT = 11.0;
+            string third = ParsekFlight.BuildReFlyDisplayAlignmentScopeKey(marker);
+
+            Assert.NotNull(first);
+            Assert.NotEqual(first, second);
+            Assert.NotEqual(first, third);
+        }
+
+        [Fact]
+        public void IsSuspiciousReFlyDisplayAlignmentOffset_OnlyFlagsFiniteLargeOffsets()
+        {
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(double.NaN));
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(double.PositiveInfinity));
+            Assert.False(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(
+                ParsekFlight.ReFlyDisplayAlignmentSuspiciousOffsetMeters));
+            Assert.True(ParsekFlight.IsSuspiciousReFlyDisplayAlignmentOffset(
+                ParsekFlight.ReFlyDisplayAlignmentSuspiciousOffsetMeters + 0.01));
+        }
+
+        [Fact]
+        public void ReFlyDisplayAlignmentBodyMatches_RequiresSameNonEmptyBodyName()
+        {
+            Assert.True(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", "Kerbin"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", "Mun"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches(null, "Kerbin"));
+            Assert.False(ParsekFlight.ReFlyDisplayAlignmentBodyMatches("Kerbin", ""));
         }
 
         // ============================================================
@@ -872,7 +2182,7 @@ namespace Parsek.Tests
             // section without an absoluteFrames shadow (legacy v6 format
             // or upgraded recording where the shadow was never written)
             // looks plausible to a section-presence-only check but is
-            // structurally unsampleable for the per-frame anchor model.
+            // structurally unsampleable for the Re-Fly display alignment model.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -1597,6 +2907,30 @@ namespace Parsek.Tests
             return tree;
         }
 
+        private static Recording MakeReFlyAnchorSnapshotHost(
+            string recordingId,
+            string treeId,
+            string sessionId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = treeId,
+                VesselName = "Active Re-Fly",
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 10.0,
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 100.0,
+                bodyName = "Kerbin",
+            });
+            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(10.0, 200.0));
+            rec.CapturePreReFlyAnchorTrajectory(sessionId);
+            return rec;
+        }
+
         /// <summary>
         /// Builds a sampleable Absolute <see cref="TrackSection"/>: one
         /// frame at <paramref name="startUT"/> on Kerbin so
@@ -1623,6 +2957,16 @@ namespace Parsek.Tests
                     },
                 },
             };
+        }
+
+        private static void AssertVectorClose(Vector3d expected, Vector3d actual, double tolerance)
+        {
+            Assert.True(
+                Math.Abs(expected.x - actual.x) <= tolerance
+                && Math.Abs(expected.y - actual.y) <= tolerance
+                && Math.Abs(expected.z - actual.z) <= tolerance,
+                $"Expected ({expected.x:R}, {expected.y:R}, {expected.z:R}) "
+                + $"but got ({actual.x:R}, {actual.y:R}, {actual.z:R})");
         }
 
         private static ConfigNode MakeSnapshot(string name)

@@ -12595,7 +12595,8 @@ namespace Parsek.InGameTests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
             }
 
@@ -12627,7 +12628,7 @@ namespace Parsek.InGameTests
             }
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-                IPlaybackTrajectory traj, double distance, int protectedIndex)
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 return new ZoneRenderingResult();
             }
@@ -13071,7 +13072,8 @@ namespace Parsek.InGameTests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
                 RelativeCalls++;
                 if (!SetsRetireFlag || state == null)
@@ -13106,7 +13108,7 @@ namespace Parsek.InGameTests
             }
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-                IPlaybackTrajectory traj, double distance, int protectedIndex)
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 return new ZoneRenderingResult();
             }

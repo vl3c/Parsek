@@ -2,6 +2,29 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal readonly struct RelativeSectionPlaybackTarget
+    {
+        public readonly string RecordingId;
+        public readonly int SectionIndex;
+        public readonly TrackSection Section;
+        public readonly string AnchorRecordingId;
+
+        public RelativeSectionPlaybackTarget(
+            string recordingId,
+            int sectionIndex,
+            TrackSection section)
+        {
+            RecordingId = recordingId;
+            SectionIndex = sectionIndex;
+            Section = section;
+            AnchorRecordingId = string.IsNullOrWhiteSpace(section.anchorRecordingId)
+                ? null
+                : section.anchorRecordingId.Trim();
+        }
+
+        public bool HasAnchorRecordingId => !string.IsNullOrEmpty(AnchorRecordingId);
+    }
+
     /// <summary>
     /// Result of zone rendering evaluation.
     /// The engine uses this to skip positioning/events for hidden ghosts.
@@ -36,7 +59,7 @@ namespace Parsek
 
         void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx,
-            uint anchorVesselId);
+            RelativeSectionPlaybackTarget target);
 
         void PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point);
@@ -54,7 +77,7 @@ namespace Parsek
             GhostPlaybackState state, out Vector3 worldPosition);
 
         ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-            IPlaybackTrajectory traj, double distance, int protectedIndex);
+            IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex);
 
         void ClearOrbitCache();
 

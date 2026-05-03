@@ -110,6 +110,7 @@ namespace Parsek.Tests
             SetPrivateFieldFromDefaultConstructor(host, "proximityVelocitySamples");
             SetPrivateFieldFromDefaultConstructor(host, "notifiedSpawnRecordingIds");
             SetPrivateFieldFromDefaultConstructor(host, "loggedRelativeStart");
+            SetPrivateFieldFromDefaultConstructor(host, "loggedRecordedRelativeStart");
             SetPrivateFieldFromDefaultConstructor(host, "loggedAnchorNotFound");
             SetPrivateFieldFromDefaultConstructor(host, "unknownFrameTagWarned");
             return host;

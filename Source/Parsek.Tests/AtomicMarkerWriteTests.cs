@@ -400,6 +400,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AtomicMarkerWrite_StampsSelectedRootPartPidFromRewindPoint()
+        {
+            const uint kSelectedRootPartPid = 3087746488u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+            rp.RootPartPidMap[1111u] = slot.SlotIndex + 1;
+            rp.RootPartPidMap[kSelectedRootPartPid] = slot.SlotIndex;
+
+            Assert.True(RewindInvoker.TryResolveSelectedSlotRootPartPersistentId(
+                rp, slot.SlotIndex, out uint resolvedRootPartPid));
+            Assert.Equal(kSelectedRootPartPid, resolvedRootPartPid);
+            Assert.False(RewindInvoker.TryResolveSelectedSlotRootPartPersistentId(
+                rp, slot.SlotIndex + 2, out uint missingRootPartPid));
+            Assert.Equal(0u, missingRootPartPid);
+
+            RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_root_part");
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(
+                kSelectedRootPartPid,
+                scenario.ActiveReFlySessionMarker.SelectedRootPartPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Started sess=sess_root_part")
+                && l.Contains("selectedRootPartPid=" + kSelectedRootPartPid));
+        }
+
+        [Fact]
         public void ExceptionBetween_RemovesProvisional_NoLeak()
         {
             MakeScenario();

@@ -121,6 +121,8 @@ namespace Parsek
         [NonSerialized] internal List<TrajectoryPoint> PreReFlyAnchorPoints;
         [NonSerialized] internal List<OrbitSegment> PreReFlyAnchorOrbitSegments;
         [NonSerialized] internal List<TrackSection> PreReFlyAnchorTrackSections;
+        [NonSerialized] private string cachedPreReFlyAnchorRecordingSessionId;
+        [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
         [NonSerialized] internal string PreReFlyOriginalSessionId;
         [NonSerialized] internal Recording PreReFlyOriginalRecording;
 
@@ -712,6 +714,8 @@ namespace Parsek
 
         internal void CapturePreReFlyAnchorTrajectory(string sessionId)
         {
+            cachedPreReFlyAnchorRecordingSessionId = null;
+            cachedPreReFlyAnchorRecording = null;
             PreReFlyAnchorSessionId = sessionId;
             PreReFlyAnchorPoints = Points != null
                 ? new List<TrajectoryPoint>(Points)
@@ -750,6 +754,8 @@ namespace Parsek
             PreReFlyAnchorPoints = null;
             PreReFlyAnchorOrbitSegments = null;
             PreReFlyAnchorTrackSections = null;
+            cachedPreReFlyAnchorRecordingSessionId = null;
+            cachedPreReFlyAnchorRecording = null;
         }
 
         internal void CapturePreReFlyOriginalRecording(string sessionId)
@@ -789,16 +795,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds a synthetic <see cref="Recording"/> populated with the
+        /// Returns a cached synthetic <see cref="Recording"/> populated with the
         /// captured snapshot's trajectory data (Points / OrbitSegments /
         /// TrackSections) plus a minimal identity (recording id, vessel
         /// name, tree / chain refs) so callers can drive the existing
         /// trajectory codecs against the snapshot without leaking the
-        /// original recording's mutable post-trim live data.
+        /// original recording's mutable post-trim live data. The synthetic
+        /// recording is rebuilt when a new snapshot is captured or cleared;
+        /// resolver hot paths must not deep-copy the lists every frame.
         /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
         /// <see cref="SegmentEvents"/> are intentionally left at their
         /// default-empty initialisers — only position-history data matters
-        /// for the per-frame anchor sample, and emitting events from the
+        /// for the Re-Fly display alignment sample, and emitting events from the
         /// snapshot would re-fire structural events at every save. Returns
         /// null when no snapshot is captured for <paramref name="sessionId"/>.
         /// </summary>
@@ -807,7 +815,17 @@ namespace Parsek
             if (!HasPreReFlyAnchorTrajectory(sessionId))
                 return null;
 
-            return new Recording
+            if (cachedPreReFlyAnchorRecording != null
+                && string.Equals(
+                    cachedPreReFlyAnchorRecordingSessionId,
+                    sessionId,
+                    StringComparison.Ordinal))
+            {
+                return cachedPreReFlyAnchorRecording;
+            }
+
+            cachedPreReFlyAnchorRecordingSessionId = sessionId;
+            cachedPreReFlyAnchorRecording = new Recording
             {
                 RecordingId = RecordingId,
                 RecordingFormatVersion = RecordingFormatVersion,
@@ -827,6 +845,7 @@ namespace Parsek
                 ChainIndex = ChainIndex,
                 ChainBranch = ChainBranch,
             };
+            return cachedPreReFlyAnchorRecording;
         }
 
         /// <summary>

@@ -1,9 +1,53 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
 {
+    internal enum AnchorCandidateSource
+    {
+        Live,
+        Ghost
+    }
+
+    internal readonly struct RecordingAnchorCandidate
+    {
+        public readonly string RecordingId;
+        public readonly Vector3d WorldPos;
+        public readonly Quaternion WorldRotation;
+        public readonly AnchorCandidateSource Source;
+        public readonly uint DiagnosticPid;
+        public readonly int GhostIndex;
+        public readonly bool IsSealed;
+        public readonly bool IsSameReplayPoint;
+        public readonly bool IsSameVesselLineage;
+
+        public Vector3d WorldPosition => WorldPos;
+
+        public RecordingAnchorCandidate(
+            string recordingId,
+            Vector3d worldPos,
+            Quaternion worldRotation,
+            AnchorCandidateSource source,
+            uint diagnosticPid = 0u,
+            int ghostIndex = -1,
+            bool isSealed = false,
+            bool isSameReplayPoint = false,
+            bool isSameVesselLineage = false)
+        {
+            RecordingId = recordingId;
+            WorldPos = worldPos;
+            WorldRotation = worldRotation;
+            Source = source;
+            DiagnosticPid = diagnosticPid;
+            GhostIndex = ghostIndex;
+            IsSealed = isSealed;
+            IsSameReplayPoint = isSameReplayPoint;
+            IsSameVesselLineage = isSameVesselLineage;
+        }
+    }
+
     /// <summary>
     /// Detects when the focused vessel is near a pre-existing persistent vessel
     /// that could serve as a RELATIVE reference frame anchor.
@@ -62,6 +106,204 @@ namespace Parsek
             return (bestPid, bestDistance);
         }
 
+        internal static (RecordingAnchorCandidate candidate, double distance, bool found) FindNearestRecordingAnchor(
+            string focusedRecordingId,
+            uint focusedVesselPid,
+            Vector3d focusedPosition,
+            IReadOnlyList<RecordingAnchorCandidate> candidates,
+            double maxDistanceExclusive = double.MaxValue)
+        {
+            RecordingAnchorCandidate best = default;
+            double bestDistance = double.MaxValue;
+            bool found = false;
+
+            if (candidates == null || candidates.Count == 0)
+                return (best, bestDistance, false);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                RecordingAnchorCandidate candidate = candidates[i];
+                if (string.IsNullOrWhiteSpace(candidate.RecordingId))
+                    continue;
+                if (string.Equals(candidate.RecordingId, focusedRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (focusedVesselPid != 0u
+                    && candidate.DiagnosticPid != 0u
+                    && candidate.DiagnosticPid == focusedVesselPid)
+                {
+                    continue;
+                }
+
+                double distance = Vector3d.Distance(focusedPosition, candidate.WorldPos);
+                if (distance >= maxDistanceExclusive)
+                    continue;
+
+                if (!found || IsBetterRecordingAnchor(candidate, distance, best, bestDistance))
+                {
+                    best = candidate;
+                    bestDistance = distance;
+                    found = true;
+                }
+            }
+
+            if (found)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited("Anchor", "find-nearest-recording",
+                    $"FindNearestRecordingAnchor: recordingId={best.RecordingId} dist={bestDistance.ToString("F1", ic)}m " +
+                    $"focusedRecordingId={focusedRecordingId ?? "(null)"} source={best.Source} ghostIndex={best.GhostIndex} " +
+                    $"sealed={best.IsSealed} affinity={RecordingAnchorAffinityRank(best)} candidates={candidates.Count}");
+            }
+
+            return (best, bestDistance, found);
+        }
+
+        internal static bool TryCreateRecordingAnchorCandidate(
+            Recording focusRecording,
+            Recording candidateRecording,
+            Vector3d worldPos,
+            Quaternion worldRotation,
+            AnchorCandidateSource source,
+            uint diagnosticPid,
+            int ghostIndex,
+            out RecordingAnchorCandidate candidate)
+        {
+            candidate = default;
+            if (!IsRecordingAnchorEligible(focusRecording, candidateRecording))
+                return false;
+            if (!IsRecordingAnchorDAGOrderEligible(focusRecording, candidateRecording))
+                return false;
+
+            candidate = new RecordingAnchorCandidate(
+                candidateRecording.RecordingId,
+                worldPos,
+                TrajectoryMath.SanitizeQuaternion(worldRotation),
+                source,
+                diagnosticPid,
+                ghostIndex,
+                IsSealedRecordingAnchor(candidateRecording),
+                SharesReplayPoint(focusRecording, candidateRecording),
+                SharesVesselLineage(focusRecording, candidateRecording));
+            return true;
+        }
+
+        internal static bool IsRecordingAnchorEligible(
+            Recording focusRecording,
+            Recording candidateRecording)
+        {
+            if (focusRecording == null || candidateRecording == null)
+                return false;
+            if (string.IsNullOrWhiteSpace(focusRecording.RecordingId)
+                || string.IsNullOrWhiteSpace(candidateRecording.RecordingId))
+            {
+                return false;
+            }
+            if (string.Equals(
+                    focusRecording.RecordingId,
+                    candidateRecording.RecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Loop-anchored recordings still depend on live anchor PIDs by design.
+            // They are not valid roots for the non-loop recorded-anchor DAG.
+            return candidateRecording.LoopAnchorVesselId == 0u;
+        }
+
+        internal static bool IsRecordingAnchorDAGOrderEligible(
+            Recording focusRecording,
+            Recording candidateRecording)
+        {
+            if (focusRecording == null || candidateRecording == null)
+                return false;
+            if (!SameNonEmpty(focusRecording.TreeId, candidateRecording.TreeId))
+                return true;
+            if (focusRecording.TreeOrder < 0 || candidateRecording.TreeOrder < 0)
+                return false;
+
+            return candidateRecording.TreeOrder < focusRecording.TreeOrder;
+        }
+
+        internal static bool IsSealedRecordingAnchor(Recording recording)
+        {
+            return recording != null && recording.MergeState == MergeState.Immutable;
+        }
+
+        internal static bool SharesReplayPoint(Recording a, Recording b)
+        {
+            if (a == null || b == null)
+                return false;
+
+            return SameNonEmpty(a.ParentBranchPointId, b.ParentBranchPointId)
+                || SameNonEmpty(a.ParentBranchPointId, b.ChildBranchPointId)
+                || SameNonEmpty(a.ChildBranchPointId, b.ParentBranchPointId)
+                || SameNonEmpty(a.ChildBranchPointId, b.ChildBranchPointId);
+        }
+
+        internal static bool SharesVesselLineage(Recording a, Recording b)
+        {
+            if (a == null || b == null)
+                return false;
+
+            if (a.VesselPersistentId != 0u && a.VesselPersistentId == b.VesselPersistentId)
+                return true;
+            if (SameNonEmpty(a.ChainId, b.ChainId))
+                return true;
+            return SameNonEmpty(a.VesselName, b.VesselName);
+        }
+
+        private static bool IsBetterRecordingAnchor(
+            RecordingAnchorCandidate candidate,
+            double distance,
+            RecordingAnchorCandidate best,
+            double bestDistance)
+        {
+            if (candidate.IsSealed != best.IsSealed)
+                return candidate.IsSealed;
+
+            int candidateAffinity = RecordingAnchorAffinityRank(candidate);
+            int bestAffinity = RecordingAnchorAffinityRank(best);
+            if (candidateAffinity != bestAffinity)
+                return candidateAffinity > bestAffinity;
+
+            int distanceCompare = distance.CompareTo(bestDistance);
+            if (distanceCompare != 0)
+                return distanceCompare < 0;
+
+            int recordingIdCompare = string.Compare(candidate.RecordingId, best.RecordingId, StringComparison.Ordinal);
+            if (recordingIdCompare != 0)
+                return recordingIdCompare < 0;
+
+            int sourceCompare = ((int)candidate.Source).CompareTo((int)best.Source);
+            if (sourceCompare != 0)
+                return sourceCompare < 0;
+
+            return candidate.GhostIndex < best.GhostIndex;
+        }
+
+        internal static int RecordingAnchorAffinityRank(RecordingAnchorCandidate candidate)
+        {
+            int rank = 0;
+            if (candidate.IsSameReplayPoint) rank++;
+            if (candidate.IsSameVesselLineage) rank++;
+            return rank;
+        }
+
+        internal static double RelativeFrameRangeLimit(bool currentlyRelative)
+        {
+            return currentlyRelative
+                ? RelativeExitDistance
+                : RelativeEntryDistance;
+        }
+
+        private static bool SameNonEmpty(string a, string b)
+        {
+            return !string.IsNullOrEmpty(a)
+                && !string.IsNullOrEmpty(b)
+                && string.Equals(a, b, StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Determines whether the focused vessel should be in RELATIVE reference frame
         /// based on anchor detection and hysteresis.
@@ -73,7 +315,7 @@ namespace Parsek
             if (!currentlyRelative)
             {
                 // Not currently relative -- enter at physics bubble edge
-                bool enter = anchorDistance < RelativeEntryDistance;
+                bool enter = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
                 if (enter)
                 {
                     var ic = CultureInfo.InvariantCulture;
@@ -85,7 +327,7 @@ namespace Parsek
             else
             {
                 // Currently relative -- exit with hysteresis
-                bool stay = anchorDistance < RelativeExitDistance;
+                bool stay = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
                 if (!stay)
                 {
                     var ic = CultureInfo.InvariantCulture;

@@ -104,7 +104,8 @@ namespace Parsek.Tests
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx, uint anchorVesselId)
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
             {
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
@@ -142,7 +143,7 @@ namespace Parsek.Tests
             }
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-                IPlaybackTrajectory traj, double distance, int protectedIndex)
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 return new ZoneRenderingResult();
             }
@@ -288,32 +289,367 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeEndpointReturnsSectionAnchor()
+        public void TryGetCheckpointBackedOrbitEndpointUT_CheckpointSectionWithOrbitSegment_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.RecordingId = "checkpoint-orbit";
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(200.0, endpointUT);
+            Assert.Equal(0, sectionIndex);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_StaleLastPointUsesCheckpointSectionEnd()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "checkpoint-orbit-tail",
+                EndUTOverride = 340.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 321.776 },
+                },
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 321.776,
+                endUT = 340.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 321.776,
+                frames = traj.Points,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 321.776,
+                endUT = 340.0,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            double staleEndpointUT = GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj);
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                staleEndpointUT,
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(321.776, staleEndpointUT);
+            Assert.Equal(340.0, endpointUT);
+            Assert.Equal(1, sectionIndex);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_PartialCheckpointTailUsesNearestOrbitEndpoint()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "checkpoint-partial-tail",
+                EndUTOverride = 340.0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 321.776 },
+                },
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 321.776,
+                endUT = 339.75,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 321.776,
+                frames = traj.Points,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 321.776,
+                endUT = 340.0,
+                checkpoints = new List<OrbitSegment>(traj.OrbitSegments),
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
+                out double endpointUT,
+                out int sectionIndex);
+
+            Assert.True(result);
+            Assert.Equal(339.75, endpointUT);
+            Assert.Equal(1, sectionIndex);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_AbsoluteSectionReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100.0,
+                endUT = 200.0,
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                200.0,
+                out _,
+                out _);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void TryGetCheckpointBackedOrbitEndpointUT_NoOrbitSegmentReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 200.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = traj.Points,
+            });
+
+            bool result = GhostPlaybackEngine.TryGetCheckpointBackedOrbitEndpointUT(
+                traj,
+                200.0,
+                out _,
+                out _);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointInOrbitSegment_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_AtLastFlatPoint_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 158.971));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointOutsideOrbitSegment_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 200.0,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_BeforeNearPredictedSegmentStart_BridgesGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 498.168,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_BeforeDistantPredictedSegmentStart_DoesNotBridgeGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 499.0,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_DestroyedTailBridgesFinalizerGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 687.58);
+            traj.EndUTOverride = 1683.91;
+            traj.TerminalStateValue = TerminalState.Destroyed;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 690.40,
+                endUT = 1683.91,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 689.74));
+        }
+
+        [Fact]
+        public void TryFindOrbitTailPlaybackSegment_ReturnsSegmentIndexForBridge()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 450.0,
+                endUT = 470.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 690000.0,
+                isPredicted = false,
+            });
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 498.168,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            bool found = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                traj, 497.98, out OrbitSegment segment, out int segmentIndex);
+
+            Assert.True(found);
+            Assert.Equal(1, segmentIndex);
+            Assert.Equal(498.168, segment.startUT, 3);
+        }
+
+        [Fact]
+        public void ShouldPrimeSinglePointGhostFromOrbit_UsesOrbitTailGate()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 158.971, bodyName = "Kerbin" },
+                },
+                EndUTOverride = 1971.0,
+            };
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 158.971));
+            Assert.True(GhostPlaybackEngine.ShouldPrimeSinglePointGhostFromOrbit(traj, 161.482));
+        }
+
+        [Fact]
+        public void TryGetRelativeSectionAtUT_RelativeEndpointReturnsSectionTarget()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "focus-rec";
+            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100.0,
                 endUT = 110.0,
-                anchorVesselId = 42u,
+                anchorRecordingId = "anchor-rec",
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
                 traj,
                 GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
-                out uint anchorPid);
+                out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(42u, anchorPid);
+            Assert.Equal("focus-rec", target.RecordingId);
+            Assert.Equal(0, target.SectionIndex);
+            Assert.Equal("anchor-rec", target.AnchorRecordingId);
+            Assert.True(target.HasAnchorRecordingId);
+            Assert.Equal(ReferenceFrame.Relative, target.Section.referenceFrame);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_SinglePointRelativeEndpointStillRoutesRelative()
+        public void TryGetRelativeSectionAtUT_SinglePointRelativeEndpointStillRoutesRelative()
         {
             var traj = new MockTrajectory
             {
+                RecordingId = "focus-single",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 110.0 },
@@ -324,23 +660,26 @@ namespace Parsek.Tests
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100.0,
                 endUT = 110.0,
-                anchorVesselId = 3151978247u,
+                anchorRecordingId = "anchor-single",
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
                 traj,
                 GhostPlaybackEngine.ResolveRecordingEndpointPlaybackUT(traj),
-                out uint anchorPid);
+                out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(3151978247u, anchorPid);
+            Assert.Equal("anchor-single", target.AnchorRecordingId);
+            Assert.Equal(0, target.SectionIndex);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionFallsBackToLoopAnchor()
+        public void TryGetRelativeSectionAtUT_MissingV11AnchorDoesNotSynthesizeLoopAnchor()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "focus-missing";
+            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
             traj.LoopAnchorVesselId = 77u;
             traj.TrackSections.Add(new TrackSection
             {
@@ -351,17 +690,25 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(77u, anchorPid);
+            Assert.False(target.HasAnchorRecordingId);
+            Assert.Null(target.AnchorRecordingId);
+            Assert.Equal(0, target.SectionIndex);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RELATIVE v11 section missing anchorRecordingId")
+                && l.Contains("recordingId=focus-missing"));
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_RelativeSectionWithNoAnchorStillRoutesRelative()
+        public void TryGetRelativeSectionAtUT_LegacyMissingAnchorStillRoutesButDoesNotInventPid()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "legacy-focus";
+            traj.RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -371,15 +718,16 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.True(result);
-            Assert.Equal(0u, anchorPid);
+            Assert.False(target.HasAnchorRecordingId);
+            Assert.Equal(0u, target.Section.anchorVesselId);
         }
 
         [Fact]
-        public void TryGetRelativeSectionAnchorAtUT_AbsoluteEndpointReturnsFalse()
+        public void TryGetRelativeSectionAtUT_AbsoluteEndpointReturnsFalse()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.TrackSections.Add(new TrackSection
@@ -390,11 +738,23 @@ namespace Parsek.Tests
                 frames = traj.Points,
             });
 
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAnchorAtUT(
-                traj, 110.0, out uint anchorPid);
+            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
+                traj, 110.0, out RelativeSectionPlaybackTarget target);
 
             Assert.False(result);
-            Assert.Equal(0u, anchorPid);
+            Assert.Equal(default(RelativeSectionPlaybackTarget), target);
+        }
+
+        [Fact]
+        public void InterpolateAndPositionRelativeContract_UsesRelativeSectionPlaybackTarget()
+        {
+            MethodInfo method = typeof(IGhostPositioner).GetMethod(
+                nameof(IGhostPositioner.InterpolateAndPositionRelative));
+
+            Assert.NotNull(method);
+            ParameterInfo[] parameters = method.GetParameters();
+            Assert.Equal(typeof(RelativeSectionPlaybackTarget), parameters.Last().ParameterType);
+            Assert.DoesNotContain(parameters, p => p.ParameterType == typeof(uint));
         }
 
         #endregion
@@ -1839,6 +2199,84 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolvePendingPlaybackInterpolation_RelativeSection_UsesAbsoluteShadowMetadata()
+        {
+            logLines.Clear();
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    latitude = 12,
+                    longitude = -4,
+                    altitude = -0.5,
+                    velocity = new Vector3(1f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110,
+                    bodyName = "Kerbin",
+                    latitude = 18,
+                    longitude = -7,
+                    altitude = 0.5,
+                    velocity = new Vector3(3f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var absoluteShadowFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    altitude = 62000,
+                    velocity = new Vector3(20f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110,
+                    bodyName = "Kerbin",
+                    altitude = 64000,
+                    velocity = new Vector3(40f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var traj = new MockTrajectory
+            {
+                VesselName = "RelativeSpawnGhost",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100,
+                        endUT = 110,
+                        frames = relativeFrames,
+                        absoluteFrames = absoluteShadowFrames
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(63000.0, result.altitude);
+            Assert.Equal(new Vector3(30f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RelativeSpawnGhost")
+                && l.Contains("relative absolute shadow point interpolation")
+                && l.Contains("altitude=63000.0"));
+        }
+
+        [Fact]
         public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SkipsOrbitSegmentPrecedence()
         {
             logLines.Clear();
@@ -2135,6 +2573,61 @@ namespace Parsek.Tests
             var engine = new GhostPlaybackEngine(null);
             GhostPlaybackState result;
             Assert.False(engine.TryGetGhostState(99, out result));
+        }
+
+        [Fact]
+        public void GetActiveAnchorCandidates_FiltersMissingRecordingIdsAndCarriesPositionedFlag()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[0] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[1] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[2] = new GhostPlaybackState { positionedThisFrame = false };
+            engine.ghostStates[3] = null;
+            engine.ghostStates[4] = new GhostPlaybackState { positionedThisFrame = true };
+            engine.ghostStates[5] = new GhostPlaybackState { positionedThisFrame = true };
+
+            var trajectories = new List<IPlaybackTrajectory>
+            {
+                new MockTrajectory { RecordingId = "rec-0" },
+                new MockTrajectory { RecordingId = null },
+                new MockTrajectory { RecordingId = "rec-2" },
+                new MockTrajectory { RecordingId = "rec-3" },
+                new MockTrajectory { RecordingId = string.Empty },
+            };
+
+            var candidates = engine.GetActiveAnchorCandidates(trajectories)
+                .OrderBy(c => c.Index)
+                .ToList();
+
+            Assert.Equal(2, candidates.Count);
+            Assert.Equal(0, candidates[0].Index);
+            Assert.Equal("rec-0", candidates[0].RecordingId);
+            Assert.True(candidates[0].PositionedThisFrame);
+            Assert.Equal(2, candidates[1].Index);
+            Assert.Equal("rec-2", candidates[1].RecordingId);
+            Assert.False(candidates[1].PositionedThisFrame);
+            Assert.Empty(engine.GetActiveAnchorCandidates(null));
+        }
+
+        [Fact]
+        public void PositionedThisFrame_ClearsAtFrameStartAndMarksAfterPositionSeam()
+        {
+            var engine = new GhostPlaybackEngine(null);
+            engine.ghostStates[1] = new GhostPlaybackState { positionedThisFrame = true };
+            var trajectories = new List<IPlaybackTrajectory>
+            {
+                new MockTrajectory { RecordingId = "unused" },
+                new MockTrajectory { RecordingId = "rec-1" },
+            };
+
+            Assert.True(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+
+            engine.ResetPerFrameCountersForTesting();
+            Assert.False(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+
+            Assert.True(engine.MarkGhostPositionedThisFrameForTesting(1));
+            Assert.True(engine.GetActiveAnchorCandidates(trajectories).Single().PositionedThisFrame);
+            Assert.False(engine.MarkGhostPositionedThisFrameForTesting(99));
         }
 
         [Fact]
@@ -2486,6 +2979,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotRewindOrdinaryFrameAfterActivation()
+        {
+            var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 218.01);
+
+            Assert.Equal(218.01, visibleUT, 2);
+        }
+
+        [Fact]
         public void ResolveVisiblePlaybackUT_DoesNotRewindReshownGhost()
         {
             var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
@@ -2498,6 +3006,270 @@ namespace Parsek.Tests
             double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 217.98);
 
             Assert.Equal(217.98, visibleUT, 2);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_FreshRelativeStartWithinWindow_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_AfterWindowOrAbsolute_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.20));
+
+            TrackSection section = traj.TrackSections[0];
+            section.referenceFrame = ReferenceFrame.Absolute;
+            traj.TrackSections[0] = section;
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteBridgeActivationHidden_FreshSeedBridge_ReturnsTrueUntilBridgeEnd()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.52,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.25));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.53));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteBridgeActivationHidden_OrdinaryAbsoluteSection_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.52,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_HoldsUntilRelativeStart()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.30,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.18, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.30, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.30,
+                endUT = 100.32,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.30, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.32, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.32,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.25));
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.32));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.33));
+
+            state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("absolute-primer-to-relative", reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_LongAbsoluteRun_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 101.50,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 101.50, bodyName = "Kerbin" }
+                },
+            });
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 101.50,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_HoldsFreshAbsoluteForMinimumFrames()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string firstReason));
+            Assert.Equal("activation-settle", firstReason);
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.26, out string secondReason));
+            Assert.Equal("minimum-frames", secondReason);
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.27, out string finalReason));
+            Assert.Null(finalReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHiddenThisFrame_HoldsMinimumFramesAfterUtWindow()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.04));
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.20));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.21));
+        }
+
+        [Fact]
+        public void ResolvePredictedOrbitTailContinuityBlendSeconds_CoversFinalizerGap()
+        {
+            Assert.Equal(5.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 687.58, segmentStartUT: 690.40), precision: 3);
+            Assert.Equal(7.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 100.0, segmentStartUT: 105.0), precision: 3);
+            Assert.Equal(10.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 100.0, segmentStartUT: 120.0), precision: 3);
+        }
+
+        [Fact]
+        public void ResolvePredictedOrbitTailContinuityWeight_EasesFromLastPointToOrbit()
+        {
+            Assert.Equal(1.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 100.0, blendSeconds: 10.0), precision: 3);
+            Assert.Equal(0.5, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 105.0, blendSeconds: 10.0), precision: 3);
+            Assert.Equal(0.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 110.0, blendSeconds: 10.0), precision: 3);
         }
 
         [Fact]

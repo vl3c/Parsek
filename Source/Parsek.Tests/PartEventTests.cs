@@ -2689,6 +2689,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CheckEngineTransition_NotSeededZeroThrottle_SkipsIgnitedEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            var events = new List<PartEvent>();
+
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0f, active, throttles, 200.0, events);
+
+            Assert.Empty(events);
+            Assert.DoesNotContain(key, active);
+            Assert.False(throttles.ContainsKey(key));
+        }
+
+        [Fact]
+        public void CheckEngineTransition_ZeroThrottleSkip_AllowsLaterPositiveIgnition()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            var events = new List<PartEvent>();
+
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0f, active, throttles, 200.0, events);
+            FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.25f, active, throttles, 201.0, events);
+
+            var evt = Assert.Single(events);
+            Assert.Equal(PartEventType.EngineIgnited, evt.eventType);
+            Assert.Equal(0.25f, evt.value);
+            Assert.Contains(key, active);
+            Assert.Equal(0.25f, throttles[key]);
+        }
+
+        [Fact]
         public void CheckLightTransition_AlreadySeeded_NoEvent()
         {
             var seeded = new HashSet<uint> { 200 };

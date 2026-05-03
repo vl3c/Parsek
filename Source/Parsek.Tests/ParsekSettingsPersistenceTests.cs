@@ -36,6 +36,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetStoredGhostRenderTracing_DefaultsNull()
+        {
+            Assert.Null(ParsekSettingsPersistence.GetStoredGhostRenderTracing());
+        }
+
+        [Fact]
         public void SetStoredReadableSidecarMirrors_RoundTrips()
         {
             ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
@@ -43,14 +49,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SetStoredGhostRenderTracing_RoundTrips()
+        {
+            ParsekSettingsPersistence.SetStoredGhostRenderTracingForTesting(true);
+            Assert.True(ParsekSettingsPersistence.GetStoredGhostRenderTracing().Value);
+        }
+
+        [Fact]
+        public void RecordGhostRenderTracing_UpdatesInMemoryStore()
+        {
+            ParsekSettingsPersistence.RecordGhostRenderTracing(true);
+
+            Assert.True(ParsekSettingsPersistence.GetStoredGhostRenderTracing().Value);
+        }
+
+        [Fact]
         public void ResetForTesting_ClearsStoredValue()
         {
             ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(false);
+            ParsekSettingsPersistence.SetStoredGhostRenderTracingForTesting(true);
             ParsekSettingsPersistence.ResetForTesting();
             Assert.Null(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors());
+            Assert.Null(ParsekSettingsPersistence.GetStoredGhostRenderTracing());
         }
 
-        // Tests for ApplyTo that touch ParsekSettings.Current
+        [Fact]
+        public void ApplyTo_RestoresStoredGhostRenderTracing()
+        {
+            ParsekSettingsPersistence.SetStoredGhostRenderTracingForTesting(true);
+            var settings = new ParsekSettings { ghostRenderTracing = false };
+
+            ParsekSettingsPersistence.ApplyTo(settings);
+
+            Assert.True(settings.ghostRenderTracing);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SettingsStore]")
+                && l.Contains("Restored ghostRenderTracing False -> True"));
+        }
+
+        // Tests for ApplyTo paths that touch ParsekSettings.Current
         // or hit disk are deliberately omitted — ParsekSettings.Current requires a live
         // HighLogic.CurrentGame (Unity/KSP runtime), and Save() writes to GameData which
         // isn't present in CI. The store's pure state transitions above cover the
