@@ -30,12 +30,27 @@ namespace Parsek
         public double subSurfaceDestroyedThreshold;
     }
 
+    internal struct PredictedTailReseedDiagnostics
+    {
+        public bool Applied;
+        public int SegmentIndex;
+        public double AnchorUT;
+        public string AnchorSource;
+        public double GapSeconds;
+        public double OriginalStartUT;
+        public double NewStartUT;
+        public double RawOffsetMeters;
+        public double ResidualOffsetMeters;
+        public string Reason;
+    }
+
     internal static class IncompleteBallisticSceneExitFinalizer
     {
         // This is not a sampling-cadence tolerance. It only admits the "fresh split"
         // signature where the first authored sample and live fallback state land on
         // effectively the same physics moment.
         private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
+        private const double PredictedTailReseedAnchorMaxGapSeconds = 5.0;
 
         private static bool? flightGlobalsRuntimeAvailableForTesting;
         internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
@@ -50,6 +65,13 @@ namespace Parsek
         internal delegate ExtrapolationResult ExtrapolateProvider(
             BallisticStateVector startState,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies);
+        internal delegate bool TryBuildReseededPredictedTailSegmentProvider(
+            TrajectoryPoint anchorPoint,
+            OrbitSegment originalSegment,
+            out OrbitSegment reseededSegment,
+            out double rawOffsetMeters,
+            out double residualOffsetMeters,
+            out string reason);
 
         internal static TryFinalizeDelegate TryFinalizeHook;
         internal static TryFinalizeDelegate TryFinalizeOverrideForTesting;
@@ -388,6 +410,38 @@ namespace Parsek
             if (snapshot.Segments != null && snapshot.Segments.Count > 0)
             {
                 appendedSegments.AddRange(snapshot.Segments);
+                if (TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                        recording,
+                        appendedSegments,
+                        TryBuildReseededPredictedTailSegmentFromRecordedAnchor,
+                        out PredictedTailReseedDiagnostics reseedDiagnostics))
+                {
+                    ParsekLog.Info("Extrapolator",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Predicted orbit-tail reseeded: rec={0} segmentIndex={1} anchorUT={2:F3} " +
+                            "source={3} gap={4:F3}s originalStartUT={5:F3} newStartUT={6:F3} " +
+                            "rawMeters={7:F2} residualMeters={8:F2}",
+                            recordingId,
+                            reseedDiagnostics.SegmentIndex,
+                            reseedDiagnostics.AnchorUT,
+                            reseedDiagnostics.AnchorSource ?? "(unknown)",
+                            reseedDiagnostics.GapSeconds,
+                            reseedDiagnostics.OriginalStartUT,
+                            reseedDiagnostics.NewStartUT,
+                            reseedDiagnostics.RawOffsetMeters,
+                            reseedDiagnostics.ResidualOffsetMeters));
+                }
+                else
+                {
+                    ParsekLog.Verbose("Extrapolator",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Predicted orbit-tail reseed skipped: rec={0} reason={1}",
+                            recordingId,
+                            reseedDiagnostics.Reason ?? "(unknown)"));
+                }
+
                 SeedPredictedSegmentOrbitalFrameRotations(
                     recordingId,
                     appendedSegments,
@@ -743,6 +797,353 @@ namespace Parsek
                     nearestSource = source;
                 }
             }
+        }
+
+        internal static bool TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+            Recording recording,
+            IList<OrbitSegment> appendedSegments,
+            TryBuildReseededPredictedTailSegmentProvider buildReseededSegment,
+            out PredictedTailReseedDiagnostics diagnostics)
+        {
+            diagnostics = new PredictedTailReseedDiagnostics
+            {
+                SegmentIndex = -1,
+                Reason = "not-evaluated",
+                RawOffsetMeters = double.NaN,
+                ResidualOffsetMeters = double.NaN,
+                AnchorUT = double.NaN,
+                GapSeconds = double.NaN,
+                OriginalStartUT = double.NaN,
+                NewStartUT = double.NaN
+            };
+
+            if (recording == null)
+            {
+                diagnostics.Reason = "recording-missing";
+                return false;
+            }
+            if (appendedSegments == null || appendedSegments.Count == 0)
+            {
+                diagnostics.Reason = "segments-missing";
+                return false;
+            }
+            if (buildReseededSegment == null)
+            {
+                diagnostics.Reason = "builder-missing";
+                return false;
+            }
+
+            int segmentIndex = -1;
+            OrbitSegment originalSegment = default(OrbitSegment);
+            for (int i = 0; i < appendedSegments.Count; i++)
+            {
+                OrbitSegment candidate = appendedSegments[i];
+                if (!candidate.isPredicted)
+                    continue;
+                if (candidate.endUT <= candidate.startUT)
+                    continue;
+
+                segmentIndex = i;
+                originalSegment = candidate;
+                break;
+            }
+            if (segmentIndex < 0)
+            {
+                diagnostics.Reason = "predicted-segment-missing";
+                return false;
+            }
+
+            diagnostics.SegmentIndex = segmentIndex;
+            diagnostics.OriginalStartUT = originalSegment.startUT;
+            if (!TryFindRecordedPredictedTailAnchorPoint(
+                    recording,
+                    originalSegment,
+                    PredictedTailReseedAnchorMaxGapSeconds,
+                    out TrajectoryPoint anchorPoint,
+                    out string anchorSource,
+                    out double gapSeconds))
+            {
+                diagnostics.Reason = "anchor-point-missing";
+                return false;
+            }
+
+            diagnostics.AnchorUT = anchorPoint.ut;
+            diagnostics.AnchorSource = anchorSource;
+            diagnostics.GapSeconds = gapSeconds;
+            if (!buildReseededSegment(
+                    anchorPoint,
+                    originalSegment,
+                    out OrbitSegment reseededSegment,
+                    out double rawOffsetMeters,
+                    out double residualOffsetMeters,
+                    out string buildReason))
+            {
+                diagnostics.Reason = "builder-" + (buildReason ?? "failed");
+                return false;
+            }
+
+            reseededSegment.startUT = anchorPoint.ut;
+            reseededSegment.endUT = originalSegment.endUT;
+            reseededSegment.bodyName = !string.IsNullOrEmpty(originalSegment.bodyName)
+                ? originalSegment.bodyName
+                : anchorPoint.bodyName;
+            reseededSegment.isPredicted = true;
+            reseededSegment.angularVelocity = originalSegment.angularVelocity;
+
+            if (reseededSegment.endUT <= reseededSegment.startUT)
+            {
+                diagnostics.Reason = "reseeded-segment-empty";
+                return false;
+            }
+            if (!IsFiniteOrbitElements(reseededSegment))
+            {
+                diagnostics.Reason = "reseeded-elements-non-finite";
+                return false;
+            }
+
+            appendedSegments[segmentIndex] = reseededSegment;
+            diagnostics.Applied = true;
+            diagnostics.NewStartUT = reseededSegment.startUT;
+            diagnostics.RawOffsetMeters = rawOffsetMeters;
+            diagnostics.ResidualOffsetMeters = residualOffsetMeters;
+            diagnostics.Reason = "applied";
+            return true;
+        }
+
+        internal static bool TryFindRecordedPredictedTailAnchorPoint(
+            Recording recording,
+            OrbitSegment segment,
+            double maxGapSeconds,
+            out TrajectoryPoint anchorPoint,
+            out string anchorSource,
+            out double gapSeconds)
+        {
+            anchorPoint = default(TrajectoryPoint);
+            anchorSource = null;
+            gapSeconds = double.NaN;
+            if (recording == null || segment.endUT <= segment.startUT)
+                return false;
+
+            bool found = false;
+            double bestUT = double.NegativeInfinity;
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < recording.TrackSections.Count; i++)
+                {
+                    TrackSection section = recording.TrackSections[i];
+                    if (section.referenceFrame == ReferenceFrame.Absolute)
+                    {
+                        InspectPredictedTailAnchorCandidates(
+                            section.frames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].frames",
+                            segment,
+                            maxGapSeconds,
+                            ref found,
+                            ref bestUT,
+                            ref anchorPoint,
+                            ref anchorSource,
+                            ref gapSeconds);
+                    }
+                    else if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        InspectPredictedTailAnchorCandidates(
+                            section.absoluteFrames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].absoluteFrames",
+                            segment,
+                            maxGapSeconds,
+                            ref found,
+                            ref bestUT,
+                            ref anchorPoint,
+                            ref anchorSource,
+                            ref gapSeconds);
+                    }
+                }
+            }
+            else
+            {
+                InspectPredictedTailAnchorCandidates(
+                    recording.Points,
+                    "Points",
+                    segment,
+                    maxGapSeconds,
+                    ref found,
+                    ref bestUT,
+                    ref anchorPoint,
+                    ref anchorSource,
+                    ref gapSeconds);
+            }
+
+            return found;
+        }
+
+        private static void InspectPredictedTailAnchorCandidates(
+            IList<TrajectoryPoint> points,
+            string source,
+            OrbitSegment segment,
+            double maxGapSeconds,
+            ref bool found,
+            ref double bestUT,
+            ref TrajectoryPoint anchorPoint,
+            ref string anchorSource,
+            ref double gapSeconds)
+        {
+            if (points == null || points.Count == 0)
+                return;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                TrajectoryPoint point = points[i];
+                if (!IsFiniteRecordedTailAnchor(point))
+                    continue;
+                if (!string.IsNullOrEmpty(segment.bodyName)
+                    && !string.IsNullOrEmpty(point.bodyName)
+                    && !string.Equals(segment.bodyName, point.bodyName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                double gap = segment.startUT - point.ut;
+                if (gap < -1e-6 || gap > maxGapSeconds + 1e-6)
+                    continue;
+                if (found && point.ut <= bestUT)
+                    continue;
+
+                found = true;
+                bestUT = point.ut;
+                anchorPoint = point;
+                anchorSource = source;
+                gapSeconds = Math.Max(0.0, gap);
+            }
+        }
+
+        private static bool IsFiniteRecordedTailAnchor(TrajectoryPoint point)
+        {
+            return IsFinite(point.ut)
+                && IsFinite(point.latitude)
+                && IsFinite(point.longitude)
+                && IsFinite(point.altitude)
+                && IsFinite(new Vector3d(
+                    point.velocity.x,
+                    point.velocity.y,
+                    point.velocity.z));
+        }
+
+        private static bool TryBuildReseededPredictedTailSegmentFromRecordedAnchor(
+            TrajectoryPoint anchorPoint,
+            OrbitSegment originalSegment,
+            out OrbitSegment reseededSegment,
+            out double rawOffsetMeters,
+            out double residualOffsetMeters,
+            out string reason)
+        {
+            reseededSegment = default(OrbitSegment);
+            rawOffsetMeters = double.NaN;
+            residualOffsetMeters = double.NaN;
+            reason = null;
+
+            string bodyName = !string.IsNullOrEmpty(originalSegment.bodyName)
+                ? originalSegment.bodyName
+                : anchorPoint.bodyName;
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                reason = "body-missing";
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+            if (body == null)
+            {
+                reason = "body-unresolved";
+                return false;
+            }
+
+            try
+            {
+                Vector3d anchorWorld = body.GetWorldSurfacePosition(
+                    anchorPoint.latitude,
+                    anchorPoint.longitude,
+                    anchorPoint.altitude);
+                Vector3d anchorVelocity = new Vector3d(
+                    anchorPoint.velocity.x,
+                    anchorPoint.velocity.y,
+                    anchorPoint.velocity.z);
+                if (!IsFinite(anchorWorld) || !IsFinite(anchorVelocity))
+                {
+                    reason = "anchor-state-non-finite";
+                    return false;
+                }
+
+                Orbit originalOrbit = new Orbit(
+                    originalSegment.inclination,
+                    originalSegment.eccentricity,
+                    originalSegment.semiMajorAxis,
+                    originalSegment.longitudeOfAscendingNode,
+                    originalSegment.argumentOfPeriapsis,
+                    originalSegment.meanAnomalyAtEpoch,
+                    originalSegment.epoch,
+                    body);
+                Vector3d originalWorld = originalOrbit.getPositionAtUT(anchorPoint.ut);
+                if (IsFinite(originalWorld))
+                    rawOffsetMeters = Magnitude(anchorWorld - originalWorld);
+
+                Orbit reseededOrbit = new Orbit();
+                reseededOrbit.UpdateFromStateVectors(
+                    anchorWorld,
+                    anchorVelocity,
+                    body,
+                    anchorPoint.ut);
+
+                reseededSegment = originalSegment;
+                reseededSegment.inclination = reseededOrbit.inclination;
+                reseededSegment.eccentricity = reseededOrbit.eccentricity;
+                reseededSegment.semiMajorAxis = reseededOrbit.semiMajorAxis;
+                reseededSegment.longitudeOfAscendingNode = reseededOrbit.LAN;
+                reseededSegment.argumentOfPeriapsis = reseededOrbit.argumentOfPeriapsis;
+                reseededSegment.meanAnomalyAtEpoch = reseededOrbit.meanAnomalyAtEpoch;
+                reseededSegment.epoch = reseededOrbit.epoch;
+                reseededSegment.bodyName = body.name;
+                reseededSegment.isPredicted = true;
+
+                if (!IsFiniteOrbitElements(reseededSegment))
+                {
+                    reason = "orbit-elements-non-finite";
+                    return false;
+                }
+
+                Orbit residualOrbit = new Orbit(
+                    reseededSegment.inclination,
+                    reseededSegment.eccentricity,
+                    reseededSegment.semiMajorAxis,
+                    reseededSegment.longitudeOfAscendingNode,
+                    reseededSegment.argumentOfPeriapsis,
+                    reseededSegment.meanAnomalyAtEpoch,
+                    reseededSegment.epoch,
+                    body);
+                Vector3d residualWorld = residualOrbit.getPositionAtUT(anchorPoint.ut);
+                if (IsFinite(residualWorld))
+                    residualOffsetMeters = Magnitude(anchorWorld - residualWorld);
+
+                reason = "applied";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reason = ex.GetType().Name;
+                return false;
+            }
+        }
+
+        private static bool IsFiniteOrbitElements(OrbitSegment segment)
+        {
+            return IsFinite(segment.startUT)
+                && IsFinite(segment.endUT)
+                && IsFinite(segment.inclination)
+                && IsFinite(segment.eccentricity)
+                && IsFinite(segment.semiMajorAxis)
+                && IsFinite(segment.longitudeOfAscendingNode)
+                && IsFinite(segment.argumentOfPeriapsis)
+                && IsFinite(segment.meanAnomalyAtEpoch)
+                && IsFinite(segment.epoch);
         }
 
         private static void PopulateSubSurfaceDestroyedDetails(

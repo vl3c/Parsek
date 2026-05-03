@@ -3055,6 +3055,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialAbsoluteBridgeActivationHidden_FreshSeedBridge_ReturnsTrueUntilBridgeEnd()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.52,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.25));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.53));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialAbsoluteBridgeActivationHidden_OrdinaryAbsoluteSection_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 100.52,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
         public void ShouldHoldInitialRelativeActivationHiddenThisFrame_HoldsMinimumFramesAfterUtWindow()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);

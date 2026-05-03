@@ -2101,7 +2101,7 @@ namespace Parsek
             state.liveRootRelativeFrame = useLiveRootRelativeFrame;
         }
 
-        private void ClearReFlyRenderInterpolationStateForGhostPartPin(
+        private void LogReFlyRenderInterpolationStatePreservedForGhostPartPin(
             GameObject ghost,
             string recordingId,
             double currentUT,
@@ -2111,16 +2111,16 @@ namespace Parsek
                 return;
 
             int ghostId = ghost.GetInstanceID();
-            bool removed = reFlyRenderInterpolationStates.Remove(ghostId);
+            bool hasPriorState = reFlyRenderInterpolationStates.ContainsKey(ghostId);
             ParsekLog.Info(
                 "Playback",
-                "Re-Fly render interpolation reset: rec=" + ShortRecordingId(recordingId)
+                "Re-Fly render interpolation preserved: rec=" + ShortRecordingId(recordingId)
                 + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
                 + " ghostId=" + ghostId.ToString(CultureInfo.InvariantCulture)
-                + " removedPriorState=" + (removed ? "true" : "false")
+                + " hasPriorState=" + (hasPriorState ? "true" : "false")
                 + " pinDelta=" + FormatVector3d(pinDelta)
                 + " pinMeters=" + pinDelta.magnitude.ToString("F2", CultureInfo.InvariantCulture)
-                + " reason=initial-ghost-part-pin");
+                + " reason=initial-ghost-part-pin-smoothed");
         }
 
         private static Vector3d LerpVector3d(Vector3d a, Vector3d b, double t)
@@ -20645,8 +20645,7 @@ namespace Parsek
             cache.Store(alignment);
             reFlyTreeOffset += pinDelta;
             hasReFlyTreeOffset = true;
-            ghost.transform.position = (Vector3d)ghost.transform.position + pinDelta;
-            ClearReFlyRenderInterpolationStateForGhostPartPin(ghost, recordingId, currentUT, pinDelta);
+            LogReFlyRenderInterpolationStatePreservedForGhostPartPin(ghost, recordingId, currentUT, pinDelta);
             reason = "applied";
 
             if (pinMeters > ReFlyGhostPartPinSuspiciousOffsetMeters)
@@ -20679,7 +20678,7 @@ namespace Parsek
                 + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
                 + " previousOffset=" + FormatVector3d(previousOffset)
                 + " updatedOffset=" + FormatVector3d(reFlyTreeOffset)
-                + " mode=initial-ghost-part-pin"
+                + " mode=initial-ghost-part-pin-smoothed"
                 + " contract=ghost_anchor_part_world(t0)=live_selected_root_part_world(t0), then frozen_body_fixed_offset");
             return true;
         }

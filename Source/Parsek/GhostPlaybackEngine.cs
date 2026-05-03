@@ -1155,9 +1155,10 @@ namespace Parsek
             else
             {
                 bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                bool initialRelativeActivationHidden = ShouldHoldInitialRelativeActivationHiddenThisFrame(
-                    traj, state, visiblePlaybackUT);
-                if (initialRelativeActivationHidden)
+                string initialActivationHiddenReason;
+                bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                    traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+                if (initialActivationHidden)
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
                         state.ghost.SetActive(false);
@@ -1171,12 +1172,14 @@ namespace Parsek
                         "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
                         "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
                         + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
-                        + "reason=relative-start "
+                        + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
                         + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
                         + " activationStart="
                         + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
                         + " relativeWindow="
                         + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s absoluteBridgeMax="
+                        + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s minFrames="
                         + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
@@ -4257,7 +4260,8 @@ namespace Parsek
             }
             else
             {
-                if (ShouldHoldInitialRelativeActivationHiddenThisFrame(traj, state, playbackUT))
+                if (ShouldHoldInitialActivationHiddenThisFrame(
+                        traj, state, playbackUT, out string _))
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
                         state.ghost.SetActive(false);
@@ -4501,14 +4505,8 @@ namespace Parsek
         internal static bool ShouldHoldInitialRelativeActivationHidden(
             IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
-            if (traj == null || state == null)
+            if (!CanEvaluateInitialActivationHidden(traj, state))
                 return false;
-            if (!state.deferVisibilityUntilPlaybackSync
-                || state.externalActivationDeferred
-                || state.appearanceCount != 0)
-            {
-                return false;
-            }
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
@@ -4530,14 +4528,91 @@ namespace Parsek
                 && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
         }
 
-        internal static bool ShouldHoldInitialRelativeActivationHiddenThisFrame(
+        private static bool CanEvaluateInitialActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            return traj != null
+                && state != null
+                && state.deferVisibilityUntilPlaybackSync
+                && !state.externalActivationDeferred
+                && state.appearanceCount == 0;
+        }
+
+        internal static bool ShouldHoldInitialAbsoluteBridgeActivationHidden(
             IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            return TryResolveInitialAbsoluteBridgeActivationEndUT(
+                    traj,
+                    out double activationStartUT,
+                    out double bridgeEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT <= bridgeEndUT + 1e-6;
+        }
+
+        private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
+            IPlaybackTrajectory traj,
+            out double activationStartUT,
+            out double bridgeEndUT)
+        {
+            activationStartUT = double.NaN;
+            bridgeEndUT = double.NaN;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            activationStartUT = ResolveGhostActivationStartUT(traj);
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            TrackSection section = traj.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.Absolute
+                || section.frames == null
+                || section.frames.Count != 1)
+            {
+                return false;
+            }
+
+            TrajectoryPoint seed = section.frames[0];
+            double bridgeDuration = section.endUT - seed.ut;
+            if (bridgeDuration <= 1e-6
+                || bridgeDuration > GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds)
+            {
+                return false;
+            }
+
+            if (Math.Abs(seed.ut - activationStartUT)
+                > GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds)
+            {
+                return false;
+            }
+
+            bridgeEndUT = section.endUT;
+            return true;
+        }
+
+        internal static bool ShouldHoldInitialActivationHiddenThisFrame(
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            out string reason)
+        {
+            reason = null;
             if (state == null)
                 return false;
 
-            bool withinUtWindow = ShouldHoldInitialRelativeActivationHidden(
+            bool withinRelativeWindow = ShouldHoldInitialRelativeActivationHidden(
                 traj, state, playbackUT);
+            bool withinAbsoluteBridge = !withinRelativeWindow
+                && ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                    traj, state, playbackUT);
+            bool withinUtWindow = withinRelativeWindow || withinAbsoluteBridge;
             if (withinUtWindow && !state.initialRelativeActivationHiddenPrimed)
             {
                 state.initialRelativeActivationHiddenPrimed = true;
@@ -4549,6 +4624,7 @@ namespace Parsek
 
             if (withinUtWindow)
             {
+                reason = withinRelativeWindow ? "relative-start" : "absolute-seed-bridge";
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }
@@ -4558,11 +4634,19 @@ namespace Parsek
                 && state.appearanceCount == 0
                 && state.deferVisibilityUntilPlaybackSync)
             {
+                reason = "minimum-frames";
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }
 
             return false;
+        }
+
+        internal static bool ShouldHoldInitialRelativeActivationHiddenThisFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            return ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, playbackUT, out string _);
         }
 
         private static void ConsumeInitialRelativeHiddenFrame(GhostPlaybackState state)

@@ -107,6 +107,128 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastAbsoluteShadowPoint()
+        {
+            var rec = new Recording { RecordingId = "scene-exit-tail-reseed" };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 111.0,
+                latitude = 999.0,
+                longitude = 999.0,
+                altitude = 999.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(9f, 9f, 9f)
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 112.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 111.0,
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3.0,
+                        bodyName = "Kerbin",
+                        velocity = new Vector3(1f, 1f, 1f)
+                    }
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0,
+                        latitude = 4.0,
+                        longitude = 5.0,
+                        altitude = 65000.0,
+                        bodyName = "Kerbin",
+                        velocity = new Vector3(10f, 20f, 30f)
+                    }
+                }
+            });
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        Assert.Equal(110.0, anchorPoint.ut, precision: 3);
+                        Assert.Equal(65000.0, anchorPoint.altitude, precision: 3);
+                        reseededSegment = originalSegment;
+                        reseededSegment.semiMajorAxis = 812345.0;
+                        rawOffsetMeters = 40.0;
+                        residualOffsetMeters = 0.25;
+                        reason = "test-builder";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.True(applied);
+            Assert.Equal(110.0, segments[0].startUT, precision: 3);
+            Assert.Equal(500.0, segments[0].endUT, precision: 3);
+            Assert.Equal(812345.0, segments[0].semiMajorAxis, precision: 3);
+            Assert.Equal("TrackSection[0].absoluteFrames", diagnostics.AnchorSource);
+            Assert.Equal(2.0, diagnostics.GapSeconds, precision: 3);
+            Assert.Equal(40.0, diagnostics.RawOffsetMeters, precision: 3);
+            Assert.Equal(0.25, diagnostics.ResidualOffsetMeters, precision: 3);
+        }
+
+        [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_DistantAnchor_ReturnsFalse()
+        {
+            var rec = new Recording { RecordingId = "scene-exit-tail-reseed-distant" };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 65000.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(10f, 20f, 30f)
+            });
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        reseededSegment = originalSegment;
+                        rawOffsetMeters = 0.0;
+                        residualOffsetMeters = 0.0;
+                        reason = "should-not-run";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.False(applied);
+            Assert.Equal("anchor-point-missing", diagnostics.Reason);
+            Assert.Equal(112.0, segments[0].startUT, precision: 3);
+        }
+
+        [Fact]
         public void ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog()
         {
             Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
@@ -2678,6 +2800,26 @@ namespace Parsek.Tests
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
+        }
+
+        private static OrbitSegment MakePredictedSegmentForReseedTest(
+            double startUT,
+            double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 1.0,
+                eccentricity = 0.05,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 2.0,
+                argumentOfPeriapsis = 3.0,
+                meanAnomalyAtEpoch = 4.0,
+                epoch = startUT,
+                isPredicted = true
+            };
         }
 
         private static RecordingFinalizationCache MakeDestroyedCache(

@@ -187,6 +187,13 @@ namespace Parsek
         internal const double InitialRelativeActivationHiddenSeconds = 0.08;
 
         /// <summary>
+        /// Maximum first-section duration that is treated as a synthetic
+        /// Absolute seed-to-live-root bridge and hidden on fresh activation.
+        /// Wider sections are real playback payload and must remain visible.
+        /// </summary>
+        internal const double InitialAbsoluteBridgeActivationHiddenMaxSeconds = 1.0;
+
+        /// <summary>
         /// Minimum rendered-frame hold for fresh activation and predicted
         /// orbit-tail handoff hides. This keeps the guard effective under
         /// time warp, where the UT window can elapse inside one render tick.
