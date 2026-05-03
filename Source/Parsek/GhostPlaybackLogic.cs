@@ -176,6 +176,18 @@ namespace Parsek
                 && ShouldExemptFromZoneHide(currentWarpRate, hasOrbitalSegments);
         }
 
+        internal static bool ShouldAllowWarpZoneHideExemption(
+            bool isWatchProtectedRecording, bool isOrbitTailPlayback)
+        {
+            return !(isWatchProtectedRecording && isOrbitTailPlayback);
+        }
+
+        internal static bool ShouldForceWatchProtectedFullFidelity(
+            bool isWatchProtectedRecording, bool isOrbitTailPlayback)
+        {
+            return isWatchProtectedRecording && !isOrbitTailPlayback;
+        }
+
         /// <summary>
         /// Returns true if a commit approval dialog should be shown instead of auto-committing (#88).
         /// Triggers when leaving Flight to KSC or Tracking Station with a landed/splashed vessel.

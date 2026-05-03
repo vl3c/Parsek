@@ -185,6 +185,13 @@ namespace Parsek
         /// one-frame pop without changing the recorded path.
         /// </summary>
         internal const double InitialRelativeActivationHiddenSeconds = 0.08;
+
+        /// <summary>
+        /// Minimum rendered-frame hold for fresh activation and predicted
+        /// orbit-tail handoff hides. This keeps the guard effective under
+        /// time warp, where the UT window can elapse inside one render tick.
+        /// </summary>
+        internal const int InitialActivationHiddenMinimumFrames = 2;
     }
 
     /// <summary>

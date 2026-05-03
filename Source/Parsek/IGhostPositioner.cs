@@ -77,7 +77,7 @@ namespace Parsek
             GhostPlaybackState state, out Vector3 worldPosition);
 
         ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-            IPlaybackTrajectory traj, double distance, int protectedIndex);
+            IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex);
 
         void ClearOrbitCache();
 

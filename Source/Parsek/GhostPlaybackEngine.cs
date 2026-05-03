@@ -1032,7 +1032,8 @@ namespace Parsek
             double activeVesselDistance = ResolvePlaybackActiveVesselDistance(
                 i, traj, state, ctx.currentUT, ctx.activeVesselPos);
             CachePlaybackDistances(state, activeVesselDistance, renderDistance);
-            var zoneResult = positioner.ApplyZoneRendering(i, state, traj, renderDistance, ctx.protectedIndex);
+            var zoneResult = positioner.ApplyZoneRendering(
+                i, state, traj, renderDistance, ctx.currentUT, ctx.protectedIndex);
 
             if (zoneResult.hiddenByZone)
             {
@@ -1092,9 +1093,11 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
 
             // Position the ghost
+            bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+
             if (hasInterpolatedPoints)
             {
-                if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
+                if (orbitTailPlayback)
                 {
                     positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
                 }
@@ -1109,7 +1112,7 @@ namespace Parsek
                 // Relative single-point sections store metre offsets in
                 // latitude/longitude/altitude fields; never fall through to
                 // PositionAtPoint for them.
-                if (ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT))
+                if (orbitTailPlayback)
                 {
                     positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
                 }
@@ -1152,7 +1155,7 @@ namespace Parsek
             else
             {
                 bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                bool initialRelativeActivationHidden = ShouldHoldInitialRelativeActivationHidden(
+                bool initialRelativeActivationHidden = ShouldHoldInitialRelativeActivationHiddenThisFrame(
                     traj, state, visiblePlaybackUT);
                 if (initialRelativeActivationHidden)
                 {
@@ -1165,15 +1168,17 @@ namespace Parsek
                     ResetGhostAppearanceTracking(state);
                     ParsekLog.VerboseRateLimited(
                         "Engine",
-                        "initial-relative-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
+                        "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
                         "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj.VesselName ?? "?") + "\" initial Relative activation hidden: "
+                        + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
+                        + "reason=relative-start "
                         + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
                         + " activationStart="
                         + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
-                        + " window="
+                        + " relativeWindow="
                         + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s",
+                        + "s minFrames="
+                        + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
                 }
                 else
@@ -1626,7 +1631,8 @@ namespace Parsek
             double loopActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
                 index, traj, state, loopUT, ctx.activeVesselPos);
             CachePlaybackDistances(state, loopActiveVesselDistance, loopZoneDistance);
-            var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
+            var zoneResult = positioner.ApplyZoneRendering(
+                index, state, traj, loopZoneDistance, loopUT, ctx.protectedIndex);
             if (zoneResult.hiddenByZone)
             {
                 GhostRenderTrace.EmitGuardSkip(
@@ -1837,7 +1843,7 @@ namespace Parsek
                     index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
                 CachePlaybackDistances(primaryState, primaryActiveVesselDistance, primaryDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
-                    index, primaryState, traj, primaryDistance, ctx.protectedIndex);
+                    index, primaryState, traj, primaryDistance, primaryLoopUT, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
                     GhostRenderTrace.EmitGuardSkip(
@@ -2033,7 +2039,7 @@ namespace Parsek
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 CachePlaybackDistances(ovState, overlapActiveVesselDistance, overlapDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
-                    index, ovState, traj, overlapDistance, ctx.protectedIndex);
+                    index, ovState, traj, overlapDistance, loopUT, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
                     GhostRenderTrace.EmitGuardSkip(
@@ -4250,14 +4256,25 @@ namespace Parsek
             }
             else
             {
-                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
-                    skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-                if (ShouldRestoreDeferredRuntimeFxState(
-                        activatedDeferredState,
-                        suppressVisualFx: false))
-                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+                if (ShouldHoldInitialRelativeActivationHiddenThisFrame(traj, state, playbackUT))
+                {
+                    if (state.ghost != null && state.ghost.activeSelf)
+                        state.ghost.SetActive(false);
+                    ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                        skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                else
+                {
+                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                    ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                        skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
+                    if (ShouldRestoreDeferredRuntimeFxState(
+                            activatedDeferredState,
+                            suppressVisualFx: false))
+                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                    TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+                }
             }
         }
 
@@ -4320,6 +4337,46 @@ namespace Parsek
         }
 
         internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
+        internal const double DestroyedPredictedOrbitTailBridgeMaxGapSeconds = 5.0;
+        internal const double PredictedOrbitTailContinuityMinBlendSeconds = 5.0;
+        internal const double PredictedOrbitTailContinuityExtraBlendSeconds = 2.0;
+        internal const double PredictedOrbitTailContinuityMaxBlendSeconds = 10.0;
+
+        internal static double ResolvePredictedOrbitTailBridgeMaxGapSeconds(
+            IPlaybackTrajectory traj)
+        {
+            return traj != null && traj.TerminalStateValue == TerminalState.Destroyed
+                ? DestroyedPredictedOrbitTailBridgeMaxGapSeconds
+                : PredictedOrbitTailBridgeMaxGapSeconds;
+        }
+
+        internal static double ResolvePredictedOrbitTailContinuityBlendSeconds(
+            double lastPointUT, double segmentStartUT)
+        {
+            double gap = Math.Max(0.0, segmentStartUT - lastPointUT);
+            double duration = Math.Max(
+                PredictedOrbitTailContinuityMinBlendSeconds,
+                gap + PredictedOrbitTailContinuityExtraBlendSeconds);
+            return Math.Min(duration, PredictedOrbitTailContinuityMaxBlendSeconds);
+        }
+
+        internal static double ResolvePredictedOrbitTailContinuityWeight(
+            double lastPointUT, double playbackUT, double blendSeconds)
+        {
+            if (blendSeconds <= 1e-6)
+                return 0.0;
+            if (playbackUT <= lastPointUT)
+                return 1.0;
+
+            double t = (playbackUT - lastPointUT) / blendSeconds;
+            if (t >= 1.0)
+                return 0.0;
+            if (t <= 0.0)
+                return 1.0;
+
+            double smooth = t * t * (3.0 - 2.0 * t);
+            return 1.0 - smooth;
+        }
 
         internal static bool TryFindOrbitTailPlaybackSegment(
             IPlaybackTrajectory traj,
@@ -4364,7 +4421,8 @@ namespace Parsek
                     continue;
 
                 double gap = candidate.startUT - lastPointUT;
-                if (gap > PredictedOrbitTailBridgeMaxGapSeconds + 1e-6)
+                double maxBridgeGap = ResolvePredictedOrbitTailBridgeMaxGapSeconds(traj);
+                if (gap > maxBridgeGap + 1e-6)
                     continue;
                 if (playbackUT < candidate.startUT - 1e-6
                     && playbackUT <= candidate.endUT
@@ -4469,6 +4527,47 @@ namespace Parsek
                     traj.TrackSections, activationStartUT);
             return sectionIndex >= 0
                 && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
+        }
+
+        internal static bool ShouldHoldInitialRelativeActivationHiddenThisFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (state == null)
+                return false;
+
+            bool withinUtWindow = ShouldHoldInitialRelativeActivationHidden(
+                traj, state, playbackUT);
+            if (withinUtWindow && !state.initialRelativeActivationHiddenPrimed)
+            {
+                state.initialRelativeActivationHiddenPrimed = true;
+                state.initialRelativeActivationHiddenFramesRemaining =
+                    Math.Max(
+                        state.initialRelativeActivationHiddenFramesRemaining,
+                        GhostPlayback.InitialActivationHiddenMinimumFrames);
+            }
+
+            if (withinUtWindow)
+            {
+                ConsumeInitialRelativeHiddenFrame(state);
+                return true;
+            }
+
+            if (state.initialRelativeActivationHiddenPrimed
+                && state.initialRelativeActivationHiddenFramesRemaining > 0
+                && state.appearanceCount == 0
+                && state.deferVisibilityUntilPlaybackSync)
+            {
+                ConsumeInitialRelativeHiddenFrame(state);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void ConsumeInitialRelativeHiddenFrame(GhostPlaybackState state)
+        {
+            if (state != null && state.initialRelativeActivationHiddenFramesRemaining > 0)
+                state.initialRelativeActivationHiddenFramesRemaining--;
         }
 
         internal static bool TryResolvePendingPlaybackInterpolation(

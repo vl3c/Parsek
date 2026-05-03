@@ -97,6 +97,8 @@ namespace Parsek
         public int flagEventIndex;               // tracks which flags have been spawned
         public bool hadVisibleRenderersLastFrame; // true after the ghost produced visible mesh on the previous frame
         public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
+        public bool initialRelativeActivationHiddenPrimed;
+        public int initialRelativeActivationHiddenFramesRemaining;
 
         internal void ClearLoadedVisualReferences()
         {
@@ -144,6 +146,8 @@ namespace Parsek
             pendingSpawnLifecycle = PendingSpawnLifecycle.None;
             pendingSpawnFlags = default;
             hadVisibleRenderersLastFrame = false;
+            initialRelativeActivationHiddenPrimed = false;
+            initialRelativeActivationHiddenFramesRemaining = 0;
         }
 
         public void SetInterpolated(InterpolationResult r)

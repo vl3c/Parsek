@@ -190,6 +190,22 @@ namespace Parsek.Tests
                 isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
+        [Fact]
+        public void ShouldForceWatchProtectedFullFidelity_OrbitTail_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldForceWatchProtectedFullFidelity(
+                isWatchProtectedRecording: true,
+                isOrbitTailPlayback: true));
+        }
+
+        [Fact]
+        public void ShouldAllowWarpZoneHideExemption_WatchProtectedOrbitTail_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldAllowWarpZoneHideExemption(
+                isWatchProtectedRecording: true,
+                isOrbitTailPlayback: true));
+        }
+
         [Theory]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]

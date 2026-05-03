@@ -407,6 +407,10 @@ namespace Parsek
             // Orbit fields
             public long orbitCacheKey;
             public double orbitUT;
+            public Vector3d orbitContinuityOffset;
+            public bool hasOrbitContinuityOffset;
+            public double orbitContinuityAnchorUT;
+            public double orbitContinuityBlendSeconds;
 
             // Orbital rotation fields (Phase: orbital-rotation)
             public Quaternion orbitFrameRot;       // Orbital-frame-relative rotation from segment
@@ -1350,11 +1354,14 @@ namespace Parsek
                             // pos - orbitBody.position; if pos carries the
                             // tree offset the radial vector is shifted and the
                             // ghost's orbit-frame attitude rolls/pitches
-                            // incorrectly). The Re-Fly tree anchor lock is a
-                            // rigid render translation only — applied to
-                            // transform.position, not to rotation inputs.
+                            // incorrectly). Orbit-tail continuity is also a
+                            // rigid render translation from the last authored
+                            // point into the predicted tail. Both corrections
+                            // are applied to transform.position, not to the
+                            // orbital rotation inputs.
                             Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
-                            Vector3d targetPos = rawOrbitPos + e.reFlyTreeOffset;
+                            Vector3d orbitContinuityOffset = ResolveOrbitContinuityOffset(e, e.orbitUT);
+                            Vector3d targetPos = rawOrbitPos + orbitContinuityOffset + e.reFlyTreeOffset;
                             Quaternion targetRot = e.ghost.transform.rotation;
 
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
@@ -16023,9 +16030,10 @@ namespace Parsek
         /// Shared by normal, background, and looped ghost update paths.
         /// </summary>
         ZoneRenderingResult ApplyZoneRenderingImpl(int recIdx, GhostPlaybackState state, IPlaybackTrajectory rec,
-            double renderDistance, int protectedIndex)
+            double renderDistance, double playbackUT, int protectedIndex)
         {
             double activeVesselDistance = state != null ? state.lastDistance : renderDistance;
+            bool orbitTailPlayback = GhostPlaybackEngine.ShouldUseOrbitTailPlayback(rec, playbackUT);
             var zone = RenderingZoneManager.ClassifyDistance(renderDistance);
             var (isWatchedGhost, _, isWatchProtectedRecording) =
                 ResolveZoneWatchState(recIdx, state, protectedIndex);
@@ -16074,14 +16082,18 @@ namespace Parsek
             bool cutoffTriggered;
             if (isWatchedGhost && watchMode != null)
             {
+                double watchCutoffDistance = WatchModeController.ResolveWatchCutoffDistance(
+                    activeVesselDistance,
+                    renderDistance,
+                    includeRenderDistance: orbitTailPlayback);
                 bool cachedCutoffTripped =
-                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+                    WatchModeController.ShouldExitWatchForDistance(watchCutoffDistance);
                 cutoffTriggered = watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped);
                 if (cachedCutoffTripped && !cutoffTriggered)
                 {
                     ParsekLog.VerboseRateLimited("Zone", $"watch-cutoff-debounce-{recIdx}",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" cached cutoff tripped " +
-                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
+                        $"({watchCutoffDistance.ToString("F0", CultureInfo.InvariantCulture)}m >= " +
                         $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m), " +
                         $"debounce={watchMode.WatchCutoffConsecutiveFramesForDiagnostics}/" +
                         $"{WatchModeController.WatchExitCutoffDebounceFrames} — staying in watch mode");
@@ -16092,8 +16104,12 @@ namespace Parsek
                 // No watch controller available (e.g. test stubs): fall
                 // back to immediate exit on cached cutoff trip so we do
                 // not silently drop real exits.
+                double watchCutoffDistance = WatchModeController.ResolveWatchCutoffDistance(
+                    activeVesselDistance,
+                    renderDistance,
+                    includeRenderDistance: orbitTailPlayback);
                 cutoffTriggered =
-                    WatchModeController.ShouldExitWatchForDistance(activeVesselDistance);
+                    WatchModeController.ShouldExitWatchForDistance(watchCutoffDistance);
             }
             else
             {
@@ -16113,10 +16129,15 @@ namespace Parsek
                     // prec.txt + flight state to figure out why the distance
                     // went absurd.
                     string cutoffContext = DescribeWatchCutoffContext(rec, state);
+                    double watchCutoffDistance = WatchModeController.ResolveWatchCutoffDistance(
+                        activeVesselDistance,
+                        renderDistance,
+                        includeRenderDistance: orbitTailPlayback);
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" exceeded ghost camera cutoff " +
-                        $"({activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m from active vessel >= " +
+                        $"({watchCutoffDistance.ToString("F0", CultureInfo.InvariantCulture)}m cutoff distance >= " +
                         $"{WatchModeController.WatchExitCutoffMeters.ToString("F0", CultureInfo.InvariantCulture)}m; " +
+                        $"active={activeVesselDistance.ToString("F0", CultureInfo.InvariantCulture)}m " +
                         $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
                         $"after {WatchModeController.WatchExitCutoffDebounceFrames}-frame debounce — exiting watch mode" +
                         (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
@@ -16125,7 +16146,9 @@ namespace Parsek
                 }
                 else
                 {
-                    forceWatchedFullFidelity = isWatchProtectedRecording
+                    forceWatchedFullFidelity =
+                        GhostPlaybackLogic.ShouldForceWatchProtectedFullFidelity(
+                            isWatchProtectedRecording, orbitTailPlayback)
                         || WatchModeController.ShouldForceWatchedFullFidelityAtDistance(
                             isWatchedGhost, activeVesselDistance);
                     (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
@@ -16165,7 +16188,12 @@ namespace Parsek
             // #171: During warp, exempt orbital ghosts from zone hiding — they travel far
             // from the player and would complete playback while invisible.
             if (GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption(
-                    shouldHideMesh, zone, GetCurrentWarpRateSafe(), rec.HasOrbitSegments))
+                    shouldHideMesh,
+                    zone,
+                    GetCurrentWarpRateSafe(),
+                    rec.HasOrbitSegments
+                        && GhostPlaybackLogic.ShouldAllowWarpZoneHideExemption(
+                            isWatchProtectedRecording, orbitTailPlayback)))
             {
                 shouldHideMesh = false;
                 ParsekLog.VerboseRateLimited("Zone", $"warp-zone-exempt-{recIdx}",
@@ -16891,7 +16919,8 @@ namespace Parsek
                     seg,
                     ut,
                     index * 10000 + Math.Max(0, segmentIndex),
-                    traj.RecordingId);
+                    traj.RecordingId,
+                    traj);
             }
             RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
@@ -16925,10 +16954,10 @@ namespace Parsek
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
-            IPlaybackTrajectory traj, double distance, int protectedIndex)
+            IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
         {
             // Delegates to the private ApplyZoneRendering which has the same signature
-            return ApplyZoneRenderingImpl(index, state, traj, distance, protectedIndex);
+            return ApplyZoneRenderingImpl(index, state, traj, distance, playbackUT, protectedIndex);
         }
 
         void IGhostPositioner.ClearOrbitCache()
@@ -19254,7 +19283,7 @@ namespace Parsek
         private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
-            string recordingId = null)
+            string recordingId = null, IPlaybackTrajectory traj = null)
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
@@ -19280,6 +19309,21 @@ namespace Parsek
 
             Vector3d rawOrbitWorldPos = orbit.getPositionAtUT(ut);
             Vector3d worldPos = rawOrbitWorldPos;
+            Vector3d orbitContinuityOffset = Vector3d.zero;
+            Vector3d rawOrbitContinuityOffset = Vector3d.zero;
+            bool hasOrbitContinuityOffset = TryResolvePredictedOrbitTailContinuityOffset(
+                traj,
+                segment,
+                orbit,
+                ut,
+                out orbitContinuityOffset,
+                out rawOrbitContinuityOffset,
+                out double orbitContinuityWeight,
+                out double orbitContinuityAnchorUT,
+                out double orbitContinuityBlendSeconds,
+                out string orbitContinuityAnchorSource);
+            if (hasOrbitContinuityOffset)
+                worldPos += orbitContinuityOffset;
 
             // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
             // orbit with periapsis below surface, or impact trajectory on airless body),
@@ -19339,6 +19383,13 @@ namespace Parsek
                     + " segmentUT=[" + segment.startUT.ToString("F3", CultureInfo.InvariantCulture)
                     + "," + segment.endUT.ToString("F3", CultureInfo.InvariantCulture) + "]"
                     + " rawWorld=" + GhostRenderTrace.FormatVector3d(rawOrbitWorldPos)
+                    + " continuityHit=" + (hasOrbitContinuityOffset ? "true" : "false")
+                    + " continuityAnchorUT=" + FormatFiniteOrNa(orbitContinuityAnchorUT, "F3")
+                    + " continuityBlendSeconds=" + FormatFiniteOrNa(orbitContinuityBlendSeconds, "F3")
+                    + " continuityWeight=" + FormatFiniteOrNa(orbitContinuityWeight, "F3")
+                    + " continuityAnchorSource=" + (orbitContinuityAnchorSource ?? "<none>")
+                    + " continuityRawOffset=" + GhostRenderTrace.FormatVector3d(rawOrbitContinuityOffset)
+                    + " continuityOffset=" + GhostRenderTrace.FormatVector3d(orbitContinuityOffset)
                     + " terrainClamp=" + (orbitTerrainClamped ? "true" : "false")
                     + " orbitAlt=" + orbitAlt.ToString("F2", CultureInfo.InvariantCulture)
                     + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(orbitReFlyTreeOffset)
@@ -19378,9 +19429,216 @@ namespace Parsek
                 isSpinning = spinning,
                 orbitSegmentStartUT = segment.startUT,
                 boundaryWorldRot = boundaryWorldRot,
+                orbitContinuityOffset = rawOrbitContinuityOffset,
+                hasOrbitContinuityOffset = hasOrbitContinuityOffset,
+                orbitContinuityAnchorUT = orbitContinuityAnchorUT,
+                orbitContinuityBlendSeconds = orbitContinuityBlendSeconds,
                 reFlyTreeOffset = orbitReFlyTreeOffset,
                 hasReFlyTreeOffset = hasOrbitReFlyTreeOffset,
             });
+        }
+
+        private static Vector3d ResolveOrbitContinuityOffset(GhostPosEntry entry, double playbackUT)
+        {
+            if (!entry.hasOrbitContinuityOffset)
+                return Vector3d.zero;
+
+            double weight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                entry.orbitContinuityAnchorUT,
+                playbackUT,
+                entry.orbitContinuityBlendSeconds);
+            if (weight <= 1e-6)
+                return Vector3d.zero;
+
+            Vector3d offset = entry.orbitContinuityOffset * weight;
+            return IsFiniteVector3d(offset) ? offset : Vector3d.zero;
+        }
+
+        private bool TryResolvePredictedOrbitTailContinuityOffset(
+            IPlaybackTrajectory traj,
+            OrbitSegment segment,
+            Orbit orbit,
+            double playbackUT,
+            out Vector3d weightedOffset,
+            out Vector3d rawOffset,
+            out double weight,
+            out double anchorUT,
+            out double blendSeconds,
+            out string anchorSource)
+        {
+            weightedOffset = Vector3d.zero;
+            rawOffset = Vector3d.zero;
+            weight = 0.0;
+            anchorUT = double.NaN;
+            blendSeconds = double.NaN;
+            anchorSource = null;
+
+            if (!ShouldApplyPredictedOrbitTailContinuity(traj, segment, playbackUT))
+                return false;
+            if (!TryResolvePredictedOrbitTailContinuityAnchorWorldPosition(
+                    traj, out Vector3d anchorWorld, out anchorUT, out anchorSource))
+                return false;
+
+            blendSeconds = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                anchorUT, segment.startUT);
+            weight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                anchorUT, playbackUT, blendSeconds);
+            if (weight <= 1e-6)
+                return false;
+
+            Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+            rawOffset = anchorWorld - orbitAtAnchor;
+            if (!IsFiniteVector3d(rawOffset))
+                return false;
+
+            weightedOffset = rawOffset * weight;
+            if (!IsFiniteVector3d(weightedOffset))
+                return false;
+
+            double rawMeters = rawOffset.magnitude;
+            if (rawMeters <= 0.01)
+                return false;
+
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "orbit-tail-continuity|" + (traj.RecordingId ?? "<no-rec>"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Predicted orbit-tail continuity: rec={0} vessel=\"{1}\" playbackUT={2:F3} anchorUT={3:F3} segmentUT=[{4:F3},{5:F3}] source={6} rawOffset={7} rawMeters={8:F2} weight={9:F3} blendSeconds={10:F3} appliedOffset={11}",
+                    ShortRecordingId(traj.RecordingId),
+                    traj.VesselName ?? "?",
+                    playbackUT,
+                    anchorUT,
+                    segment.startUT,
+                    segment.endUT,
+                    anchorSource ?? "<none>",
+                    GhostRenderTrace.FormatVector3d(rawOffset),
+                    rawMeters,
+                    weight,
+                    blendSeconds,
+                    GhostRenderTrace.FormatVector3d(weightedOffset)),
+                5.0);
+            return true;
+        }
+
+        private static bool ShouldApplyPredictedOrbitTailContinuity(
+            IPlaybackTrajectory traj, OrbitSegment segment, double playbackUT)
+        {
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return false;
+            if (!segment.isPredicted)
+                return false;
+
+            double lastPointUT = traj.Points[traj.Points.Count - 1].ut;
+            if (playbackUT <= lastPointUT + 1e-6)
+                return false;
+
+            double blendSeconds = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT, segment.startUT);
+            return playbackUT <= lastPointUT + blendSeconds + 1e-6;
+        }
+
+        private bool TryResolvePredictedOrbitTailContinuityAnchorWorldPosition(
+            IPlaybackTrajectory traj,
+            out Vector3d anchorWorld,
+            out double anchorUT,
+            out string source)
+        {
+            anchorWorld = Vector3d.zero;
+            anchorUT = double.NaN;
+            source = null;
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return false;
+
+            TrajectoryPoint lastPoint = traj.Points[traj.Points.Count - 1];
+            anchorUT = lastPoint.ut;
+
+            if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, anchorUT);
+                bool exactSection = sectionIdx >= 0;
+                if (sectionIdx < 0)
+                    sectionIdx = FindNearestTrackSectionIndexForContinuityAnchor(
+                        traj.TrackSections, anchorUT);
+
+                if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
+                {
+                    TrackSection section = traj.TrackSections[sectionIdx];
+                    if (section.referenceFrame == ReferenceFrame.Relative)
+                    {
+                        if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                        {
+                            int absoluteCachedIndex = 0;
+                            if (TryResolvePointWorldPosition(
+                                    section.absoluteFrames,
+                                    ref absoluteCachedIndex,
+                                    anchorUT,
+                                    out anchorWorld))
+                            {
+                                source = "relative-absolute-shadow";
+                                return true;
+                            }
+                        }
+
+                        if (exactSection)
+                            return false;
+                    }
+
+                    if (section.referenceFrame == ReferenceFrame.Absolute
+                        && TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                            traj.TrackSections,
+                            sectionIdx,
+                            out List<TrajectoryPoint> absoluteFrames,
+                            out _))
+                    {
+                        int absoluteCachedIndex = 0;
+                        if (TryResolvePointWorldPosition(
+                                absoluteFrames,
+                                ref absoluteCachedIndex,
+                                anchorUT,
+                                out anchorWorld))
+                        {
+                            source = "absolute-section";
+                            return true;
+                        }
+                    }
+
+                    if (exactSection && section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                        return false;
+                }
+            }
+
+            if (TryResolveTrajectoryPointWorldPosition(lastPoint, out anchorWorld))
+            {
+                source = "flat-point";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int FindNearestTrackSectionIndexForContinuityAnchor(
+            List<TrackSection> trackSections, double anchorUT)
+        {
+            if (trackSections == null || trackSections.Count == 0)
+                return -1;
+
+            if (anchorUT < trackSections[0].startUT)
+                return 0;
+            for (int i = trackSections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = trackSections[i];
+                if (anchorUT >= section.startUT - 1e-6)
+                    return i;
+            }
+            return trackSections.Count - 1;
+        }
+
+        private static string FormatFiniteOrNa(double value, string format)
+        {
+            return IsFinite(value)
+                ? value.ToString(format, CultureInfo.InvariantCulture)
+                : "n/a";
         }
 
         internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(
@@ -19462,7 +19720,7 @@ namespace Parsek
                     if (loggedOrbitSegments.Add(cacheKey))
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
                             $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
-                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey, rec?.RecordingId);
+                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey, rec?.RecordingId, rec);
                     if (allowActivation)
                         ghost.SetActive(true);
                     return;
@@ -22586,6 +22844,12 @@ namespace Parsek
                 return false;
 
             int cachedIndex = state != null ? state.playbackIndex : 0;
+            if (TryResolveOrbitTailWorldPosition(
+                    traj, playbackUT, index * 10000, out worldPos))
+            {
+                return true;
+            }
+
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
                 int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
@@ -22685,6 +22949,53 @@ namespace Parsek
             }
 
             return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+        }
+
+        bool TryResolveOrbitTailWorldPosition(
+            IPlaybackTrajectory traj,
+            double targetUT,
+            int orbitCacheBase,
+            out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (!GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                    traj, targetUT, out OrbitSegment segment, out int segmentIndex))
+            {
+                return false;
+            }
+
+            long cacheKey = orbitCacheBase + Math.Max(0, segmentIndex);
+            if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody body))
+                return false;
+
+            worldPos = orbit.getPositionAtUT(targetUT);
+            if (TryResolvePredictedOrbitTailContinuityOffset(
+                    traj,
+                    segment,
+                    orbit,
+                    targetUT,
+                    out Vector3d continuityOffset,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out _))
+            {
+                worldPos += continuityOffset;
+            }
+
+            if (!IsFiniteVector3d(worldPos))
+                return false;
+
+            double orbitAlt = body.GetAltitude(worldPos);
+            if (orbitAlt < 0)
+            {
+                double lat = body.GetLatitude(worldPos);
+                double lon = body.GetLongitude(worldPos);
+                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+            }
+
+            return IsFiniteVector3d(worldPos);
         }
 
         internal static bool TryGetAbsoluteSectionPlaybackFrames(

@@ -143,7 +143,7 @@ namespace Parsek.Tests
             }
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
-                IPlaybackTrajectory traj, double distance, int protectedIndex)
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 return new ZoneRenderingResult();
             }
@@ -542,6 +542,24 @@ namespace Parsek.Tests
             });
 
             Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_DestroyedTailBridgesFinalizerGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 687.58);
+            traj.EndUTOverride = 1683.91;
+            traj.TerminalStateValue = TerminalState.Destroyed;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 690.40,
+                endUT = 1683.91,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 689.74));
         }
 
         [Fact]
@@ -2956,6 +2974,52 @@ namespace Parsek.Tests
             traj.TrackSections[0] = section;
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
                 traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHiddenThisFrame_HoldsMinimumFramesAfterUtWindow()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.04));
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.20));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
+                traj, state, 100.21));
+        }
+
+        [Fact]
+        public void ResolvePredictedOrbitTailContinuityBlendSeconds_CoversFinalizerGap()
+        {
+            Assert.Equal(5.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 687.58, segmentStartUT: 690.40), precision: 3);
+            Assert.Equal(7.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 100.0, segmentStartUT: 105.0), precision: 3);
+            Assert.Equal(10.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT: 100.0, segmentStartUT: 120.0), precision: 3);
+        }
+
+        [Fact]
+        public void ResolvePredictedOrbitTailContinuityWeight_EasesFromLastPointToOrbit()
+        {
+            Assert.Equal(1.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 100.0, blendSeconds: 10.0), precision: 3);
+            Assert.Equal(0.5, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 105.0, blendSeconds: 10.0), precision: 3);
+            Assert.Equal(0.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT: 100.0, playbackUT: 110.0, blendSeconds: 10.0), precision: 3);
         }
 
         [Fact]
