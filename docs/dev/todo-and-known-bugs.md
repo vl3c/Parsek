@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Active - v0.9.1 PR708 post-merge Phase D continuation
+
+- After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).
+
+**Next gate:** capture the explicit D.0 product-behaviour decision before Phase D deletion work. The open decision is whether active Re-Fly ghosts should fully detach from the live vessel and render only at original recorded coordinates during divergent Re-Fly. If yes, Phase D proceeds as enumerative cleanup: delete/fence `TryGetReFlyTreeAnchorOffset` and the temporary Re-Fly display-alignment band-aids, remove non-loop live-PID Relative placement branches, split loop-only live-anchor helpers from non-loop recorded-relative helpers, and audit flight, map, KSC, `AnchorPropagator`, and `ProductionAnchorWorldFrameResolver` consumers against the recorded-coordinate resolver. If no, write a revised product plan before changing code.
+
+**Carry-forward validation:** before Phase D starts, keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if the next work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
+
+**Status:** Open until PR708 is merged and D.0 is recorded.
+
+---
+
 ## Done - v0.9.1 pending-tree cleanup view for Re-Fly restore
 
 - ~~After Rewind + Watch, re-entering a spawned Re-Fly vessel could leave the Recordings window showing zero rows until the deferred merge dialog restored the mission tree, and that pending-tree window could also drop supersede rows and auto-generated group hierarchy.~~ Source: `logs/2026-05-03_0059_newest`. Runtime trace: `TryTakeCommittedTreeForSpawnedVesselRestore` detached the 13-recording `Kerbal X` tree from `CommittedTrees` / `CommittedRecordings` so the active vessel could own it again, then `OnSave` wrote `0 committed recordings` plus an `ACTIVE` tree. On the following KSC load, `TryRestoreActiveTreeNode` kept the in-memory finalized pending tree and skipped `.sfs` replacement, but `LoadTimeSweep.SweepOrphanSupersedes` still checked only committed recordings and removed a valid supersede relation as fully orphaned. The group hierarchy prune had the same committed-only view, so it could treat pending-tree-only mission/debris groups as stale.
