@@ -4602,7 +4602,8 @@ namespace Parsek
             bool shouldSuppressVisualFx, bool shouldReduceFidelity)
             ApplyDistanceLodPolicy(
                 bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning,
-                double ghostDistanceMeters, bool forceFullFidelity)
+                double ghostDistanceMeters, bool forceFullFidelity,
+                RenderingZone? classifiedZone = null)
         {
             if (forceFullFidelity)
                 return (false, false, false, false, false);
@@ -4613,7 +4614,10 @@ namespace Parsek
             if (ghostDistanceMeters >= DistanceThresholds.GhostFlight.LoopSimplifiedMeters)
                 return (true, true, true, true, false);
 
-            if (ghostDistanceMeters >= DistanceThresholds.PhysicsBubbleMeters)
+            bool shouldReduceFidelity = classifiedZone.HasValue
+                ? classifiedZone.Value == RenderingZone.Visual
+                : ghostDistanceMeters >= DistanceThresholds.PhysicsBubbleMeters;
+            if (shouldReduceFidelity)
                 return (false, true, false, true, true);
 
             return (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning, false, false);

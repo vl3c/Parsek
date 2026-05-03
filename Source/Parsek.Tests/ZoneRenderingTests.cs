@@ -44,6 +44,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyDistance_WithPreviousVisual_HoldsVisualUntilRestoreBand()
+        {
+            Assert.Equal(RenderingZone.Visual,
+                RenderingZoneManager.ClassifyDistance(2299, RenderingZone.Visual));
+            Assert.Equal(RenderingZone.Visual,
+                RenderingZoneManager.ClassifyDistance(
+                    DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters,
+                    RenderingZone.Visual));
+            Assert.Equal(RenderingZone.Physics,
+                RenderingZoneManager.ClassifyDistance(
+                    DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters - 1.0,
+                    RenderingZone.Visual));
+        }
+
+        [Fact]
+        public void ClassifyDistance_Hysteresis_SuppressesPhysicsVisualChatter()
+        {
+            RenderingZone zone = RenderingZone.Physics;
+            int transitionCount = 0;
+            double[] distances = { 2299.0, 2301.0, 2299.0, 2301.0, 2299.0 };
+
+            for (int i = 0; i < distances.Length; i++)
+            {
+                RenderingZone nextZone = RenderingZoneManager.ClassifyDistance(distances[i], zone);
+                string desc;
+                if (GhostPlaybackLogic.DetectZoneTransition(zone, nextZone, out desc))
+                    transitionCount++;
+                zone = nextZone;
+            }
+
+            Assert.Equal(1, transitionCount);
+            Assert.Equal(RenderingZone.Visual, zone);
+        }
+
+        [Fact]
         public void ClassifyDistance_InVisualRange_ReturnsVisual()
         {
             Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(5000));
@@ -451,6 +486,21 @@ namespace Parsek.Tests
             var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
                 shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
                 ghostDistanceMeters: 10000, forceFullFidelity: false);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.True(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.True(result.shouldSuppressVisualFx);
+            Assert.True(result.shouldReduceFidelity);
+        }
+
+        [Fact]
+        public void ApplyDistanceLodPolicy_HystereticVisualZone_KeepsReducedFidelityInsideBoundary()
+        {
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 2299.0, forceFullFidelity: false,
+                classifiedZone: RenderingZone.Visual);
 
             Assert.False(result.shouldHideMesh);
             Assert.True(result.shouldSkipPartEvents);
@@ -1089,6 +1139,7 @@ namespace Parsek.Tests
             Assert.Equal(2300.0, RenderingZoneManager.PhysicsBubbleRadius);
             Assert.Equal(120000.0, RenderingZoneManager.VisualRangeRadius);
             Assert.Equal(2300.0, RenderingZoneManager.LoopFullFidelityRadius);
+            Assert.Equal(2200.0, DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters);
             Assert.Equal(50000.0, RenderingZoneManager.LoopSimplifiedRadius);
         }
 

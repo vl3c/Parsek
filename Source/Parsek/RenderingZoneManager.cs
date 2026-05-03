@@ -32,6 +32,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Classifies distance with a narrow Physics/Visual hysteresis band.
+        /// The outward transition still happens at the physics bubble boundary,
+        /// but a ghost already in Visual must move clearly back inside before
+        /// full-fidelity renderers are restored.
+        /// </summary>
+        internal static RenderingZone ClassifyDistance(double distanceMeters, RenderingZone previousZone)
+        {
+            RenderingZone statelessZone = ClassifyDistance(distanceMeters);
+            if (previousZone == RenderingZone.Visual
+                && statelessZone == RenderingZone.Physics
+                && distanceMeters >= DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters)
+            {
+                return RenderingZone.Visual;
+            }
+
+            return statelessZone;
+        }
+
+        /// <summary>
         /// Determines whether a looped ghost should be spawned at the given distance.
         /// Looped ghosts have tighter spawn thresholds than full-timeline ghosts.
         /// Returns (shouldSpawn, simplified) where simplified=true means no part events.

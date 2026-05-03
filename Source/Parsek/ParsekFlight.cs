@@ -16034,7 +16034,9 @@ namespace Parsek
         {
             double activeVesselDistance = state != null ? state.lastDistance : renderDistance;
             bool orbitTailPlayback = GhostPlaybackEngine.ShouldUseOrbitTailPlayback(rec, playbackUT);
-            var zone = RenderingZoneManager.ClassifyDistance(renderDistance);
+            var zone = state != null
+                ? RenderingZoneManager.ClassifyDistance(renderDistance, state.currentZone)
+                : RenderingZoneManager.ClassifyDistance(renderDistance);
             var (isWatchedGhost, _, isWatchProtectedRecording) =
                 ResolveZoneWatchState(recIdx, state, protectedIndex);
 
@@ -16180,7 +16182,7 @@ namespace Parsek
                 distanceSuppressVisualFx, distanceReduceFidelity) =
                 GhostPlaybackLogic.ApplyDistanceLodPolicy(
                     shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning,
-                    renderDistance, forceWatchedFullFidelity);
+                    renderDistance, forceWatchedFullFidelity, zone);
             shouldHideMesh = distanceHideMesh;
             shouldSkipPartEvents = distanceSkipPartEvents;
             shouldSkipPositioning = distanceSkipPositioning;

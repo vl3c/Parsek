@@ -57,6 +57,7 @@ namespace Parsek
         {
             internal const double LoopFullFidelityMeters = PhysicsBubbleMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
+            internal const double PhysicsFidelityRestoreMeters = 2200.0;
 
             // Keep the watch camera available through typical ascent/coast ghosts
             // without letting it stay latched to whole-orbit distant playback.
