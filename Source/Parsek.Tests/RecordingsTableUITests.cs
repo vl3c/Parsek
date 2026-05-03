@@ -762,6 +762,19 @@ namespace Parsek.Tests
             Assert.DoesNotContain("hasGhost", groupBlock);
             Assert.DoesNotContain("sameBody", groupBlock);
             Assert.DoesNotContain("inRange", groupBlock);
+
+            int blockStart = uiSrc.IndexOf("// Rewind / Forward button for chain and grouped recording blocks.", StringComparison.Ordinal);
+            int blockEnd = uiSrc.IndexOf("GUILayout.Label(\"\", bodyCellLabel, GUILayout.Width(ColW_ReFly));", blockStart, StringComparison.Ordinal);
+            string blockTemporal = uiSrc.Substring(blockStart, blockEnd - blockStart);
+
+            Assert.Contains("FindAggregateForwardRecordingIndex(members, committed, now)", blockTemporal);
+            Assert.Contains("RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
+            Assert.Contains("FindAggregateLegacyRewindRecordingIndex(members, committed, now)", blockTemporal);
+            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", blockTemporal);
+            Assert.DoesNotContain("canWatch", blockTemporal);
+            Assert.DoesNotContain("hasGhost", blockTemporal);
+            Assert.DoesNotContain("sameBody", blockTemporal);
+            Assert.DoesNotContain("inRange", blockTemporal);
         }
 
         [Fact]
@@ -1163,6 +1176,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FindAggregateForwardRecordingIndex_ListMembers_ReturnsFutureMain()
+        {
+            var futureMain = MakeRec(300, 400, "Future main");
+            var laterFuture = MakeRec(500, 600, "Later future");
+            var committed = new List<Recording> { futureMain, laterFuture };
+
+            int result = RecordingsTableUI.FindAggregateForwardRecordingIndex(
+                new List<int> { 0, 1 }, committed, now: 100.0);
+
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void FindAggregateForwardRecordingIndex_ListMembers_PastMainReturnsNegativeOne()
+        {
+            var pastMain = MakeRec(100, 200, "Past main");
+            var laterFuture = MakeRec(500, 600, "Later future");
+            var committed = new List<Recording> { pastMain, laterFuture };
+
+            int result = RecordingsTableUI.FindAggregateForwardRecordingIndex(
+                new List<int> { 0, 1 }, committed, now: 300.0);
+
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindAggregateTemporalIndices_MainPastFallsBackToRewindOwner()
+        {
+            var pastMain = MakeRec(100, 200, "Past main");
+            var rewindOwner = MakeRec(220, 260, "Rewind owner");
+            rewindOwner.RewindSaveFileName = "parsek_rw_owner";
+            var futureSibling = MakeRec(500, 600, "Future sibling");
+            var committed = new List<Recording> { pastMain, rewindOwner, futureSibling };
+
+            int forward = RecordingsTableUI.FindAggregateForwardRecordingIndex(
+                new List<int> { 0, 1, 2 }, committed, now: 300.0);
+            int rewind = RecordingsTableUI.FindAggregateLegacyRewindRecordingIndex(
+                new List<int> { 0, 1, 2 }, committed, now: 300.0);
+
+            Assert.Equal(-1, forward);
+            Assert.Equal(1, rewind);
+        }
+
+        [Fact]
+        public void ShouldShowGroupLegacyRewindButton_DirectOwner_ReturnsTrue()
+        {
+            var owner = MakeRec(100, 200, "Launch owner");
+            owner.RewindSaveFileName = "parsek_rw_owner";
+
+            bool result = RecordingsTableUI.ShouldShowGroupLegacyRewindButton(owner, now: 500.0);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ShouldShowGroupLegacyRewindButton_TreeBranchNonOwner_ReturnsFalse()
+        {
+            var root = MakeRec(100, 200, "Tree root");
+            root.RecordingId = "rec_root";
+            root.TreeId = "tree_owner";
+            root.RewindSaveFileName = "parsek_rw_root";
+            var branch = MakeRec(150, 250, "Tree branch");
+            branch.RecordingId = "rec_branch";
+            branch.TreeId = "tree_owner";
+            var tree = new RecordingTree
+            {
+                Id = "tree_owner",
+                RootRecordingId = "rec_root"
+            };
+            tree.Recordings[root.RecordingId] = root;
+            tree.Recordings[branch.RecordingId] = branch;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            bool result = RecordingsTableUI.ShouldShowGroupLegacyRewindButton(branch, now: 500.0);
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void FindGroupLegacyRewindRecordingIndex_SkipsMainWithoutRewindAndReturnsEligibleDescendant()
         {
             var earlierMain = MakeRec(100, 200, "Earlier main");
@@ -1206,27 +1298,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FindGroupLegacyRewindRecordingIndex_UnfinishedFlightOwnerIsSuppressed()
+        public void FindGroupLegacyRewindRecordingIndex_UnfinishedFlightOwnerStillSurfacesLaunchRewind()
         {
-            var unfinished = MakeRec(100, 200, "Unfinished flight");
+            var unfinished = MakeRec(100, 200, "Unfinished flight owner");
             unfinished.RecordingId = "rec_uf";
             unfinished.RewindSaveFileName = "parsek_rw_uf";
-            unfinished.MergeState = MergeState.Immutable;
+            unfinished.MergeState = MergeState.CommittedProvisional;
             unfinished.TerminalStateValue = TerminalState.Destroyed;
-            unfinished.ParentBranchPointId = "bp_uf";
+            unfinished.ChildBranchPointId = "bp_uf";
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_uf",
                 BranchPointId = "bp_uf",
-                ChildSlots = new List<ChildSlot> { MakeSlot(0, "rec_uf") }
+                ChildSlots = new List<ChildSlot>
+                {
+                    MakeSlot(0, "rec_parent"),
+                    MakeSlot(1, "rec_uf")
+                }
             };
             InstallScenarioWithRp(rp);
             var committed = new List<Recording> { unfinished };
 
+            bool rowShowsLegacyRewind = RecordingsTableUI.ShouldShowLegacyRewindButton(
+                unfinished, now: 500.0);
             int result = RecordingsTableUI.FindGroupLegacyRewindRecordingIndex(
                 new HashSet<int> { 0 }, committed, now: 500.0);
+            int blockResult = RecordingsTableUI.FindAggregateLegacyRewindRecordingIndex(
+                new List<int> { 0 }, committed, now: 500.0);
 
-            Assert.Equal(-1, result);
+            Assert.False(rowShowsLegacyRewind);
+            Assert.Equal(0, result);
+            Assert.Equal(0, blockResult);
         }
 
         [Fact]
