@@ -304,6 +304,8 @@ namespace Parsek
                 !object.ReferenceEquals(null, scenarioForAdoption)
                     ? scenarioForAdoption.ActiveReFlySessionMarker?.ActiveReFlyRecordingId
                     : null;
+            var activeReFlyTargetHint =
+                CaptureOptimizationSurvivorHint(tree, activeReFlyTargetId);
 
             ApplyVesselDecisions(tree, decisions);
             var retainedParentChainTipCandidates =
@@ -329,7 +331,8 @@ namespace Parsek
             // storage into the committed list) and BEFORE firing
             // OnTreeCommitted (so downstream chain evaluators see the
             // superseded subtree hidden from ERS).
-            ReFlyMergeCommitResult reFlyResult = TryCommitReFlySupersede();
+            ReFlyMergeCommitResult reFlyResult =
+                TryCommitReFlySupersede(activeReFlyTargetHint);
 
             // #292 + rewind-staging follow-up: refresh quicksave only after the
             // re-fly staged commit has either completed or been bypassed.
@@ -392,6 +395,10 @@ namespace Parsek
         /// is unchanged.
         /// </summary>
         internal static ReFlyMergeCommitResult TryCommitReFlySupersede()
+            => TryCommitReFlySupersede(null);
+
+        private static ReFlyMergeCommitResult TryCommitReFlySupersede(
+            RecordingOptimizationSurvivorHint activeReFlyTargetHint)
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
@@ -421,6 +428,23 @@ namespace Parsek
             }
 
             Recording provisional = FindCommittedRecording(provisionalId);
+            if (provisional == null)
+            {
+                provisional = ResolveOptimizedRecordingSurvivor(activeReFlyTargetHint);
+                if (provisional != null)
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: resolved optimized-away active " +
+                        $"Re-Fly recording id={provisionalId} to survivor " +
+                        $"id={provisional.RecordingId ?? "<no-id>"} " +
+                        $"tree={provisional.TreeId ?? "<none>"} " +
+                        $"chainId={provisional.ChainId ?? "<none>"} " +
+                        $"chainBranch={provisional.ChainBranch} " +
+                        $"sourcePid={provisional.VesselPersistentId}");
+                    marker.ActiveReFlyRecordingId = provisional.RecordingId;
+                    provisionalId = provisional.RecordingId;
+                }
+            }
             if (provisional == null)
             {
                 ParsekLog.Warn("MergeDialog",
@@ -879,6 +903,91 @@ namespace Parsek
                     return rec;
             }
             return null;
+        }
+
+        private sealed class RecordingOptimizationSurvivorHint
+        {
+            internal string RecordingId;
+            internal string TreeId;
+            internal string ChainId;
+            internal int ChainBranch;
+            internal uint VesselPersistentId;
+        }
+
+        private static RecordingOptimizationSurvivorHint CaptureOptimizationSurvivorHint(
+            RecordingTree tree,
+            string recordingId)
+        {
+            if (tree == null
+                || tree.Recordings == null
+                || string.IsNullOrEmpty(recordingId))
+            {
+                return null;
+            }
+
+            Recording rec;
+            if (!tree.Recordings.TryGetValue(recordingId, out rec) || rec == null)
+                return null;
+
+            return new RecordingOptimizationSurvivorHint
+            {
+                RecordingId = rec.RecordingId,
+                TreeId = rec.TreeId,
+                ChainId = rec.ChainId,
+                ChainBranch = rec.ChainBranch,
+                VesselPersistentId = rec.VesselPersistentId,
+            };
+        }
+
+        private static Recording ResolveOptimizedRecordingSurvivor(
+            RecordingOptimizationSurvivorHint hint)
+        {
+            if (hint == null)
+                return null;
+
+            Recording exact = FindCommittedRecording(hint.RecordingId);
+            if (exact != null)
+                return exact;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null
+                || string.IsNullOrEmpty(hint.ChainId)
+                || hint.VesselPersistentId == 0u)
+            {
+                return null;
+            }
+
+            Recording best = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (!string.IsNullOrEmpty(hint.TreeId)
+                    && !string.Equals(
+                        candidate.TreeId,
+                        hint.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (!string.Equals(
+                    candidate.ChainId,
+                    hint.ChainId,
+                    System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (candidate.ChainBranch != hint.ChainBranch)
+                    continue;
+                if (candidate.VesselPersistentId != hint.VesselPersistentId)
+                    continue;
+
+                if (best == null || candidate.ChainIndex > best.ChainIndex)
+                    best = candidate;
+            }
+
+            return best;
         }
 
         #region Extracted helpers
@@ -1430,9 +1539,11 @@ namespace Parsek
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return 0;
 
-            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
-                tree, activeReFlyTargetId);
-            if (parentTips == null || parentTips.Count == 0)
+            var currentTipRecords = CollectCurrentParentChainTipAdoptionRecords(
+                tree,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
+            if (currentTipRecords == null || currentTipRecords.Count == 0)
                 return 0;
 
             int checkedSpawnable = 0;
@@ -1440,16 +1551,15 @@ namespace Parsek
             int skippedNotSpawnable = 0;
             int missing = 0;
 
-            foreach (string tipId in parentTips)
+            for (int i = 0; i < currentTipRecords.Count; i++)
             {
-                if (string.IsNullOrEmpty(tipId)) continue;
-
-                Recording rec;
-                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                Recording rec = currentTipRecords[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 {
                     missing++;
                     continue;
                 }
+                string tipId = rec.RecordingId;
 
                 bool retainedByPreOptimizationTip =
                     IsRetainedParentChainTipAdoptionCandidate(
@@ -1493,12 +1603,75 @@ namespace Parsek
 
             ParsekLog.Info("MergeDialog",
                 $"MergeCommit: active Re-Fly parent-chain adoption pass complete " +
-                $"candidates={parentTips.Count} checkedSpawnable={checkedSpawnable} " +
+                $"candidates={currentTipRecords.Count} checkedSpawnable={checkedSpawnable} " +
                 $"adoptedExistingSource={adoptedExistingSource} " +
                 $"skippedNotSpawnable={skippedNotSpawnable} missing={missing} " +
                 $"retainedPreOptimizationTips={retainedParentChainTipCandidates?.Count ?? 0} " +
                 $"activeTarget='{activeReFlyTargetId}'");
             return adoptedExistingSource;
+        }
+
+        private static List<Recording> CollectCurrentParentChainTipAdoptionRecords(
+            RecordingTree tree,
+            string activeReFlyTargetId,
+            List<ParentChainTipAdoptionCandidate> retainedParentChainTipCandidates)
+        {
+            var result = new List<Recording>();
+            var seen = new HashSet<string>(System.StringComparer.Ordinal);
+            if (tree == null || tree.Recordings == null)
+                return result;
+
+            if (retainedParentChainTipCandidates != null
+                && retainedParentChainTipCandidates.Count > 0)
+            {
+                foreach (Recording rec in tree.Recordings.Values)
+                {
+                    AddCurrentParentChainTipIfMatch(
+                        result,
+                        seen,
+                        rec,
+                        IsRetainedParentChainTipAdoptionCandidate(
+                            rec,
+                            retainedParentChainTipCandidates));
+                }
+                return result;
+            }
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return result;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId))
+                    continue;
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec))
+                    continue;
+                AddCurrentParentChainTipIfMatch(result, seen, rec, rec != null);
+            }
+
+            return result;
+        }
+
+        private static void AddCurrentParentChainTipIfMatch(
+            List<Recording> result,
+            HashSet<string> seen,
+            Recording rec,
+            bool matched)
+        {
+            if (!matched
+                || result == null
+                || seen == null
+                || rec == null
+                || string.IsNullOrEmpty(rec.RecordingId))
+            {
+                return;
+            }
+            if (!seen.Add(rec.RecordingId))
+                return;
+            result.Add(rec);
         }
 
         private sealed class ParentChainTipAdoptionCandidate
