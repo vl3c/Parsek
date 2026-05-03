@@ -1038,7 +1038,11 @@ namespace Parsek
                     $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
-            ApplyActiveReFlyParentChainDefaults(tree, decisions, activeReFlyTargetId);
+            ApplyActiveReFlyParentChainDefaults(
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                suppressedRecordingIds);
 
             return decisions;
         }
@@ -1301,12 +1305,14 @@ namespace Parsek
         private static void ApplyActiveReFlyParentChainDefaults(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
-            string activeReFlyTargetId)
+            string activeReFlyTargetId,
+            HashSet<string> suppressedRecordingIds)
         {
             // This runs only while BuildDefaultVesselDecisions is constructing
-            // the dialog's initial defaults. It is allowed to flip a freshly
-            // inferred spawnable parent-chain tip to ghost-only; there is no
-            // user-edited decision state yet.
+            // the dialog's initial defaults. Parent-chain terminal tips can be
+            // stale old-future cleanup, but they can also be legitimate future
+            // materialized vessels. Keep the dialog aligned with the normal
+            // runtime spawn predicate unless the tip is explicitly suppressed.
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return;
 
@@ -1316,6 +1322,7 @@ namespace Parsek
                 return;
 
             int forced = 0;
+            int retainedSpawnable = 0;
             int alreadyGhostOnly = 0;
             int missing = 0;
 
@@ -1338,6 +1345,30 @@ namespace Parsek
                     continue;
                 }
 
+                bool explicitlySuppressed = suppressedRecordingIds != null
+                    && suppressedRecordingIds.Contains(tipId)
+                    && !string.Equals(
+                        tipId,
+                        activeReFlyTargetId,
+                        System.StringComparison.Ordinal);
+                bool canPersist = hadPriorDecision
+                    ? priorDecision
+                    : CanPersistVessel(rec, tree);
+
+                if (canPersist && !explicitlySuppressed)
+                {
+                    decisions[tipId] = true;
+                    retainedSpawnable++;
+                    ParsekLog.Info("MergeDialog",
+                        $"BuildDefaultVesselDecisions: retaining active Re-Fly parent-chain " +
+                        $"terminal tip spawnable id='{tipId}' vessel='{rec.VesselName}' " +
+                        $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                        $"hasSnapshot={rec.VesselSnapshot != null} " +
+                        $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                        $"reason=normal-spawn-policy activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
                 decisions[tipId] = false;
                 forced++;
                 ParsekLog.Info("MergeDialog",
@@ -1346,12 +1377,14 @@ namespace Parsek
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
                     $"hasSnapshot={rec.VesselSnapshot != null} " +
                     $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                    $"canPersist={canPersist} explicitlySuppressed={explicitlySuppressed} " +
                     $"activeTarget='{activeReFlyTargetId}'");
             }
 
             ParsekLog.Info("MergeDialog",
                 $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
                 $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
+                $"retainedSpawnable={retainedSpawnable} " +
                 $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
                 $"activeTarget='{activeReFlyTargetId}'");
         }

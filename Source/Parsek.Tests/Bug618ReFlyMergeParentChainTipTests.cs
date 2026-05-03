@@ -6,9 +6,10 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Bug #618: Re-Fly merge cleanup/default decisions covered only the active
-    /// probe chain. A parent upper-stage recording split by the optimizer kept
-    /// its terminal payload on the chain tip, so the stale upper-stage vessel
-    /// could survive the merge as a real spawn.
+    /// probe chain. Parent-chain terminal tips still need explicit cleanup when
+    /// they are part of the suppressed Re-Fly closure, but materializable future
+    /// tips outside that closure must keep their spawn snapshot so rewind can
+    /// spawn them when playback reaches the terminal orbit.
     /// </summary>
     [Collection("Sequential")]
     public class Bug618ReFlyMergeParentChainTipTests : IDisposable
@@ -47,7 +48,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildDefaultVesselDecisions_ParentChainOptimizerTip_DefaultsGhostOnly()
+        public void BuildDefaultVesselDecisions_ParentChainOptimizerTip_RemainsSpawnableWhenNotSuppressed()
         {
             var tree = BuildUpperStageToProbeTopology(
                 activeProbeTerminal: TerminalState.Orbiting,
@@ -64,7 +65,7 @@ namespace Parsek.Tests
                 ActiveProbe);
 
             Assert.True(decisions.ContainsKey(UpperTip));
-            Assert.False(decisions[UpperTip]);
+            Assert.True(decisions[UpperTip]);
 
             Assert.True(decisions.ContainsKey(ActiveProbe));
             Assert.True(decisions[ActiveProbe]);
@@ -76,7 +77,60 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("parent-chain terminal tip")
                 && l.Contains(UpperTip)
-                && l.Contains("ghost-only"));
+                && l.Contains("retaining")
+                && l.Contains("normal-spawn-policy"));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_SuppressedParentChainOptimizerTip_DefaultsGhostOnly()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+                UpperTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.False(decisions[UpperTip]);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("forcing ghost-only on suppressed")
+                && l.Contains(UpperTip));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_ParentChainOptimizerTipWithoutSnapshot_RemainsGhostOnly()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings[UpperTip].VesselSnapshot = null;
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.False(decisions[UpperTip]);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("retaining active Re-Fly parent-chain")
+                && l.Contains(UpperTip));
         }
 
         [Fact]
@@ -101,7 +155,7 @@ namespace Parsek.Tests
             Assert.True(decisions[ProbeTip]);
             Assert.False(decisions[ActiveProbe]);
             Assert.True(decisions.ContainsKey(UpperTip));
-            Assert.False(decisions[UpperTip]);
+            Assert.True(decisions[UpperTip]);
         }
 
         [Fact]
