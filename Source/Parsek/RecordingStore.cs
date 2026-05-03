@@ -61,7 +61,8 @@ namespace Parsek
         public const int BoundarySeamFlagFormatVersion = 8;
         public const int TerrainGroundClearanceFormatVersion = 9;
         public const int StructuralEventFlagFormatVersion = 10;
-        public const int CurrentRecordingFormatVersion = StructuralEventFlagFormatVersion;
+        public const int RecordingAnchorChainFormatVersion = 11;
+        public const int CurrentRecordingFormatVersion = RecordingAnchorChainFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -107,6 +108,9 @@ namespace Parsek
         //     bump because the per-point layout is positional; legacy v9 readers stop short of
         //     the new byte (their stream alignment ends at recordedGroundClearance), and new
         //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
+        // v11: TrackSection.anchorRecordingId for non-loop Relative sections. This is a
+        //     private-development format break: v11 correctness is recording-id anchored,
+        //     while legacy pid-only Relative sections are fenced by playback follow-up phases.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
@@ -296,6 +300,10 @@ namespace Parsek
         // quickload-vs-non-flight dispatch) from a stale pending left over from a
         // previous flight (discard per #64).
         internal static bool PendingStashedThisTransition;
+        private static bool suppressNextTreeSceneExitCommit;
+        private static string suppressNextTreeSceneExitCommitReason;
+        private static bool suppressNextActiveTreeRestore;
+        private static string suppressNextActiveTreeRestoreReason;
 
         // Merged to timeline — these auto-playback during flight.
         //
@@ -1147,6 +1155,75 @@ namespace Parsek
                         $"StashPendingTree: active {activeStashRec.DebugName}");
             }
         }
+
+        /// <summary>
+        /// Arms a one-shot guard for scene transitions that intentionally throw
+        /// away the active flight's in-memory tree. Discard Re-Fly uses this
+        /// before loading the origin RP's save: the loaded save already contains
+        /// the pre-Re-Fly state, so the outgoing scene must not auto-stash the
+        /// discarded attempt as a pending merge tree.
+        /// </summary>
+        internal static void ArmNextTreeSceneExitCommitSuppression(string reason)
+        {
+            suppressNextTreeSceneExitCommit = true;
+            suppressNextTreeSceneExitCommitReason =
+                string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
+            ParsekLog.Info("RecordingStore",
+                $"Armed next tree scene-exit commit suppression reason='{suppressNextTreeSceneExitCommitReason}'");
+        }
+
+        internal static bool TryConsumeNextTreeSceneExitCommitSuppression(
+            GameScenes destinationScene,
+            out string reason)
+        {
+            reason = null;
+            if (!suppressNextTreeSceneExitCommit)
+                return false;
+
+            reason = suppressNextTreeSceneExitCommitReason ?? "<unspecified>";
+            suppressNextTreeSceneExitCommit = false;
+            suppressNextTreeSceneExitCommitReason = null;
+            ParsekLog.Info("RecordingStore",
+                $"Consumed tree scene-exit commit suppression reason='{reason}' dest={destinationScene}");
+            return true;
+        }
+
+        internal static bool NextTreeSceneExitCommitSuppressionArmedForTesting
+            => suppressNextTreeSceneExitCommit;
+
+        /// <summary>
+        /// Arms a one-shot guard for the next saved active-tree restore pass.
+        /// Discard Re-Fly uses this after loading the origin RP save: the save can
+        /// still contain an isActive tree for quickload resume, but this load is an
+        /// intentional reset back to the RP, not a resume or merge candidate.
+        /// </summary>
+        internal static void ArmNextActiveTreeRestoreSuppression(string reason)
+        {
+            suppressNextActiveTreeRestore = true;
+            suppressNextActiveTreeRestoreReason =
+                string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
+            ParsekLog.Info("RecordingStore",
+                $"Armed next active-tree restore suppression reason='{suppressNextActiveTreeRestoreReason}'");
+        }
+
+        internal static bool TryConsumeNextActiveTreeRestoreSuppression(
+            string context,
+            out string reason)
+        {
+            reason = null;
+            if (!suppressNextActiveTreeRestore)
+                return false;
+
+            reason = suppressNextActiveTreeRestoreReason ?? "<unspecified>";
+            suppressNextActiveTreeRestore = false;
+            suppressNextActiveTreeRestoreReason = null;
+            ParsekLog.Info("RecordingStore",
+                $"Consumed active-tree restore suppression reason='{reason}' context={context ?? "<none>"}");
+            return true;
+        }
+
+        internal static bool NextActiveTreeRestoreSuppressionArmedForTesting
+            => suppressNextActiveTreeRestore;
 
         /// <summary>
         /// Commits the pending tree to the timeline.
@@ -2340,6 +2417,10 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingStashedThisTransition = false;
+            suppressNextTreeSceneExitCommit = false;
+            suppressNextTreeSceneExitCommitReason = null;
+            suppressNextActiveTreeRestore = false;
+            suppressNextActiveTreeRestoreReason = null;
             ResetLegacyMergeStateMigrationForTesting();
         }
 
@@ -2543,6 +2624,73 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the recording view used by load/save cleanup passes that
+        /// reason over raw committed rows, while also protecting the pending
+        /// tree during deferred-merge windows. LoadTimeSweep uses it for
+        /// supersede endpoint existence; GroupHierarchyStore uses it for live
+        /// group collection. Intentionally excludes the committed-tree
+        /// dictionary: zombie cleanup removes rows from the flat committed
+        /// list, and the same sweep must not see those rows again through the
+        /// parallel tree store. The same exclusion keeps group pruning aligned
+        /// to the raw committed list plus the deferred pending tree, without
+        /// letting stale tree-only copies protect old hierarchy entries.
+        /// </summary>
+        internal static List<Recording> BuildKnownRecordingsForCleanup()
+        {
+            var recordings = new List<Recording>();
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+                AddKnownRecordingForCleanup(recordings, seenIds, committedRecordings[i]);
+
+            if (pendingTree != null && pendingTree.Recordings != null)
+            {
+                foreach (var kvp in pendingTree.Recordings)
+                    AddKnownRecordingForCleanup(recordings, seenIds, kvp.Value);
+            }
+
+            return recordings;
+        }
+
+        private static void AddKnownRecordingForCleanup(
+            List<Recording> recordings,
+            HashSet<string> seenIds,
+            Recording rec)
+        {
+            if (rec == null)
+                return;
+
+            if (string.IsNullOrEmpty(rec.RecordingId))
+            {
+                recordings.Add(rec);
+                return;
+            }
+
+            if (seenIds.Add(rec.RecordingId))
+                recordings.Add(rec);
+        }
+
+        internal static HashSet<string> BuildKnownRecordingIdsForCleanup()
+        {
+            var knownIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < committedRecordings.Count; i++)
+                AddKnownRecordingId(knownIds, committedRecordings[i]);
+
+            if (pendingTree != null && pendingTree.Recordings != null)
+            {
+                foreach (var kvp in pendingTree.Recordings)
+                    AddKnownRecordingId(knownIds, kvp.Value);
+            }
+            return knownIds;
+        }
+
+        private static void AddKnownRecordingId(HashSet<string> knownIds, Recording rec)
+        {
+            if (!string.IsNullOrEmpty(rec?.RecordingId))
+                knownIds.Add(rec.RecordingId);
+        }
+
+        /// <summary>
         /// Builds the set of all recording IDs that are currently known to the store
         /// (committed recordings, committed trees, and the pending tree). Used by
         /// <see cref="CleanOrphanFiles"/> to decide which sidecar files to keep.
@@ -2559,28 +2707,26 @@ namespace Parsek
         /// </summary>
         internal static HashSet<string> BuildKnownRecordingIds(out int pendingTreeIdCount)
         {
-            var knownIds = new HashSet<string>();
+            var knownIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
-                    knownIds.Add(committedRecordings[i].RecordingId);
-            }
+                AddKnownRecordingId(knownIds, committedRecordings[i]);
+
             for (int t = 0; t < committedTrees.Count; t++)
             {
-                foreach (var kvp in committedTrees[t].Recordings)
-                {
-                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
-                        knownIds.Add(kvp.Value.RecordingId);
-                }
+                var treeRecordings = committedTrees[t]?.Recordings;
+                if (treeRecordings == null) continue;
+                foreach (var kvp in treeRecordings)
+                    AddKnownRecordingId(knownIds, kvp.Value);
             }
+
             pendingTreeIdCount = 0;
-            if (pendingTree != null)
+            if (pendingTree != null && pendingTree.Recordings != null)
             {
                 foreach (var kvp in pendingTree.Recordings)
                 {
-                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                    if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
                     {
-                        knownIds.Add(kvp.Value.RecordingId);
+                        AddKnownRecordingId(knownIds, kvp.Value);
                         pendingTreeIdCount++;
                     }
                 }

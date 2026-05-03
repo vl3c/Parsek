@@ -263,12 +263,12 @@ namespace Parsek
                 recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
-            // at session start so the per-frame anchor offset can sample the
+            // at session start so Re-Fly display alignment can sample the
             // ORIGINAL active recording at any UT — even after the live
             // recording is trimmed past cutoffUT and re-extended with new
             // player flight data. The snapshot fields are [NonSerialized]
-            // and would otherwise vanish on F5/F9 mid-session, breaking the
-            // per-frame anchor for every other ghost in the Re-Fly tree.
+            // and would otherwise vanish on F5/F9 mid-session, breaking
+            // display alignment for every other ghost in the Re-Fly tree.
             // Encoded as a child PRE_REFLY_ANCHOR node containing a full
             // serialized trajectory (points/orbit segments/track sections);
             // SerializeTrajectoryInto is reused via a temp Recording so the
@@ -308,6 +308,37 @@ namespace Parsek
                             + " points=" + (snapshotRec.Points?.Count ?? 0).ToString(icL)
                             + " orbitSegments=" + (snapshotRec.OrbitSegments?.Count ?? 0).ToString(icL)
                             + " trackSections=" + (snapshotRec.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(rec.PreReFlyOriginalSessionId)
+                && rec.HasPreReFlyOriginalRecording(rec.PreReFlyOriginalSessionId))
+            {
+                Recording originalSnapshot = rec.BuildPreReFlyOriginalRecording(
+                    rec.PreReFlyOriginalSessionId);
+                if (originalSnapshot != null)
+                {
+                    // Full rollback payload by design: #733 restores Discard
+                    // after the in-place attempt mutates the origin; #734
+                    // tracks replacing this with a forked-attempt model.
+                    ConfigNode originalNode = recNode.AddNode("PRE_REFLY_ORIGINAL");
+                    originalNode.AddValue("sessionId", rec.PreReFlyOriginalSessionId);
+                    ConfigNode originalRecordingNode = originalNode.AddNode("RECORDING");
+                    SaveRecordingInto(originalRecordingNode, originalSnapshot);
+                    TrajectoryTextSidecarCodec.SerializeTrajectoryInto(
+                        originalRecordingNode, originalSnapshot);
+                    SaveInlineSnapshot(originalNode, "VESSEL_SNAPSHOT", originalSnapshot.VesselSnapshot);
+                    SaveInlineSnapshot(originalNode, "GHOST_SNAPSHOT", originalSnapshot.GhostVisualSnapshot);
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ORIGINAL written: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + rec.PreReFlyOriginalSessionId
+                            + " points=" + (originalSnapshot.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (originalSnapshot.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (originalSnapshot.TrackSections?.Count ?? 0).ToString(icL));
                     }
                 }
             }
@@ -890,6 +921,74 @@ namespace Parsek
                     }
                 }
             }
+
+            ConfigNode originalNode = recNode.GetNode("PRE_REFLY_ORIGINAL");
+            if (originalNode != null)
+            {
+                string originalSessionId = originalNode.GetValue("sessionId");
+                ConfigNode originalRecordingNode = originalNode.GetNode("RECORDING");
+                if (!string.IsNullOrEmpty(originalSessionId)
+                    && originalRecordingNode != null)
+                {
+                    Recording originalSnapshot = new Recording
+                    {
+                        RecordingFormatVersion = rec.RecordingFormatVersion,
+                    };
+                    LoadRecordingFrom(originalRecordingNode, originalSnapshot);
+                    TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(
+                        originalRecordingNode, originalSnapshot);
+                    originalSnapshot.VesselSnapshot = LoadInlineSnapshot(
+                        originalNode, "VESSEL_SNAPSHOT");
+                    originalSnapshot.GhostVisualSnapshot = LoadInlineSnapshot(
+                        originalNode, "GHOST_SNAPSHOT");
+                    originalSnapshot.ClearPreReFlySessionSnapshots();
+                    rec.PreReFlyOriginalSessionId = originalSessionId;
+                    rec.PreReFlyOriginalRecording = originalSnapshot;
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("RecordingTree",
+                            "PRE_REFLY_ORIGINAL loaded: rec=" + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + originalSessionId
+                            + " points=" + (originalSnapshot.Points?.Count ?? 0).ToString(icL)
+                            + " orbitSegments=" + (originalSnapshot.OrbitSegments?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (originalSnapshot.TrackSections?.Count ?? 0).ToString(icL));
+                    }
+                }
+            }
+        }
+
+        private static void SaveInlineSnapshot(ConfigNode parent, string wrapperName, ConfigNode snapshot)
+        {
+            if (parent == null || string.IsNullOrEmpty(wrapperName) || snapshot == null)
+                return;
+
+            ConfigNode wrapper = parent.AddNode(wrapperName);
+            string nodeName = string.IsNullOrEmpty(snapshot.name) ? "SNAPSHOT" : snapshot.name;
+            wrapper.AddValue("nodeName", nodeName);
+            wrapper.AddNode(nodeName, snapshot.CreateCopy());
+        }
+
+        private static ConfigNode LoadInlineSnapshot(ConfigNode parent, string wrapperName)
+        {
+            if (parent == null || string.IsNullOrEmpty(wrapperName))
+                return null;
+
+            ConfigNode wrapper = parent.GetNode(wrapperName);
+            if (wrapper == null || wrapper.nodes == null || wrapper.nodes.Count == 0)
+                return null;
+
+            ConfigNode snapshot = null;
+            string nodeName = wrapper.GetValue("nodeName");
+            if (!string.IsNullOrEmpty(nodeName))
+                snapshot = wrapper.GetNode(nodeName);
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("VESSEL");
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("SNAPSHOT");
+            if (snapshot == null)
+                snapshot = wrapper.nodes[0];
+            return snapshot != null ? snapshot.CreateCopy() : null;
         }
 
         #endregion

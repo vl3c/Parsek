@@ -107,6 +107,128 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastAbsoluteShadowPoint()
+        {
+            var rec = new Recording { RecordingId = "scene-exit-tail-reseed" };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 111.0,
+                latitude = 999.0,
+                longitude = 999.0,
+                altitude = 999.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(9f, 9f, 9f)
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 112.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 111.0,
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3.0,
+                        bodyName = "Kerbin",
+                        velocity = new Vector3(1f, 1f, 1f)
+                    }
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0,
+                        latitude = 4.0,
+                        longitude = 5.0,
+                        altitude = 65000.0,
+                        bodyName = "Kerbin",
+                        velocity = new Vector3(10f, 20f, 30f)
+                    }
+                }
+            });
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        Assert.Equal(110.0, anchorPoint.ut, precision: 3);
+                        Assert.Equal(65000.0, anchorPoint.altitude, precision: 3);
+                        reseededSegment = originalSegment;
+                        reseededSegment.semiMajorAxis = 812345.0;
+                        rawOffsetMeters = 40.0;
+                        residualOffsetMeters = 0.25;
+                        reason = "test-builder";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.True(applied);
+            Assert.Equal(110.0, segments[0].startUT, precision: 3);
+            Assert.Equal(500.0, segments[0].endUT, precision: 3);
+            Assert.Equal(812345.0, segments[0].semiMajorAxis, precision: 3);
+            Assert.Equal("TrackSection[0].absoluteFrames", diagnostics.AnchorSource);
+            Assert.Equal(2.0, diagnostics.GapSeconds, precision: 3);
+            Assert.Equal(40.0, diagnostics.RawOffsetMeters, precision: 3);
+            Assert.Equal(0.25, diagnostics.ResidualOffsetMeters, precision: 3);
+        }
+
+        [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_DistantAnchor_ReturnsFalse()
+        {
+            var rec = new Recording { RecordingId = "scene-exit-tail-reseed-distant" };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 65000.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(10f, 20f, 30f)
+            });
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        reseededSegment = originalSegment;
+                        rawOffsetMeters = 0.0;
+                        residualOffsetMeters = 0.0;
+                        reason = "should-not-run";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.False(applied);
+            Assert.Equal("anchor-point-missing", diagnostics.Reason);
+            Assert.Equal(112.0, segments[0].startUT, precision: 3);
+        }
+
+        [Fact]
         public void ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog()
         {
             Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
@@ -1137,6 +1259,393 @@ namespace Parsek.Tests
             Assert.True(built);
             Assert.True(liveStateSampled);
             Assert.Equal(TerminalState.Destroyed, result.terminalState);
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-fresh-recorded-point",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            bool liveStateSampled = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    liveStateSampled = true;
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(5.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false),
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.True(liveStateSampled);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]")
+                && l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-fresh-recorded-point")
+                && l.Contains("recordingStartUT=500.000")
+                && l.Contains("recordedBody=Kerbin")
+                && l.Contains("liveBody=Kerbin")
+                && l.Contains("recordedAlt=")
+                && l.Contains("liveAlt="));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("scene-exit-null-solver-fresh-recorded-point"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_SuppressionWarnsPerRecording()
+        {
+            var first = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-per-recording-log-a",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            first.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+            var second = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-per-recording-log-b",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            second.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool firstBuilt = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                first,
+                out IncompleteBallisticFinalizationResult firstResult);
+            bool secondBuilt = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                second,
+                out IncompleteBallisticFinalizationResult secondResult);
+
+            Assert.False(firstBuilt);
+            Assert.False(secondBuilt);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, firstResult.extrapolationFailureReason);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, secondResult.extrapolationFailureReason);
+            Assert.Equal(1, CountLogLines(
+                "suppressing sub-surface Destroyed",
+                "scene-exit-null-solver-per-recording-log-a"));
+            Assert.Equal(1, CountLogLines(
+                "suppressing sub-surface Destroyed",
+                "scene-exit-null-solver-per-recording-log-b"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_StaleRecordedPointStillClassifiesDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-stale-recorded-point",
+                ExplicitStartUT = 490.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 490.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(5.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false),
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-stale-recorded-point"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativeFlatPointDoesNotSuppressSubSurfaceDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-relative-flat-point",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            var relativePoint = new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 10.0
+            };
+            rec.Points.Add(relativePoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.SurfaceMobile,
+                startUT = 500.0,
+                endUT = 500.0,
+                frames = new List<TrajectoryPoint> { relativePoint },
+                absoluteFrames = new List<TrajectoryPoint>()
+            });
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-relative-flat-point"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativeAbsoluteFrameCanSuppressSubSurfaceDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-relative-absolute-frame",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            var relativePoint = new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 10.0
+            };
+            var absolutePoint = new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            };
+            rec.Points.Add(relativePoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.SurfaceMobile,
+                startUT = 500.0,
+                endUT = 500.0,
+                frames = new List<TrajectoryPoint> { relativePoint },
+                absoluteFrames = new List<TrajectoryPoint> { absolutePoint }
+            });
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-relative-absolute-frame")
+                && l.Contains("source=TrackSection[0].absoluteFrames"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecentPointFromOlderRecordingSuppressesSubSurfaceDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-older-recording-recent-point",
+                ExplicitStartUT = 490.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 490.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 12000.0
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-older-recording-recent-point")
+                && l.Contains("recordingStartUT=490.000")
+                && l.Contains("pointUT=500.000"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_BodyMismatchStillClassifiesDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-body-mismatch",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Mun",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-body-mismatch"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_NonCatastrophicAltitudeStillClassifiesDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-threshold-violation",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = MakeSubSurfaceKerbinStartState();
+                    return true;
+                },
+                (startState, extrapolationBodies) => new ExtrapolationResult
+                {
+                    terminalState = TerminalState.Destroyed,
+                    terminalUT = startState.ut,
+                    terminalBodyName = startState.bodyName,
+                    terminalPosition = new Vector3d(599950.0, 0.0, 0.0),
+                    terminalVelocity = Vector3d.zero,
+                    segments = new List<OrbitSegment>(),
+                    failureReason = ExtrapolationFailureReason.SubSurfaceStart
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Equal(-50.0, result.subSurfaceDestroyedAltitude, precision: 6);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-threshold-violation"));
         }
 
         [Fact]
@@ -2230,11 +2739,87 @@ namespace Parsek.Tests
             return count;
         }
 
+        private static bool TryFinalizeNullSolverWithSubSurfaceLiveState(
+            Recording rec,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            return IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = MakeSubSurfaceKerbinStartState();
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                    BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false),
+                out result);
+        }
+
+        private static BallisticStateVector MakeSubSurfaceKerbinStartState()
+        {
+            return new BallisticStateVector
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                position = new Vector3d(5.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 0.0, 0.0),
+                orbitalFrameRotation = Quaternion.identity
+            };
+        }
+
+        private static PatchedConicSnapshotResult NullSolverSnapshot()
+        {
+            return new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+        }
+
+        private static Dictionary<string, ExtrapolationBody> KerbinBodies()
+        {
+            return new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+        }
+
         private static ConfigNode MakeSnapshot(string sit)
         {
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
+        }
+
+        private static OrbitSegment MakePredictedSegmentForReseedTest(
+            double startUT,
+            double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 1.0,
+                eccentricity = 0.05,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 2.0,
+                argumentOfPeriapsis = 3.0,
+                meanAnomalyAtEpoch = 4.0,
+                epoch = startUT,
+                isPredicted = true
+            };
         }
 
         private static RecordingFinalizationCache MakeDestroyedCache(

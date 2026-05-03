@@ -59,7 +59,8 @@ namespace Parsek
         // readers default flags=0 (HR-9 fall-through to interpolated event ε per
         // §15.17). Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
         internal const int StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion;
-        private const int CurrentBinaryVersion = StructuralEventFlagBinaryVersion;
+        internal const int RecordingAnchorChainBinaryVersion = RecordingStore.RecordingAnchorChainFormatVersion;
+        internal const int CurrentBinaryVersion = RecordingAnchorChainBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -144,9 +145,17 @@ namespace Parsek
                 throw new ArgumentNullException(nameof(rec));
 
             bool sectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec);
+            List<TrajectoryPoint> flatFallbackPoints = sectionAuthoritative
+                ? null
+                : TrajectoryTextSidecarCodec.GetFlatFallbackPointsForWrite(rec);
+            bool wroteSafeRelativeFlatFallback =
+                flatFallbackPoints != null && !ReferenceEquals(flatFallbackPoints, rec.Points);
+            int flatFallbackPointCount = flatFallbackPoints != null ? flatFallbackPoints.Count : 0;
             var table = BuildStringTable(rec);
-            int binaryVersion = rec.RecordingFormatVersion >= CurrentBinaryVersion
-                ? CurrentBinaryVersion
+            int binaryVersion = rec.RecordingFormatVersion >= RecordingAnchorChainBinaryVersion
+                ? RecordingAnchorChainBinaryVersion
+                : rec.RecordingFormatVersion >= StructuralEventFlagBinaryVersion
+                    ? StructuralEventFlagBinaryVersion
                 : rec.RecordingFormatVersion >= TerrainGroundClearanceBinaryVersion
                     ? TerrainGroundClearanceBinaryVersion
                 : rec.RecordingFormatVersion >= BoundarySeamFlagBinaryVersion
@@ -177,7 +186,7 @@ namespace Parsek
                 for (int i = 0; i < table.Strings.Count; i++)
                     writer.Write(table.Strings[i] ?? string.Empty);
 
-                WritePointList(writer, sectionAuthoritative ? null : rec.Points, table, binaryVersion, ref stats);
+                WritePointList(writer, flatFallbackPoints, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, sectionAuthoritative ? null : rec.OrbitSegments, table, binaryVersion);
                 WritePartEventList(writer, rec.PartEvents, table);
                 WriteFlagEventList(writer, rec.FlagEvents, table);
@@ -197,7 +206,9 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +
                     $"sectionAuthoritative={sectionAuthoritative} strings={table.Strings.Count} " +
-                    $"points={(sectionAuthoritative ? 0 : rec.Points.Count)} orbitSegments={(sectionAuthoritative ? 0 : rec.OrbitSegments.Count)} " +
+                    $"points={(sectionAuthoritative ? 0 : flatFallbackPointCount)} originalPoints={rec.Points.Count} " +
+                    $"safeRelativeFlatFallback={wroteSafeRelativeFlatFallback} " +
+                    $"orbitSegments={(sectionAuthoritative ? 0 : rec.OrbitSegments.Count)} " +
                     $"predictedOrbitSegments={predictedOrbitSegmentCount} predictedCheckpoints={predictedCheckpointCount} " +
                     $"trackSections={rec.TrackSections?.Count ?? 0} nonDefaultSectionSources={nonDefaultSectionSources} " +
                     $"sparsePointLists={stats.SparsePointLists} sparsePoints={stats.SparsePoints} " +
@@ -346,6 +357,10 @@ namespace Parsek
                         for (int i = 0; i < section.frames.Count; i++)
                             table.Register(section.frames[i].bodyName);
                     }
+                    if (!string.IsNullOrEmpty(section.anchorRecordingId))
+                    {
+                        table.Register(section.anchorRecordingId);
+                    }
                     if (section.absoluteFrames != null)
                     {
                         for (int i = 0; i < section.absoluteFrames.Count; i++)
@@ -373,7 +388,8 @@ namespace Parsek
                 || version == RelativeAbsoluteShadowBinaryVersion
                 || version == BoundarySeamFlagBinaryVersion
                 || version == TerrainGroundClearanceBinaryVersion
-                || version == CurrentBinaryVersion;
+                || version == StructuralEventFlagBinaryVersion
+                || version == RecordingAnchorChainBinaryVersion;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
@@ -693,7 +709,14 @@ namespace Parsek
                 writer.Write((int)track.referenceFrame);
                 writer.Write(track.startUT);
                 writer.Write(track.endUT);
-                writer.Write(track.anchorVesselId);
+                writer.Write(binaryVersion >= RecordingAnchorChainBinaryVersion ? 0u : track.anchorVesselId);
+                if (binaryVersion >= RecordingAnchorChainBinaryVersion)
+                {
+                    string anchorRecordingId = string.IsNullOrEmpty(track.anchorRecordingId)
+                        ? null
+                        : track.anchorRecordingId;
+                    writer.Write(table.GetNullableIndex(anchorRecordingId));
+                }
                 writer.Write(track.sampleRateHz);
                 writer.Write((int)track.source);
                 writer.Write(track.boundaryDiscontinuityMeters);
@@ -724,6 +747,9 @@ namespace Parsek
                     startUT = reader.ReadDouble(),
                     endUT = reader.ReadDouble(),
                     anchorVesselId = reader.ReadUInt32(),
+                    anchorRecordingId = binaryVersion >= RecordingAnchorChainBinaryVersion
+                        ? ReadNullableIndexedString(reader, stringTable)
+                        : null,
                     sampleRateHz = reader.ReadSingle(),
                     source = (TrackSectionSource)reader.ReadInt32(),
                     boundaryDiscontinuityMeters = reader.ReadSingle(),

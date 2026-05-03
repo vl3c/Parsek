@@ -59,8 +59,8 @@ namespace Parsek
         // Host-scene gate (#688 follow-up): when true, ActivateGhostVisualsIfNeeded
         // refuses to flip the ghost active. Set by the positioner while the
         // host has additional gating to apply — currently used so a ghost in
-        // the active Re-Fly tree stays hidden until the per-frame anchor
-        // offset has been resolved at least once. Cleared by the same
+        // the active Re-Fly tree stays hidden until the frozen display
+        // alignment has been resolved at least once. Cleared by the same
         // positioner the moment the gating condition lifts. Engine never
         // writes this field.
         public bool externalActivationDeferred;
@@ -81,6 +81,7 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        internal bool positionedThisFrame;
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
         public PendingGhostVisualBuild pendingVisualBuild; // bug #450 B2: multi-frame snapshot build in progress
@@ -96,6 +97,8 @@ namespace Parsek
         public int flagEventIndex;               // tracks which flags have been spawned
         public bool hadVisibleRenderersLastFrame; // true after the ghost produced visible mesh on the previous frame
         public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
+        public bool initialRelativeActivationHiddenPrimed;
+        public int initialRelativeActivationHiddenFramesRemaining;
 
         internal void ClearLoadedVisualReferences()
         {
@@ -136,12 +139,15 @@ namespace Parsek
             // sessions correlating gate state with visibility.
             externalActivationDeferred = false;
             anchorRetiredThisFrame = false;
+            positionedThisFrame = false;
             cameraPivot = null;
             horizonProxy = null;
             pendingVisualBuild = null;
             pendingSpawnLifecycle = PendingSpawnLifecycle.None;
             pendingSpawnFlags = default;
             hadVisibleRenderersLastFrame = false;
+            initialRelativeActivationHiddenPrimed = false;
+            initialRelativeActivationHiddenFramesRemaining = 0;
         }
 
         public void SetInterpolated(InterpolationResult r)

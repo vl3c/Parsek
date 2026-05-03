@@ -236,7 +236,15 @@ namespace Parsek
             // warning on every load/save cycle.
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
-            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            if (markerValid)
+            {
+                ParsekLog.Verbose("GroupHierarchy",
+                    "Skipping group hierarchy prune reason=load-time-sweep while Re-Fly session is active");
+            }
+            else
+            {
+                GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
+            }
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
 
             // ----------------------------------------------------------------
@@ -390,8 +398,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Defensive #688 backstop: clears any pre-Re-Fly anchor snapshot
-        /// whose <see cref="Recording.PreReFlyAnchorSessionId"/> doesn't
+        /// Defensive backstop: clears any pre-Re-Fly snapshot whose session id doesn't
         /// match the live <see cref="ParsekScenario.ActiveReFlySessionMarker"/>'s
         /// session id. The expected lifecycle clears snapshots through the
         /// session-end paths
@@ -410,23 +417,40 @@ namespace Parsek
             {
                 var rec = committed[i];
                 if (rec == null) continue;
-                if (string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)) continue;
-                if (!string.IsNullOrEmpty(liveSessionId)
-                    && string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal))
-                    continue;
-                // Per CLAUDE.md batch counting convention: per-item events at
-                // Verbose, single Warn summary after the loop when cleared > 0.
-                ParsekLog.Verbose(SessionTag,
-                    $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
-                    $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) — clearing");
-                rec.ClearPreReFlyAnchorTrajectory();
-                cleared++;
+                bool clearedThisRecording = false;
+
+                if (!string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)
+                    && (string.IsNullOrEmpty(liveSessionId)
+                        || !string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal)))
+                {
+                    // Per CLAUDE.md batch counting convention: per-item events at
+                    // Verbose, single Warn summary after the loop when cleared > 0.
+                    ParsekLog.Verbose(SessionTag,
+                        $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
+                        $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) - clearing");
+                    rec.ClearPreReFlyAnchorTrajectory();
+                    clearedThisRecording = true;
+                }
+
+                if (!string.IsNullOrEmpty(rec.PreReFlyOriginalSessionId)
+                    && (string.IsNullOrEmpty(liveSessionId)
+                        || !string.Equals(rec.PreReFlyOriginalSessionId, liveSessionId, StringComparison.Ordinal)))
+                {
+                    ParsekLog.Verbose(SessionTag,
+                        $"Stray pre-Re-Fly original snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
+                        $"sess={rec.PreReFlyOriginalSessionId} (live sess={liveSessionId ?? "<none>"}) - clearing");
+                    rec.ClearPreReFlyOriginalRecording();
+                    clearedThisRecording = true;
+                }
+
+                if (clearedThisRecording)
+                    cleared++;
             }
             if (cleared > 0)
             {
                 ParsekLog.Warn(SessionTag,
-                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly anchor " +
-                    $"snapshot(s) at load time (live sess={liveSessionId ?? "<none>"})");
+                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly " +
+                    $"snapshot host(s) at load time (live sess={liveSessionId ?? "<none>"})");
             }
             return cleared;
         }
@@ -528,15 +552,16 @@ namespace Parsek
             if (scenario.RecordingSupersedes == null || scenario.RecordingSupersedes.Count == 0)
                 return result;
 
+            var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
             for (int i = scenario.RecordingSupersedes.Count - 1; i >= 0; i--)
             {
                 var rel = scenario.RecordingSupersedes[i];
                 if (rel == null) continue;
 
                 bool oldResolved = !string.IsNullOrEmpty(rel.OldRecordingId)
-                                   && RecordingExists(rel.OldRecordingId);
+                                   && RecordingExists(rel.OldRecordingId, knownRecordingIds);
                 bool newResolved = !string.IsNullOrEmpty(rel.NewRecordingId)
-                                   && RecordingExists(rel.NewRecordingId);
+                                   && RecordingExists(rel.NewRecordingId, knownRecordingIds);
                 if (oldResolved && newResolved) continue;
 
                 if (!oldResolved && !newResolved)
@@ -734,19 +759,12 @@ namespace Parsek
         // Shared helpers.
         // ------------------------------------------------------------------
 
-        private static bool RecordingExists(string recordingId)
+        private static bool RecordingExists(
+            string recordingId,
+            HashSet<string> knownRecordingIds)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
+            return knownRecordingIds != null && knownRecordingIds.Contains(recordingId);
         }
 
         private static void LogMarkerInvalid(ReFlySessionMarker marker, string reason, string details)

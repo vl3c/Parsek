@@ -144,6 +144,250 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region OrbitalCheckpoint renderability
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithFrames_ReturnsTrue()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10.0 }
+                }
+            };
+
+            Assert.True(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithCheckpointsOnly_ReturnsTrue()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10.0, endUT = 20.0 }
+                }
+            };
+
+            Assert.True(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_WithNoPayload_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint
+            };
+
+            Assert.False(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        [Fact]
+        public void HasRenderableCheckpointTrackSection_AbsoluteWithFrames_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10.0 }
+                }
+            };
+
+            Assert.False(ParsekFlight.HasRenderableCheckpointTrackSection(section));
+        }
+
+        #endregion
+
+        #region Re-Fly dense absolute playback frames
+
+        [Fact]
+        public void ShouldUseDenseReFlyAbsolutePlaybackFrames_DenseAbsoluteSectionBracket_ReturnsTrue()
+        {
+            var sectionFrames = new List<TrajectoryPoint>
+            {
+                Point(100.0),
+                Point(106.0),
+                Point(109.0),
+            };
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 100.0,
+                    endUT = 110.0,
+                    frames = sectionFrames,
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 110.0,
+                    endUT = 120.0,
+                    frames = new List<TrajectoryPoint> { Point(110.0), Point(120.0) },
+                },
+            };
+            var flatPoints = new List<TrajectoryPoint>();
+            for (int i = 0; i < 10; i++)
+                flatPoints.Add(Point(100.0 + i));
+            flatPoints.Add(Point(110.0));
+            flatPoints.Add(Point(111.0));
+
+            bool result = ParsekFlight.ShouldUseDenseReFlyAbsolutePlaybackFrames(
+                sections,
+                0,
+                sections[0],
+                sectionFrames,
+                flatPoints,
+                playbackUT: 105.5,
+                out int denseFrameCount,
+                out double sectionBracketSeconds,
+                out double denseBracketSeconds,
+                out string reason);
+
+            Assert.True(result);
+            Assert.Equal("dense-bracket-tighter", reason);
+            Assert.Equal(10, denseFrameCount);
+            Assert.Equal(6.0, sectionBracketSeconds);
+            Assert.Equal(1.0, denseBracketSeconds);
+        }
+
+        [Fact]
+        public void ShouldUseDenseReFlyAbsolutePlaybackFrames_RelativeSection_ReturnsFalse()
+        {
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint> { Point(100.0), Point(110.0) },
+            };
+
+            bool result = ParsekFlight.ShouldUseDenseReFlyAbsolutePlaybackFrames(
+                new List<TrackSection> { section },
+                0,
+                section,
+                section.frames,
+                new List<TrajectoryPoint> { Point(100.0), Point(105.0), Point(110.0) },
+                playbackUT: 105.0,
+                out _,
+                out _,
+                out _,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("not-absolute", reason);
+        }
+
+        [Fact]
+        public void ShouldUseDenseReFlyAbsolutePlaybackFrames_DenseBracketNotTighter_ReturnsFalse()
+        {
+            var sectionFrames = new List<TrajectoryPoint>
+            {
+                Point(100.0),
+                Point(105.0),
+                Point(110.0),
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = sectionFrames,
+            };
+            var flatPoints = new List<TrajectoryPoint>
+            {
+                Point(100.0),
+                Point(105.0),
+                Point(110.0),
+            };
+
+            bool result = ParsekFlight.ShouldUseDenseReFlyAbsolutePlaybackFrames(
+                new List<TrackSection> { section },
+                0,
+                section,
+                sectionFrames,
+                flatPoints,
+                playbackUT: 102.5,
+                out int denseFrameCount,
+                out double sectionBracketSeconds,
+                out double denseBracketSeconds,
+                out string reason);
+
+            Assert.False(result);
+            Assert.Equal("dense-not-more-populated", reason);
+            Assert.Equal(3, denseFrameCount);
+            Assert.True(double.IsNaN(sectionBracketSeconds));
+            Assert.True(double.IsNaN(denseBracketSeconds));
+        }
+
+        [Fact]
+        public void ShouldUseDenseReFlyAbsolutePlaybackFrames_ExcludesBoundaryPointsOwnedByNextSection()
+        {
+            var sectionFrames = new List<TrajectoryPoint>
+            {
+                Point(100.0),
+                Point(106.0),
+            };
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 100.0,
+                    endUT = 110.0,
+                    frames = sectionFrames,
+                },
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    startUT = 110.0,
+                    endUT = 120.0,
+                    frames = new List<TrajectoryPoint> { Point(110.0), Point(120.0) },
+                },
+            };
+            var flatPoints = new List<TrajectoryPoint>
+            {
+                Point(100.0),
+                Point(103.0),
+                Point(106.0),
+                Point(110.0),
+                Point(111.0),
+            };
+
+            bool result = ParsekFlight.ShouldUseDenseReFlyAbsolutePlaybackFrames(
+                sections,
+                0,
+                sections[0],
+                sectionFrames,
+                flatPoints,
+                playbackUT: 104.0,
+                out int denseFrameCount,
+                out _,
+                out _,
+                out string reason);
+
+            Assert.True(result);
+            Assert.Equal("dense-bracket-tighter", reason);
+            Assert.Equal(3, denseFrameCount);
+        }
+
+        private static TrajectoryPoint Point(double ut)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = "Kerbin",
+            };
+        }
+
+        #endregion
+
         #region ToString
 
         [Fact]

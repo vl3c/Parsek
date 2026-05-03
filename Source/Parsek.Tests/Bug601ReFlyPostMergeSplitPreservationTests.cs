@@ -411,6 +411,236 @@ namespace Parsek.Tests
             Assert.NotNull(verbose);
         }
 
+        // ============================================================
+        // Orphan-chain-predecessor repair: a 2026-05-02 playtest log
+        // showed a same-vessel chain successor (Kerbal X, ChainIndex=1)
+        // present with its ChainId, but the matching first-half
+        // predecessor had ChainId=null / ChainIndex=-1 in the
+        // committed tree on disk. SpliceMissingCommittedRecordings
+        // copies the broken state faithfully — playback then treats
+        // the successor as a fresh ghost and rebuilds engines/FX on
+        // the chain boundary. The load-time repair grafts the
+        // predecessor back as ChainIndex=0 of the same chain.
+        // ============================================================
+
+        [Fact]
+        public void Splice_OptimizerSuccessorWithLostFirstHalfChain_RepairsPredecessorChain()
+        {
+            var committed = MakeBaseTree("tree_missing_chain_root");
+            AddRecording(committed, "rec_upper_atmo", "Kerbal X", utStart: 0, utEnd: 100, points: 20);
+            AddRecording(committed, "rec_upper_exo", "Kerbal X", utStart: 100, utEnd: 200, points: 20);
+            committed.Recordings["rec_upper_atmo"].VesselPersistentId = 3377584740;
+            committed.Recordings["rec_upper_atmo"].TreeOrder = 0;
+            committed.Recordings["rec_upper_exo"].VesselPersistentId = 3377584740;
+            committed.Recordings["rec_upper_exo"].TreeOrder = 8;
+            committed.Recordings["rec_upper_exo"].ChainId = "chain_upper";
+            committed.Recordings["rec_upper_exo"].ChainIndex = 1;
+            committed.Recordings["rec_upper_exo"].SegmentPhase = "exo";
+            committed.ActiveRecordingId = "rec_upper_atmo";
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            // Loaded tree (RP .sfs frozen pre-split): predecessor only,
+            // chain fields unset.
+            var loaded = MakeBaseTree("tree_missing_chain_root");
+            AddRecording(loaded, "rec_upper_atmo", "Kerbal X", utStart: 0, utEnd: 100, points: 20);
+            loaded.Recordings["rec_upper_atmo"].VesselPersistentId = 3377584740;
+            loaded.Recordings["rec_upper_atmo"].TreeOrder = 0;
+            loaded.ActiveRecordingId = "rec_upper_atmo";
+
+            int spliced = ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(
+                loaded, activeRecordingId: "rec_upper_atmo");
+
+            Assert.Equal(1, spliced);
+            Assert.Equal(2, loaded.Recordings.Count);
+            Recording repaired = loaded.Recordings["rec_upper_atmo"];
+            Recording successor = loaded.Recordings["rec_upper_exo"];
+            Assert.Equal("chain_upper", repaired.ChainId);
+            Assert.Equal(0, repaired.ChainIndex);
+            Assert.Equal(0, repaired.ChainBranch);
+            Assert.True(repaired.FilesDirty);
+            Assert.Equal("chain_upper", successor.ChainId);
+            Assert.Equal(1, successor.ChainIndex);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("RepairMissingChainPredecessor")
+                && l.Contains("predecessor=rec_upper_atmo")
+                && l.Contains("successor=rec_upper_exo"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("SpliceMissingCommittedRecordings")
+                && l.Contains("repairedChainPredecessors=1"));
+        }
+
+        [Fact]
+        public void RepairMissingContiguousChainPredecessors_DoesNotRepairDifferentVessel()
+        {
+            var tree = MakeBaseTree("tree_no_false_repair");
+            AddRecording(tree, "rec_parent", "Kerbal X", utStart: 0, utEnd: 100, points: 20);
+            AddRecording(tree, "rec_other_exo", "Other", utStart: 100, utEnd: 200, points: 20);
+            tree.Recordings["rec_parent"].VesselPersistentId = 111;
+            tree.Recordings["rec_parent"].TreeOrder = 0;
+            tree.Recordings["rec_other_exo"].VesselPersistentId = 222;
+            tree.Recordings["rec_other_exo"].TreeOrder = 1;
+            tree.Recordings["rec_other_exo"].ChainId = "chain_other";
+            tree.Recordings["rec_other_exo"].ChainIndex = 1;
+
+            int repaired = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                tree, "unit-test");
+
+            Assert.Equal(0, repaired);
+            Assert.Null(tree.Recordings["rec_parent"].ChainId);
+            Assert.Equal(-1, tree.Recordings["rec_parent"].ChainIndex);
+        }
+
+        [Fact]
+        public void RepairMissingContiguousChainPredecessors_IsIdempotentOnSecondCall()
+        {
+            // Repair runs from three load-time seams in sequence on the same
+            // tree (LoadRecordingTrees, splice-internal, and TryRestoreActiveTreeNode).
+            // A second call must find no candidate (every former orphan now
+            // has ChainId set) and return 0 — no double-repair, no duplicate
+            // log lines.
+            var tree = MakeBaseTree("tree_idempotent");
+            AddRecording(tree, "rec_pre",  "Vessel I", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(tree, "rec_post", "Vessel I", utStart: 100, utEnd: 200, points: 10);
+            tree.Recordings["rec_pre"].VesselPersistentId = 999;
+            tree.Recordings["rec_pre"].TreeOrder = 0;
+            tree.Recordings["rec_post"].VesselPersistentId = 999;
+            tree.Recordings["rec_post"].TreeOrder = 1;
+            tree.Recordings["rec_post"].ChainId = "chain_idem";
+            tree.Recordings["rec_post"].ChainIndex = 1;
+
+            int firstPass = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                tree, "unit-test-idem-1");
+            int secondPass = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                tree, "unit-test-idem-2");
+
+            Assert.Equal(1, firstPass);
+            Assert.Equal(0, secondPass);
+            Assert.Equal("chain_idem", tree.Recordings["rec_pre"].ChainId);
+            Assert.Equal(0, tree.Recordings["rec_pre"].ChainIndex);
+            int repairLines = logLines.FindAll(l =>
+                l.Contains("[Scenario]")
+                && l.Contains("RepairMissingChainPredecessor:")
+                && l.Contains("predecessor=rec_pre")).Count;
+            Assert.Equal(1, repairLines);
+        }
+
+        [Fact]
+        public void RepairMissingContiguousChainPredecessors_RejectsUnsetTreeOrder()
+        {
+            // Tightened gate: both successor.TreeOrder >= 0 and
+            // candidate.TreeOrder >= 0 are required, and candidate must be
+            // strictly less. Any -1 on either side fails the gate.
+            // Case 1: successor.TreeOrder unset → no repair.
+            var t1 = MakeBaseTree("tree_unset_succ");
+            AddRecording(t1, "rec_a", "Vessel U", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(t1, "rec_b", "Vessel U", utStart: 100, utEnd: 200, points: 10);
+            t1.Recordings["rec_a"].VesselPersistentId = 555;
+            t1.Recordings["rec_a"].TreeOrder = 0;
+            t1.Recordings["rec_b"].VesselPersistentId = 555;
+            t1.Recordings["rec_b"].TreeOrder = -1;
+            t1.Recordings["rec_b"].ChainId = "chain_unset_succ";
+            t1.Recordings["rec_b"].ChainIndex = 1;
+
+            int repaired1 = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                t1, "unit-test-unset-succ");
+            Assert.Equal(0, repaired1);
+            Assert.Null(t1.Recordings["rec_a"].ChainId);
+
+            // Case 2: candidate.TreeOrder unset → no repair.
+            var t2 = MakeBaseTree("tree_unset_cand");
+            AddRecording(t2, "rec_c", "Vessel U", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(t2, "rec_d", "Vessel U", utStart: 100, utEnd: 200, points: 10);
+            t2.Recordings["rec_c"].VesselPersistentId = 666;
+            t2.Recordings["rec_c"].TreeOrder = -1;
+            t2.Recordings["rec_d"].VesselPersistentId = 666;
+            t2.Recordings["rec_d"].TreeOrder = 5;
+            t2.Recordings["rec_d"].ChainId = "chain_unset_cand";
+            t2.Recordings["rec_d"].ChainIndex = 1;
+
+            int repaired2 = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                t2, "unit-test-unset-cand");
+            Assert.Equal(0, repaired2);
+            Assert.Null(t2.Recordings["rec_c"].ChainId);
+
+            // Case 3: both unset → no repair.
+            var t3 = MakeBaseTree("tree_unset_both");
+            AddRecording(t3, "rec_e", "Vessel U", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(t3, "rec_f", "Vessel U", utStart: 100, utEnd: 200, points: 10);
+            t3.Recordings["rec_e"].VesselPersistentId = 777;
+            t3.Recordings["rec_e"].TreeOrder = -1;
+            t3.Recordings["rec_f"].VesselPersistentId = 777;
+            t3.Recordings["rec_f"].TreeOrder = -1;
+            t3.Recordings["rec_f"].ChainId = "chain_unset_both";
+            t3.Recordings["rec_f"].ChainIndex = 1;
+
+            int repaired3 = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                t3, "unit-test-unset-both");
+            Assert.Equal(0, repaired3);
+            Assert.Null(t3.Recordings["rec_e"].ChainId);
+        }
+
+        [Fact]
+        public void RepairMissingContiguousChainPredecessors_LogsBoundaryUTAndGapMs()
+        {
+            // Per-repair INFO line must carry predecessorEndUT,
+            // successorStartUT, and gapMs in the format any future log-only
+            // post-mortem of a borderline boundary case can rely on.
+            var tree = MakeBaseTree("tree_logfields");
+            AddRecording(tree, "rec_p", "Vessel L", utStart: 50, utEnd: 100, points: 10);
+            AddRecording(tree, "rec_s", "Vessel L", utStart: 100, utEnd: 200, points: 10);
+            tree.Recordings["rec_p"].VesselPersistentId = 4242;
+            tree.Recordings["rec_p"].TreeOrder = 0;
+            tree.Recordings["rec_s"].VesselPersistentId = 4242;
+            tree.Recordings["rec_s"].TreeOrder = 1;
+            tree.Recordings["rec_s"].ChainId = "chain_log";
+            tree.Recordings["rec_s"].ChainIndex = 1;
+
+            int repaired = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                tree, "unit-test-logfields");
+
+            Assert.Equal(1, repaired);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("RepairMissingChainPredecessor:")
+                && l.Contains("predecessorEndUT=")
+                && l.Contains("successorStartUT=")
+                && l.Contains("gapMs=")
+                && l.Contains("vesselPid=4242"));
+        }
+
+        [Fact]
+        public void RepairMissingContiguousChainPredecessors_TieBreaksByTreeOrderThenRecordingId()
+        {
+            // Two equally-valid candidates with the same boundary UT and
+            // same vessel pid. Lower TreeOrder must win; if TreeOrder is
+            // tied, ordinal RecordingId order decides.
+            var tree = MakeBaseTree("tree_tie_break");
+            AddRecording(tree, "rec_late",  "Kerbal X", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(tree, "rec_early", "Kerbal X", utStart: 0, utEnd: 100, points: 10);
+            AddRecording(tree, "rec_succ",  "Kerbal X", utStart: 100, utEnd: 200, points: 10);
+            tree.Recordings["rec_late"].VesselPersistentId = 777;
+            tree.Recordings["rec_late"].TreeOrder = 5;
+            tree.Recordings["rec_early"].VesselPersistentId = 777;
+            tree.Recordings["rec_early"].TreeOrder = 2;
+            tree.Recordings["rec_succ"].VesselPersistentId = 777;
+            tree.Recordings["rec_succ"].TreeOrder = 7;
+            tree.Recordings["rec_succ"].ChainId = "chain_tie";
+            tree.Recordings["rec_succ"].ChainIndex = 1;
+
+            int repaired = ParsekScenario.RepairMissingContiguousChainPredecessors(
+                tree, "unit-test-tiebreak");
+
+            Assert.Equal(1, repaired);
+            // Lower TreeOrder wins.
+            Assert.Equal("chain_tie", tree.Recordings["rec_early"].ChainId);
+            Assert.Equal(0, tree.Recordings["rec_early"].ChainIndex);
+            Assert.Null(tree.Recordings["rec_late"].ChainId);
+            Assert.Equal(-1, tree.Recordings["rec_late"].ChainIndex);
+        }
+
         [Fact]
         public void Splice_NonActiveStaleFirstHalfAfterSplit_RefreshesInFullMode()
         {

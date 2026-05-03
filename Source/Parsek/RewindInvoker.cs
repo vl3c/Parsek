@@ -853,10 +853,16 @@ namespace Parsek
             List<TrajectoryPoint> priorPreReFlyAnchorPoints = null;
             List<OrbitSegment> priorPreReFlyAnchorOrbitSegments = null;
             List<TrackSection> priorPreReFlyAnchorTrackSections = null;
+            string priorPreReFlyOriginalSessionId = null;
+            Recording priorPreReFlyOriginalRecording = null;
             bool frozeOriginForInPlace = false;
             string priorOriginCreatingSessionId = null;
             string priorOriginProvisionalForRpId = null;
             bool taggedOriginForInPlace = false;
+            TryResolveSelectedSlotRootPartPersistentId(
+                rp,
+                selected.SlotIndex,
+                out uint selectedRootPartPersistentId);
 
             ReFlySessionMarker marker;
             try
@@ -869,16 +875,19 @@ namespace Parsek
                     priorPreReFlyAnchorPoints = originChild.PreReFlyAnchorPoints;
                     priorPreReFlyAnchorOrbitSegments = originChild.PreReFlyAnchorOrbitSegments;
                     priorPreReFlyAnchorTrackSections = originChild.PreReFlyAnchorTrackSections;
+                    priorPreReFlyOriginalSessionId = originChild.PreReFlyOriginalSessionId;
+                    priorPreReFlyOriginalRecording = originChild.PreReFlyOriginalRecording;
                     priorOriginCreatingSessionId = originChild.CreatingSessionId;
                     priorOriginProvisionalForRpId = originChild.ProvisionalForRpId;
                     originChild.CapturePreReFlyAnchorTrajectory(sessionId);
+                    originChild.CapturePreReFlyOriginalRecording(sessionId);
                     frozeOriginForInPlace = true;
                     originChild.CreatingSessionId = sessionId;
                     originChild.ProvisionalForRpId = rp.RewindPointId;
                     taggedOriginForInPlace = true;
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation detected — marker → origin " +
-                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata; pre-ReFly anchor trajectory frozen)");
+                        $"{originChild.RecordingId} (no placeholder created; origin tagged with session metadata; pre-ReFly snapshots frozen)");
 
                     CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
                     CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
@@ -907,6 +916,7 @@ namespace Parsek
                     OriginChildRecordingId = selected.OriginChildRecordingId,
                     SupersedeTargetId = priorTip,
                     RewindPointId = rp.RewindPointId,
+                    SelectedRootPartPersistentId = selectedRootPartPersistentId,
                     InvokedUT = SafeNow(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
                     PreSessionBranchPointIds = SnapshotTreeBranchPointIds(treeIdForMarker),
@@ -939,8 +949,10 @@ namespace Parsek
                     originChild.PreReFlyAnchorPoints = priorPreReFlyAnchorPoints;
                     originChild.PreReFlyAnchorOrbitSegments = priorPreReFlyAnchorOrbitSegments;
                     originChild.PreReFlyAnchorTrackSections = priorPreReFlyAnchorTrackSections;
+                    originChild.PreReFlyOriginalSessionId = priorPreReFlyOriginalSessionId;
+                    originChild.PreReFlyOriginalRecording = priorPreReFlyOriginalRecording;
                     ParsekLog.Verbose(InvokeTag,
-                        $"AtomicMarkerWrite rollback: restored prior pre-Re-Fly anchor snapshot on " +
+                        $"AtomicMarkerWrite rollback: restored prior pre-Re-Fly snapshots on " +
                         $"origin={originChild.RecordingId ?? "<no-id>"} priorSess={priorPreReFlyAnchorSessionId ?? "<none>"}");
                 }
                 if (taggedOriginForInPlace && originChild != null)
@@ -978,6 +990,7 @@ namespace Parsek
                 $"provisional={activeReFlyRecordingId} " +
                 $"origin={selected.OriginChildRecordingId ?? "<none>"} " +
                 $"supersedeTarget={priorTip ?? "<none>"} " +
+                $"selectedRootPartPid={selectedRootPartPersistentId} " +
                 $"tree={treeIdForMarker ?? "<none>"} " +
                 $"inPlaceContinuation={inPlaceContinuation}");
         }
@@ -1187,6 +1200,7 @@ namespace Parsek
             public int VesselsKept;
             public int VesselsRemoved;
             public int SelectedActiveIndex;
+            public int ThrottleResets;
             public int SidecarEpochsRefreshed;
             public int SidecarEpochRefreshSkipped;
         }
@@ -1244,6 +1258,7 @@ namespace Parsek
 
                 if (keep)
                 {
+                    result.ThrottleResets += ForceReFlyVesselThrottleClosed(vessel);
                     if (result.SelectedActiveIndex < 0)
                         result.SelectedActiveIndex = keptIndex;
                     keptIndex++;
@@ -1280,6 +1295,7 @@ namespace Parsek
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
+                $"throttleResets={result.ThrottleResets} " +
                 $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
                 $"sidecarEpochRefreshSkipped={result.SidecarEpochRefreshSkipped} " +
                 $"path='{sfsPath}'");
@@ -1386,6 +1402,23 @@ namespace Parsek
             return result;
         }
 
+        internal static bool TryResolveSelectedSlotRootPartPersistentId(
+            RewindPoint rp, int selectedSlotIndex, out uint rootPartPersistentId)
+        {
+            rootPartPersistentId = 0u;
+            Dictionary<uint, int> map = rp?.RootPartPidMap;
+            if (map == null) return false;
+            foreach (var kv in map)
+            {
+                if (kv.Key == 0u || kv.Value != selectedSlotIndex)
+                    continue;
+
+                rootPartPersistentId = kv.Key;
+                return true;
+            }
+            return false;
+        }
+
         private static uint GetRootPartPersistentId(ConfigNode vessel)
         {
             if (vessel == null) return 0u;
@@ -1409,6 +1442,64 @@ namespace Parsek
                 CultureInfo.InvariantCulture, out parsed)
                 ? parsed
                 : 0u;
+        }
+
+        private static int ForceReFlyVesselThrottleClosed(ConfigNode vessel)
+        {
+            if (vessel == null) return 0;
+
+            int resetCount = 0;
+            // The temp save may contain uncontrolled debris with no CTRLSTATE;
+            // adding only throttle fields is harmless and prevents inherited player input.
+            ConfigNode ctrlState = vessel.GetNode("CTRLSTATE") ?? vessel.AddNode("CTRLSTATE");
+            if (SetOrAddValueAndReportChange(ctrlState, "mainThrottle", "0"))
+                resetCount++;
+            if (SetOrAddValueAndReportChange(ctrlState, "wheelThrottle", "0"))
+                resetCount++;
+
+            // Engine module fields are normalized only when present. Module-less
+            // debris has no engine throttle state to close.
+            ConfigNode[] parts = vessel.GetNodes("PART");
+            for (int partIndex = 0; partIndex < parts.Length; partIndex++)
+            {
+                ConfigNode[] modules = parts[partIndex].GetNodes("MODULE");
+                for (int moduleIndex = 0; moduleIndex < modules.Length; moduleIndex++)
+                {
+                    ConfigNode module = modules[moduleIndex];
+                    string moduleName = module.GetValue("name");
+                    if (!IsEngineModuleName(moduleName))
+                        continue;
+
+                    if (SetExistingValueAndReportChange(module, "currentThrottle", "0"))
+                        resetCount++;
+                    if (SetExistingValueAndReportChange(module, "independentThrottlePercentage", "0"))
+                        resetCount++;
+                }
+            }
+
+            return resetCount;
+        }
+
+        private static bool IsEngineModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleEngines", StringComparison.Ordinal)
+                || string.Equals(moduleName, "ModuleEnginesFX", StringComparison.Ordinal);
+        }
+
+        private static bool SetOrAddValueAndReportChange(ConfigNode node, string name, string value)
+        {
+            if (node == null || string.IsNullOrEmpty(name)) return false;
+            string oldValue = node.GetValue(name);
+            SetOrAddValue(node, name, value);
+            return !string.Equals(oldValue, value, StringComparison.Ordinal);
+        }
+
+        private static bool SetExistingValueAndReportChange(ConfigNode node, string name, string value)
+        {
+            if (node == null || string.IsNullOrEmpty(name) || !node.HasValue(name)) return false;
+            string oldValue = node.GetValue(name);
+            node.SetValue(name, value);
+            return !string.Equals(oldValue, value, StringComparison.Ordinal);
         }
 
         private static void SetOrAddValue(ConfigNode node, string name, string value)

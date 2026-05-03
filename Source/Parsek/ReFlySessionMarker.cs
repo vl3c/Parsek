@@ -56,6 +56,13 @@ namespace Parsek
         /// <summary>Invoked RewindPoint (design §5.7).</summary>
         public string RewindPointId;
 
+        /// <summary>
+        /// Root part persistentId for the selected Re-Fly slot at invocation
+        /// time. When present, playback uses this live part position as the
+        /// active Re-Fly anchor instead of the vessel-level world position.
+        /// </summary>
+        public uint SelectedRootPartPersistentId;
+
         /// <summary>Planetarium UT at which the session was invoked (design §5.7).</summary>
         public double InvokedUT;
 
@@ -91,6 +98,8 @@ namespace Parsek
             node.AddValue("originChildRecordingId", OriginChildRecordingId ?? "");
             node.AddValue("supersedeTargetId", SupersedeTargetId ?? "");
             node.AddValue("rewindPointId", RewindPointId ?? "");
+            if (SelectedRootPartPersistentId != 0u)
+                node.AddValue("selectedRootPartPersistentId", SelectedRootPartPersistentId.ToString(ic));
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
                 node.AddValue("invokedRealTime", InvokedRealTime);
@@ -135,6 +144,18 @@ namespace Parsek
 
             string rp = node.GetValue("rewindPointId");
             m.RewindPointId = string.IsNullOrEmpty(rp) ? null : rp;
+
+            string selectedRootPartPidStr = node.GetValue("selectedRootPartPersistentId");
+            uint selectedRootPartPid;
+            if (!string.IsNullOrEmpty(selectedRootPartPidStr)
+                && uint.TryParse(
+                    selectedRootPartPidStr,
+                    NumberStyles.Integer,
+                    ic,
+                    out selectedRootPartPid))
+            {
+                m.SelectedRootPartPersistentId = selectedRootPartPid;
+            }
 
             string utStr = node.GetValue("invokedUT");
             double ut;

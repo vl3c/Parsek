@@ -117,6 +117,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveWatchCutoffDistance_OrbitTailIncludesRenderDistance()
+        {
+            double distance = WatchModeController.ResolveWatchCutoffDistance(
+                activeVesselDistanceMeters: 120_000.0,
+                renderDistanceMeters: 314_600.0,
+                includeRenderDistance: true);
+
+            Assert.Equal(314_600.0, distance);
+        }
+
+        [Fact]
+        public void ResolveWatchCutoffDistance_NonTailUsesActiveVesselDistance()
+        {
+            double distance = WatchModeController.ResolveWatchCutoffDistance(
+                activeVesselDistanceMeters: 120_000.0,
+                renderDistanceMeters: 314_600.0,
+                includeRenderDistance: false);
+
+            Assert.Equal(120_000.0, distance);
+        }
+
+        [Fact]
         public void PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState()
         {
             var state = new GhostPlaybackState

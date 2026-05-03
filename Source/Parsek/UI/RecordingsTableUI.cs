@@ -2939,6 +2939,14 @@ namespace Parsek
             return true;
         }
 
+        internal static bool ShouldShowGroupLegacyRewindButton(Recording rec, double now)
+        {
+            if (rec == null) return false;
+            if (now < rec.StartUT) return false;
+            var owner = RecordingStore.GetRewindRecording(rec);
+            return owner != null && ReferenceEquals(owner, rec);
+        }
+
         /// <summary>
         /// Resolves the RewindPoint + child-slot list index for an unfinished
         /// flight recording. Used by both normal rows and the virtual
@@ -3287,7 +3295,51 @@ namespace Parsek
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+
+            // Rewind / Forward button for chain and grouped recording blocks.
+            // These rows aggregate recordings, so surface the same temporal
+            // affordance as the recordings they contain.
+            bool isRecording = parentUI.InFlightMode && parentUI.Flight.IsRecording;
+            int forwardIdx = FindAggregateForwardRecordingIndex(members, committed, now);
+            if (forwardIdx >= 0)
+            {
+                var forwardRec = committed[forwardIdx];
+                string ffReason;
+                bool canFF = RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording);
+                GUI.enabled = canFF;
+                string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
+                if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
+                {
+                    ParsekLog.Info("UI", $"{logKind} '{logId}' Forward button: #{forwardIdx} \"{forwardRec.VesselName}\"");
+                    ShowFastForwardConfirmation(forwardRec);
+                }
+                GUI.enabled = true;
+            }
+            else
+            {
+                int rewindIdx = FindAggregateLegacyRewindRecordingIndex(members, committed, now);
+                if (rewindIdx >= 0)
+                {
+                    var rewindRec = committed[rewindIdx];
+                    string rewindReason;
+                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                    GUI.enabled = canRewind;
+                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                        ? "this launch"
+                        : rewindRec.VesselName;
+                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
+                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
+                    {
+                        ParsekLog.Info("UI", $"{logKind} '{logId}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                        ShowRewindConfirmation(rewindRec);
+                    }
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                }
+            }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Hide));
 
@@ -3934,19 +3986,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the committed-list index of the "main" recording in a group:
-        /// the earliest non-debris descendant by StartUT.  Returns -1 when
-        /// the group is empty or contains only debris.
+        /// Returns the earliest non-debris recording from an aggregate row
+        /// such as a group, chain, or grouped recording block.
         /// </summary>
-        internal static int FindGroupMainRecordingIndex(
-            HashSet<int> descendants, IReadOnlyList<Recording> committed)
+        internal static int FindAggregateMainRecordingIndex(
+            IEnumerable<int> members, IReadOnlyList<Recording> committed)
         {
+            if (members == null || committed == null) return -1;
+
             int bestIdx = -1;
             double bestUT = double.MaxValue;
-            foreach (int idx in descendants)
+            foreach (int idx in members)
             {
                 if (idx < 0 || idx >= committed.Count) continue;
                 var rec = committed[idx];
+                if (rec == null) continue;
                 if (rec.IsDebris) continue;
                 if (rec.StartUT < bestUT)
                 {
@@ -3958,23 +4012,45 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the committed-list index of the earliest descendant whose row
-        /// would render the legacy Rewind-to-launch button. Used by group
-        /// headers so parent and ancestor groups surface the same R affordance
-        /// as an eligible child row, even when the group's earliest non-debris
-        /// "main" recording is not the rewind owner.
+        /// Group-specific wrapper for <see cref="FindAggregateMainRecordingIndex"/>.
         /// </summary>
-        internal static int FindGroupLegacyRewindRecordingIndex(
-            HashSet<int> descendants, IReadOnlyList<Recording> committed, double now)
+        internal static int FindGroupMainRecordingIndex(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed)
         {
+            return FindAggregateMainRecordingIndex(descendants, committed);
+        }
+
+        /// <summary>
+        /// Returns the aggregate's future launch target, or -1 once the
+        /// aggregate's main recording has reached/passed launch.
+        /// </summary>
+        internal static int FindAggregateForwardRecordingIndex(
+            IEnumerable<int> members, IReadOnlyList<Recording> committed, double now)
+        {
+            int mainIdx = FindAggregateMainRecordingIndex(members, committed);
+            if (mainIdx < 0 || committed == null || mainIdx >= committed.Count)
+                return -1;
+            var main = committed[mainIdx];
+            return main != null && now < main.StartUT ? mainIdx : -1;
+        }
+
+        /// <summary>
+        /// Returns the earliest aggregate member that owns a launch rewind save,
+        /// using the group/block predicate that ignores row-level UF suppression.
+        /// </summary>
+        internal static int FindAggregateLegacyRewindRecordingIndex(
+            IEnumerable<int> members, IReadOnlyList<Recording> committed, double now)
+        {
+            if (members == null || committed == null) return -1;
+
             int bestIdx = -1;
             double bestUT = double.MaxValue;
-            foreach (int idx in descendants)
+            foreach (int idx in members)
             {
                 if (idx < 0 || idx >= committed.Count) continue;
                 var rec = committed[idx];
                 if (rec == null) continue;
-                if (!ShouldShowLegacyRewindButton(rec, now)) continue;
+                if (!ShouldShowGroupLegacyRewindButton(rec, now)) continue;
                 if (rec.StartUT < bestUT || (rec.StartUT == bestUT && (bestIdx < 0 || idx < bestIdx)))
                 {
                     bestUT = rec.StartUT;
@@ -3982,6 +4058,15 @@ namespace Parsek
                 }
             }
             return bestIdx;
+        }
+
+        /// <summary>
+        /// Group-specific wrapper for <see cref="FindAggregateLegacyRewindRecordingIndex"/>.
+        /// </summary>
+        internal static int FindGroupLegacyRewindRecordingIndex(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed, double now)
+        {
+            return FindAggregateLegacyRewindRecordingIndex(descendants, committed, now);
         }
 
         /// <summary>

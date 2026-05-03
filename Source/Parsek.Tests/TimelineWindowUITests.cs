@@ -13,7 +13,7 @@ namespace Parsek.Tests
             float loop = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Loop);
             float goTo = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.GoTo);
 
-            Assert.Equal(35f, watch);
+            Assert.Equal(40f, watch);
             Assert.Equal(watch, fastForward);
             Assert.Equal(watch, rewind);
             Assert.Equal(watch, loop);

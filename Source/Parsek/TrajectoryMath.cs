@@ -245,6 +245,132 @@ namespace Parsek
             return delta > 180.0 ? 360.0 - delta : delta;
         }
 
+        private static bool IsFinite(Vector3d value)
+        {
+            return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
+                && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
+                && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+
+        /// <summary>
+        /// Velocity-aware world-position interpolation for sparse playback brackets.
+        /// Uses cubic Hermite when endpoint velocities agree with the recorded
+        /// chord and the curve stays near the legacy lerp. Returns false when
+        /// the velocity data is missing, non-finite, frame-inconsistent, or
+        /// would introduce a large bow/loop.
+        /// </summary>
+        internal static bool TryInterpolateWorldHermite(
+            Vector3d posBefore,
+            Vector3 velocityBefore,
+            Vector3d posAfter,
+            Vector3 velocityAfter,
+            double deltaTimeSeconds,
+            float t,
+            double maxDeviationMeters,
+            out Vector3d hermiteWorld,
+            out double deviationMeters,
+            out string reason)
+        {
+            hermiteWorld = Vector3d.zero;
+            deviationMeters = double.NaN;
+            reason = null;
+
+            if (!IsFinite(posBefore) || !IsFinite(posAfter))
+            {
+                reason = "position-non-finite";
+                return false;
+            }
+            if (!IsFinite(velocityBefore) || !IsFinite(velocityAfter))
+            {
+                reason = "velocity-non-finite";
+                return false;
+            }
+            if (double.IsNaN(deltaTimeSeconds)
+                || double.IsInfinity(deltaTimeSeconds)
+                || deltaTimeSeconds <= 1e-6)
+            {
+                reason = "dt-invalid";
+                return false;
+            }
+            if (float.IsNaN(t) || float.IsInfinity(t) || t < 0f || t > 1f)
+            {
+                reason = "t-invalid";
+                return false;
+            }
+            if (double.IsNaN(maxDeviationMeters)
+                || double.IsInfinity(maxDeviationMeters)
+                || maxDeviationMeters <= 0.0)
+            {
+                reason = "max-deviation-invalid";
+                return false;
+            }
+
+            double speedBeforeSq = velocityBefore.sqrMagnitude;
+            double speedAfterSq = velocityAfter.sqrMagnitude;
+            if (speedBeforeSq < 0.01 || speedAfterSq < 0.01)
+            {
+                reason = "velocity-missing";
+                return false;
+            }
+
+            Vector3d v0 = new Vector3d(velocityBefore.x, velocityBefore.y, velocityBefore.z);
+            Vector3d v1 = new Vector3d(velocityAfter.x, velocityAfter.y, velocityAfter.z);
+            Vector3d chord = posAfter - posBefore;
+            double chordMeters = chord.magnitude;
+            Vector3d averageVelocityDisplacement = (v0 + v1) * (0.5 * deltaTimeSeconds);
+            double velocityChordResidual = (averageVelocityDisplacement - chord).magnitude;
+            double maxVelocityChordResidual = System.Math.Max(500.0, chordMeters * 0.75);
+            if (velocityChordResidual > maxVelocityChordResidual)
+            {
+                reason = "velocity-chord-mismatch";
+                return false;
+            }
+
+            double u = t;
+            double u2 = u * u;
+            double u3 = u2 * u;
+            double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+            double h10 = u3 - 2.0 * u2 + u;
+            double h01 = -2.0 * u3 + 3.0 * u2;
+            double h11 = u3 - u2;
+            Vector3d tangentBefore = v0 * deltaTimeSeconds;
+            Vector3d tangentAfter = v1 * deltaTimeSeconds;
+
+            hermiteWorld =
+                posBefore * h00
+                + tangentBefore * h10
+                + posAfter * h01
+                + tangentAfter * h11;
+            if (!IsFinite(hermiteWorld))
+            {
+                reason = "hermite-non-finite";
+                return false;
+            }
+
+            Vector3d lerpWorld = Vector3d.Lerp(posBefore, posAfter, t);
+            deviationMeters = (hermiteWorld - lerpWorld).magnitude;
+            if (double.IsNaN(deviationMeters) || double.IsInfinity(deviationMeters))
+            {
+                reason = "deviation-non-finite";
+                return false;
+            }
+            if (deviationMeters > maxDeviationMeters)
+            {
+                reason = "deviation-too-large";
+                return false;
+            }
+
+            reason = "applied";
+            return true;
+        }
+
         private static void ExpandEquivalentOrbitWindow(
             List<OrbitSegment> segments,
             int seedFirstIndex,
@@ -962,28 +1088,46 @@ namespace Parsek
                 if (t < 0) t = 0; else if (t > 1) t = 1;
 
                 float tension = spline.Tension;
-                double x = CatmullRomScalar(spline.ControlsX[i0], spline.ControlsX[i1], spline.ControlsX[i2], spline.ControlsX[i3], t, tension);
-                double y = CatmullRomScalar(spline.ControlsY[i0], spline.ControlsY[i1], spline.ControlsY[i2], spline.ControlsY[i3], t, tension);
-                double z = CatmullRomScalar(spline.ControlsZ[i0], spline.ControlsZ[i1], spline.ControlsZ[i2], spline.ControlsZ[i3], t, tension);
+                double x = CatmullRomScalar(
+                    spline.ControlsX[i0], spline.ControlsX[i1], spline.ControlsX[i2], spline.ControlsX[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
+                double y = CatmullRomScalar(
+                    spline.ControlsY[i0], spline.ControlsY[i1], spline.ControlsY[i2], spline.ControlsY[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
+                double z = CatmullRomScalar(
+                    spline.ControlsZ[i0], spline.ControlsZ[i1], spline.ControlsZ[i2], spline.ControlsZ[i3],
+                    spline.KnotsUT[i0], spline.KnotsUT[i1], spline.KnotsUT[i2], spline.KnotsUT[i3],
+                    t, segDuration, tension);
 
                 return new Vector3d(x, WrapLongitude(y), z);
             }
 
-            // Standard uniform Catmull-Rom on a single segment with tangents
-            // m1 = tension * (P2 - P0) and m2 = tension * (P3 - P1). For the
-            // canonical Catmull-Rom curve, tension = 0.5 (so m1 = (P2-P0)/2).
+            // Time-aware Catmull-Rom on a single segment. Tangents are computed
+            // as value-per-second slopes from the neighbouring knots and then
+            // scaled by this segment's duration for the Hermite basis. This
+            // keeps short sections from inheriting an unscaled tangent from a
+            // much longer adjacent interval.
             // Hermite basis: h00=2t^3-3t^2+1, h10=t^3-2t^2+t, h01=-2t^3+3t^2,
             // h11=t^3-t^2.
-            private static double CatmullRomScalar(double p0, double p1, double p2, double p3, double t, double tension)
+            private static double CatmullRomScalar(
+                double p0, double p1, double p2, double p3,
+                double t0, double t1, double t2, double t3,
+                double t, double segmentDuration, double tension)
             {
-                double t2 = t * t;
-                double t3 = t2 * t;
-                double m1 = tension * (p2 - p0);
-                double m2 = tension * (p3 - p1);
-                double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-                double h10 = t3 - 2.0 * t2 + t;
-                double h01 = -2.0 * t3 + 3.0 * t2;
-                double h11 = t3 - t2;
+                double u2 = t * t;
+                double u3 = u2 * t;
+                double denom1 = t2 - t0;
+                double denom2 = t3 - t1;
+                double slope1 = denom1 > 0.0 ? (p2 - p0) / denom1 : 0.0;
+                double slope2 = denom2 > 0.0 ? (p3 - p1) / denom2 : 0.0;
+                double m1 = tension * slope1 * segmentDuration;
+                double m2 = tension * slope2 * segmentDuration;
+                double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+                double h10 = u3 - 2.0 * u2 + t;
+                double h01 = -2.0 * u3 + 3.0 * u2;
+                double h11 = u3 - u2;
                 return h00 * p1 + h10 * m1 + h01 * p2 + h11 * m2;
             }
 

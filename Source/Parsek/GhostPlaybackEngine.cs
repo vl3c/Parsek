@@ -6,6 +6,20 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal readonly struct GhostAnchorCandidate
+    {
+        public readonly int Index;
+        public readonly string RecordingId;
+        public readonly bool PositionedThisFrame;
+
+        internal GhostAnchorCandidate(int index, string recordingId, bool positionedThisFrame)
+        {
+            Index = index;
+            RecordingId = recordingId ?? string.Empty;
+            PositionedThisFrame = positionedThisFrame;
+        }
+    }
+
     /// <summary>
     /// Core ghost playback engine.
     /// Consumes <see cref="IPlaybackTrajectory"/> data plus rendering collaborators to manage
@@ -460,6 +474,8 @@ namespace Parsek
             TrajectoryPlaybackFlags[] flags,
             FrameContext ctx)
         {
+            ClearPrimaryGhostPositionedThisFrame();
+
             if (trajectories == null || trajectories.Count == 0)
             {
                 DiagnosticsState.playbackBudget = default;
@@ -506,6 +522,8 @@ namespace Parsek
                 if (f.skipGhost)
                 {
                     CountFrameSkip(f.skipReason);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, f.skipReason.ToLogToken());
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
@@ -533,6 +551,8 @@ namespace Parsek
                 if (!HasRenderableGhostData(traj))
                 {
                     CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "no-renderable-ghost-data");
                     continue;
                 }
 
@@ -544,6 +564,8 @@ namespace Parsek
                 if (SessionSuppressionState.IsActive
                     && SessionSuppressionState.IsSuppressedRecordingIndex(i))
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "session-suppressed-subtree");
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
@@ -564,6 +586,8 @@ namespace Parsek
                 {
                     completedEventFired.Remove(i);
                     earlyDestroyedDebrisCompleted.Remove(i);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "before-activation-start-ut");
                     if (ghostActive)
                     {
                         DestroyAllOverlapGhosts(i);
@@ -583,6 +607,9 @@ namespace Parsek
                     // Anchor gating: if anchor configured but not loaded, skip ghost
                     if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
                     {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT,
+                            "loop-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
                         if (ghostActive)
                         {
                             DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
@@ -623,6 +650,8 @@ namespace Parsek
                         if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
                                 out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
                         {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "parent-loop-sync-failed");
                             if (ghostActive)
                                 DestroyGhost(i, traj, f, reason: "parent loop sync failed");
                             CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -634,6 +663,9 @@ namespace Parsek
                                 ctx.warpRate, traj, parentLoopUT);
                         if (parentPaused || suppressLoopSyncGhost)
                         {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT,
+                                parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
                             if (state != null)
                                 DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
                             CountFrameSkip(parentPaused
@@ -893,6 +925,21 @@ namespace Parsek
             buildReentryFxStopwatch.Reset();
         }
 
+        private void ClearPrimaryGhostPositionedThisFrame()
+        {
+            foreach (var state in ghostStates.Values)
+            {
+                if (state != null)
+                    state.positionedThisFrame = false;
+            }
+        }
+
+        private static void MarkPrimaryGhostPositionedThisFrame(GhostPlaybackState state)
+        {
+            if (state != null)
+                state.positionedThisFrame = true;
+        }
+
         /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
@@ -985,10 +1032,14 @@ namespace Parsek
             double activeVesselDistance = ResolvePlaybackActiveVesselDistance(
                 i, traj, state, ctx.currentUT, ctx.activeVesselPos);
             CachePlaybackDistances(state, activeVesselDistance, renderDistance);
-            var zoneResult = positioner.ApplyZoneRendering(i, state, traj, renderDistance, ctx.protectedIndex);
+            var zoneResult = positioner.ApplyZoneRendering(
+                i, state, traj, renderDistance, ctx.currentUT, ctx.protectedIndex);
 
             if (zoneResult.hiddenByZone)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT,
+                    "hidden-by-zone distance=" + FormatPlaybackDistanceForLog(renderDistance));
                 ghostActive = HandleHiddenGhostVisualState(
                     i, traj, state, ctx.currentUT, ctx.warpRate, renderDistance, overlapGhost: false,
                     hiddenReason: $"hidden by distance LOD at {FormatPlaybackDistanceForLog(renderDistance)}");
@@ -1031,6 +1082,8 @@ namespace Parsek
             GhostPlaybackLogic.ApplyDistanceLodFidelity(state, zoneResult.reduceFidelity);
 
             double visiblePlaybackUT = ResolveVisiblePlaybackUT(traj, state, ctx.currentUT);
+            GhostRenderTrace.BeginFrame(
+                traj, i, ctx.currentUT, visiblePlaybackUT, "non-loop");
 
             // Bug #613 (PR #594 P1): clear the per-frame retire signal before
             // positioning so a stale value from a previous frame's relative
@@ -1040,10 +1093,16 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
 
             // Position the ghost
+            bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+
             if (hasInterpolatedPoints)
             {
-                if (!TryPositionRelativeSectionAtPlaybackUT(
-                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                if (orbitTailPlayback)
+                {
+                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                }
+                else if (!TryPositionRelativeSectionAtPlaybackUT(
+                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
                 {
                     positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
                 }
@@ -1053,13 +1112,14 @@ namespace Parsek
                 // Relative single-point sections store metre offsets in
                 // latitude/longitude/altitude fields; never fall through to
                 // PositionAtPoint for them.
-                if (!TryPositionRelativeSectionAtPlaybackUT(
-                        i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                if (orbitTailPlayback)
                 {
-                    if (ShouldPrimeSinglePointGhostFromOrbit(traj, visiblePlaybackUT))
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
-                    else
-                        positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                }
+                else if (!TryPositionRelativeSectionAtPlaybackUT(
+                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                {
+                    positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
                 }
             }
             else if (hasSurfaceData)
@@ -1082,6 +1142,10 @@ namespace Parsek
             // for a retired ghost was the original misleading symptom.
             bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired);
+            if (!retired)
+                MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
             {
                 ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
@@ -1091,15 +1155,47 @@ namespace Parsek
             else
             {
                 bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
-                if (ShouldRestoreDeferredRuntimeFxState(
-                        activatedDeferredState,
-                        effectiveSuppressVisualFx))
-                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
-                    reason: "playback", requestedPlaybackUT: ctx.currentUT);
+                string initialActivationHiddenReason;
+                bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                    traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+                if (initialActivationHidden)
+                {
+                    if (state.ghost != null && state.ghost.activeSelf)
+                        state.ghost.SetActive(false);
+                    ghostActive = false;
+                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                    ResetGhostAppearanceTracking(state);
+                    ParsekLog.VerboseRateLimited(
+                        "Engine",
+                        "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
+                        + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
+                        + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
+                        + " activationStart="
+                        + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
+                        + " relativeWindow="
+                        + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s absoluteBridgeMax="
+                        + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s minFrames="
+                        + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
+                        5.0);
+                }
+                else
+                {
+                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                    if (ShouldRestoreDeferredRuntimeFxState(
+                            activatedDeferredState,
+                            effectiveSuppressVisualFx))
+                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                    TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                        reason: "playback", requestedPlaybackUT: ctx.currentUT);
+                }
             }
 
             // Targeted post-separation observability: emits one
@@ -1292,6 +1388,8 @@ namespace Parsek
                     out double duration,
                     out double intervalSeconds))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-schedule-resolution-failed");
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop schedule resolution failed");
                 CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -1315,6 +1413,8 @@ namespace Parsek
                         || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                             ctx.warpRate, traj, overlapLoopUT)))
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
                     if (ghostActive && state.ghost.activeSelf)
                     {
                         state.ghost.SetActive(false);
@@ -1351,6 +1451,8 @@ namespace Parsek
             if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
                     out loopUT, out cycleIndex, out inPauseWindow, index))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-ut-computation-failed");
                 if (ghostActive)
                     DestroyGhost(index, traj, flags, reason: "loop UT computation failed");
                 CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
@@ -1362,6 +1464,8 @@ namespace Parsek
             if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                     ctx.warpRate, traj, loopUT))
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "loop-warp-hidden");
                 if (ghostActive && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
@@ -1530,9 +1634,13 @@ namespace Parsek
             double loopActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
                 index, traj, state, loopUT, ctx.activeVesselPos);
             CachePlaybackDistances(state, loopActiveVesselDistance, loopZoneDistance);
-            var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
+            var zoneResult = positioner.ApplyZoneRendering(
+                index, state, traj, loopZoneDistance, loopUT, ctx.protectedIndex);
             if (zoneResult.hiddenByZone)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT,
+                    "loop-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(loopZoneDistance));
                 ghostActive = HandleHiddenGhostVisualState(
                     index, traj, state, loopUT, ctx.warpRate, loopZoneDistance, overlapGhost: false,
                     hiddenReason: $"loop hidden by distance LOD at {FormatPlaybackDistanceForLog(loopZoneDistance)}");
@@ -1577,13 +1685,18 @@ namespace Parsek
             // positioning. The relative loop positioner sets it back to true
             // if the recorded anchor is unresolvable.
             state.anchorRetiredThisFrame = false;
+            GhostRenderTrace.BeginFrame(
+                traj, index, ctx.currentUT, loopUT, "loop-primary");
 
             // Position the loop ghost
             positioner.PositionLoop(index, traj, state, loopUT, effectiveSuppressVisualFx);
 
             // Apply visual events
-            if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                    state.anchorRetiredThisFrame))
+            bool loopRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired);
+            if (loopRetired)
             {
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
                 // NOT log appearance. See the matching gate in RenderInRangeGhost.
@@ -1617,6 +1730,8 @@ namespace Parsek
         {
             if (ctx.currentUT < scheduleStartUT)
             {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "overlap-before-activation-start-ut");
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 DestroyAllOverlapGhosts(index);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
@@ -1731,9 +1846,12 @@ namespace Parsek
                     index, traj, primaryState, primaryLoopUT, ctx.activeVesselPos);
                 CachePlaybackDistances(primaryState, primaryActiveVesselDistance, primaryDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
-                    index, primaryState, traj, primaryDistance, ctx.protectedIndex);
+                    index, primaryState, traj, primaryDistance, primaryLoopUT, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT,
+                        "overlap-primary-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(primaryDistance));
                     // Bug #450 B2: a newly-started overlap-primary build may already have
                     // consumed its one allowed timeline advance this frame above. Do not let
                     // hidden-tier prewarm immediately take a second advance through
@@ -1785,9 +1903,14 @@ namespace Parsek
                         // positioning; gate visuals/activation/appearance on
                         // it after.
                         primaryState.anchorRetiredThisFrame = false;
+                        GhostRenderTrace.BeginFrame(
+                            traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
                         positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
-                        if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                                primaryState.anchorRetiredThisFrame))
+                        bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            primaryState.anchorRetiredThisFrame);
+                        GhostRenderTrace.EmitPostUpdate(
+                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired);
+                        if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                                 skipPartEvents: true, suppressVisualFx: true,
@@ -1919,9 +2042,13 @@ namespace Parsek
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 CachePlaybackDistances(ovState, overlapActiveVesselDistance, overlapDistance);
                 var zoneResult = positioner.ApplyZoneRendering(
-                    index, ovState, traj, overlapDistance, ctx.protectedIndex);
+                    index, ovState, traj, overlapDistance, loopUT, ctx.protectedIndex);
                 if (zoneResult.hiddenByZone)
                 {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, index, ctx.currentUT,
+                        "overlap-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(overlapDistance)
+                            + " cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
                     HandleHiddenGhostVisualState(
                         index, traj, ovState, loopUT, ctx.warpRate, overlapDistance, overlapGhost: true,
                         hiddenReason: $"overlap hidden by distance LOD at {FormatPlaybackDistanceForLog(overlapDistance)}");
@@ -1945,9 +2072,17 @@ namespace Parsek
                 // Bug #613 (PR #594 P1): clear retire signal before
                 // positioning; gate visuals/activation/appearance on it after.
                 ovState.anchorRetiredThisFrame = false;
+                GhostRenderTrace.BeginFrame(
+                    traj, index, ctx.currentUT, loopUT,
+                    "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
                 positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
-                if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                        ovState.anchorRetiredThisFrame))
+                bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    ovState.anchorRetiredThisFrame);
+                GhostRenderTrace.EmitPostUpdate(
+                    traj, index, ctx.currentUT, loopUT, ovState,
+                    "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
+                    overlapRetired);
+                if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                         skipPartEvents: true, suppressVisualFx: true,
@@ -2078,6 +2213,24 @@ namespace Parsek
             }
 
             double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
+            if (TryGetCheckpointBackedOrbitEndpointUT(
+                    traj, endpointUT, out double checkpointOrbitEndpointUT, out int checkpointSectionIndex))
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "checkpoint-backed-orbit-endpoint-" + (traj.RecordingId ?? index.ToString(CultureInfo.InvariantCulture)),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Endpoint positioned through checkpoint-backed orbit path: recordingId={0} index={1} sectionIndex={2} endpointUT={3:R}",
+                        traj.RecordingId ?? "<none>",
+                        index,
+                        checkpointSectionIndex,
+                        checkpointOrbitEndpointUT),
+                    5.0);
+                positioner.PositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT);
+                return;
+            }
+
             if (TryPositionRelativeSectionAtPlaybackUT(
                     index, traj, state, endpointUT, suppressFx: true))
                 return;
@@ -2109,12 +2262,102 @@ namespace Parsek
             return traj?.EndUT ?? 0.0;
         }
 
-        internal static bool TryGetRelativeSectionAnchorAtUT(
+        internal static bool TryGetCheckpointBackedOrbitEndpointUT(
+            IPlaybackTrajectory traj,
+            double endpointUT,
+            out double orbitEndpointUT,
+            out int sectionIndex)
+        {
+            orbitEndpointUT = 0.0;
+            sectionIndex = -1;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            if (!traj.HasOrbitSegments || traj.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+
+            sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, endpointUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            TrackSection section = traj.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+                return false;
+
+            double sectionEndpointUT = section.endUT;
+            if (!double.IsNaN(traj.EndUT)
+                && traj.EndUT >= section.startUT
+                && traj.EndUT <= section.endUT)
+            {
+                sectionEndpointUT = traj.EndUT;
+            }
+
+            if (TryResolveCheckpointBackedOrbitEndpointUT(
+                    traj.OrbitSegments,
+                    section,
+                    sectionEndpointUT,
+                    out orbitEndpointUT))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryResolveCheckpointBackedOrbitEndpointUT(
+            List<OrbitSegment> segments,
+            TrackSection section,
+            double desiredEndpointUT,
+            out double orbitEndpointUT)
+        {
+            orbitEndpointUT = 0.0;
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            if (TrajectoryMath.FindOrbitSegment(segments, desiredEndpointUT).HasValue)
+            {
+                orbitEndpointUT = desiredEndpointUT;
+                return true;
+            }
+
+            bool found = false;
+            double bestUT = 0.0;
+            double bestDistance = double.MaxValue;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (segment.endUT < section.startUT || segment.startUT > section.endUT)
+                    continue;
+
+                double candidateUT = desiredEndpointUT;
+                if (candidateUT < segment.startUT)
+                    candidateUT = segment.startUT;
+                else if (candidateUT > segment.endUT)
+                    candidateUT = segment.endUT;
+
+                double distance = System.Math.Abs(candidateUT - desiredEndpointUT);
+                if (!found
+                    || distance < bestDistance
+                    || (System.Math.Abs(distance - bestDistance) <= 1e-9 && candidateUT > bestUT))
+                {
+                    bestUT = candidateUT;
+                    bestDistance = distance;
+                    found = true;
+                }
+            }
+
+            if (!found)
+                return false;
+
+            orbitEndpointUT = bestUT;
+            return true;
+        }
+
+        internal static bool TryGetRelativeSectionAtUT(
             IPlaybackTrajectory traj,
             double playbackUT,
-            out uint anchorVesselId)
+            out RelativeSectionPlaybackTarget target)
         {
-            anchorVesselId = 0u;
+            target = default;
             if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
                 return false;
 
@@ -2126,9 +2369,28 @@ namespace Parsek
             if (section.referenceFrame != ReferenceFrame.Relative)
                 return false;
 
-            anchorVesselId = section.anchorVesselId != 0u
-                ? section.anchorVesselId
-                : traj.LoopAnchorVesselId;
+            target = new RelativeSectionPlaybackTarget(
+                traj.RecordingId,
+                sectionIdx,
+                section);
+
+            if (!target.HasAnchorRecordingId
+                && traj.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
+            {
+                string key =
+                    "relative-section-missing-anchor-recording-id|" +
+                    (traj.RecordingId ?? "(none)") + "|" +
+                    sectionIdx.ToString(CultureInfo.InvariantCulture);
+                ParsekLog.WarnRateLimited(
+                    "Engine",
+                    key,
+                    $"RELATIVE v11 section missing anchorRecordingId: " +
+                    $"recordingId={traj.RecordingId ?? "(none)"} " +
+                    $"sectionIndex={sectionIdx} " +
+                    $"sectionUT=[{section.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +
+                    $"{section.endUT.ToString("F2", CultureInfo.InvariantCulture)}]",
+                    10.0);
+            }
             return true;
         }
 
@@ -2139,11 +2401,11 @@ namespace Parsek
             double playbackUT,
             bool suppressFx)
         {
-            if (!TryGetRelativeSectionAnchorAtUT(traj, playbackUT, out uint anchorVesselId))
+            if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
                 return false;
 
             positioner.InterpolateAndPositionRelative(
-                index, traj, state, playbackUT, suppressFx, anchorVesselId);
+                index, traj, state, playbackUT, suppressFx, target);
             return true;
         }
 
@@ -3063,6 +3325,32 @@ namespace Parsek
             return overlapGhosts.TryGetValue(index, out overlaps);
         }
 
+        /// <summary>Get active primary ghosts that can be considered as recording-id anchors.</summary>
+        internal IEnumerable<GhostAnchorCandidate> GetActiveAnchorCandidates(
+            IReadOnlyList<IPlaybackTrajectory> trajectories)
+        {
+            if (trajectories == null)
+                yield break;
+
+            foreach (var kv in ghostStates)
+            {
+                int index = kv.Key;
+                if (index < 0 || index >= trajectories.Count)
+                    continue;
+
+                var state = kv.Value;
+                if (state == null)
+                    continue;
+
+                string recordingId = trajectories[index]?.RecordingId;
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+
+                yield return new GhostAnchorCandidate(
+                    index, recordingId, state.positionedThisFrame);
+            }
+        }
+
         /// <summary>Get active ghost positions for proximity checking (Real Spawn Control).</summary>
         internal IEnumerable<(int index, Vector3 position)> GetActiveGhostPositions()
         {
@@ -3531,6 +3819,7 @@ namespace Parsek
             => frameLazyReentryBuildCount = value;
         internal void ResetPerFrameCountersForTesting()
         {
+            ClearPrimaryGhostPositionedThisFrame();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
@@ -3573,6 +3862,15 @@ namespace Parsek
         }
 
         internal int FrameOverlapGhostIterationCountForTesting => frameOverlapGhostIterationCount;
+
+        internal bool MarkGhostPositionedThisFrameForTesting(int index)
+        {
+            if (!ghostStates.TryGetValue(index, out var state) || state == null)
+                return false;
+
+            MarkPrimaryGhostPositionedThisFrame(state);
+            return true;
+        }
 
         // Bug #613 (PR #594 P1 round 2) test seams: in-game tests need to
         // observe whether TryHandleEarlyDestroyedDebrisCompletion ran on the
@@ -3919,11 +4217,12 @@ namespace Parsek
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
-            PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+            double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
+            PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
             // Hidden priming is allowed to apply persistent part state, but it
             // must not emit transient FX before the playback transform is visible.
             var visualPolicy = HiddenPrimeVisualPolicy();
-            ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+            ApplyFrameVisuals(index, traj, state, primePlaybackUT, TimeWarp.CurrentRate,
                 visualPolicy.skipPartEvents,
                 visualPolicy.suppressVisualFx,
                 visualPolicy.allowTransientEffects);
@@ -3961,14 +4260,26 @@ namespace Parsek
             }
             else
             {
-                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
-                    skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
-                if (ShouldRestoreDeferredRuntimeFxState(
-                        activatedDeferredState,
-                        suppressVisualFx: false))
-                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+                if (ShouldHoldInitialActivationHiddenThisFrame(
+                        traj, state, playbackUT, out string _))
+                {
+                    if (state.ghost != null && state.ghost.activeSelf)
+                        state.ghost.SetActive(false);
+                    ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                        skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                else
+                {
+                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                    ApplyFrameVisuals(index, traj, state, playbackUT, TimeWarp.CurrentRate,
+                        skipPartEvents: false, suppressVisualFx: false, allowTransientEffects: false);
+                    if (ShouldRestoreDeferredRuntimeFxState(
+                            activatedDeferredState,
+                            suppressVisualFx: false))
+                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                    TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
+                }
             }
         }
 
@@ -3977,6 +4288,12 @@ namespace Parsek
         {
             if (!HasLoadedGhostVisuals(state) || traj == null || positioner == null)
                 return;
+
+            if (ShouldUseOrbitTailPlayback(traj, playbackUT))
+            {
+                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                return;
+            }
 
             if (TryPositionRelativeSectionAtPlaybackUT(
                     index, traj, state, playbackUT, suppressFx: true))
@@ -4002,12 +4319,6 @@ namespace Parsek
             {
                 var firstPoint = traj.Points[0];
 
-                if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT))
-                {
-                    positioner.PositionFromOrbit(index, traj, state, playbackUT);
-                    return;
-                }
-
                 positioner.PositionAtPoint(index, traj, state, firstPoint);
                 return;
             }
@@ -4019,14 +4330,116 @@ namespace Parsek
         internal static bool ShouldPrimeSinglePointGhostFromOrbit(
             IPlaybackTrajectory traj, double playbackUT)
         {
-            if (traj?.Points == null || traj.Points.Count != 1 || !traj.HasOrbitSegments)
+            return traj?.Points != null
+                && traj.Points.Count == 1
+                && ShouldUseOrbitTailPlayback(traj, playbackUT);
+        }
+
+        internal static bool ShouldUseOrbitTailPlayback(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
+        }
+
+        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
+        internal const double DestroyedPredictedOrbitTailBridgeMaxGapSeconds = 5.0;
+        internal const double PredictedOrbitTailContinuityMinBlendSeconds = 5.0;
+        internal const double PredictedOrbitTailContinuityExtraBlendSeconds = 2.0;
+        internal const double PredictedOrbitTailContinuityMaxBlendSeconds = 10.0;
+
+        internal static double ResolvePredictedOrbitTailBridgeMaxGapSeconds(
+            IPlaybackTrajectory traj)
+        {
+            return traj != null && traj.TerminalStateValue == TerminalState.Destroyed
+                ? DestroyedPredictedOrbitTailBridgeMaxGapSeconds
+                : PredictedOrbitTailBridgeMaxGapSeconds;
+        }
+
+        internal static double ResolvePredictedOrbitTailContinuityBlendSeconds(
+            double lastPointUT, double segmentStartUT)
+        {
+            double gap = Math.Max(0.0, segmentStartUT - lastPointUT);
+            double duration = Math.Max(
+                PredictedOrbitTailContinuityMinBlendSeconds,
+                gap + PredictedOrbitTailContinuityExtraBlendSeconds);
+            return Math.Min(duration, PredictedOrbitTailContinuityMaxBlendSeconds);
+        }
+
+        internal static double ResolvePredictedOrbitTailContinuityWeight(
+            double lastPointUT, double playbackUT, double blendSeconds)
+        {
+            if (blendSeconds <= 1e-6)
+                return 0.0;
+            if (playbackUT <= lastPointUT)
+                return 1.0;
+
+            double t = (playbackUT - lastPointUT) / blendSeconds;
+            if (t >= 1.0)
+                return 0.0;
+            if (t <= 0.0)
+                return 1.0;
+
+            double smooth = t * t * (3.0 - 2.0 * t);
+            return 1.0 - smooth;
+        }
+
+        internal static bool TryFindOrbitTailPlaybackSegment(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out OrbitSegment segment,
+            out int segmentIndex)
+        {
+            segment = default(OrbitSegment);
+            segmentIndex = -1;
+            if (traj?.Points == null
+                || traj.Points.Count == 0
+                || traj.OrbitSegments == null
+                || traj.OrbitSegments.Count == 0)
+            {
+                return false;
+            }
+
+            double lastPointUT = traj.Points[traj.Points.Count - 1].ut;
+            if (playbackUT <= lastPointUT + 1e-6)
                 return false;
 
-            // A single branch-boundary seed point should anchor the ghost only at the
-            // exact recording start; once playback advances and an orbit segment is live,
-            // orbit propagation should take over.
-            return playbackUT > traj.Points[0].ut + 1e-6
-                && TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, playbackUT).HasValue;
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                bool inRange = i == traj.OrbitSegments.Count - 1
+                    ? playbackUT >= candidate.startUT && playbackUT <= candidate.endUT
+                    : playbackUT >= candidate.startUT && playbackUT < candidate.endUT;
+                if (!inRange)
+                    continue;
+
+                segment = candidate;
+                segmentIndex = i;
+                return true;
+            }
+
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!candidate.isPredicted)
+                    continue;
+                if (candidate.startUT <= lastPointUT + 1e-6)
+                    continue;
+
+                double gap = candidate.startUT - lastPointUT;
+                double maxBridgeGap = ResolvePredictedOrbitTailBridgeMaxGapSeconds(traj);
+                if (gap > maxBridgeGap + 1e-6)
+                    continue;
+                if (playbackUT < candidate.startUT - 1e-6
+                    && playbackUT <= candidate.endUT
+                    && playbackUT > lastPointUT + 1e-6)
+                {
+                    segment = candidate;
+                    segmentIndex = i;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
@@ -4089,6 +4502,245 @@ namespace Parsek
             return activationStartUT;
         }
 
+        internal static bool ShouldHoldInitialRelativeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            double activationLead = playbackUT - activationStartUT;
+            if (activationLead < -1e-6
+                || activationLead > GhostPlayback.InitialRelativeActivationHiddenSeconds)
+            {
+                return false;
+            }
+
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            return sectionIndex >= 0
+                && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
+        }
+
+        private static bool CanEvaluateInitialActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state)
+        {
+            return traj != null
+                && state != null
+                && state.deferVisibilityUntilPlaybackSync
+                && !state.externalActivationDeferred
+                && state.appearanceCount == 0;
+        }
+
+        internal static bool ShouldHoldInitialAbsoluteBridgeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            return TryResolveInitialAbsoluteBridgeActivationEndUT(
+                    traj,
+                    out double activationStartUT,
+                    out double bridgeEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT <= bridgeEndUT + 1e-6;
+        }
+
+        internal static bool ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            return TryResolveInitialAbsoluteToRelativePrimerEndUT(
+                    traj,
+                    out double activationStartUT,
+                    out double primerEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT <= primerEndUT + 1e-6;
+        }
+
+        private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
+            IPlaybackTrajectory traj,
+            out double activationStartUT,
+            out double bridgeEndUT)
+        {
+            activationStartUT = double.NaN;
+            bridgeEndUT = double.NaN;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            activationStartUT = ResolveGhostActivationStartUT(traj);
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            TrackSection section = traj.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.Absolute
+                || section.frames == null
+                || section.frames.Count != 1)
+            {
+                return false;
+            }
+
+            TrajectoryPoint seed = section.frames[0];
+            double bridgeDuration = section.endUT - seed.ut;
+            if (bridgeDuration <= 1e-6
+                || bridgeDuration > GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds)
+            {
+                return false;
+            }
+
+            if (Math.Abs(seed.ut - activationStartUT)
+                > GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds)
+            {
+                return false;
+            }
+
+            bridgeEndUT = section.endUT;
+            return true;
+        }
+
+        private static bool TryResolveInitialAbsoluteToRelativePrimerEndUT(
+            IPlaybackTrajectory traj,
+            out double activationStartUT,
+            out double primerEndUT)
+        {
+            activationStartUT = double.NaN;
+            primerEndUT = double.NaN;
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            activationStartUT = ResolveGhostActivationStartUT(traj);
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+
+            double maxEndUT = activationStartUT
+                + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds;
+            bool sawAbsolutePrimer = false;
+            for (int i = sectionIndex; i < traj.TrackSections.Count; i++)
+            {
+                TrackSection section = traj.TrackSections[i];
+                if (section.startUT > maxEndUT + 1e-6)
+                    return false;
+
+                if (section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    if (!sawAbsolutePrimer)
+                        return false;
+
+                    double relativeStartUT = Math.Max(section.startUT, activationStartUT);
+                    if (relativeStartUT <= activationStartUT + 1e-6
+                        || relativeStartUT > maxEndUT + 1e-6)
+                    {
+                        return false;
+                    }
+
+                    primerEndUT = relativeStartUT;
+                    return true;
+                }
+
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                    return false;
+
+                if (section.endUT > maxEndUT + 1e-6)
+                    return false;
+
+                sawAbsolutePrimer = true;
+            }
+
+            return false;
+        }
+
+        internal static bool ShouldHoldInitialActivationHiddenThisFrame(
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            out string reason)
+        {
+            reason = null;
+            if (state == null)
+                return false;
+
+            bool withinRelativeWindow = ShouldHoldInitialRelativeActivationHidden(
+                traj, state, playbackUT);
+            bool withinAbsoluteBridge = !withinRelativeWindow
+                && ShouldHoldInitialAbsoluteBridgeActivationHidden(
+                    traj, state, playbackUT);
+            bool withinAbsoluteToRelativePrimer = !withinRelativeWindow
+                && !withinAbsoluteBridge
+                && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
+                    traj, state, playbackUT);
+            bool withinUtWindow = withinRelativeWindow
+                || withinAbsoluteBridge
+                || withinAbsoluteToRelativePrimer;
+            bool withinActivationSettle = !withinUtWindow
+                && CanEvaluateInitialActivationHidden(traj, state)
+                && !state.initialRelativeActivationHiddenPrimed;
+            bool shouldPrimeHiddenFrames = withinUtWindow || withinActivationSettle;
+            if (shouldPrimeHiddenFrames && !state.initialRelativeActivationHiddenPrimed)
+            {
+                state.initialRelativeActivationHiddenPrimed = true;
+                state.initialRelativeActivationHiddenFramesRemaining =
+                    Math.Max(
+                        state.initialRelativeActivationHiddenFramesRemaining,
+                        GhostPlayback.InitialActivationHiddenMinimumFrames);
+            }
+
+            if (shouldPrimeHiddenFrames)
+            {
+                reason = withinRelativeWindow
+                    ? "relative-start"
+                    : (withinAbsoluteBridge
+                        ? "absolute-seed-bridge"
+                        : (withinAbsoluteToRelativePrimer
+                            ? "absolute-primer-to-relative"
+                            : "activation-settle"));
+                ConsumeInitialRelativeHiddenFrame(state);
+                return true;
+            }
+
+            if (state.initialRelativeActivationHiddenPrimed
+                && state.initialRelativeActivationHiddenFramesRemaining > 0
+                && state.appearanceCount == 0
+                && state.deferVisibilityUntilPlaybackSync)
+            {
+                reason = "minimum-frames";
+                ConsumeInitialRelativeHiddenFrame(state);
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool ShouldHoldInitialRelativeActivationHiddenThisFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            return ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, playbackUT, out string _);
+        }
+
+        private static void ConsumeInitialRelativeHiddenFrame(GhostPlaybackState state)
+        {
+            if (state != null && state.initialRelativeActivationHiddenFramesRemaining > 0)
+                state.initialRelativeActivationHiddenFramesRemaining--;
+        }
+
         internal static bool TryResolvePendingPlaybackInterpolation(
             IPlaybackTrajectory traj, double playbackUT, out InterpolationResult result)
         {
@@ -4116,45 +4768,27 @@ namespace Parsek
                         traj, playbackUT, result, "active orbit segment");
                 }
 
-                int cachedIndex = 0;
-                if (!TrajectoryMath.InterpolatePoints(
-                    traj.Points, ref cachedIndex, playbackUT,
-                    out TrajectoryPoint before, out TrajectoryPoint after, out float t))
+                if (TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+                        traj, playbackUT, out result, out string relativePointSource))
                 {
-                    if (!string.IsNullOrEmpty(before.bodyName))
+                    return LogPendingPlaybackInterpolationResolved(
+                        traj, playbackUT, result, relativePointSource);
+                }
+
+                if (!IsRelativeTrackSectionAtUT(traj.TrackSections, playbackUT))
+                {
+                    if (TryResolvePendingPointInterpolation(
+                            traj.Points, playbackUT, out result, out string pointSource))
                     {
-                        result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                         return LogPendingPlaybackInterpolationResolved(
-                            traj, playbackUT, result, "before-start point fallback");
+                            traj, playbackUT, result, pointSource);
                     }
                 }
                 else
                 {
-                    bool useBeforePoint = t == 0f && before.ut == after.ut;
-                    bool afterEndClamp = playbackUT > after.ut;
-                    string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
-                    if (!string.IsNullOrEmpty(bodyName))
-                    {
-                        result = new InterpolationResult(
-                            useBeforePoint ? before.velocity : Vector3.Lerp(before.velocity, after.velocity, t),
-                            bodyName,
-                            useBeforePoint
-                                ? before.altitude
-                                : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
-                        bool crossBodyTransition =
-                            !useBeforePoint
-                            && !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal);
-                        string pointSource = useBeforePoint
-                            ? "same-UT point segment"
-                            : afterEndClamp
-                                ? "point after-end clamp"
-                                : crossBodyTransition
-                                    ? FormattableString.Invariant(
-                                        $"cross-body point transition {before.bodyName ?? "(null)"}->{after.bodyName ?? "(null)"} (using upper-point body)")
-                                : "point interpolation";
-                        return LogPendingPlaybackInterpolationResolved(
-                            traj, playbackUT, result, pointSource);
-                    }
+                    string vesselName = traj.VesselName ?? "Unknown";
+                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} relative section active with no absolute shadow, skipping flat relative point metadata"));
                 }
             }
 
@@ -4201,6 +4835,111 @@ namespace Parsek
 
             return LogPendingPlaybackInterpolationUnresolved(
                 traj, playbackUT, "no points, surface metadata, orbit segment, or endpoint body");
+        }
+
+        private static bool TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out InterpolationResult result,
+            out string source)
+        {
+            result = InterpolationResult.Zero;
+            source = null;
+            if (!TryFindRelativeTrackSectionAtUT(traj?.TrackSections, playbackUT, out TrackSection section))
+                return false;
+            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                return false;
+
+            if (!TryResolvePendingPointInterpolation(
+                    section.absoluteFrames, playbackUT, out result, out string pointSource))
+            {
+                return false;
+            }
+
+            source = "relative absolute shadow " + pointSource;
+            return true;
+        }
+
+        private static bool TryResolvePendingPointInterpolation(
+            List<TrajectoryPoint> points,
+            double playbackUT,
+            out InterpolationResult result,
+            out string source)
+        {
+            result = InterpolationResult.Zero;
+            source = null;
+            if (points == null || points.Count == 0)
+                return false;
+
+            if (points.Count == 1)
+            {
+                TrajectoryPoint point = points[0];
+                if (string.IsNullOrEmpty(point.bodyName))
+                    return false;
+
+                result = new InterpolationResult(point.velocity, point.bodyName, point.altitude);
+                source = "single-point fallback";
+                return true;
+            }
+
+            int cachedIndex = 0;
+            if (!TrajectoryMath.InterpolatePoints(
+                    points, ref cachedIndex, playbackUT,
+                    out TrajectoryPoint before, out TrajectoryPoint after, out float t))
+            {
+                if (string.IsNullOrEmpty(before.bodyName))
+                    return false;
+
+                result = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
+                source = "before-start point fallback";
+                return true;
+            }
+
+            bool useBeforePoint = t == 0f && before.ut == after.ut;
+            bool afterEndClamp = playbackUT > after.ut;
+            string bodyName = useBeforePoint ? before.bodyName : after.bodyName;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
+
+            result = new InterpolationResult(
+                useBeforePoint ? before.velocity : Vector3.Lerp(before.velocity, after.velocity, t),
+                bodyName,
+                useBeforePoint
+                    ? before.altitude
+                    : TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            bool crossBodyTransition =
+                !useBeforePoint
+                && !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal);
+            source = useBeforePoint
+                ? "same-UT point segment"
+                : afterEndClamp
+                    ? "point after-end clamp"
+                    : crossBodyTransition
+                        ? FormattableString.Invariant(
+                            $"cross-body point transition {before.bodyName ?? "(null)"}->{after.bodyName ?? "(null)"} (using upper-point body)")
+                    : "point interpolation";
+            return true;
+        }
+
+        private static bool IsRelativeTrackSectionAtUT(
+            List<TrackSection> trackSections, double playbackUT)
+        {
+            return TryFindRelativeTrackSectionAtUT(trackSections, playbackUT, out _);
+        }
+
+        private static bool TryFindRelativeTrackSectionAtUT(
+            List<TrackSection> trackSections, double playbackUT, out TrackSection section)
+        {
+            section = default(TrackSection);
+            if (trackSections == null || trackSections.Count == 0)
+                return false;
+
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(trackSections, playbackUT);
+            if (sectionIndex < 0 || sectionIndex >= trackSections.Count)
+                return false;
+
+            section = trackSections[sectionIndex];
+            return section.referenceFrame == ReferenceFrame.Relative;
         }
 
         private static bool LogPendingPlaybackInterpolationResolved(
@@ -4396,7 +5135,9 @@ namespace Parsek
 
             TrackSection section = traj.TrackSections[sectionIdx];
             string anchorSuffix = section.referenceFrame == ReferenceFrame.Relative
-                ? $" anchorPid={section.anchorVesselId}"
+                ? !string.IsNullOrEmpty(section.anchorRecordingId)
+                    ? $" anchorRec={section.anchorRecordingId}"
+                    : $" anchorRec=missing legacyAnchorPid={section.anchorVesselId}"
                 : string.Empty;
             return
                 $"activeFrame={section.referenceFrame} " +
@@ -4435,8 +5176,13 @@ namespace Parsek
             if (sectionIdx < 0 || sectionIdx >= traj.TrackSections.Count)
                 return string.Empty;
             TrackSection section = traj.TrackSections[sectionIdx];
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.anchorVesselId == 0u)
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return string.Empty;
+
+            if (!string.IsNullOrEmpty(section.anchorRecordingId))
+                return $"anchorRec={section.anchorRecordingId}";
+
+            if (section.anchorVesselId == 0u)
                 return string.Empty;
 
             if (positioner == null
@@ -4461,6 +5207,7 @@ namespace Parsek
             TrajectoryPoint firstPoint = traj.Points[0];
             ReferenceFrame frame = ReferenceFrame.Absolute;
             uint anchorVesselId = 0;
+            string anchorRecordingId = null;
 
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -4470,6 +5217,7 @@ namespace Parsek
                     TrackSection section = traj.TrackSections[sectionIdx];
                     frame = section.referenceFrame;
                     anchorVesselId = section.anchorVesselId;
+                    anchorRecordingId = section.anchorRecordingId;
                 }
             }
 
@@ -4478,7 +5226,10 @@ namespace Parsek
                 Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
                 return
                     $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                    $"frame=Relative offset={FormatVector3d(offset)} anchorPid={anchorVesselId}";
+                    $"frame=Relative offset={FormatVector3d(offset)} " +
+                    (!string.IsNullOrEmpty(anchorRecordingId)
+                        ? $"anchorRec={anchorRecordingId}"
+                        : $"anchorRec=missing legacyAnchorPid={anchorVesselId}");
             }
 
             string rawSummary =
@@ -4958,6 +5709,7 @@ namespace Parsek
             // against its current frame, not against a stale pose from
             // the prior session.
             PlaybackTrace.Reset();
+            GhostRenderTrace.Reset();
         }
 
         /// <summary>

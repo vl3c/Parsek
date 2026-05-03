@@ -4372,5 +4372,66 @@ namespace Parsek.Tests
             Assert.True(SupersedeCommit.ValidateSupersedeTarget(ok, out reason));
             Assert.Null(reason);
         }
+
+        [Fact]
+        public void ValidateSupersedeTarget_SectionAuthoritativePayloadWithEmptyPoints_ReturnsTrue()
+        {
+            string reason;
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(),
+                TerminalStateValue = TerminalState.SubOrbital
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 10.0,
+                endUT = 10.1,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin", altitude = 1000.0 },
+                    new TrajectoryPoint { ut = 10.1, bodyName = "Kerbin", altitude = 1010.0 }
+                }
+            });
+
+            Assert.True(SupersedeCommit.ValidateSupersedeTarget(rec, out reason));
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ValidateSupersedeTarget_OrbitalCheckpointPayloadWithEmptyPoints_ReturnsTrue()
+        {
+            string reason;
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(),
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = 20.0,
+                endUT = 30.0,
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Kerbin",
+                        startUT = 20.0,
+                        endUT = 30.0,
+                        semiMajorAxis = 700000.0,
+                        eccentricity = 0.01,
+                        inclination = 0.0
+                    }
+                }
+            });
+
+            Assert.True(SupersedeCommit.ValidateSupersedeTarget(rec, out reason));
+            Assert.Null(reason);
+        }
     }
 }

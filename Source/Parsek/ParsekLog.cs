@@ -203,6 +203,55 @@ namespace Parsek
             rateLimitStateByKey[compositeKey] = state;
         }
 
+        public static void VerboseRateLimited(
+            string subsystem,
+            string key,
+            Func<string> messageFactory,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(key))
+            {
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            string compositeKey = $"{subsystem}|{key}";
+            double now = GetLogClockSeconds();
+            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
+            {
+                rateLimitStateByKey[compositeKey] = new RateLimitState
+                {
+                    lastEmitSeconds = now,
+                    suppressedCount = 0
+                };
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
+            {
+                string message = messageFactory();
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Verbose(subsystem, $"{message}{suffix}");
+                state.lastEmitSeconds = now;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            rateLimitStateByKey[compositeKey] = state;
+        }
+
         /// <summary>
         /// State-change-driven verbose log. Emits <paramref name="message"/> only when
         /// <paramref name="stateKey"/> differs from the last emitted state for the

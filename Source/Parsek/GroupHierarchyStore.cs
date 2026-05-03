@@ -182,22 +182,25 @@ namespace Parsek
         internal static int PruneUnusedHierarchyEntriesFromCommittedRecordings(string reason)
         {
             // [ERS-exempt] reason: this is a cleanup pass for the raw
-            // persisted group hierarchy. It must inspect all committed rows,
-            // then explicitly subtract relation-superseded ids so the
-            // hierarchy matches the recordings table's display-effective group
-            // membership without losing NotCommitted management rows.
-            var committed = RecordingStore.CommittedRecordings;
+            // persisted group hierarchy. It must inspect all known committed
+            // and pending rows, then explicitly subtract relation-superseded
+            // ids so the hierarchy matches the recordings table's
+            // display-effective group membership without losing NotCommitted
+            // management rows. Pending rows matter during active-tree restore:
+            // the mission tree can be temporarily detached from committed
+            // storage while still awaiting a deferred merge dialog.
+            var cleanupRecordings = RecordingStore.BuildKnownRecordingsForCleanup();
             var scenario = ParsekScenario.Instance;
             var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
-                committed,
+                cleanupRecordings,
                 object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
 
             var liveGroupNames = new HashSet<string>(StringComparer.Ordinal);
-            if (committed != null)
+            if (cleanupRecordings != null)
             {
-                for (int i = 0; i < committed.Count; i++)
+                for (int i = 0; i < cleanupRecordings.Count; i++)
                 {
-                    var rec = committed[i];
+                    var rec = cleanupRecordings[i];
                     if (rec == null)
                         continue;
                     if (!string.IsNullOrEmpty(rec.RecordingId)
@@ -401,7 +404,15 @@ namespace Parsek
         /// </summary>
         internal static void SaveInto(ConfigNode node)
         {
-            PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
+            if (ShouldSkipPruneForActiveReFly())
+            {
+                ParsekLog.Verbose("GroupHierarchy",
+                    "Skipping group hierarchy prune reason=save while Re-Fly session is active");
+            }
+            else
+            {
+                PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
+            }
 
             if (groupParents.Count > 0)
             {
@@ -424,6 +435,25 @@ namespace Parsek
                     hiddenNode.AddValue("hideActive", "False");
                 ParsekLog.Info("GroupHierarchy", $"Saved hidden groups: {hiddenGroups.Count} entries, hideActive={hideActive}");
             }
+        }
+
+        private static bool ShouldSkipPruneForActiveReFly()
+        {
+            var scenario = ParsekScenario.Instance;
+            var marker = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            var validation = MarkerValidator.Validate(marker);
+            if (!validation.Valid)
+                return false;
+
+            // Active Re-Fly loads can temporarily detach the committed tree
+            // while the pending/active tree still owns its auto-generated
+            // groups. Committed-only pruning would treat those groups as stale.
+            return true;
         }
 
         /// <summary>

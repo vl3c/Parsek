@@ -54,6 +54,7 @@ namespace Parsek
         public double startUT;
         public double endUT;
         public uint anchorVesselId;             // For Relative frame only (0 = not set)
+        public string anchorRecordingId;        // For v11 Relative frame only (null = not set)
         public List<TrajectoryPoint> frames;    // For Absolute/Relative (null until initialized)
         public List<TrajectoryPoint> absoluteFrames; // For Relative only: planet-relative shadow payload
         public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
@@ -80,11 +81,13 @@ namespace Parsek
             int checkpointCount = checkpoints?.Count ?? 0;
             string altRange = !float.IsNaN(minAltitude) && !float.IsNaN(maxAltitude)
                 ? $" alt=[{minAltitude.ToString("F0", ic)},{maxAltitude.ToString("F0", ic)}]" : "";
+            string anchorRec = !string.IsNullOrEmpty(anchorRecordingId)
+                ? $" anchorRec={anchorRecordingId}" : "";
             string seam = isBoundarySeam ? " seam=1" : "";
             return $"TrackSection env={environment} ref={referenceFrame} " +
                    $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} absFrames={absoluteFrameCount} " +
                    $"checkpoints={checkpointCount} " +
-                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}{seam}";
+                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}{anchorRec}{seam}";
         }
     }
 }

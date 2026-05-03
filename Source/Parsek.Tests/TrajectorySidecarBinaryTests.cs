@@ -52,6 +52,9 @@ namespace Parsek.Tests
         [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(9, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(10, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(11, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
@@ -75,6 +78,17 @@ namespace Parsek.Tests
                 Assert.Null(probe.FailureReason);
             else
                 Assert.Equal($"unsupported binary trajectory version {version}", probe.FailureReason);
+        }
+
+        [Fact]
+        public void CurrentBinaryVersion_IsRecordingAnchorChainVersion()
+        {
+            Assert.Equal(
+                RecordingStore.RecordingAnchorChainFormatVersion,
+                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
+            Assert.Equal(
+                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion,
+                TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
         [Fact]
@@ -152,6 +166,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WriteRead_RelativeSection_PreservesAnchorRecordingId()
+        {
+            Recording original = BuildAnchorRecordingIdFixture();
+
+            string path = Path.Combine(tempDir, "anchor-recording-id.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 21);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+            Assert.Equal(RecordingStore.RecordingAnchorChainFormatVersion, probe.FormatVersion);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Single(restored.TrackSections);
+            Assert.Equal("anchor-rec-1", restored.TrackSections[0].anchorRecordingId);
+            Assert.Equal(0u, restored.TrackSections[0].anchorVesselId);
+            Assert.Equal(2, restored.TrackSections[0].frames.Count);
+        }
+
+        [Fact]
         public void WriteRead_FlatFallbackFixture_PreservesTailOutsideTrackSections_AndExistingRecordingId()
         {
             Recording original = BuildFlatFallbackFixture();
@@ -170,6 +205,39 @@ namespace Parsek.Tests
             Assert.Equal("existing-id", restored.RecordingId);
             AssertTrajectoryPayloadEqual(original, restored);
             Assert.True(restored.OrbitSegments[restored.OrbitSegments.Count - 1].isPredicted);
+        }
+
+        [Fact]
+        public void WriteRead_RelativeFlatFallback_WritesAbsoluteShadowPointsAndPreservesOrbitTail()
+        {
+            Recording original = BuildRelativeFlatFallbackWithOrbitTailFixture();
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+
+            string path = Path.Combine(tempDir, "relative-flat-fallback-tail.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 22);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            Assert.Equal(4, restored.Points.Count);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.Points[0]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.Points[1]);
+            AssertPointEqual(original.TrackSections[1].frames[1], restored.Points[2]);
+            AssertPointEqual(original.Points[4], restored.Points[3]);
+            Assert.NotEqual(original.TrackSections[0].frames[0].altitude, restored.Points[0].altitude);
+
+            Assert.Equal(2, restored.TrackSections.Count);
+            AssertPointEqual(original.TrackSections[0].frames[0], restored.TrackSections[0].frames[0]);
+            AssertPointEqual(original.TrackSections[0].frames[1], restored.TrackSections[0].frames[1]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
+            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
+
+            Assert.Single(restored.OrbitSegments);
+            AssertOrbitSegmentEqual(original.OrbitSegments[0], restored.OrbitSegments[0]);
+            Assert.True(restored.OrbitSegments[0].isPredicted);
         }
 
         private static void WriteProbeOnlyBinary(string path, int version, int sidecarEpoch, string recordingId)
@@ -417,6 +485,92 @@ namespace Parsek.Tests
             return rec;
         }
 
+        private static Recording BuildAnchorRecordingIdFixture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "v11-anchor-recording-id",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                VesselName = "Upper Stage",
+                VesselPersistentId = 12001u
+            };
+
+            var relativeA = MakePoint(100.0, 1.0, 2.0, 3.0, "Kerbin");
+            var relativeB = MakePoint(101.0, 4.0, 5.0, 6.0, "Kerbin");
+            rec.Points.Add(relativeA);
+            rec.Points.Add(relativeB);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 101.0,
+                anchorRecordingId = "anchor-rec-1",
+                anchorVesselId = 3314061462u,
+                sampleRateHz = 2f,
+                minAltitude = 3f,
+                maxAltitude = 6f,
+                frames = new List<TrajectoryPoint> { relativeA, relativeB },
+                absoluteFrames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
+        private static Recording BuildRelativeFlatFallbackWithOrbitTailFixture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "relative-flat-fallback-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Probe Booster",
+                VesselPersistentId = 22001u
+            };
+
+            var relativeA = MakePoint(10.0, -0.15, -5.80, 0.08, "Kerbin");
+            var relativeB = MakePoint(20.0, -0.18, -5.81, 0.09, "Kerbin");
+            var absoluteA = MakePoint(10.0, -0.19, -58.90, 69000.0, "Kerbin");
+            var absoluteB = MakePoint(20.0, -0.20, -58.80, 70000.0, "Kerbin");
+            var absoluteC = MakePoint(30.0, -0.21, -58.70, 71000.0, "Kerbin");
+            var absoluteTail = MakePoint(35.0, -0.22, -58.60, 71500.0, "Kerbin");
+
+            rec.Points.Add(relativeA);
+            rec.Points.Add(relativeB);
+            rec.Points.Add(absoluteB);
+            rec.Points.Add(absoluteC);
+            rec.Points.Add(absoluteTail);
+            rec.OrbitSegments.Add(MakeOrbitSegment(40.0, 330.0, isPredicted: true));
+
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = 10.0,
+                endUT = 20.0,
+                anchorRecordingId = "upper-stage",
+                sampleRateHz = 2f,
+                frames = new List<TrajectoryPoint> { relativeA, relativeB },
+                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                checkpoints = new List<OrbitSegment>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 20.0,
+                endUT = 30.0,
+                sampleRateHz = 2f,
+                frames = new List<TrajectoryPoint> { absoluteB, absoluteC },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            return rec;
+        }
+
         private static BinaryTrajectoryEnvelope ReadEnvelopeHeader(string path)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -529,6 +683,7 @@ namespace Parsek.Tests
             Assert.Equal(expected.startUT, actual.startUT);
             Assert.Equal(expected.endUT, actual.endUT);
             Assert.Equal(expected.anchorVesselId, actual.anchorVesselId);
+            Assert.Equal(expected.anchorRecordingId, actual.anchorRecordingId);
             Assert.Equal(expected.sampleRateHz, actual.sampleRateHz);
             Assert.Equal(expected.source, actual.source);
             Assert.Equal(expected.boundaryDiscontinuityMeters, actual.boundaryDiscontinuityMeters);

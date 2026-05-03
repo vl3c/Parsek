@@ -101,6 +101,7 @@ namespace Parsek.Tests
         public void AddTrackSection_WithAnchorVesselId_Preserved()
         {
             var builder = new RecordingBuilder("AnchorTest")
+                .WithFormatVersion(RecordingStore.StructuralEventFlagFormatVersion)
                 .AddTrackSection(
                     SegmentEnvironment.ExoPropulsive, ReferenceFrame.Relative, TrackSectionSource.Active,
                     17500.0, 17600.0,
@@ -112,6 +113,30 @@ namespace Parsek.Tests
 
             Assert.Single(rec.TrackSections);
             Assert.Equal(42u, rec.TrackSections[0].anchorVesselId);
+        }
+
+        [Fact]
+        public void AddTrackSection_WithAnchorRecordingId_Preserved()
+        {
+            var builder = new RecordingBuilder("AnchorTest")
+                .WithFormatVersion(RecordingStore.RecordingAnchorChainFormatVersion)
+                .AddTrackSection(
+                    SegmentEnvironment.ExoPropulsive, ReferenceFrame.Relative, TrackSectionSource.Active,
+                    17500.0, 17600.0,
+                    anchorVesselId: 42u, sampleRateHz: 5.0f,
+                    anchorRecordingId: "anchor-rec-1");
+
+            var trajNode = builder.BuildTrajectoryNode();
+            ConfigNode tsNode = trajNode.GetNode("TRACK_SECTION");
+            Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));
+            Assert.Null(tsNode.GetValue("anchorPid"));
+
+            var rec = new Recording();
+            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+
+            Assert.Single(rec.TrackSections);
+            Assert.Equal("anchor-rec-1", rec.TrackSections[0].anchorRecordingId);
+            Assert.Equal(0u, rec.TrackSections[0].anchorVesselId);
         }
 
         [Fact]

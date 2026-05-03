@@ -259,7 +259,20 @@ namespace Parsek
         // sections (for example ~6 km over ~3 s at ~2.2 km/s), which excludes
         // legitimate samples from the spline fit. The alg-stamp bump forces
         // those cached flags to recompute on first load (HR-10).
-        internal const int AlgorithmStampVersion = 10;
+        //
+        // Bumped to 11 in the PR #708 Re-Fly playtest follow-up:
+        // smoothing-spline eligibility briefly included Absolute Atmospheric
+        // sections. v10 .pann files legitimately lacked those splines, so they
+        // had to recompute before active Re-Fly atmospheric display could use
+        // the recorded-path smoothing layer.
+        //
+        // Bumped to 12 in the PR #708 spline-loop follow-up: playtesting showed
+        // sparse atmospheric ascent sections can produce large Catmull-Rom
+        // loops even after time-aware tangents, so Atmospheric eligibility is
+        // rolled back until the fitter has an explicit monotonic/shape-safe
+        // contract. v11 .pann files may contain unsafe atmospheric splines and
+        // must be discarded on first load.
+        internal const int AlgorithmStampVersion = 12;
         private const int CanonicalEncoderVersion = 1;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
