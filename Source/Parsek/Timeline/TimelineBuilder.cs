@@ -336,7 +336,8 @@ namespace Parsek
             if (rec.IsDebris)
                 return false;
 
-            bool isUf = EffectiveState.IsUnfinishedFlight(rec);
+            RewindPoint ufRewindPoint;
+            bool isUf = EffectiveState.TryResolveUnfinishedFlight(rec, out ufRewindPoint, out _);
             if (!isTreeChild && !isUf)
                 return false;
 
@@ -347,7 +348,7 @@ namespace Parsek
                 ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
                 : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
             double ut = isUf
-                ? ResolveUnfinishedFlightTimelineUT(rec, rec.StartUT)
+                ? ResolveUnfinishedFlightTimelineUT(ufRewindPoint, rec.StartUT)
                 : rec.StartUT;
             entries.Add(new TimelineEntry
             {
@@ -368,15 +369,13 @@ namespace Parsek
             return true;
         }
 
-        private static double ResolveUnfinishedFlightTimelineUT(Recording rec, double fallbackUT)
+        private static double ResolveUnfinishedFlightTimelineUT(RewindPoint rp, double fallbackUT)
         {
-            RewindPoint rp;
-            int slotListIndex;
-            return UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
-                    rec, out rp, out slotListIndex)
-                && rp != null
-                ? rp.UT
-                : fallbackUT;
+            // Anchor every UF row to the rewind point's separation moment.
+            // Tree-child rows usually already started there; active-parent
+            // rows can run from launch and need the RP UT to sort beside the
+            // sibling slot.
+            return rp != null ? rp.UT : fallbackUT;
         }
 
         private static bool TryAddVesselSpawnEntry(
