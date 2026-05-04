@@ -1426,27 +1426,18 @@ Cascade: every row in the Recordings Manager table gets the Rewind and Re-Fly co
 
 #### 6.25.2 Seal confirmation dialog
 
-`PopupDialog.SpawnPopupDialog` with a `MultiOptionDialog`. Title: "Seal Unfinished Flight?" Body:
+`PopupDialog.SpawnPopupDialog` with a `MultiOptionDialog`. Title: `Confirm Seal Unfinished Flight`. Dialog id and input-lock id: `ParsekUFSealDialog` (`UnfinishedFlightSealHandler.DialogName` / `DialogLockId`). Body, as emitted by `UnfinishedFlightSealHandler` (`UnfinishedFlightSealHandler.cs:160`):
 
 ```
 Seal "<vessel-name>" (<terminal-state> at UT <ut>)?
 
-This action CANNOT BE UNDONE.
-
-After sealing:
-  - This slot is closed permanently -- the recording can never be re-flown.
-  - The "Fly" button on this row disappears.
-  - The rewind point's quicksave file may be deleted (when every
-    sibling of this split is also sealed or already finalized).
-  - The recording itself is unchanged. It remains in your timeline
-    and continues to play back as a ghost on any future rewind,
-    exactly as it does now. Sealing only closes the re-fly slot;
-    it does not erase the recording or its trajectory.
+This cannot be undone. After sealing, this entry is permanently merged
+to the timeline in its current state.
 
 If you might want to re-fly this later, click Cancel.
 ```
 
-Buttons: `Seal Permanently` (destructive style, fires the seal handler), `Cancel`. Input lock `ParsekUFSealDialog`.
+Buttons: `Seal Permanently` (destructive style, fires the seal handler), `Cancel`.
 
 ### 6.26 Unfinished Flights group tooltip refresh (v0.9.1)
 
@@ -1550,10 +1541,15 @@ Deep-parse precondition (`RewindInvoker.CanInvoke` step 6) walks the quicksave's
 ### 7.30 Cannot hide Unfinished Flights group
 `GroupHierarchyStore.CanHide` denies. UI hide checkbox is not drawn for the virtual group. **Shipped (test)**: `UnfinishedFlightsGroupCannotHideTests`.
 
-### 7.31 Non-crashed BG sibling (e.g. booster coasts to landing on its own)
-Terminal kind classifies as `Landed` / `Orbiting` / `SubOrbital` / `InFlight` via `TerminalKindClassifier`. `IsUnfinishedFlight` returns **false**, so the recording does NOT enter the Unfinished Flights group and NO Rewind button is drawn on its row. **This is the intended behaviour, not a limitation.** The Rewind feature exists to let the player re-fly a sibling that ended in **destruction or loss**; a sibling that reached a stable terminal state (orbiting booster, landed parachuted kerbal, docked lander) has nothing to re-fly. The recording plays back from its committed trajectory and the end-of-recording spawn puts the real vessel where it actually ended up — exactly what the player intended when they last controlled it. Broadening the predicate to `CommittedProvisional + has-RP regardless of terminal` would pollute the list with every routine orbital separation (station EVAs, lander-from-orbit dockings, fuel-tanker rendezvous), which is the opposite of what the feature is for.
+### 7.31 Non-crashed BG sibling — focus vs non-focus (v0.9.1 contract)
+Terminal kind classifies as `Landed` / `Orbiting` / `SubOrbital` / `InFlight` via `TerminalKindClassifier`. v0.9.1's broadened predicate splits this case in two:
 
-Corollary: if a sibling that **should** have been destroyed shows up with a non-crashed terminal (e.g. a booster left behind on reentry but misclassified `Orbiting`), the bug is in the terminal-state classifier, not the Rewind predicate. The scene-exit finalizer (`IncompleteBallisticSceneExitFinalizer` / `BallisticExtrapolator`) is the usual suspect; its `[Extrapolator]` log tag traces the decisions. A `Start: body=… alt=-<large>` preceded by `PatchedConicSnapshot: solver unavailable` (NullSolver) means KSP has already invalidated the vessel, and the extrapolator now short-circuits to `TerminalState.Destroyed` via `ExtrapolationFailureReason.SubSurfaceStart` rather than silently horizon-capping to Orbiting. Fixing the classifier upstream restores the Unfinished Flights entry automatically — do not work around it by broadening the UI predicate.
+- **Focus-continuation slot** (`slot.SlotIndex == RP.FocusSlotIndex`) reaching `Landed` / `Splashed` / `Orbiting` / `SubOrbital`: `IsUnfinishedFlight` returns **false**. The recording does NOT enter the Unfinished Flights group and NO Re-Fly button is drawn — this slot is the player's continued mission, and broadening to it would pollute the list with every routine upper-stage-to-orbit. The recording plays back from its committed trajectory and the end-of-recording spawn puts the real vessel where it actually ended up. Manual Stash (§6.25.1) is the explicit escape hatch when the player decides post-hoc that they want such a slot re-flyable.
+- **Non-focus slot** reaching `Orbiting` / `SubOrbital`: `IsUnfinishedFlight` returns **true** under the v0.9.1 stable-leaf contract (the 4-probe deploy case in §4.4, the upper-stage-left-coasting case in §4.5). Site A promotes the recording to `CommittedProvisional` and the row appears in Unfinished Flights with `Fly` + `Seal` affordances. `Landed` / `Splashed` / `Recovered` / `Docked` / `Boarded` non-focus terminals still return false (stable conclusion, no re-fly opportunity by default); manual Stash is available for `Landed` / `Splashed`.
+- **Stranded EVA kerbal** (`EvaCrewName != null`, terminal != `Boarded`): qualifies regardless of focus or `FocusSlotIndex` (the kerbal branch runs before the focus short-circuit). See §4.6.
+- **Legacy / no-focus-signal RPs** (`FocusSlotIndex == -1`): conservatively short-circuit Orbiting / SubOrbital to false (the focus signal is missing), preserving v0.9.0 Crashed-only behavior on pre-feature saves. Stranded kerbals still surface (intentional retroactive carve-out, §9.5).
+
+Corollary: if a sibling that **should** have been destroyed shows up with a non-crashed terminal (e.g. a booster left behind on reentry but misclassified `Orbiting`), the bug is in the terminal-state classifier, not the UF predicate. The scene-exit finalizer (`IncompleteBallisticSceneExitFinalizer` / `BallisticExtrapolator`) is the usual suspect; its `[Extrapolator]` log tag traces the decisions. A `Start: body=… alt=-<large>` preceded by `PatchedConicSnapshot: solver unavailable` (NullSolver) means KSP has already invalidated the vessel, and the extrapolator now short-circuits to `TerminalState.Destroyed` via `ExtrapolationFailureReason.SubSurfaceStart` rather than silently horizon-capping to Orbiting. Fixing the classifier upstream restores the Crashed Unfinished Flights entry automatically — do not work around it by further broadening the UI predicate.
 
 ### 7.32 Classifier drift across Parsek versions
 Old RPs retained; no reclassify. `[Rewind] Verbose` notes the mismatch.

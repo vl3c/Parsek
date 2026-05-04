@@ -510,7 +510,7 @@ The following helpers move from `UI/RecordingsTableUI.cs` into this file (or `Ef
 
 Site A decides whether a newly committed original-tree recording appears in STASH. Site B decides what happens after the player re-flies one of those slots and commits the attempt back to the timeline. The policies share the same predicate but Site B also applies merge-time conclusion and safety gates: chosen stable leaves auto-seal, terminal failures can remain retryable, while recovered/docked/boarded terminals, downstream structural/world interactions, and retry-blocking recording-linked actions close the slot.
 
-**Site A: original tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` ([RecordingStore.cs:715-770](../Source/Parsek/RecordingStore.cs)) extends from the v0.9 Crashed-only check to the broader predicate:
+**Site A: original tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` ([RecordingStore.cs:715-770](../../../Source/Parsek/RecordingStore.cs)) extends from the v0.9 Crashed-only check to the broader predicate:
 
 ```
 for each rec in tree.Recordings:
