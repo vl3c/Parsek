@@ -1986,7 +1986,72 @@ namespace Parsek.Tests
             }
         }
 
-/// <summary>
+        [Fact]
+        public void ActiveParentAndChild_UnfinishedFlights_BothEmitTimelineRows()
+        {
+            const string kBpId = "bp-uf-parent-child";
+
+            var root = MakeRecording("Kerbal X", 100, 400,
+                terminal: TerminalState.Destroyed,
+                recordingId: "rec_root");
+            root.VesselPersistentId = 42u;
+            root.ChildBranchPointId = kBpId;
+
+            var probe = MakeRecording("Kerbal X Probe", 200, 260,
+                terminal: TerminalState.Destroyed,
+                recordingId: "rec_probe");
+            probe.VesselPersistentId = 99u;
+            probe.ParentBranchPointId = kBpId;
+
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp-uf-parent-child",
+                        BranchPointId = kBpId,
+                        UT = 200.0,
+                        ChildSlots = new List<ChildSlot>
+                        {
+                            new ChildSlot { SlotIndex = 0, OriginChildRecordingId = root.RecordingId },
+                            new ChildSlot { SlotIndex = 1, OriginChildRecordingId = probe.RecordingId },
+                        },
+                        SessionProvisional = false,
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var result = TimelineBuilder.Build(
+                    new List<Recording> { root, probe },
+                    new List<GameAction>(),
+                    new List<Milestone>(),
+                    _ => true);
+
+                var unfinished = result
+                    .Where(e => e.Type == TimelineEntryType.UnfinishedFlightSeparation)
+                    .OrderBy(e => e.RecordingId, StringComparer.Ordinal)
+                    .ToList();
+
+                Assert.Equal(2, unfinished.Count);
+                Assert.Contains(unfinished, e =>
+                    e.RecordingId == root.RecordingId
+                    && e.UT == 200.0
+                    && e.DisplayText == "Unfinished Flight: Kerbal X");
+                Assert.Contains(unfinished, e =>
+                    e.RecordingId == probe.RecordingId
+                    && e.UT == 200.0
+                    && e.DisplayText == "Unfinished Flight: Kerbal X Probe");
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        /// <summary>
         /// Debris tree-children (BackgroundRecorder marks any breakup
         /// child without a controller as <see cref="Recording.IsDebris"/>)
         /// are skipped from the timeline entirely. The player asked us
