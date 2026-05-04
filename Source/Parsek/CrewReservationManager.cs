@@ -1626,13 +1626,10 @@ namespace Parsek
             if (applyToRoster)
                 kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
 
-            int remaining = 0;
-            foreach (var _ in kerbals.Reservations)
-                remaining++;
-
-            string suffix = string.IsNullOrEmpty(detail) ? "." : $" ({detail}).";
+            int remaining = kerbals.Reservations.Count;
+            string detailPart = string.IsNullOrEmpty(detail) ? "" : $" ({detail})";
             ParsekLog.Info("CrewReservations",
-                $"Recomputed {reason}: {remaining} reservations remain{suffix}");
+                $"Recomputed {reason}: {remaining} reservations remain{detailPart}.");
         }
 
         #endregion

@@ -616,6 +616,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(
+                CrewRecording(
+                    "rec-asn-Bill",
+                    "Bill",
+                    startUt: 100.0,
+                    endUt: 300.0,
+                    endState: KerbalEndState.Aboard));
+            RecordingStore.AddRecordingWithTreeForTesting(
+                CrewRecording(
+                    "rec-asn-Jeb",
+                    "Jeb",
+                    startUt: 500.0,
+                    endUt: 900.0,
+                    endState: KerbalEndState.Aboard));
+
+            AddAll(
+                FundsSeed(1000f),
+                Milestone(100.0, "BeforeCutoff", 200f),
+                Milestone(500.0, "AfterCutoff", 400f),
+                KerbalAssignment(
+                    100.0,
+                    "Bill",
+                    startUt: 100.0,
+                    endUt: 300.0,
+                    endState: KerbalEndState.Aboard),
+                KerbalAssignment(
+                    500.0,
+                    "Jeb",
+                    startUt: 500.0,
+                    endUt: 900.0,
+                    endState: KerbalEndState.Aboard));
+
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+
+            Assert.Equal(1200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.True(LedgerOrchestrator.Kerbals.Reservations.ContainsKey("Bill"));
+            Assert.True(LedgerOrchestrator.Kerbals.Reservations.ContainsKey("Jeb"));
+            Assert.True(LedgerOrchestrator.Kerbals.ShouldFilterFromCrewDialog("Bill"));
+            Assert.True(LedgerOrchestrator.Kerbals.ShouldFilterFromCrewDialog("Jeb"));
+            AssertLogHasCutoffSummary(logLines, 5, 3, "200");
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]")
+                && l.Contains("Recomputed after cutoff walk: 2 reservations remain")
+                && l.Contains("cutoffUT=200"));
+        }
+
+        [Fact]
         public void CutoffZero_DistinctFromNull()
         {
             AddAll(
