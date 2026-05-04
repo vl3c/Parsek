@@ -253,22 +253,70 @@ Symptom matrix:
 - **FlightResultsDialog Btn_KSC / Btn_Menu** (direct LoadScene at
   `FlightResultsDialog.cs:565, 599`): same as above - stock did not save.
 
-Fix: the proceed callback **always** writes a fresh persistent save before
-re-invoking `HighLogic.LoadScene`. Save failure is **fatal for MAINMENU**
-(no later save will run before unload) and **logged-and-continued for
-other destinations** (the destination scene's own save cycle will eventually
-write our state):
+Fix: the proceed callback **always** writes a fresh persistent save
+before re-invoking `HighLogic.LoadScene`. Save failure is **fatal
+for MAINMENU** (no later save will run before unload) and
+**logged-and-continued for other destinations** (the destination
+scene's own save cycle will eventually write our state).
+
+The save preparation must mirror the full stock `saveAndExit`
+sequence (Opus pass-6 P2): stock fires `onSceneConfirmExit` and
+calls `FlightGlobals.ClearpersistentIdDictionaries()` *before*
+`GamePersistence.SaveGame`. The `ClearpersistentIdDictionaries`
+call is load-bearing - it nulls stale pid pointers that would
+otherwise be persisted into the saved scenario module state and
+silently re-bind to wrong GameObjects after the scene change.
+`onSceneConfirmExit` lets listener mods clean up before save.
+
+For paths where stock already ran the prep (PauseMenu's
+`saveAndExit` at `Assembly-CSharp.dll` PauseMenu:1781-1803): stock
+already fired the event + cleared dictionaries + saved. Our
+re-save runs after our mutations but on top of stock's prep, which
+is fine - the event already fired, the dictionaries are still
+cleared.
+
+For paths where stock did NOT run the prep (PauseMenu CanRestart
+no-save at PauseMenu:1611-1633; FlightResultsDialog Btn_KSC /
+Btn_Menu / Btn_TS direct LoadScene): our `SafeWritePersistent`
+must run the full prep itself.
+
+Implementation: detect "did stock already prep" via a flag the
+prefix sets when it first fires (`s_StockPreparedThisTransition`,
+defaults to false; set true if we observe `onSceneConfirmExit` was
+fired before our prefix - we hook the event with a one-frame
+short-lived listener that just sets the flag). This is a defensive
+detection; if uncertain, run the prep again - it's idempotent
+(`ClearpersistentIdDictionaries` is safe to call repeatedly,
+`onSceneConfirmExit` listeners typically guard against double-fire).
+
+Simpler alternative: always run the full prep, accepting potential
+double-fire of `onSceneConfirmExit`. Stock listeners (KSP itself
+and well-behaved mods) idempotently handle the event. Risk: a
+mod that mutates state on every fire could double-mutate. Low
+likelihood in practice but not zero.
+
+Recommended approach: always run the full prep in
+`SafeWritePersistent`. Document the double-fire risk; if observed
+in playtest, switch to detection-based prep.
 
 ```csharp
 bool SafeWritePersistent(GameScenes dest)
 {
     try
     {
+        // Full stock saveAndExit prep (PauseMenu.saveAndExit at
+        // PauseMenu:1781-1803, plus the onSceneConfirmExit fire from
+        // the button delegates that wraps it). Idempotent in
+        // practice for both KSP and well-behaved listener mods.
+        GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
+        FlightGlobals.ClearpersistentIdDictionaries();
         GamePersistence.SaveGame(
             HighLogic.CurrentGame.Updated(),
             "persistent",
             HighLogic.SaveFolder,
             SaveMode.OVERWRITE);
+        if (dest == GameScenes.MAINMENU)
+            AnalyticsUtil.LogSaveGameClosed(HighLogic.CurrentGame);
         return true;
     }
     catch (Exception ex)
@@ -619,8 +667,27 @@ construction.
 - Existing `OnDismiss -> ClearPendingFlag` path stays
   (`MergeDialog.cs:217-223`). No change needed.
 - New `ShowTreeDialog(RecordingTree liveTree, MergeDialogButtonLabels
-  labels, Action preCommitFinalize, Action postChoice)` overload. The
-  Merge / Discard button handlers run, in order:
+  labels, Action preCommitFinalize, Action postChoice)` overload.
+
+  **Decision-building must run AFTER `preCommitFinalize`** (Opus
+  pass-6 P1). `BuildDefaultVesselDecisions` calls `CanPersistVessel`
+  which calls `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`, which
+  reads `Recording.TerminalStateValue` and `VesselSnapshot`
+  (`GhostPlaybackLogic.cs:4218, :4259-4262, :4293-4312`). On the live
+  active tree those values are null/stale; building decisions
+  pre-finalize would default valid landed/orbiting recordings to
+  ghost-only. Two-phase split:
+
+  - Pre-finalize phase: build *display-only* data (vessel name,
+    duration, body-copy strings) from the live tree. These reads
+    are safe on live data - duration uses `EndUT - StartUT` which
+    are continuously maintained.
+  - Post-finalize phase: call `BuildDefaultVesselDecisions(pending,
+    suppressedRecordingIds, activeReFlyTargetId)` on the
+    just-stashed pending tree, *then* call `MergeCommit(pending,
+    decisions, spawnCount)`.
+
+  The Merge / Discard button handlers run, in order:
   ```
   preCommitFinalize?.Invoke();   // pre-transition: stash pending tree
   var pending = RecordingStore.PendingTree;
@@ -632,24 +699,80 @@ construction.
       ParsekLog.Warn("MergeDialog",
           "ShowTreeDialog: preCommitFinalize produced no pending tree, " +
           "skipping commit/discard");
+      postChoice?.Invoke();
+      return;
   }
-  else if (clickedMerge) MergeCommit(pending, decisions, spawnCount);
-  else                   MergeDiscard(pending);
+
+  // Re-derive Re-Fly suppressed-subtree closure on the pending tree,
+  // mirroring the existing setup at MergeDialog.cs:100-125.
+  HashSet<string> suppressedIds = null;
+  string activeReFlyTargetId = null;
+  var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+  if (marker != null)
+  {
+      activeReFlyTargetId = marker.ActiveReFlyRecordingId;
+      try
+      {
+          var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+          if (closure != null && closure.Count > 0)
+              suppressedIds = new HashSet<string>(closure, StringComparer.Ordinal);
+      }
+      catch (Exception ex)
+      {
+          ParsekLog.Warn("MergeDialog",
+              $"ShowTreeDialog: ComputeSessionSuppressedSubtree threw " +
+              $"{ex.GetType().Name}: {ex.Message} - falling back to " +
+              "leaf-only ghost-only decisions");
+      }
+  }
+  var decisions = BuildDefaultVesselDecisions(
+      pending, suppressedIds, activeReFlyTargetId);
+  int spawnCount = 0;
+  foreach (var v in decisions.Values) if (v) spawnCount++;
+
+  bool actionSucceeded;
+  if (clickedMerge)
+  {
+      MergeCommit(pending, decisions, spawnCount);
+      actionSucceeded = (RecordingStore.PendingTree == null);
+  }
+  else
+  {
+      actionSucceeded = MergeDiscard(pending);   // signature change: now returns bool
+  }
+
+  // Opus pass-6 P2: do NOT proceed with postChoice if the action
+  // refused (handler-level journal-active guard, race, future
+  // caller). Refused = pendingTree still set / Discard returned
+  // false. Player remains in flight; the prefix's blocked
+  // LoadScene stays blocked. Player retries when the merge
+  // journal finishes.
+  if (!actionSucceeded)
+  {
+      ParsekLog.Warn("MergeDialog",
+          "ShowTreeDialog: action refused (likely merge-journal-active " +
+          "guard). Skipping postChoice; player remains in flight.");
+      // Do NOT invoke postChoice - the flight scene stays open.
+      return;
+  }
+
   postChoice?.Invoke();
   ```
-  No `?? liveTree` fallback - `MergeCommit` calls
-  `RecordingStore.CommitPendingTree()` which asserts a pending tree
-  exists (`MergeDialog.cs:316`). A null `PendingTree` after
-  `preCommitFinalize` means there's nothing to commit; silently
-  skipping with a Warn is the right behaviour, not feeding it the
-  live tree (which would crash inside `CommitPendingTree`).
-  Decisions are built inside `ShowTreeDialog` exactly as today
-  (`MergeDialog.cs:100-125`: `ComputeSessionSuppressedSubtree` +
-  `activeReFlyTargetId` + `BuildDefaultVesselDecisions`). Pre-transition
-  callers do NOT duplicate that decision-build; reusing the existing
-  internals preserves the Re-Fly suppressed-subtree closure that's
-  load-bearing for Re-Fly correctness. The post-load deferred path
-  calls the existing zero-arg `ShowTreeDialog(tree)` and is unchanged.
+
+  `MergeCommit` and `MergeDiscard` signature changes:
+  - `MergeDiscard` now returns `bool` (true = discarded, false =
+    refused). The existing `void` overload stays for backward
+    compatibility with the post-load deferred path; the new
+    `bool`-returning overload is what `ShowTreeDialog` calls.
+  - `MergeCommit` stays `void` but the wrapper checks
+    `RecordingStore.PendingTree == null` after the call to detect
+    successful commit (`CommitPendingTree` nulls the pending
+    tree). If the merge-journal-active guard is later added to
+    `MergeCommit` too, switch to a bool-returning overload there
+    as well.
+
+  The post-load deferred path calls the existing zero-arg
+  `ShowTreeDialog(tree)` and is unchanged.
 - **Add the merge-journal-active guard to the discard handlers, not just
   to button construction (P1.C).** The previous draft was wrong:
   `MergeDialog.MergeDiscard` does *not* currently check
@@ -660,9 +783,9 @@ construction.
   `RevertInterceptor.cs:345-352`). Mirror that pattern in two places:
   - `MergeDialog.MergeDiscard`: at the top, before `TryDiscardActiveReFlyAttempt`,
     refuse if `ActiveMergeJournal != null` with a `ParsekLog.Warn` and a
-    `ParsekLog.ScreenMessage("Discard: merge in progress - retry in a moment", 3f)`
-    (Opus re-review #11: existing code uses `ParsekLog.ScreenMessage`,
-    not `ScreenMessages.PostScreenMessage`).
+    `ParsekLog.ScreenMessage("Discard: merge in progress - retry in a moment", 3f)`.
+    The new `bool`-returning overload returns `false` on refusal; the
+    legacy `void` overload simply early-returns.
   - `MergeDialog.TryDiscardActiveReFlyAttempt`: at the top, refuse with
     the same pattern. Belt-and-braces for any future call site that
     bypasses `MergeDiscard`.
@@ -840,9 +963,9 @@ LANDED/SPLASHED situations pass through unchanged.)
 
 ### Merge-journal-active guard (P1.C coverage)
 
-- `MergeDialog.MergeDiscard` with `ActiveMergeJournal != null`: refuses
-  with Warn log + screen message; no state mutation; pending tree
-  remains stashed.
+- `MergeDialog.MergeDiscard` with `ActiveMergeJournal != null`:
+  refuses with Warn log + screen message; no state mutation;
+  pending tree remains stashed; new bool overload returns false.
 - `MergeDialog.TryDiscardActiveReFlyAttempt` invoked directly with
   `ActiveMergeJournal != null` (test bypass / future caller): same
   refusal contract.
@@ -850,11 +973,52 @@ LANDED/SPLASHED situations pass through unchanged.)
   `ReFlyRevertDialog`'s "Merge always allowed, Discard hidden" gate).
 - Button-build hides Discard when journal active - regression test
   asserts the dialog only ever exposes one button in that state.
+- **Refused discard does NOT proceed to scene change** (Opus pass-6
+  P2): wrapper checks `actionSucceeded` flag from `MergeDiscard`'s
+  bool return / `MergeCommit`'s `PendingTree == null` post-check.
+  If false, postChoice is not invoked. Prefix's blocked LoadScene
+  stays blocked. Player remains in flight. Asserted by a unit test
+  that arms `ActiveMergeJournal`, clicks Discard, and verifies (a)
+  `s_AllowNextLoadScene` was never set, (b) screen message fired,
+  (c) `pendingTree` still stashed, (d) `activeTree` may be null
+  (preCommitFinalize already ran). Player can either wait for
+  journal completion and retry exit, or restart KSP.
+
+### Save preparation parity (Opus pass-6 P2)
+
+- For PauseMenu saveAndExit destinations (stock prepped + saved
+  before our prefix): assert our re-save runs full prep again
+  (`onSceneConfirmExit` fired twice, `ClearpersistentIdDictionaries`
+  called twice). Both calls are idempotent for KSP itself.
+- For PauseMenu CanRestart no-save destinations: assert
+  `SafeWritePersistent` fires `onSceneConfirmExit`, calls
+  `ClearpersistentIdDictionaries`, then `SaveGame`. Stock did none
+  of these.
+- For FlightResultsDialog direct-LoadScene paths: same as
+  CanRestart - full prep runs in `SafeWritePersistent`.
+- MAINMENU: assert `AnalyticsUtil.LogSaveGameClosed` fires before
+  the save, matching stock saveAndExit's MAINMENU branch.
+- Save throws after partial prep (e.g. `ClearpersistentIdDictionaries`
+  succeeded, `SaveGame` failed): assert MAINMENU still hard-blocks
+  the transition. The cleared dictionaries stay cleared; flight
+  scene continues with no pid mappings until the player retries
+  the exit, at which point stock's saveAndExit re-clears.
 
 ### Defensive tests
 
-- Idle-on-pad pre-transition auto-discard fires before showing dialog,
-  reading live `MaxDistanceFromLaunch` backfilled by
+- **Decision rebuild after preCommitFinalize** (Opus pass-6 P1):
+  set up an active tree with a Landed terminal recording but with
+  `TerminalStateValue` deliberately not set on the live tree (live
+  state). Assert: pre-finalize `BuildDefaultVesselDecisions` would
+  return ghost-only for that recording (because
+  `CanPersistVessel` -> `ShouldSpawnAtRecordingEnd` reads null
+  `TerminalStateValue`). After preCommitFinalize, the same
+  recording in the pending tree has `TerminalStateValue == Landed`,
+  and `BuildDefaultVesselDecisions` returns persist=true. Assert
+  the wrapper invokes `MergeCommit` with the post-finalize
+  decisions, not the pre-finalize ones.
+- Idle-on-pad pre-transition auto-discard fires before showing
+  dialog, reading live `MaxDistanceFromLaunch` backfilled by
   `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` over the live
   recording's Points.
 - Merge-journal-active hides Discard on regular and Re-Fly
