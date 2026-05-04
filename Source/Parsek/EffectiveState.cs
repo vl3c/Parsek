@@ -281,6 +281,18 @@ namespace Parsek
         /// </summary>
         public static bool IsUnfinishedFlight(Recording rec)
         {
+            RewindPoint rp;
+            int slotListIndex;
+            return TryResolveUnfinishedFlight(rec, out rp, out slotListIndex);
+        }
+
+        internal static bool TryResolveUnfinishedFlight(
+            Recording rec,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            rp = null;
+            slotListIndex = -1;
             if (rec == null) return false;
 
             string recId = rec.RecordingId ?? "<no-id>";
@@ -298,8 +310,6 @@ namespace Parsek
                 return false;
             }
 
-            RewindPoint rp;
-            int slotListIndex;
             string resolveReason;
             if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
                     rec, out rp, out slotListIndex, out resolveReason))
@@ -314,8 +324,15 @@ namespace Parsek
 
             var slot = rp.ChildSlots[slotListIndex];
             string qualifyReason;
-            return UnfinishedFlightClassifier.TryQualify(
+            bool qualifies = UnfinishedFlightClassifier.TryQualify(
                 rec, slot, rp, true, out qualifyReason);
+            if (!qualifies)
+            {
+                rp = null;
+                slotListIndex = -1;
+            }
+
+            return qualifies;
         }
 
         /// <summary>
