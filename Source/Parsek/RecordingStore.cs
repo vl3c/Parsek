@@ -3398,10 +3398,16 @@ namespace Parsek
         /// </summary>
         internal static bool CanFastForwardAtUT(Recording rec, double now, out string reason, bool isRecording)
         {
+            return CanFastForwardToUT(rec, now, rec?.StartUT ?? double.NaN, out reason, isRecording);
+        }
+
+        internal static bool CanFastForwardToUT(
+            Recording rec, double now, double targetUT, out string reason, bool isRecording)
+        {
             if (!CanFastForwardPreRuntime(rec, out reason, isRecording))
                 return false;
 
-            if (now >= rec.StartUT)
+            if (double.IsNaN(targetUT) || now >= targetUT)
             {
                 reason = "Recording is not in the future";
                 // Per-frame logging removed (was 20% of all log output); reason returned to caller

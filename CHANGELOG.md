@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Watch buttons remain actionable immediately after rewinding before future ghosts have activated. Row, group, and Timeline `W` buttons now route future inactive recordings through the existing fast-forward confirmation and deferred Watch handoff, targeting the first ghost activation UT so the camera enters Watch after playback has spawned and positioned the target ghost. Superseding fast-forwards clear any older deferred Watch target, and Watch availability logs now distinguish an active playback state from a loaded ghost visual object.
 - An orphaned chain predecessor (same vessel pid, contiguous boundary, missing `ChainId`) is grafted back as the chain's `[0]` entry on load and re-saved, restoring the seamless ghost handoff so the next stage no longer respawns engine FX/audio at the chain boundary.
 - Unowned science subjects from stock transmission and vessel recovery now enter the ledger immediately, so Parsek no longer patches the science pool back down before those rewards are committed.
 - Re-Fly temp quicksaves now force the selected real vessel's `CTRLSTATE/mainThrottle`, `CTRLSTATE/wheelThrottle`, and persisted engine-module throttle fields to `0` before KSP loads it, so the player never spawns into a Re-Fly attempt with recorded throttle input already open.

@@ -115,6 +115,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildWatchButtonDescriptor_FutureInactiveRow_EnablesFastForwardWatch()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: false,
+                hasGhost: false,
+                sameBody: false,
+                inRange: false,
+                isDebris: false,
+                canFastForwardToWatch: true);
+
+            Assert.Equal("W", descriptor.Label);
+            Assert.Contains("Fast-forward", descriptor.Tooltip);
+            Assert.True(descriptor.Enabled);
+            Assert.False(descriptor.CanWatch);
+            Assert.True(descriptor.CanFastForwardToWatch);
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.FastForwardAndEnter, descriptor.Action);
+        }
+
+        [Fact]
+        public void BuildWatchButtonDescriptor_DebrisDoesNotUseFastForwardWatch()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: false,
+                hasGhost: false,
+                sameBody: false,
+                inRange: false,
+                isDebris: true,
+                canFastForwardToWatch: true);
+
+            Assert.Equal("Debris is not watchable", descriptor.Tooltip);
+            Assert.False(descriptor.Enabled);
+            Assert.False(descriptor.CanFastForwardToWatch);
+        }
+
+        [Fact]
         public void BuildFlySealButtonDescriptor_ResolvedSlot_EnablesBothActions()
         {
             var descriptor = TimelineWindowUI.BuildFlySealButtonDescriptor(
@@ -205,6 +240,10 @@ namespace Parsek.Tests
                 TimelineWindowUI.GetWatchButtonAction(isWatching: false));
             Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.Exit,
                 TimelineWindowUI.GetWatchButtonAction(isWatching: true));
+            Assert.Equal(TimelineWindowUI.TimelineWatchButtonAction.FastForwardAndEnter,
+                TimelineWindowUI.GetWatchButtonAction(
+                    isWatching: false,
+                    canFastForwardToWatch: true));
         }
 
         [Fact]
@@ -237,6 +276,25 @@ namespace Parsek.Tests
 
             Assert.False(exitCalled);
             Assert.Equal(7, enteredIndex);
+        }
+
+        [Fact]
+        public void ApplyWatchButtonAction_FastForwardAction_CallsFastForwardOnly()
+        {
+            bool exitCalled = false;
+            int enteredIndex = -1;
+            bool fastForwardCalled = false;
+
+            TimelineWindowUI.ApplyWatchButtonAction(
+                TimelineWindowUI.TimelineWatchButtonAction.FastForwardAndEnter,
+                recIndex: 7,
+                exitWatchMode: () => exitCalled = true,
+                enterWatchMode: index => enteredIndex = index,
+                fastForwardAndEnterWatch: () => fastForwardCalled = true);
+
+            Assert.False(exitCalled);
+            Assert.Equal(-1, enteredIndex);
+            Assert.True(fastForwardCalled);
         }
 
         [Fact]

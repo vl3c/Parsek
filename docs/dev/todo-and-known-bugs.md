@@ -23,6 +23,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 Watch unavailable after rewind before ghost activation
+
+- ~~After rewinding to a launch and reloading into the lead-in window, the Recordings table and Timeline showed `W` as unavailable for future recordings until playback time reached each ghost's activation UT.~~ Source: `logs/2026-05-04_1817`. The post-rewind session loaded around UT `3.64` with `active=0`, while the next watchable ghosts were still future (`Kerbal X Probe` at UT `55.840`, `Jebediah Kerman` at UT `232.933`). UI transition logs therefore reported `disabled (no ghost)`, and the group Watch button reported no watchable vessels, even though the row already had a valid Fast Forward route. The eligibility log also made this harder to read because `DescribeWatchEligibilityForLogs` used `hasGhost` to mean "visual GameObject exists", while the actual Watch gate treats a `GhostPlaybackState` as active even when hidden-tier visuals are unloaded.
+
+**Fix:** row, group, and Timeline Watch buttons now offer a `fast-forward + deferred Watch` route when the recording's ghost activation start is future, non-debris, and the usual FF runtime guards pass but no active ghost state exists yet. The click reuses the Fast Forward confirmation, targets `ResolveGhostActivationStartUT` rather than the recording's wider semantic `StartUT`, then arms the existing `pendingWatchAfterFFId` handoff so Watch entry happens after the engine has spawned and positioned the target ghost at the new UT. A later valid fast-forward supersedes and clears any older deferred Watch target before arming a fresh one if the new action needs it. Group Watch falls back to the earliest future non-debris descendant only when there are no directly watchable descendants, and no longer advances its rotation cursor until the player actually enters Watch. Watch transition logs now include `ffWatch`, and eligibility logs report both `hasGhost` (playback state) and `ghostObject` (loaded visual).
+
+**Coverage:** `RecordingsTableUITests` for FF+Watch availability/reason/tooltip and aggregate future-target selection, `TimelineWindowUITests` for the new FastForwardAndEnter action, plus focused UI/playback xUnit validation.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Done - v0.9.1 pending-tree cleanup view for Re-Fly restore
 
 - ~~After Rewind + Watch, re-entering a spawned Re-Fly vessel could leave the Recordings window showing zero rows until the deferred merge dialog restored the mission tree, and that pending-tree window could also drop supersede rows and auto-generated group hierarchy.~~ Source: `logs/2026-05-03_0059_newest`. Runtime trace: `TryTakeCommittedTreeForSpawnedVesselRestore` detached the 13-recording `Kerbal X` tree from `CommittedTrees` / `CommittedRecordings` so the active vessel could own it again, then `OnSave` wrote `0 committed recordings` plus an `ACTIVE` tree. On the following KSC load, `TryRestoreActiveTreeNode` kept the in-memory finalized pending tree and skipped `.sfs` replacement, but `LoadTimeSweep.SweepOrphanSupersedes` still checked only committed recordings and removed a valid supersede relation as fully orphaned. The group hierarchy prune had the same committed-only view, so it could treat pending-tree-only mission/debris groups as stale.

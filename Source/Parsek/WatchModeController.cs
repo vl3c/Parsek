@@ -751,7 +751,8 @@ namespace Parsek
         {
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState state;
-            bool hasGhost = ghostStates.TryGetValue(index, out state) && state != null && state.ghost != null;
+            bool hasGhost = ghostStates.TryGetValue(index, out state) && state != null;
+            bool hasGhostObject = hasGhost && state.ghost != null;
             string ghostBody = hasGhost ? (state.lastInterpolatedBodyName ?? "null") : "null";
             string activeBodyName = FlightGlobals.ActiveVessel?.mainBody?.name;
             string activeBody = activeBodyName ?? "null";
@@ -766,7 +767,7 @@ namespace Parsek
 
             return
                 $"watchEval(rec=#{index} watched={isWatched} watchedIndex={watchedRecordingIndex} " +
-                $"hasGhost={hasGhost} ghostActive={(hasGhost && state.ghost.activeSelf)} zone={zone} " +
+                $"hasGhost={hasGhost} ghostObject={hasGhostObject} ghostActive={(hasGhostObject && state.ghost.activeSelf)} zone={zone} " +
                 $"dist={FormatWatchDistanceForLogs(distMeters)} " +
                 $"enterCutoff={(WatchEnterCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +
                 $"exitCutoff={(WatchExitCutoffMeters / 1000f).ToString("F0", CultureInfo.InvariantCulture)}km " +

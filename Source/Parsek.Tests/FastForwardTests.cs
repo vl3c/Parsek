@@ -120,6 +120,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanFastForwardToUT_UsesExplicitTargetBeyondStartUT()
+        {
+            var rec = new Recording { VesselName = "Delayed activation" };
+            rec.ExplicitStartUT = 100.0;
+            rec.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            string reason;
+            Assert.False(RecordingStore.CanFastForwardAtUT(
+                rec, 110.0, out reason, isRecording: false));
+            Assert.Equal("Recording is not in the future", reason);
+
+            Assert.True(RecordingStore.CanFastForwardToUT(
+                rec, 110.0, 120.0, out reason, isRecording: false));
+            Assert.Equal(string.Empty, reason);
+        }
+
+        [Fact]
         public void CanFastForward_IsRecording_ReturnsFalse()
         {
             var rec = MakeFutureRecording();

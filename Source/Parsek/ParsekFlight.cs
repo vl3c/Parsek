@@ -26918,13 +26918,20 @@ namespace Parsek
         /// </summary>
         internal void FastForwardToRecording(Recording rec)
         {
+            FastForwardToRecording(rec, enterWatchAfterFastForward: false);
+        }
+
+        internal void FastForwardToRecording(Recording rec, bool enterWatchAfterFastForward)
+        {
             if (rec == null)
             {
                 ParsekLog.Warn("Flight", "FastForwardToRecording: null recording — aborted");
                 return;
             }
 
-            double targetUT = rec.StartUT;
+            double targetUT = enterWatchAfterFastForward
+                ? PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec)
+                : rec.StartUT;
             double currentUT = Planetarium.GetUniversalTime();
 
             if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
@@ -26936,25 +26943,50 @@ namespace Parsek
                 return;
             }
 
+            if (pendingWatchAfterFFId != null)
+            {
+                string supersededWatchId = pendingWatchAfterFFId;
+                pendingWatchAfterFFId = null;
+                ParsekLog.Info("CameraFollow",
+                    $"FF pending watch target id={supersededWatchId} superseded by fast-forward to \"{rec.VesselName}\"");
+            }
+
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
                     "FastForwardToRecording: jumping to UT={0:F1} for '{1}' (delta={2:F1}s)",
                     targetUT, rec.VesselName, targetUT - currentUT));
 
+            var committed = RecordingStore.CommittedRecordings;
+            int ffTargetIdx = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == rec.RecordingId)
+                {
+                    ffTargetIdx = i;
+                    break;
+                }
+            }
+
+            if (enterWatchAfterFastForward)
+            {
+                if (ffTargetIdx >= 0)
+                {
+                    if (watchMode.IsWatchingGhost)
+                        ExitWatchMode();
+                    pendingWatchAfterFFId = rec.RecordingId;
+                    ParsekLog.Info("CameraFollow",
+                        $"FF watch requested: target=#{ffTargetIdx} \"{rec.VesselName}\"");
+                }
+                else
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"FF watch requested for \"{rec.VesselName}\" but recording id was not committed");
+                }
+            }
             // If watching, transfer watch to the FF target recording.
             // The current watched ghost may be far away after the time jump.
-            if (watchMode.IsWatchingGhost)
+            else if (watchMode.IsWatchingGhost)
             {
-                var committed = RecordingStore.CommittedRecordings;
-                int ffTargetIdx = -1;
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    if (committed[i].RecordingId == rec.RecordingId)
-                    {
-                        ffTargetIdx = i;
-                        break;
-                    }
-                }
                 if (ffTargetIdx >= 0 && ffTargetIdx != watchMode.WatchedRecordingIndex)
                 {
                     ParsekLog.Info("CameraFollow",

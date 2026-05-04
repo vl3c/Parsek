@@ -16,7 +16,8 @@ namespace Parsek
         internal enum TimelineWatchButtonAction
         {
             Enter,
-            Exit
+            Exit,
+            FastForwardAndEnter
         }
 
         /// <summary>
@@ -111,12 +112,14 @@ namespace Parsek
                 string tooltip,
                 bool enabled,
                 bool canWatch,
+                bool canFastForwardToWatch,
                 TimelineWatchButtonAction action)
             {
                 Label = label;
                 Tooltip = tooltip;
                 Enabled = enabled;
                 CanWatch = canWatch;
+                CanFastForwardToWatch = canFastForwardToWatch;
                 Action = action;
             }
 
@@ -124,6 +127,7 @@ namespace Parsek
             internal string Tooltip { get; }
             internal bool Enabled { get; }
             internal bool CanWatch { get; }
+            internal bool CanFastForwardToWatch { get; }
             internal TimelineWatchButtonAction Action { get; }
         }
 
@@ -874,20 +878,37 @@ namespace Parsek
                         bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
                         bool inRange = recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
                         bool isWatching = recIndex >= 0 && flight.WatchedRecordingIndex == recIndex;
+                        string watchFastForwardReason;
+                        bool canFastForwardToWatch = RecordingsTableUI.ShouldOfferFastForwardWatch(
+                            hasGhost,
+                            CanFastForwardWatchNow(rec, out watchFastForwardReason),
+                            rec.IsDebris);
                         TimelineWatchButtonDescriptor watchButton = BuildWatchButtonDescriptor(
-                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
+                            isWatching,
+                            hasGhost,
+                            sameBody,
+                            inRange,
+                            rec.IsDebris,
+                            canFastForwardToWatch);
+                        bool watchAvailable = watchButton.CanWatch || watchButton.CanFastForwardToWatch;
 
                         if (RecordingsTableUI.UpdateWatchButtonTransitionCache(
-                            lastCanWatchByRecId, rec.RecordingId, watchButton.CanWatch))
+                            lastCanWatchByRecId, rec.RecordingId, watchAvailable))
                         {
                             string reason = RecordingsTableUI.GetWatchButtonReason(
-                                watchButton.CanWatch, hasGhost, sameBody, inRange, rec.IsDebris);
+                                watchButton.CanWatch,
+                                hasGhost,
+                                sameBody,
+                                inRange,
+                                rec.IsDebris,
+                                watchButton.CanFastForwardToWatch);
                             string eligibility = recIndex >= 0
                                 ? flight.DescribeWatchEligibilityForLogs(recIndex)
                                 : "watchEval(rec=<missing-index>)";
                             ParsekLog.Info("UI",
                                 $"Timeline watch button \"{rec.VesselName}\" id={rec.RecordingId} {reason} " +
-                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris}) " +
+                                $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris} " +
+                                $"ffWatch={watchButton.CanFastForwardToWatch}) " +
                                 $"{eligibility} {flight.DescribeWatchFocusForLogs()}");
                         }
 
@@ -902,9 +923,14 @@ namespace Parsek
                                 watchButton.Action,
                                 recIndex,
                                 () => flight.ExitWatchMode(),
-                                index => flight.EnterWatchMode(index));
+                                index => flight.EnterWatchMode(index),
+                                () => tableUI.ShowFastForwardConfirmation(
+                                    rec, enterWatchAfterFastForward: true));
+                            string watchAction = watchButton.Action == TimelineWatchButtonAction.FastForwardAndEnter
+                                ? "fast-forward-watch"
+                                : (isWatching ? "exit" : "enter");
                             ParsekLog.Info("UI",
-                                $"Timeline W button clicked: {(isWatching ? "exit" : "enter")} watch on " +
+                                $"Timeline W button clicked: {watchAction} watch on " +
                                 $"\"{rec.VesselName}\" id={rec.RecordingId} before={beforeEligibility} " +
                                 $"beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                         }
@@ -1156,23 +1182,43 @@ namespace Parsek
             return inFlightMode && rec != null;
         }
 
-        internal static TimelineWatchButtonAction GetWatchButtonAction(bool isWatching)
+        internal static TimelineWatchButtonAction GetWatchButtonAction(
+            bool isWatching, bool canFastForwardToWatch = false)
         {
-            return isWatching ? TimelineWatchButtonAction.Exit : TimelineWatchButtonAction.Enter;
+            if (isWatching)
+                return TimelineWatchButtonAction.Exit;
+            return canFastForwardToWatch
+                ? TimelineWatchButtonAction.FastForwardAndEnter
+                : TimelineWatchButtonAction.Enter;
         }
 
         internal static TimelineWatchButtonDescriptor BuildWatchButtonDescriptor(
-            bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+            bool isWatching,
+            bool hasGhost,
+            bool sameBody,
+            bool inRange,
+            bool isDebris,
+            bool canFastForwardToWatch = false)
         {
+            canFastForwardToWatch = canFastForwardToWatch && !isDebris;
             bool canWatch = RecordingsTableUI.IsWatchButtonEnabled(
                 hasGhost, sameBody, inRange, isDebris);
             return new TimelineWatchButtonDescriptor(
                 isWatching ? "W*" : "W",
                 RecordingsTableUI.GetWatchButtonTooltip(
-                    isWatching, hasGhost, sameBody, inRange, isDebris),
-                RecordingsTableUI.ShouldEnableWatchButton(canWatch, isWatching),
+                    isWatching,
+                    hasGhost,
+                    sameBody,
+                    inRange,
+                    isDebris,
+                    canFastForwardToWatch),
+                RecordingsTableUI.ShouldEnableWatchButton(
+                    canWatch,
+                    isWatching,
+                    canFastForwardToWatch),
                 canWatch,
-                GetWatchButtonAction(isWatching));
+                canFastForwardToWatch,
+                GetWatchButtonAction(isWatching, canFastForwardToWatch));
         }
 
         internal static TimelineFlySealButtonDescriptor BuildFlySealButtonDescriptor(
@@ -1196,10 +1242,13 @@ namespace Parsek
             TimelineWatchButtonAction watchAction,
             int recIndex,
             Action exitWatchMode,
-            Action<int> enterWatchMode)
+            Action<int> enterWatchMode,
+            Action fastForwardAndEnterWatch = null)
         {
             if (watchAction == TimelineWatchButtonAction.Exit)
                 exitWatchMode?.Invoke();
+            else if (watchAction == TimelineWatchButtonAction.FastForwardAndEnter)
+                fastForwardAndEnterWatch?.Invoke();
             else
                 enterWatchMode?.Invoke(recIndex);
         }
@@ -1231,6 +1280,15 @@ namespace Parsek
             double currentUT = 0;
             try { currentUT = Planetarium.GetUniversalTime(); } catch { }
             return CanFastForwardAtCurrentUT(rec, currentUT, out reason);
+        }
+
+        private bool CanFastForwardWatchNow(Recording rec, out string reason)
+        {
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+            bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
+            return RecordingsTableUI.CanFastForwardWatchAtUT(
+                rec, currentUT, out reason, isRecording: isRecording);
         }
 
         private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT, out string reason)

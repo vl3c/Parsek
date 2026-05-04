@@ -811,6 +811,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldOfferFastForwardWatch_RequiresInactiveFutureNonDebris()
+        {
+            Assert.True(RecordingsTableUI.ShouldOfferFastForwardWatch(
+                hasGhost: false, canFastForward: true, isDebris: false));
+            Assert.False(RecordingsTableUI.ShouldOfferFastForwardWatch(
+                hasGhost: true, canFastForward: true, isDebris: false));
+            Assert.False(RecordingsTableUI.ShouldOfferFastForwardWatch(
+                hasGhost: false, canFastForward: false, isDebris: false));
+            Assert.False(RecordingsTableUI.ShouldOfferFastForwardWatch(
+                hasGhost: false, canFastForward: true, isDebris: true));
+        }
+
+        [Fact]
+        public void ShouldEnableWatchButton_AllowsFastForwardWatch()
+        {
+            Assert.True(RecordingsTableUI.ShouldEnableWatchButton(
+                canWatch: false,
+                isWatching: false,
+                canFastForwardToWatch: true));
+        }
+
+        [Fact]
+        public void CanFastForwardWatchAtUT_UsesGhostActivationStartAfterExplicitStart()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Delayed",
+                ExplicitStartUT = 100.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            string reason;
+            Assert.Equal(120.0, RecordingsTableUI.ResolveFastForwardWatchTargetUT(rec));
+            Assert.True(RecordingsTableUI.CanFastForwardWatchAtUT(
+                rec, now: 110.0, out reason, isRecording: false));
+            Assert.Equal(string.Empty, reason);
+            Assert.False(RecordingsTableUI.CanFastForwardWatchAtUT(
+                rec, now: 120.0, out reason, isRecording: false));
+            Assert.Equal("Recording is not in the future", reason);
+        }
+
+        [Fact]
         public void UpdateWatchButtonTransitionCache_TracksFirstChangeAndSuppressesDuplicates()
         {
             var cache = new Dictionary<string, bool>();
@@ -840,6 +883,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetWatchButtonReason_FastForwardWatchExplainsEnabledRoute()
+        {
+            string reason = RecordingsTableUI.GetWatchButtonReason(
+                canWatch: false,
+                hasGhost: false,
+                sameBody: false,
+                inRange: false,
+                isDebris: false,
+                canFastForwardToWatch: true);
+
+            Assert.Equal("enabled (fast-forward to watch)", reason);
+        }
+
+        [Fact]
+        public void GetWatchButtonTooltip_FastForwardWatchExplainsJumpAndWatch()
+        {
+            string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                isWatching: false,
+                hasGhost: false,
+                sameBody: false,
+                inRange: false,
+                isDebris: false,
+                canFastForwardToWatch: true);
+
+            Assert.Contains("Fast-forward", tooltip);
+            Assert.Contains("watch mode", tooltip);
+        }
+
+        [Fact]
         public void GetWatchButtonTooltip_WatchingPrioritizesExit()
         {
             string tooltip = RecordingsTableUI.GetWatchButtonTooltip(
@@ -859,11 +931,9 @@ namespace Parsek.Tests
 
             // Per-row site still uses (flight, ri).
             Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
-            // Bug #382: group site now passes nextTargetIdx (the cycle's next
-            // vessel) instead of resolvedWatchIdx, but the 3-arg observability
-            // helper signature (flight, sourceIndex, resolvedOrNextIndex) is
-            // unchanged so the log still names the watched/source/next pair.
-            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx)", uiSrc);
+            // Bug #382: group site passes the active rotation target, or the
+            // fast-forward target when W routes through FF+Watch.
+            Assert.Contains("BuildWatchObservabilitySuffix(flight, mainIdx, logTargetIdx)", uiSrc);
             Assert.Contains("beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}", uiSrc);
         }
 
@@ -1199,6 +1269,53 @@ namespace Parsek.Tests
                 new List<int> { 0, 1 }, committed, now: 300.0);
 
             Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindAggregateFastForwardWatchRecordingIndex_PicksEarliestFutureNonDebris()
+        {
+            var pastMain = MakeRec(100, 200, "Past main");
+            var debrisFuture = MakeRec(250, 300, "Future debris");
+            debrisFuture.IsDebris = true;
+            var laterFuture = MakeRec(500, 600, "Later future");
+            var earlierFuture = MakeRec(300, 400, "Earlier future");
+            var committed = new List<Recording> { pastMain, debrisFuture, laterFuture, earlierFuture };
+
+            int result = RecordingsTableUI.FindAggregateFastForwardWatchRecordingIndex(
+                new List<int> { 0, 1, 2, 3 }, committed, now: 225.0, isRecording: false);
+
+            Assert.Equal(3, result);
+        }
+
+        [Fact]
+        public void FindAggregateFastForwardWatchRecordingIndex_ReturnsNegativeOneWhileRecording()
+        {
+            var future = MakeRec(300, 400, "Future");
+            var committed = new List<Recording> { future };
+
+            int result = RecordingsTableUI.FindAggregateFastForwardWatchRecordingIndex(
+                new List<int> { 0 }, committed, now: 225.0, isRecording: true);
+
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindAggregateFastForwardWatchRecordingIndex_OrdersByActivationStart()
+        {
+            var delayedEarlyStart = new Recording
+            {
+                VesselName = "Delayed early start",
+                ExplicitStartUT = 100.0
+            };
+            delayedEarlyStart.Points.Add(new TrajectoryPoint { ut = 400.0 });
+            delayedEarlyStart.Points.Add(new TrajectoryPoint { ut = 450.0 });
+            var normalFuture = MakeRec(300, 350, "Normal future");
+            var committed = new List<Recording> { delayedEarlyStart, normalFuture };
+
+            int result = RecordingsTableUI.FindAggregateFastForwardWatchRecordingIndex(
+                new List<int> { 0, 1 }, committed, now: 150.0, isRecording: false);
+
+            Assert.Equal(1, result);
         }
 
         [Fact]

@@ -697,9 +697,31 @@ namespace Parsek
             return hasGhost && sameBody && inRange && !isDebris;
         }
 
-        internal static bool ShouldEnableWatchButton(bool canWatch, bool isWatching)
+        internal static bool ShouldOfferFastForwardWatch(
+            bool hasGhost, bool canFastForward, bool isDebris)
         {
-            return canWatch || isWatching;
+            return !hasGhost && canFastForward && !isDebris;
+        }
+
+        internal static double ResolveFastForwardWatchTargetUT(Recording rec)
+        {
+            if (rec == null)
+                return double.NaN;
+            return PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
+        }
+
+        internal static bool CanFastForwardWatchAtUT(
+            Recording rec, double now, out string reason, bool isRecording)
+        {
+            double targetUT = ResolveFastForwardWatchTargetUT(rec);
+            return RecordingStore.CanFastForwardToUT(
+                rec, now, targetUT, out reason, isRecording);
+        }
+
+        internal static bool ShouldEnableWatchButton(
+            bool canWatch, bool isWatching, bool canFastForwardToWatch = false)
+        {
+            return canWatch || isWatching || canFastForwardToWatch;
         }
 
         internal static bool UpdateWatchButtonTransitionCache(
@@ -718,10 +740,16 @@ namespace Parsek
         }
 
         internal static string GetWatchButtonReason(
-            bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+            bool canWatch,
+            bool hasGhost,
+            bool sameBody,
+            bool inRange,
+            bool isDebris,
+            bool canFastForwardToWatch = false)
         {
             if (canWatch) return "enabled";
             if (isDebris) return "disabled (debris)";
+            if (canFastForwardToWatch) return "enabled (fast-forward to watch)";
             if (!hasGhost) return "disabled (no ghost)";
             if (!sameBody) return "disabled (different body)";
             if (!inRange) return "disabled (out of range)";
@@ -729,12 +757,19 @@ namespace Parsek
         }
 
         internal static string GetWatchButtonTooltip(
-            bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+            bool isWatching,
+            bool hasGhost,
+            bool sameBody,
+            bool inRange,
+            bool isDebris,
+            bool canFastForwardToWatch = false)
         {
             if (isWatching)
                 return "Exit watch mode";
             if (isDebris)
                 return "Debris is not watchable";
+            if (canFastForwardToWatch)
+                return "Fast-forward to this launch and enter watch mode";
             if (!hasGhost)
                 return "No active ghost - recording is in the past/future or has no trajectory points";
             if (!sameBody)
@@ -1551,6 +1586,16 @@ namespace Parsek
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
                 bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
+                string watchFastForwardReason;
+                bool canFastForwardToWatch = ShouldOfferFastForwardWatch(
+                    hasGhost,
+                    CanFastForwardWatchAtUT(
+                        rec,
+                        Planetarium.GetUniversalTime(),
+                        out watchFastForwardReason,
+                        isRecording: flight.IsRecording),
+                    rec.IsDebris);
+                bool watchAvailable = canWatch || canFastForwardToWatch;
 
                 // Bug #279: log enabled/disabled transitions at INFO level so future
                 // playtests can distinguish "user didn't try" from "UI was broken".
@@ -1562,29 +1607,54 @@ namespace Parsek
                 // doesn't inherit the previous occupant's cached canWatch and emit
                 // a spurious transition log line.
                 string watchKey = rec.RecordingId;
-                if (UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey, canWatch))
+                if (UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey, watchAvailable))
                 {
-                    string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris);
+                    string reason = GetWatchButtonReason(
+                        canWatch,
+                        hasGhost,
+                        sameBody,
+                        inRange,
+                        rec.IsDebris,
+                        canFastForwardToWatch);
                     ParsekLog.Info("UI",
                         $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
-                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris}) " +
+                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris} " +
+                        $"ffWatch={canFastForwardToWatch}) " +
                         $"{BuildWatchObservabilitySuffix(flight, ri)}");
                 }
 
-                GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
+                GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching, canFastForwardToWatch);
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
+                string watchTooltip = GetWatchButtonTooltip(
+                    isWatching,
+                    hasGhost,
+                    sameBody,
+                    inRange,
+                    rec.IsDebris,
+                    canFastForwardToWatch);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (DrawBodyCenteredButton(watchContent, ColW_Watch))
                 {
                     string beforeFocus = flight.DescribeWatchFocusForLogs();
                     string beforeEligibility = flight.DescribeWatchEligibilityForLogs(ri);
+                    string watchAction;
                     if (isWatching)
+                    {
                         flight.ExitWatchMode();
-                    else
+                        watchAction = "exit";
+                    }
+                    else if (canWatch)
+                    {
                         flight.EnterWatchMode(ri);
+                        watchAction = "enter";
+                    }
+                    else
+                    {
+                        ShowFastForwardConfirmation(rec, enterWatchAfterFastForward: true);
+                        watchAction = "fast-forward-watch";
+                    }
                     ParsekLog.Info("UI",
-                        $"Recording #{ri} W button clicked: {(isWatching ? "exit" : "enter")} watch on \"{rec.VesselName}\" " +
+                        $"Recording #{ri} W button clicked: {watchAction} watch on \"{rec.VesselName}\" " +
                         $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
                 }
                 GUI.enabled = true;
@@ -1937,6 +2007,7 @@ namespace Parsek
 
             // Find the "main" (earliest non-debris) recording for group-level W and Rewind/Forward buttons
             int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            bool isRecording = parentUI.InFlightMode && flight.IsRecording;
 
             // Watch button (flight only) — Bug #382: cycles through eligible
             // descendants on repeated presses instead of toggling a single main.
@@ -1983,6 +2054,12 @@ namespace Parsek
                 bool canWatch = rotation.NextRecordingId != null && nextTargetIdx >= 0 && !rotation.IsToggleOff;
                 bool isToggleOffPress = rotation.IsToggleOff && anyDescendantWatched;
                 bool isWatching = anyDescendantWatched;
+                int fastForwardWatchIdx = (!anyDescendantWatched && rotation.TotalEligible == 0)
+                    ? FindAggregateFastForwardWatchRecordingIndex(
+                        descendants, committed, now, isRecording)
+                    : -1;
+                bool canFastForwardToWatch = fastForwardWatchIdx >= 0;
+                bool watchAvailable = canWatch || canFastForwardToWatch;
 
                 // Bug #279 transition logging. Key by groupName + mainRecId (unchanged).
                 // To keep this log silent on cursor rotations (would otherwise spam
@@ -1996,36 +2073,43 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(mainRecId))
                     {
                         string groupWatchKey = groupName + "/" + mainRecId;
-                        string resolvedTargetId = BuildEligibleSetFingerprint(
-                            descendants, committed, isEligibleForWatch);
+                        string resolvedTargetId = canFastForwardToWatch
+                            ? "ff:" + committed[fastForwardWatchIdx].RecordingId
+                            : BuildEligibleSetFingerprint(
+                                descendants, committed, isEligibleForWatch);
                         bool prevGroupCanWatch;
                         string prevResolvedTargetId;
                         if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
-                            || prevGroupCanWatch != canWatch
+                            || prevGroupCanWatch != watchAvailable
                             || !lastResolvedWatchTargetByGroup.TryGetValue(groupWatchKey, out prevResolvedTargetId)
                             || prevResolvedTargetId != resolvedTargetId)
                         {
-                            lastCanWatchByGroup[groupWatchKey] = canWatch;
+                            lastCanWatchByGroup[groupWatchKey] = watchAvailable;
                             lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
+                            int logTargetIdx = nextTargetIdx >= 0 ? nextTargetIdx : fastForwardWatchIdx;
                             string reason = GetWatchButtonReason(canWatch,
                                 hasGhost: nextTargetIdx >= 0,
                                 sameBody: nextTargetIdx >= 0,
                                 inRange: nextTargetIdx >= 0,
-                                isDebris: false);
+                                isDebris: false,
+                                canFastForwardToWatch: canFastForwardToWatch);
                             ParsekLog.Info("UI",
                                 $"Group Watch button '{groupName}' source=#{mainIdx} \"{committed[mainIdx].VesselName}\" " +
-                                $"next={(nextTargetIdx >= 0 ? "#" + nextTargetIdx + " \"" + committed[nextTargetIdx].VesselName + "\"" : "<none>")} " +
+                                $"next={(logTargetIdx >= 0 ? "#" + logTargetIdx + " \"" + committed[logTargetIdx].VesselName + "\"" : "<none>")} " +
                                 $"pos={rotation.Position}/{rotation.TotalEligible} eligibleSet=[{resolvedTargetId}] {reason} " +
-                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, nextTargetIdx)}");
+                                $"ffWatch={canFastForwardToWatch} " +
+                                $"{BuildWatchObservabilitySuffix(flight, mainIdx, logTargetIdx)}");
                         }
                     }
                 }
 
-                GUI.enabled = canWatch || isToggleOffPress;
+                GUI.enabled = canWatch || isToggleOffPress || canFastForwardToWatch;
                 string watchLabel = isWatching ? "W*" : "W";
                 string watchTooltip;
                 if (rotation.TotalEligible == 0)
-                    watchTooltip = "no watchable vessels in this group";
+                    watchTooltip = canFastForwardToWatch
+                        ? $"fast-forward and enter watch on {committed[fastForwardWatchIdx].VesselName}"
+                        : "no watchable vessels in this group";
                 else if (isWatching && nextTargetIdx >= 0 && rotation.NextRecordingId != watchedDescendantRecId)
                     watchTooltip = $"switch to {committed[nextTargetIdx].VesselName}";
                 else if (isWatching && rotation.IsToggleOff)
@@ -2054,21 +2138,27 @@ namespace Parsek
                             ? "enter"
                             : (rotation.IsWrap ? "wrap" : "advance");
                     }
+                    else if (canFastForwardToWatch)
+                    {
+                        var target = committed[fastForwardWatchIdx];
+                        ShowFastForwardConfirmation(target, enterWatchAfterFastForward: true);
+                        pressKind = "fast-forward-watch";
+                    }
                     else
                     {
-                        // Unreachable: GUI.enabled is canWatch || isToggleOffPress,
-                        // and canWatch==true implies nextTargetIdx>=0. If this branch
-                        // ever fires, the enable-gate has drifted — log a warning so
-                        // the regression surfaces instead of silently no-opping.
+                        // Unreachable: GUI.enabled mirrors the three handled actions
+                        // above. If this branch ever fires, the enable-gate has drifted
+                        // from press-dispatch; log it instead of silently no-opping.
                         ParsekLog.Warn("UI",
                             $"Group '{groupName}' W button press reached unreachable branch " +
-                            $"(canWatch={canWatch} isToggleOffPress={isToggleOffPress} nextTargetIdx={nextTargetIdx}) — " +
+                            $"(canWatch={canWatch} isToggleOffPress={isToggleOffPress} " +
+                            $"canFastForwardToWatch={canFastForwardToWatch} nextTargetIdx={nextTargetIdx}) — " +
                             "enable-gate and press-dispatch are out of sync");
                         pressKind = "no-op";
                     }
                     ParsekLog.Info("UI",
                         $"Group '{groupName}' W button: {pressKind} " +
-                        $"next={(nextTargetIdx >= 0 ? "#" + nextTargetIdx + " \"" + committed[nextTargetIdx].VesselName + "\"" : "<none>")} " +
+                        $"next={(nextTargetIdx >= 0 ? "#" + nextTargetIdx + " \"" + committed[nextTargetIdx].VesselName + "\"" : canFastForwardToWatch ? "#" + fastForwardWatchIdx + " \"" + committed[fastForwardWatchIdx].VesselName + "\"" : "<none>")} " +
                         $"pos={rotation.Position}/{rotation.TotalEligible} " +
                         $"cursorBefore={cursorRecId ?? "<null>"} " +
                         $"before={beforeEligibility} beforeFocus={beforeFocus} afterFocus={flight.DescribeWatchFocusForLogs()}");
@@ -2080,7 +2170,6 @@ namespace Parsek
             // recording because "next launch" is a single group-level time
             // affordance. Rewind scans descendants because a parent folder is
             // an escalation surface for any child launch rewind.
-            bool isRecording = parentUI.InFlightMode && flight.IsRecording;
             if (mainIdx >= 0 && now < committed[mainIdx].StartUT)
             {
                 var mainRec = committed[mainIdx];
@@ -3539,18 +3628,26 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        internal void ShowFastForwardConfirmation(Recording rec)
+        internal void ShowFastForwardConfirmation(
+            Recording rec, bool enterWatchAfterFastForward = false)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double now = Planetarium.GetUniversalTime();
-            double delta = rec.StartUT - now;
-            string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
+            double targetUT = enterWatchAfterFastForward
+                ? ResolveFastForwardWatchTargetUT(rec)
+                : rec.StartUT;
+            double delta = targetUT - now;
+            string targetDate = KSPUtil.PrintDateCompact(targetUT, true);
             string message = string.Format(ic,
-                "Fast-forward to \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
-                rec.VesselName, launchDate, delta);
+                enterWatchAfterFastForward
+                    ? "Fast-forward to \"{0}\" watch start at {1} and enter watch mode?\n\nTime will advance by {2:F0} seconds."
+                    : "Fast-forward to \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
+                rec.VesselName, targetDate, delta);
 
             var flight = parentUI.Flight;
             var capturedRec = rec;
+            double capturedTargetUT = targetUT;
+            bool capturedEnterWatchAfterFastForward = enterWatchAfterFastForward;
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -3559,14 +3656,20 @@ namespace Parsek
                     message,
                     "Confirm Fast-Forward",
                     HighLogic.UISkin,
-                    new DialogGUIButton("Fast-Forward", () =>
+                    new DialogGUIButton(
+                        capturedEnterWatchAfterFastForward ? "Fast-Forward + Watch" : "Fast-Forward",
+                        () =>
                     {
                         ParsekLog.Info("FastForward",
                             string.Format(ic,
-                                "User confirmed fast-forward to \"{0}\" at UT {1:F1}",
-                                capturedRec.VesselName, capturedRec.StartUT));
+                                capturedEnterWatchAfterFastForward
+                                    ? "User confirmed fast-forward + watch to \"{0}\" at UT {1:F1}"
+                                    : "User confirmed fast-forward to \"{0}\" at UT {1:F1}",
+                                capturedRec.VesselName, capturedTargetUT));
                         if (parentUI.InFlightMode && flight != null)
-                            flight.FastForwardToRecording(capturedRec);
+                            flight.FastForwardToRecording(
+                                capturedRec,
+                                enterWatchAfterFastForward: capturedEnterWatchAfterFastForward);
                         else
                         {
                             // KSC or other non-flight scene: advance UT directly.
@@ -3574,12 +3677,12 @@ namespace Parsek
                             // flight path has additional steps (NotifyRecorder, recorder state)
                             // that don't apply outside flight.
                             double preJumpUT = Planetarium.GetUniversalTime();
-                            double jumpDelta = capturedRec.StartUT - preJumpUT;
+                            double jumpDelta = capturedTargetUT - preJumpUT;
                             ParsekLog.Info("FastForward",
                                 string.Format(ic,
                                     "Non-flight FF to UT={0:F1} for '{1}' (delta={2:F1}s)",
-                                    capturedRec.StartUT, capturedRec.VesselName, jumpDelta));
-                            TimeJumpManager.ExecuteForwardJump(capturedRec.StartUT);
+                                    capturedTargetUT, capturedRec.VesselName, jumpDelta));
+                            TimeJumpManager.ExecuteForwardJump(capturedTargetUT);
                             ParsekLog.ScreenMessage(
                                 string.Format(ic,
                                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
@@ -4032,6 +4135,35 @@ namespace Parsek
                 return -1;
             var main = committed[mainIdx];
             return main != null && now < main.StartUT ? mainIdx : -1;
+        }
+
+        internal static int FindAggregateFastForwardWatchRecordingIndex(
+            IEnumerable<int> members, IReadOnlyList<Recording> committed, double now, bool isRecording)
+        {
+            if (members == null || committed == null) return -1;
+
+            int bestIdx = -1;
+            double bestUT = double.MaxValue;
+            foreach (int idx in members)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec == null || rec.IsDebris) continue;
+
+                double targetUT = ResolveFastForwardWatchTargetUT(rec);
+                string reason;
+                if (!RecordingStore.CanFastForwardToUT(
+                        rec, now, targetUT, out reason, isRecording: isRecording))
+                    continue;
+
+                if (targetUT < bestUT || (targetUT == bestUT && (bestIdx < 0 || idx < bestIdx)))
+                {
+                    bestUT = targetUT;
+                    bestIdx = idx;
+                }
+            }
+
+            return bestIdx;
         }
 
         /// <summary>
