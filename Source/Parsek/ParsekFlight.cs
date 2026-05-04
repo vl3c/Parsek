@@ -2718,6 +2718,92 @@ namespace Parsek
             FinalizeTreeOnSceneChangeCore(scene, commitUT, logRecorderState: false);
         }
 
+        /// <summary>
+        /// Pre-transition finalize entry for the in-flight merge dialog
+        /// (<see cref="MergeDialog.ShowTreeDialog"/>'s
+        /// <c>preCommitFinalize</c> callback). Identical to what
+        /// <see cref="OnSceneChangeRequested"/> would have run a few frames
+        /// later. The dialog button handler invokes this BEFORE
+        /// <see cref="MergeDialog.MergeCommit"/> /
+        /// <see cref="MergeDialog.MergeDiscard"/> so those operate on the
+        /// just-stashed pending tree.
+        /// </summary>
+        internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
+        {
+            FinalizeTreeOnSceneChangeCore(
+                scene,
+                Planetarium.GetUniversalTime(),
+                logRecorderState: true);
+        }
+
+        // HasActiveTree is the existing public property at line 900.
+
+        /// <summary>
+        /// Read-only accessor for the dialog's display data. Caller must
+        /// not mutate the returned reference; mutation happens inside
+        /// <see cref="MergeDialog.MergeCommit"/> /
+        /// <see cref="MergeDialog.MergeDiscard"/> after
+        /// <see cref="FinalizeTreeOnSceneChangeForCallback"/> stashes the
+        /// pending tree.
+        /// </summary>
+        internal RecordingTree ActiveTreeForDisplay => activeTree;
+
+        /// <summary>
+        /// Live-state idle-on-pad check used by the
+        /// <c>HighLogic.LoadScene</c> prefix's fast path. Returns true if
+        /// every recording in the active tree is idle-on-pad (max
+        /// distance from launch &lt; pad-localized threshold) computed
+        /// from live data via
+        /// <see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>.
+        /// Idle-on-pad recordings cannot have RELATIVE-frame TrackSections
+        /// (the recorder skips RELATIVE entry while the vessel is on
+        /// surface, see <c>FlightRecorder.cs:5099-5131</c>).
+        /// </summary>
+        internal bool IsActiveTreeIdleOnPad()
+        {
+            if (activeTree == null) return false;
+            if (activeTree.Recordings == null || activeTree.Recordings.Count == 0)
+                return false;
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+                if (!IsIdleOnPad(rec)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Pre-transition idle-on-pad fast path: tear down the live
+        /// recorder / activeTree without going through finalize / stash.
+        /// Mirrors the cleanup at <c>ParsekFlight.cs:3151-3166</c>
+        /// (post-destruction auto-discard) but for the
+        /// pre-scene-change path. After this returns, the prefix's
+        /// blocked <c>HighLogic.LoadScene</c> proceeds and
+        /// <see cref="OnSceneChangeRequested"/> sees
+        /// <c>activeTree == null</c>, so no pending tree is stashed and
+        /// the destination scene's OnLoad does not show a deferred
+        /// merge dialog.
+        /// </summary>
+        internal void AutoDiscardIdleActiveTree(string reason)
+        {
+            ParsekLog.Info("Flight",
+                $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
+            ScreenMessage("Recording discarded - idle on pad", 3f);
+            recorder = null;
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+            activeTree = null;
+            // No pending tree was stashed (we discard pre-finalize).
+            // Roll back any in-flight ledger entries from the aborted
+            // recording.
+            LedgerOrchestrator.RecalculateAndPatch();
+        }
+
         private void FinalizeTreeOnSceneChangeCore(
             GameScenes scene,
             double commitUT,

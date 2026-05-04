@@ -1133,5 +1133,126 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]") && l.Contains("MergeDiscard") && l.Contains("null"));
         }
+
+        // ================================================================
+        // 7. Merge-journal-active discard guard (Opus pass-6 P1.C)
+        // ================================================================
+
+        [Fact]
+        public void MergeDiscardWithResult_JournalActive_RefusesAndReturnsFalse()
+        {
+            var rec = MakeRecording("rec-journal-discard", "tree-journal-discard", 100.0, 200.0);
+            var tree = MakeTree("tree-journal-discard", "rec-journal-discard", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveMergeJournal = new MergeJournal
+                {
+                    JournalId = "journal_test",
+                    SessionId = "sess_test",
+                    Phase = MergeJournal.Phases.Supersede,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            bool result = MergeDialog.MergeDiscardWithResult(tree);
+
+            Assert.False(result);
+            // Pending tree must remain stashed - the refusal is a no-op
+            // for state.
+            Assert.True(RecordingStore.HasPendingTree);
+            // Journal stays armed - we did NOT clobber it.
+            Assert.NotNull(scenario.ActiveMergeJournal);
+            Assert.Equal("journal_test", scenario.ActiveMergeJournal.JournalId);
+            // Refusal logs and screen message.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") && l.Contains("MergeDiscard")
+                && l.Contains("merge journal active"));
+        }
+
+        [Fact]
+        public void MergeDiscard_JournalActive_RefusesAndDoesNotClobberJournal()
+        {
+            // Same scenario via the void overload (post-load deferred path).
+            var rec = MakeRecording("rec-journal-discard-void", "tree-journal-discard-void", 100.0, 200.0);
+            var tree = MakeTree("tree-journal-discard-void", "rec-journal-discard-void", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveMergeJournal = new MergeJournal
+                {
+                    JournalId = "journal_test_void",
+                    SessionId = "sess_test_void",
+                    Phase = MergeJournal.Phases.Supersede,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeDialog.MergeDiscard(tree);
+
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.NotNull(scenario.ActiveMergeJournal);
+        }
+
+        [Fact]
+        public void TryDiscardActiveReFlyAttempt_JournalActive_RefusesAndReturnsFalse()
+        {
+            // Direct call (test bypass / future caller). The MergeDiscard
+            // gate above is the primary guard; this is belt-and-braces.
+            var rec = MakeRecording("rec-journal-refly", "tree-journal-refly", 100.0, 200.0);
+            var tree = MakeTree("tree-journal-refly", "rec-journal-refly", rec);
+
+            var marker = MakeMarker(
+                "sess-journal-refly",
+                "tree-journal-refly",
+                "rec-journal-refly",
+                "rec-journal-origin");
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = marker,
+                ActiveMergeJournal = new MergeJournal
+                {
+                    JournalId = "journal_refly",
+                    SessionId = "sess-journal-refly",
+                    Phase = MergeJournal.Phases.Supersede,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            bool result = MergeDialog.TryDiscardActiveReFlyAttempt(tree);
+
+            Assert.False(result);
+            Assert.NotNull(scenario.ActiveMergeJournal);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") && l.Contains("TryDiscardActiveReFlyAttempt")
+                && l.Contains("merge journal active"));
+        }
+
+        [Fact]
+        public void MergeDiscardWithResult_NormalDiscard_ReturnsTrue()
+        {
+            // Sanity: bool overload returns true on the normal path so
+            // the pre-transition wrapper proceeds with postChoice.
+            var rec = MakeRecording("rec-normal-discard", "tree-normal-discard", 100.0, 200.0);
+            var tree = MakeTree("tree-normal-discard", "rec-normal-discard", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            bool result = MergeDialog.MergeDiscardWithResult(tree);
+
+            Assert.True(result);
+            Assert.False(RecordingStore.HasPendingTree);
+        }
     }
 }
