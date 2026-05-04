@@ -1573,11 +1573,23 @@ namespace Parsek
         /// </summary>
         public static void RecomputeAfterTombstones()
         {
+            RecomputeFromEffectiveLedger("after tombstones", null);
+        }
+
+        internal static void RecomputeAfterCutoffWalk(double utCutoff)
+        {
+            RecomputeFromEffectiveLedger(
+                "after cutoff walk",
+                "cutoffUT=" + utCutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        private static void RecomputeFromEffectiveLedger(string reason, string detail)
+        {
             var kerbals = LedgerOrchestrator.Kerbals;
             if (kerbals == null)
             {
                 ParsekLog.Verbose("CrewReservations",
-                    "RecomputeAfterTombstones: no KerbalsModule — skipping");
+                    $"RecomputeFromEffectiveLedger: no KerbalsModule — skipping ({reason})");
                 return;
             }
 
@@ -1611,8 +1623,9 @@ namespace Parsek
             foreach (var _ in kerbals.Reservations)
                 remaining++;
 
+            string suffix = string.IsNullOrEmpty(detail) ? "." : $" ({detail}).";
             ParsekLog.Info("CrewReservations",
-                $"Recomputed after tombstones: {remaining} reservations remain.");
+                $"Recomputed {reason}: {remaining} reservations remain{suffix}");
         }
 
         #endregion
