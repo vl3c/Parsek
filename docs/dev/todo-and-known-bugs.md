@@ -23,13 +23,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.9.1 stable landed EVA side-branch auto-seal
+## Done - v0.9.2 stable landed EVA side-branch auto-seal
 
 - ~~A Jebediah EVA side-branch that ended safely landed could still be promoted to an open Unfinished Flight as `strandedEva`, leaving Fly disabled by the active Re-Fly marker while Seal remained available.~~ Source: `logs/2026-05-04_1817`. The recording `b1c726b9a36b4c3082ff41d532f1289c` finalized as `TerminalState=Landed`, with `type=EVA`, `sit=LANDED`, and `landed=True` in its vessel sidecar. `RecordingStore.CommitTree` then classified it as `strandedEva` and promoted it to `CommittedProvisional`; the re-fly auto-seal helper never ran because this was a tree-commit side branch, not the active supersede provisional.
 
 **Fix:** `RecordingStore.ApplyRewindProvisionalMergeStates` now treats `strandedEva` as an auto-seal close when the effective terminal recording is an EVA with a safe surface terminal (`Landed` or `Splashed`). The slot receives `Sealed=true` plus `sealedRealTime`, the supersede state version is bumped, and the recording remains `Immutable` instead of becoming `CommittedProvisional`. The legacy classifier still reports normal loaded landed EVAs as stranded unless the commit-time auto-seal has stamped the slot.
 
-**Coverage:** `TreeCommitTests.CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, plus existing `UnfinishedFlightsMembershipTests.StrandedEvaLegacyNoFocusSignal_IsMember`.
+**Coverage:** `TreeCommitTests.CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional`, plus existing `UnfinishedFlightsMembershipTests.StrandedEvaLegacyNoFocusSignal_IsMember`.
 
 **Status:** CLOSED 2026-05-04.
 
