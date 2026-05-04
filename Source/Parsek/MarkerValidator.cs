@@ -329,14 +329,15 @@ namespace Parsek
 
         private static string BuildAcceptedDetails(
             Recording active,
-            bool inPlaceContinuation,
+            bool legacyReusedCommittedActive,
             double invokedUt,
             double currentUt,
             double rewindPointUt)
         {
             bool legacyFutureUtCheckTriggered = IsFinite(currentUt) && invokedUt > currentUt;
             return $"checked={AcceptedMarkerCheckPaths}; " +
-                $"activeState={active.MergeState} inPlace={inPlaceContinuation} " +
+                $"activeState={active.MergeState} " +
+                $"legacyReusedCommittedActive={legacyReusedCommittedActive} " +
                 BuildInvokedUtComparison(invokedUt, currentUt, rewindPointUt) + " " +
                 $"legacyFutureUtCheck={(legacyFutureUtCheckTriggered ? "triggered" : "none")}";
         }
