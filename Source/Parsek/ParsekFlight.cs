@@ -10203,6 +10203,20 @@ namespace Parsek
                 && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
                 ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
             var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // Issue #734 race fix: AtomicMarkerWrite usually attaches the
+            // in-place fork to the pending tree at marker-write time, but
+            // on async FLIGHT loads both AtomicMarkerWrite and this restore
+            // coroutine defer to onFlightReady; if this coroutine fires
+            // first (or AtomicMarkerWrite ran on a different tree handle),
+            // the fork lives in CommittedRecordings but is not yet in
+            // tree.Recordings. ResolveInPlaceContinuationTarget would then
+            // refuse the swap with reason="marker-recording-missing-from-tree"
+            // and the recorder's flush would warn / data-loss. Reconcile
+            // here from the committed list before the swap runs. The
+            // helper is idempotent so it is a no-op when the eager path
+            // already attached.
+            ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
             var markerSwap = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker,
                 tree.Id,
@@ -24871,6 +24885,76 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Issue #734 race fix: ensures the in-place Re-Fly fork is present
+        /// in <paramref name="tree"/>'s <c>Recordings</c> dictionary before
+        /// the restore coroutine runs <see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>.
+        /// AtomicMarkerWrite eagerly attaches the fork to the pending tree,
+        /// but on async FLIGHT loads the restore coroutine and
+        /// AtomicMarkerWrite both fire on <c>onFlightReady</c> — if the
+        /// coroutine wins the race, AtomicMarkerWrite finds no pending tree
+        /// and the fork only lives in <see cref="RecordingStore.CommittedRecordings"/>.
+        /// This helper looks the fork up by id from the committed list and
+        /// attaches it to the tree so the swap can fire and the recorder
+        /// has a destination dict entry to flush into. Internal static so
+        /// xUnit can pin every branch without a live coroutine.
+        /// </summary>
+        internal static bool ReconcileInPlaceForkIntoTreeIfNeeded(
+            RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.Recordings == null || marker == null)
+                return false;
+            if (!marker.InPlaceContinuation)
+                return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (string.Equals(marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId, StringComparison.Ordinal))
+            {
+                // Legacy in-place pattern (active == origin). Origin is
+                // already in the tree by construction.
+                return false;
+            }
+            if (!string.IsNullOrEmpty(marker.TreeId)
+                && !string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId))
+                return false;
+
+            // Locate the fork in the committed list. Allowlisted raw read
+            // per [ERS-exempt - Phase 6] file-level note in RewindInvoker.
+            Recording fork = null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId,
+                            marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        fork = rec;
+                        break;
+                    }
+                }
+            }
+            if (fork == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                    $"not in committed list — recorder flush will warn and stop. " +
+                    $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                return false;
+            }
+
+            return RewindInvoker.EnsureForkAttachedToTree(
+                tree, fork, "RestoreActiveTreeFromPending:reconcile");
         }
 
         internal static bool ShouldUsePreReFlyAnchorTrajectory(
