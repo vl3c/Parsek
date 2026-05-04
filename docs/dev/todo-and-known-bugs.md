@@ -47,6 +47,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 rewind crew reservations after cutoff
+
+- ~~After a plain Rewind, crew from a committed recording could become selectable for new missions even though the recorded flight never recovered them.~~ Source: `logs/2026-05-04_1817`. Runtime trace showed the pre-rewind ledger walk reserving Jebediah, Bill, and Bob, then `HandleRewindOnLoad` rescuing stripped/orphaned roster entries back to `Available` and calling `LedgerOrchestrator.RecalculateAndPatch(0)`. The cutoff walk correctly filtered future career rows, but it also filtered the future `KerbalAssignment` rows that `KerbalsModule` needs for crew-dialog reservations, leaving `reservations=0`.
+
+**Fix:** cutoff recalculations still walk resources/contracts/facilities at the supplied UT, but now rebuild `KerbalsModule` from the full Effective Ledger Set so committed future recordings continue to own their crew until recovery/death. The recompute updates in-memory reservations only; live roster mutation remains behind `LedgerOrchestrator`'s existing patch gate. The existing tombstone recompute path was generalized and reused, keeping tombstoned crew assignments excluded while avoiding post-rewind resource re-credit.
+
+**Coverage:** `RewindUtCutoffTests.CutoffZero_KeepsCareerStateAtCutoffButProjectsCrewReservations`, `RewindUtCutoffTests.MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations`, `LedgerOrchestratorTests.RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch`, plus the nearby `RewindUtCutoffTests` and `CrewReservationRecomputeTests` suites.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Done - v0.9.1 pending-tree cleanup view for Re-Fly restore
 
 - ~~After Rewind + Watch, re-entering a spawned Re-Fly vessel could leave the Recordings window showing zero rows until the deferred merge dialog restored the mission tree, and that pending-tree window could also drop supersede rows and auto-generated group hierarchy.~~ Source: `logs/2026-05-03_0059_newest`. Runtime trace: `TryTakeCommittedTreeForSpawnedVesselRestore` detached the 13-recording `Kerbal X` tree from `CommittedTrees` / `CommittedRecordings` so the active vessel could own it again, then `OnSave` wrote `0 committed recordings` plus an `ACTIVE` tree. On the following KSC load, `TryRestoreActiveTreeNode` kept the in-memory finalized pending tree and skipped `.sfs` replacement, but `LoadTimeSweep.SweepOrphanSupersedes` still checked only committed recordings and removed a valid supersede relation as fully orphaned. The group hierarchy prune had the same committed-only view, so it could treat pending-tree-only mission/debris groups as stale.

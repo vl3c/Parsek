@@ -28,6 +28,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
@@ -39,6 +40,7 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
+            RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             GameStateStore.ResetForTesting();
             RewindContext.ResetForTesting();
@@ -235,7 +237,12 @@ namespace Parsek.Tests
             };
         }
 
-        private static GameAction KerbalAssignment(double ut, string name, double startUt, double endUt)
+        private static GameAction KerbalAssignment(
+            double ut,
+            string name,
+            double startUt,
+            double endUt,
+            KerbalEndState endState = KerbalEndState.Unknown)
         {
             return new GameAction
             {
@@ -245,7 +252,35 @@ namespace Parsek.Tests
                 KerbalRole = "Pilot",
                 StartUT = (float)startUt,
                 EndUT = (float)endUt,
-                RecordingId = "rec-asn-" + name
+                RecordingId = "rec-asn-" + name,
+                KerbalEndStateField = endState
+            };
+        }
+
+        private static Recording CrewRecording(
+            string recordingId,
+            string crewName,
+            double startUt,
+            double endUt,
+            KerbalEndState endState)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", crewName);
+
+            return new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = recordingId,
+                VesselSnapshot = snapshot,
+                GhostVisualSnapshot = snapshot,
+                ExplicitStartUT = startUt,
+                ExplicitEndUT = endUt,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { crewName, endState }
+                },
+                CrewEndStatesResolved = true
             };
         }
 
@@ -545,6 +580,88 @@ namespace Parsek.Tests
             // Only the seed (UT=0) contributes; all milestones are UT > 0.
             Assert.Equal(1000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             AssertLogHasCutoffSummary(logLines, 4, 1, "0");
+        }
+
+        [Fact]
+        public void CutoffZero_KeepsCareerStateAtCutoffButProjectsCrewReservations()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(
+                CrewRecording(
+                    "rec-asn-Jeb",
+                    "Jeb",
+                    startUt: 100.0,
+                    endUt: 500.0,
+                    endState: KerbalEndState.Aboard));
+
+            AddAll(
+                FundsSeed(1000f),
+                Milestone(100.0, "FutureReward", 500f),
+                KerbalAssignment(
+                    100.0,
+                    "Jeb",
+                    startUt: 100.0,
+                    endUt: 500.0,
+                    endState: KerbalEndState.Aboard));
+
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.Equal(1000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.True(LedgerOrchestrator.Kerbals.Reservations.ContainsKey("Jeb"));
+            Assert.True(LedgerOrchestrator.Kerbals.ShouldFilterFromCrewDialog("Jeb"));
+            AssertLogHasCutoffSummary(logLines, 3, 1, "0");
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]")
+                && l.Contains("Recomputed after cutoff walk: 1 reservations remain")
+                && l.Contains("cutoffUT=0"));
+        }
+
+        [Fact]
+        public void MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(
+                CrewRecording(
+                    "rec-asn-Bill",
+                    "Bill",
+                    startUt: 100.0,
+                    endUt: 300.0,
+                    endState: KerbalEndState.Aboard));
+            RecordingStore.AddRecordingWithTreeForTesting(
+                CrewRecording(
+                    "rec-asn-Jeb",
+                    "Jeb",
+                    startUt: 500.0,
+                    endUt: 900.0,
+                    endState: KerbalEndState.Aboard));
+
+            AddAll(
+                FundsSeed(1000f),
+                Milestone(100.0, "BeforeCutoff", 200f),
+                Milestone(500.0, "AfterCutoff", 400f),
+                KerbalAssignment(
+                    100.0,
+                    "Bill",
+                    startUt: 100.0,
+                    endUt: 300.0,
+                    endState: KerbalEndState.Aboard),
+                KerbalAssignment(
+                    500.0,
+                    "Jeb",
+                    startUt: 500.0,
+                    endUt: 900.0,
+                    endState: KerbalEndState.Aboard));
+
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+
+            Assert.Equal(1200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.True(LedgerOrchestrator.Kerbals.Reservations.ContainsKey("Bill"));
+            Assert.True(LedgerOrchestrator.Kerbals.Reservations.ContainsKey("Jeb"));
+            Assert.True(LedgerOrchestrator.Kerbals.ShouldFilterFromCrewDialog("Bill"));
+            Assert.True(LedgerOrchestrator.Kerbals.ShouldFilterFromCrewDialog("Jeb"));
+            AssertLogHasCutoffSummary(logLines, 5, 3, "200");
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]")
+                && l.Contains("Recomputed after cutoff walk: 2 reservations remain")
+                && l.Contains("cutoffUT=200"));
         }
 
         [Fact]
