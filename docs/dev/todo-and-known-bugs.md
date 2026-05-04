@@ -23,6 +23,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 atmospheric Re-Fly post-load settle
+
+- ~~The first Re-Fly of `Kerbal X Probe` could start visually aligned and then have the upper stage clip through the Probe booster as the loaded vessel slowed through the first atmospheric frames; the second Re-Fly of the upper-stage capsule showed a visually milder initial-position glitch from the same velocity-frame mismatch.~~ Source: `logs/2026-05-04_1817`. The selected rewind point was position-consistent with the recording at UT 55.84 to about 9 mm, but the first continuation samples were taken while KSP still reported the vessel as packed/on-rails in atmosphere. Those samples used conic `obt_velocity` (about 196 m/s) while the atmospheric recording path was body-fixed `rb_velocityD + Krakensbane.GetFrameVelocity()` (about 312 m/s). The roughly 162 m/s frame delta matched Kerbin rotation projection and produced the repeatable 6.3 m start offset over the first packed physics ticks.
+
+**Fix:** `FlightRecorder` now arms a narrow Re-Fly post-load settle gate only for matching active-session promotions that start inside the atmosphere. While the gate is active, the recorder keeps part polling, anchor detection, environment tracking, and finalization cache refreshes running, but skips trajectory point sampling, including the packed atmospheric start-boundary point. The gate clears only after the vessel is unpacked for two consecutive physics frames and at least 0.1 seconds have elapsed since it was armed, so the continuation resumes from the normal unpacked/body-fixed sampling path instead of persisting a conic-frame velocity jump.
+
+**Coverage:** `FlightRecorderExtractedTests` covers the settle decision for packed, first-unpacked, time-warmup, and settled states, plus the Re-Fly marker/recording/tree/atmosphere arming predicate.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Done - v0.9.2 stable landed EVA side-branch auto-seal
 
 - ~~A Jebediah EVA side-branch that ended safely landed could still be promoted to an open Unfinished Flight as `strandedEva`, leaving Fly disabled by the active Re-Fly marker while Seal remained available.~~ Source: `logs/2026-05-04_1817`. The recording `b1c726b9a36b4c3082ff41d532f1289c` finalized as `TerminalState=Landed`, with `type=EVA`, `sit=LANDED`, and `landed=True` in its vessel sidecar. `RecordingStore.CommitTree` then classified it as `strandedEva` and promoted it to `CommittedProvisional`; the re-fly auto-seal helper never ran because this was a tree-commit side branch, not the active supersede provisional.
