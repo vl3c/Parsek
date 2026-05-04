@@ -103,14 +103,14 @@ mods).
 
 - `ArmNextTreeSceneExitCommitSuppression(reason)` /
   `TryConsumeNextTreeSceneExitCommitSuppression(scene, out reason)`
-  (`RecordingStore.cs:1166, :1175`). Suppresses the auto-stash-as-pending side
+  (`RecordingStore.cs:1228, :1237`). Suppresses the auto-stash-as-pending side
   effect of `OnSceneChangeRequested` -> `FinalizeTreeOnSceneChange`. Consumed
   inside `FinalizeTreeOnSceneChange` (`ParsekFlight.cs:2734`) where it routes
   to `DiscardActiveTreeForSuppressedSceneExit` instead of stashing, and inside
   `OnSceneChangeRequested`'s `else if` branch (`ParsekFlight.cs:2690`) when
   there is no active tree.
 - `ArmNextActiveTreeRestoreSuppression` / `TryConsumeNextActiveTreeRestoreSuppression`
-  (`RecordingStore.cs:1200`, :1209). Distinct flag for the OnLoad active-tree
+  (`RecordingStore.cs:1262`, :1271). Distinct flag for the OnLoad active-tree
   restore pass.
 
 `RevertInterceptor.DiscardReFlyHandler` (`RevertInterceptor.cs:514-522`) arms
@@ -678,7 +678,7 @@ construction.
 ### `RecordingStore.cs` changes
 
 - Rename the existing `NextTreeSceneExitCommitSuppressionArmedForTesting`
-  getter (`RecordingStore.cs:1191`) to
+  getter (`RecordingStore.cs:1253`) to
   `IsNextTreeSceneExitCommitSuppressionArmed`. The flag's existence
   is no longer test-only - the new `HighLogic.LoadScene` prefix
   peeks it as a production code path. Update the one existing test
