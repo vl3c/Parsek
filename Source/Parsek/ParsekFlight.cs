@@ -2727,9 +2727,20 @@ namespace Parsek
         /// <see cref="MergeDialog.MergeCommit"/> /
         /// <see cref="MergeDialog.MergeDiscard"/> so those operate on the
         /// just-stashed pending tree.
+        ///
+        /// <para>Mirrors the recorder-state prep that
+        /// <see cref="OnSceneChangeRequested"/> runs immediately before
+        /// <see cref="FinalizeTreeOnSceneChange"/>: stop continuations
+        /// so chain-segment data is baked, clean up the Gloops recorder,
+        /// clear scene-change transient state. Without this prep,
+        /// <c>MergeCommit</c> and the optimization pass run against
+        /// continuation recordings that haven't completed sampling.</para>
         /// </summary>
         internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
         {
+            chainManager.StopAllContinuations("scene-exit dialog pre-finalize");
+            CleanupGloopsRecorder();
+            ClearSceneChangeTransientState();
             FinalizeTreeOnSceneChangeCore(
                 scene,
                 Planetarium.GetUniversalTime(),
@@ -2833,24 +2844,57 @@ namespace Parsek
         /// <summary>
         /// Pre-transition idle-on-pad fast path: tear down the live
         /// recorder / activeTree without going through finalize / stash.
-        /// Mirrors the cleanup at <c>ParsekFlight.cs:3151-3166</c>
-        /// (post-destruction auto-discard) but for the
-        /// pre-scene-change path. After this returns, the prefix's
-        /// blocked <c>HighLogic.LoadScene</c> proceeds and
+        /// Mirrors the suppressed-discard cleanup at
+        /// <see cref="DiscardActiveTreeForSuppressedSceneExit"/>: stop
+        /// the recorder, clear the
+        /// <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/> and
+        /// <see cref="Patches.PhysicsFramePatch.BackgroundRecorderInstance"/>
+        /// references, then null the fields. Also runs the same prep as
+        /// <see cref="OnSceneChangeRequested"/> (continuations, gloops,
+        /// transient state) since the prefix returns true after this and
+        /// <see cref="OnSceneChangeRequested"/> only re-runs that prep
+        /// once it sees <c>activeTree == null</c> - by which point any
+        /// in-flight continuation data would have already been dropped
+        /// without baking.
+        ///
+        /// <para>After this returns, the prefix's blocked
+        /// <c>HighLogic.LoadScene</c> proceeds and
         /// <see cref="OnSceneChangeRequested"/> sees
         /// <c>activeTree == null</c>, so no pending tree is stashed and
-        /// the destination scene's OnLoad does not show a deferred
-        /// merge dialog.
+        /// the destination scene's OnLoad does not show a deferred merge
+        /// dialog.</para>
         /// </summary>
         internal void AutoDiscardIdleActiveTree(string reason)
         {
             ParsekLog.Info("Flight",
                 $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
             ScreenMessage("Recording discarded - idle on pad", 3f);
-            recorder = null;
+
+            // Mirror OnSceneChangeRequested's pre-finalize prep so any
+            // active continuation / gloops / transient state is cleaned
+            // up before we drop the recorder.
+            chainManager.StopAllContinuations("idle-on-pad auto-discard");
+            CleanupGloopsRecorder();
+            ClearSceneChangeTransientState();
+
+            // Mirror DiscardActiveTreeForSuppressedSceneExit's recorder
+            // teardown: ForceStop + clear ActiveRecorder reference before
+            // nulling. Without ForceStop the recorder may still hold
+            // buffered data; without clearing ActiveRecorder, the physics
+            // patch retains a stale reference (regression-checked by
+            // ExtendedRuntimeTests.cs:919's
+            // PhysicsFramePatch_ActiveRecorder_NullWhenNotRecording).
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                    recorder.ForceStop();
+                Patches.PhysicsFramePatch.ActiveRecorder = null;
+                recorder = null;
+            }
+
             if (backgroundRecorder != null)
             {
-                backgroundRecorder.Shutdown();
+                backgroundRecorder.DiscardWithoutPersist(reason);
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                 backgroundRecorder = null;
             }
