@@ -571,8 +571,9 @@ namespace Parsek.Tests
             var (rp, slot) = MakeRpAndSlot();
 
             // Install the origin recording (committed) with the same pid as
-            // the strip-selected vessel. AtomicMarkerWrite must detect the
-            // in-place case and fork the attempt into a separate provisional.
+            // the strip-selected vessel, plus a vessel/ghost snapshot and a
+            // non-zero generation so the test can pin every field the fork
+            // is supposed to inherit.
             var origin = new Recording
             {
                 RecordingId = slot.OriginChildRecordingId,
@@ -580,8 +581,11 @@ namespace Parsek.Tests
                 TreeId = "tree_origin",
                 MergeState = MergeState.Immutable,
                 VesselPersistentId = kOriginPid,
+                Generation = 1,
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 200.0,
+                VesselSnapshot = MakeSnapshotNode("Origin Vessel", "snap-vessel"),
+                GhostVisualSnapshot = MakeSnapshotNode("Origin Ghost", "snap-ghost"),
             };
             origin.Points.Add(new TrajectoryPoint { ut = 100.0 });
             origin.Points.Add(new TrajectoryPoint { ut = 200.0 });
@@ -626,17 +630,7 @@ namespace Parsek.Tests
             Assert.Equal("tree_origin", marker.TreeId);
 
             // Locate the fork in the committed list and assert its identity.
-            Recording fork = null;
-            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
-            {
-                var candidate = RecordingStore.CommittedRecordings[i];
-                if (candidate != null
-                    && string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
-                {
-                    fork = candidate;
-                    break;
-                }
-            }
+            Recording fork = FindCommittedById(marker.ActiveReFlyRecordingId);
             Assert.NotNull(fork);
             Assert.Equal(MergeState.NotCommitted, fork.MergeState);
             Assert.Equal("sess_inplace", fork.CreatingSessionId);
@@ -645,6 +639,18 @@ namespace Parsek.Tests
             Assert.Equal(origin.VesselPersistentId, fork.VesselPersistentId);
             Assert.Equal(origin.VesselName, fork.VesselName);
             Assert.Equal(origin.TreeId, fork.TreeId);
+            Assert.Equal(origin.Generation, fork.Generation);
+            // VesselSnapshot / GhostVisualSnapshot are deep-copied so
+            // playback / display-alignment / ghost-build paths reading the
+            // fork's snapshot before the recorder repopulates it still see a
+            // valid payload, and a later mutation on origin does not bleed
+            // into the fork.
+            Assert.NotNull(fork.VesselSnapshot);
+            Assert.NotSame(origin.VesselSnapshot, fork.VesselSnapshot);
+            Assert.Equal("Origin Vessel", fork.VesselSnapshot.GetValue("name"));
+            Assert.NotNull(fork.GhostVisualSnapshot);
+            Assert.NotSame(origin.GhostVisualSnapshot, fork.GhostVisualSnapshot);
+            Assert.Equal("Origin Ghost", fork.GhostVisualSnapshot.GetValue("name"));
             // The fork's pre-Re-Fly anchor snapshot was copied from origin so
             // resolver / display alignment paths keyed by ActiveReFlyRecordingId
             // continue to see the original frozen trajectory data.
@@ -659,13 +665,190 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]")
                 && l.Contains("in-place continuation forked")
                 && l.Contains(fork.RecordingId)
-                && l.Contains(origin.RecordingId));
+                && l.Contains(origin.RecordingId)
+                && l.Contains("vesselSnapshot=copied")
+                && l.Contains("ghostSnapshot=copied"));
 
             // Started log carries inPlaceContinuation=True.
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("Started sess=sess_inplace")
                 && l.Contains("inPlaceContinuation=True"));
+        }
+
+        /// <summary>
+        /// Issue #734 race fix: when AtomicMarkerWrite finds the live tree
+        /// already in <see cref="RecordingStore.PendingTree"/> (the common
+        /// async-load path), the fork is eagerly attached to that tree's
+        /// <c>Recordings</c> dictionary and the background map is rebuilt
+        /// so the fork's pid does not double-register as both active
+        /// recorder target and background entry.
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_AttachesForkToPendingTree()
+        {
+            const uint kOriginPid = 33333u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_pending_attach",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_pending_attach");
+
+            var pendingTree = new RecordingTree
+            {
+                Id = origin.TreeId,
+                TreeName = "tree_pending_attach",
+                RootRecordingId = origin.RecordingId,
+                ActiveRecordingId = origin.RecordingId,
+            };
+            pendingTree.AddOrReplaceRecording(origin);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_pending_attach");
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            Assert.True(marker.InPlaceContinuation);
+            Recording fork = FindCommittedById(marker.ActiveReFlyRecordingId);
+            Assert.NotNull(fork);
+            // Fork is in the pending tree so the deferred restore coroutine
+            // can pick it up and the recorder's flush finds the active
+            // recording id by tree-dictionary lookup.
+            Assert.True(pendingTree.Recordings.ContainsKey(fork.RecordingId));
+            Assert.Same(fork, pendingTree.Recordings[fork.RecordingId]);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("treeAttach=eager"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("AtomicMarkerWrite: attached in-place fork rec=" + fork.RecordingId));
+        }
+
+        /// <summary>
+        /// Issue #734 fallback: when the saved tree was never stashed as
+        /// pending (e.g., the player loaded the rewind quicksave at a UT
+        /// where the committed copy had not yet been detached), the eager
+        /// attach falls through to <see cref="RecordingStore.CommittedTrees"/>
+        /// so the fork is still inserted into the right tree before the
+        /// recorder rebinds. The marker still records inPlaceContinuation=true.
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_AttachesForkToCommittedTreeWhenPendingMissing()
+        {
+            const uint kOriginPid = 44444u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_committed_attach",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = origin.TreeId,
+                TreeName = "tree_committed_attach",
+                RootRecordingId = origin.RecordingId,
+                ActiveRecordingId = origin.RecordingId,
+            };
+            committedTree.AddOrReplaceRecording(origin);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_committed_attach");
+            // Belt-and-braces: confirm there is no pending tree so the
+            // helper's pending-first lookup misses and the committed
+            // fallback fires.
+            Assert.False(RecordingStore.HasPendingTree);
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_committed_attach");
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Recording fork = FindCommittedById(marker.ActiveReFlyRecordingId);
+            Assert.NotNull(fork);
+            Assert.True(committedTree.Recordings.ContainsKey(fork.RecordingId));
+            Assert.Same(fork, committedTree.Recordings[fork.RecordingId]);
+        }
+
+        /// <summary>
+        /// Issue #734 deferred-attach path: when neither the pending tree
+        /// nor any committed tree matches the origin's tree id (the saved
+        /// .sfs's tree restore has not yet completed for this scene load),
+        /// AtomicMarkerWrite still adds the fork to the committed list and
+        /// the marker still records inPlaceContinuation=true; the diagnostic
+        /// log records treeAttach=deferred-to-restore so the
+        /// RestoreActiveTreeFromPending reconciliation path runs.
+        /// </summary>
+        [Fact]
+        public void AtomicMarkerWrite_InPlaceContinuation_NoTreeFound_DefersAttach()
+        {
+            const uint kOriginPid = 55555u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "rec_origin",
+                TreeId = "tree_unknown",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kOriginPid,
+            };
+            // Add origin to the committed list ONLY (not to a tree). This
+            // simulates the async-load race where the tree dictionary is
+            // not yet hydrated by the time AtomicMarkerWrite runs.
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_unknown");
+            // Drop the committed tree the helper added so neither pending
+            // nor committed tree contains the id.
+            for (int i = RecordingStore.CommittedTrees.Count - 1; i >= 0; i--)
+            {
+                if (RecordingStore.CommittedTrees[i].Id == origin.TreeId)
+                    RecordingStore.RemoveCommittedTreeById(origin.TreeId);
+            }
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_deferred");
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            Assert.True(marker.InPlaceContinuation);
+            Recording fork = FindCommittedById(marker.ActiveReFlyRecordingId);
+            Assert.NotNull(fork);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("treeAttach=deferred-to-restore"));
+        }
+
+        private static Recording FindCommittedById(string recordingId)
+        {
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null
+                    && string.Equals(candidate.RecordingId, recordingId, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        private static ConfigNode MakeSnapshotNode(string name, string nodeName)
+        {
+            var node = new ConfigNode(nodeName);
+            node.AddValue("name", name);
+            return node;
         }
 
         [Fact]

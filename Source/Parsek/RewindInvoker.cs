@@ -874,28 +874,47 @@ namespace Parsek
                     // separate provisional Recording instead of mutating the
                     // origin object. The fork inherits the origin's vessel
                     // identity (so the recorder's per-vessel tracking continues
-                    // unchanged) and freezes the origin's trajectory under the
-                    // fork's own pre-Re-Fly anchor snapshot, so the resolver
-                    // and display-alignment paths keyed by
-                    // ActiveReFlyRecordingId still see the original trajectory
-                    // data. Origin is left untouched: no live mutation, no
-                    // session tagging, no rollback snapshot needed for Discard.
+                    // unchanged), generation depth, and a defensive copy of
+                    // origin's vessel/ghost snapshots so any code path that
+                    // queries the active Re-Fly recording's snapshot before
+                    // the recorder has refreshed it (display alignment,
+                    // ghost build, antenna registration) still sees a valid
+                    // payload. The fork freezes origin's trajectory under
+                    // the fork's own pre-Re-Fly anchor snapshot so the
+                    // resolver / display-alignment paths keyed by
+                    // ActiveReFlyRecordingId still see the original
+                    // trajectory data. Origin is left untouched: no live
+                    // mutation, no session tagging, no rollback snapshot
+                    // needed for Discard. Chain identity (ChainId/Index/
+                    // Branch) is intentionally NOT copied so the supersede
+                    // table is the only authority on chain-tip resolution,
+                    // matching the non-in-place placeholder pattern.
                     provisional.VesselPersistentId = originChild.VesselPersistentId;
                     provisional.VesselName = originChild.VesselName;
                     provisional.IsDebris = originChild.IsDebris;
+                    provisional.Generation = originChild.Generation;
                     provisional.SegmentPhase = originChild.SegmentPhase;
                     provisional.SegmentBodyName = originChild.SegmentBodyName;
                     provisional.StartBodyName = originChild.StartBodyName;
                     provisional.StartBiome = originChild.StartBiome;
                     provisional.StartSituation = originChild.StartSituation;
                     provisional.LaunchSiteName = originChild.LaunchSiteName;
+                    provisional.VesselSnapshot = originChild.VesselSnapshot != null
+                        ? originChild.VesselSnapshot.CreateCopy()
+                        : null;
+                    provisional.GhostVisualSnapshot = originChild.GhostVisualSnapshot != null
+                        ? originChild.GhostVisualSnapshot.CreateCopy()
+                        : null;
                     provisional.CapturePreReFlyAnchorTrajectoryFrom(originChild, sessionId);
-                    pendingTreeForFork = FindPendingTreeForReFly(originChild.TreeId);
+                    pendingTreeForFork = FindTreeForReFlyFork(originChild.TreeId);
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation forked — fork " +
                         $"{provisional.RecordingId} supersedes origin {originChild.RecordingId} " +
                         $"(origin not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
-                        $"pendingTreeAttach={(pendingTreeForFork != null ? "ready" : "deferred")})");
+                        $"vesselSnapshot={(provisional.VesselSnapshot != null ? "copied" : "<none>")}; " +
+                        $"ghostSnapshot={(provisional.GhostVisualSnapshot != null ? "copied" : "<none>")}; " +
+                        $"generation={provisional.Generation}; " +
+                        $"treeAttach={(pendingTreeForFork != null ? "eager" : "deferred-to-restore")})");
                 }
 
                 activeReFlyRecordingId = provisional.RecordingId;
@@ -903,9 +922,9 @@ namespace Parsek
 
                 CheckpointHookForTesting?.Invoke("CheckpointA:BeforeProvisional");
                 RecordingStore.AddProvisional(provisional);
-                if (pendingTreeForFork != null)
+                if (pendingTreeForFork != null
+                    && EnsureForkAttachedToTree(pendingTreeForFork, provisional, "AtomicMarkerWrite"))
                 {
-                    AddForkToPendingTree(pendingTreeForFork, provisional);
                     addedToPendingTree = true;
                 }
                 CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
@@ -946,7 +965,7 @@ namespace Parsek
                 {
                     RecordingStore.RemoveCommittedInternal(provisional);
                     if (addedToPendingTree && pendingTreeForFork != null)
-                        RemoveForkFromPendingTree(pendingTreeForFork, provisional);
+                        DetachForkFromTreeForRollback(pendingTreeForFork, provisional);
                 }
                 try
                 {
@@ -1005,51 +1024,88 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Locates the pending tree that owns <paramref name="treeId"/> so the
-        /// in-place fork (issue #734) can attach itself to the same tree the
-        /// recorder will rebind to after <c>RestoreActiveTreeFromPending</c>.
-        /// AtomicMarkerWrite runs after <c>TryRestoreActiveTreeNode</c>
-        /// stashes the saved tree as pending-Limbo, so the pending tree is
-        /// usually populated. Returns null when no matching tree is found
-        /// (for example when the tree restore has not yet completed for an
-        /// async scene load); the fork is still added to the committed list,
-        /// and the deferred restore path will splice it via the standard
-        /// committed-recording reconciliation paths.
+        /// Locates the in-memory tree that owns <paramref name="treeId"/> so
+        /// the in-place fork (issue #734) can attach itself to the tree the
+        /// recorder will eventually flush into. AtomicMarkerWrite usually
+        /// runs after <c>TryRestoreActiveTreeNode</c> stashes the saved tree
+        /// as pending-Limbo, so <see cref="RecordingStore.PendingTree"/> is
+        /// the common target. The lookup additionally falls back to
+        /// <see cref="RecordingStore.CommittedTrees"/> for sessions whose
+        /// committed copy was never detached, and the deferred restore
+        /// coroutine runs <see cref="EnsureForkAttachedToTree"/> as a
+        /// safety net for the async-load race where AtomicMarkerWrite
+        /// fires after the tree was already popped into the live activeTree.
         /// </summary>
-        private static RecordingTree FindPendingTreeForReFly(string treeId)
+        internal static RecordingTree FindTreeForReFlyFork(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
                 return null;
+
             RecordingTree pending = RecordingStore.PendingTree;
             if (pending != null
                 && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
             {
                 return pending;
             }
+
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    var committed = committedTrees[i];
+                    if (committed == null) continue;
+                    if (string.Equals(committed.Id, treeId, StringComparison.Ordinal))
+                        return committed;
+                }
+            }
+
             return null;
         }
 
-        private static void AddForkToPendingTree(RecordingTree tree, Recording fork)
+        /// <summary>
+        /// Idempotently inserts <paramref name="fork"/> into
+        /// <paramref name="tree"/>'s <c>Recordings</c> dictionary and rebuilds
+        /// the background map so the fork's pid does not double-list as both
+        /// active recorder target and background entry. Returns true when the
+        /// dictionary changed (fork was missing); false on no-op (already
+        /// attached, or null inputs). The rebuild is skipped on a no-op so
+        /// the restore-coroutine reconciliation path stays cheap on re-entry.
+        /// Callers must only attach forks once <paramref name="tree"/>'s
+        /// background-map shape is final for the marker write phase.
+        /// </summary>
+        internal static bool EnsureForkAttachedToTree(RecordingTree tree, Recording fork, string callSite)
         {
-            if (tree == null || fork == null) return;
-            if (tree.Recordings == null)
-                return;
+            if (tree == null || fork == null
+                || string.IsNullOrEmpty(fork.RecordingId)
+                || tree.Recordings == null)
+            {
+                return false;
+            }
+            if (tree.Recordings.TryGetValue(fork.RecordingId, out var existing)
+                && ReferenceEquals(existing, fork))
+            {
+                return false;
+            }
             tree.Recordings[fork.RecordingId] = fork;
+            tree.RebuildBackgroundMap();
             ParsekLog.Verbose(InvokeTag,
-                $"AtomicMarkerWrite: attached in-place fork rec={fork.RecordingId} " +
-                $"to pending tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})");
+                $"{callSite ?? "EnsureForkAttachedToTree"}: attached in-place fork rec={fork.RecordingId} " +
+                $"to tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})");
+            return true;
         }
 
-        private static void RemoveForkFromPendingTree(RecordingTree tree, Recording fork)
+        private static void DetachForkFromTreeForRollback(RecordingTree tree, Recording fork)
         {
             if (tree == null || fork == null) return;
             if (tree.Recordings == null)
                 return;
             if (tree.Recordings.Remove(fork.RecordingId))
             {
+                tree.RebuildBackgroundMap();
                 ParsekLog.Verbose(InvokeTag,
                     $"AtomicMarkerWrite rollback: detached in-place fork rec={fork.RecordingId} " +
-                    $"from pending tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})");
+                    $"from tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})");
             }
         }
 
