@@ -1095,16 +1095,9 @@ namespace Parsek
 
         internal static bool ShouldShowRewindButton(Recording rec, bool isFuture)
         {
-            if (isFuture || rec == null)
-                return false;
-
-            // Re-Fly / Seal rows own RP-backed unfinished-flight recovery.
-            // Showing launch rewind on the matching RecordingStart row offers a
-            // second route to the wrong save for active-parent breakup slots.
-            if (EffectiveState.IsUnfinishedFlight(rec))
-                return false;
-
-            return !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
+            return !isFuture
+                && rec != null
+                && !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
         }
 
         internal static bool HasActionableRewindOrFastForwardButton(

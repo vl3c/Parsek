@@ -103,7 +103,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsFalse()
+        public void ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsTrue()
         {
             const string branchPointId = "bp-breakup";
             var rec = new Recording
@@ -139,7 +139,7 @@ namespace Parsek.Tests
             ParsekScenario.SetInstanceForTesting(scenario);
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec));
-            Assert.False(TimelineWindowUI.ShouldShowRewindButton(rec, isFuture: false));
+            Assert.True(TimelineWindowUI.ShouldShowRewindButton(rec, isFuture: false));
         }
 
         [Fact]
