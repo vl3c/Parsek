@@ -1573,17 +1573,21 @@ namespace Parsek
         /// </summary>
         public static void RecomputeAfterTombstones()
         {
-            RecomputeFromEffectiveLedger("after tombstones", null);
+            RecomputeFromEffectiveLedger("after tombstones", null, applyToRoster: true);
         }
 
         internal static void RecomputeAfterCutoffWalk(double utCutoff)
         {
             RecomputeFromEffectiveLedger(
                 "after cutoff walk",
-                "cutoffUT=" + utCutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+                "cutoffUT=" + utCutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                applyToRoster: false);
         }
 
-        private static void RecomputeFromEffectiveLedger(string reason, string detail)
+        private static void RecomputeFromEffectiveLedger(
+            string reason,
+            string detail,
+            bool applyToRoster)
         {
             var kerbals = LedgerOrchestrator.Kerbals;
             if (kerbals == null)
@@ -1615,9 +1619,12 @@ namespace Parsek
             kerbals.PostWalk();
 
             // ApplyToRoster refreshes the replacement dictionary via
-            // ClearReplacementsInternal + SetReplacement. Roster may be absent
-            // in headless / test contexts; ApplyToRoster logs and no-ops.
-            kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+            // ClearReplacementsInternal + SetReplacement. Cutoff recalculations
+            // defer roster mutation to LedgerOrchestrator's normal patch gate so
+            // post-rewind flight-load and pending-tree paths still honor KSP state
+            // patch deferral.
+            if (applyToRoster)
+                kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
 
             int remaining = 0;
             foreach (var _ in kerbals.Reservations)

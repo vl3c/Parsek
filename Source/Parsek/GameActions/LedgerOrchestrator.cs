@@ -1577,6 +1577,7 @@ namespace Parsek
             // or jump target. Crew reservations are different: committed future
             // recordings still own their crew until recovery/death, so rebuild the
             // crew module from the full effective ledger after the cutoff walk.
+            // Roster mutation still happens below through the existing patch gate.
             if (utCutoff.HasValue)
                 CrewReservationManager.RecomputeAfterCutoffWalk(utCutoff.Value);
 
