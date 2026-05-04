@@ -181,25 +181,13 @@ running). Decision-helper queries read live state directly:
   `srfRelRotation` / position vs the launch reference. Doesn't depend
   on `MaxDistanceFromLaunch` because we have the live vessel.
 
-On button click (Merge or Discard), the callback runs the full
-finalize-then-act sequence:
-
-```csharp
-Action proceed = () =>
-{
-    var fl = ParsekFlight.Instance;
-    fl?.FinalizeTreeOnSceneChangeForCallback(scene);   // stash + teardown
-    var pending = RecordingStore.PendingTree;
-    if (pending != null)
-    {
-        if (userChoseMerge) MergeDialog.MergeCommit(pending, decisions, spawnCount);
-        else                MergeDialog.MergeDiscard(pending);
-    }
-    SafeWritePersistent(scene);                        // P1.B (see below)
-    SceneExitInterceptor.s_AllowNextLoadScene = true;
-    HighLogic.LoadScene(scene);
-};
-```
+On button click (Merge or Discard), the dialog's button-handler
+wrapper runs `preCommitFinalize -> MergeCommit/MergeDiscard ->
+postChoice` in order. The prefix supplies `preCommitFinalize` (which
+calls `FinalizeTreeOnSceneChangeForCallback`) and `postChoice` (which
+calls `SafeWritePersistent` + the `LoadScene` re-invoke). See the
+authoritative patch sketch under "New file: SceneExitInterceptor.cs"
+for the full code.
 
 Result:
 
@@ -301,13 +289,10 @@ bool SafeWritePersistent(GameScenes dest)
     }
 }
 
-Action proceed = () =>
-{
-    // ... finalize + MergeCommit/MergeDiscard above ...
-    if (!SafeWritePersistent(scene)) return;   // dialog reappears next exit attempt
-    SceneExitInterceptor.s_AllowNextLoadScene = true;
-    HighLogic.LoadScene(scene);
-};
+// (See the authoritative patch sketch under "New file:
+//  SceneExitInterceptor.cs" for how SafeWritePersistent is wired
+//  into postChoice. The wrapper inside ShowTreeDialog runs
+//  preCommitFinalize -> MergeCommit/MergeDiscard -> postChoice.)
 ```
 
 For destinations stock would not have saved (CanRestart no-save path,
@@ -378,7 +363,13 @@ internal static class HighLogic_LoadScene_Patch
             ParsekLog.Warn("SceneExit",
                 $"LoadScene prefix: token consumed for unexpected dest={scene} " +
                 $"(expected {expected}); falling through to normal handling");
-            // fall through to normal flow
+            // Fall through intentionally: a foreign caller stole our
+            // token and is asking for a different destination. The
+            // player's Merge / Discard choice still applies to the
+            // CURRENT scene-exit attempt (the new dest); re-evaluate
+            // the dialog gate against `scene`. Do NOT return-true
+            // here - that would let the foreign transition skip the
+            // merge confirmation.
         }
 
         // (2) cheap filter - only intercept exits from FLIGHT to a flight-exit dest.
@@ -478,10 +469,10 @@ Notes:
 - Step (4) reads from `flight.HasActiveTree` only; no pre-finalize
   before the dialog. If the popup is dismissed without a button click,
   no state was mutated.
-- Decision helper signature changed to take `ParsekFlight` instead of a
-  pending tree. The helper queries live state - active recording's
-  vessel via `flight.ActiveVessel` for the autoMerge-ON Landed/Splashed
-  approval gate, etc.
+- Decision helper signature changed to take `ParsekFlight` instead
+  of a pending tree. The helper queries live state - the active
+  vessel via `FlightGlobals.ActiveVessel` for the autoMerge-ON
+  Landed/Splashed approval gate, etc.
 - `flight.ActiveTreeForDisplay`, `flight.IsActiveTreeIdleOnPad()`, and
   `flight.HasActiveTree` are new public read-only seams on
   `ParsekFlight` that don't expose the private `activeTree` field
@@ -507,11 +498,16 @@ otherwise                                                                    -> 
 
 The autoMerge ON Landed/Splashed gate (which today uses
 `ShouldShowCommitApproval` reading `TerminalStateValue` post-finalize)
-is now computed from the live vessel via `vessel.LandedOrSplashed`. The
-two values agree on the outcome - `FinalizeTreeRecordings` derives
-`TerminalStateValue` from the same vessel-situation snapshot that the
-live read returns. Document this in a comment in the helper so future
-maintainers understand they cannot drift.
+is now computed from the live vessel via the canonical
+`vessel.situation == Vessel.Situations.LANDED || vessel.situation ==
+Vessel.Situations.SPLASHED` pattern (matches the convention used in
+`UnfinishedFlightClassifier.cs`, `TerminalKindClassifier.cs`, etc.;
+`vessel.LandedOrSplashed` is the equivalent helper but is unused in
+production Parsek code today). The two values agree on the outcome -
+`FinalizeTreeRecordings` derives `TerminalStateValue` from the same
+vessel-situation snapshot that the live read returns. Document this
+in a comment in the helper so future maintainers understand they
+cannot drift.
 
 Idle-on-pad auto-discard runs after the variant decision and reads the
 live activeTree.
@@ -538,10 +534,13 @@ thousands of km - falsely defeating the idle-on-pad fast path for
 recordings that contain any RELATIVE-frame points.
 
 For an idle-on-pad recording (vessel never moved off the pad), no
-RELATIVE-frame points exist (the recorder never enters a relative
-frame for a stationary pad-bound vessel). For a vessel that did move,
-maxDist is dominated by real Absolute-frame distances anyway. The
-defensive fix is to filter to Absolute-frame points only.
+RELATIVE-frame points exist - the recorder's RELATIVE-entry path
+early-skips when the vessel is `onSurface`
+(`FlightRecorder.cs:5099-5131`), and the existing
+`TryGetPadLocalizedMotionMetrics` already returns false on any
+non-Absolute section (`ParsekFlight.cs:15783-15788`). For a vessel
+that did move, maxDist is dominated by real Absolute-frame distances
+anyway. The defensive fix is to filter to Absolute-frame points only.
 
 Implementation:
 
@@ -564,11 +563,21 @@ internal bool IsActiveTreeIdleOnPad()
 ```
 
 `VesselSpawner.BackfillMaxDistanceAbsoluteOnly(Recording)` is a new
-sibling of the existing `BackfillMaxDistance`. It iterates Points but
-calls `Recording.IsPointInAbsoluteFrame(pointIndex)` (or equivalent)
-to skip non-Absolute points. For finalize-time use, the existing
-`BackfillMaxDistance` keeps walking all points (today's behaviour);
-the live path uses the Absolute-only variant.
+sibling of the existing `BackfillMaxDistance`. `Recording.Points` has
+no per-point `referenceFrame` field; the frame lives on
+`TrackSection.referenceFrame` and the recorder dual-writes points
+into both `Recording.Points` and the relevant `TrackSection.frames`
+(`FlightRecorder.cs:7470, :7482`). Implementation: iterate
+`rec.TrackSections`, skip sections whose `referenceFrame !=
+ReferenceFrame.Absolute`, and walk only those sections' `frames` lists
+to compute max distance. The first Absolute frame's lat/lon/alt
+provides the launch reference (`FlightRecorder.cs:5488` opens the
+recorder's first section as Absolute, so the very first frame is
+always safe to use as the launch reference). For finalize-time use,
+the existing `BackfillMaxDistance` keeps walking all `rec.Points`
+(today's behaviour, latent RELATIVE-frame bug also present today but
+out of scope for this plan); the live path uses the Absolute-only
+variant.
 
 (Stretch: fix `BackfillMaxDistance` itself to honour `referenceFrame`,
 which would also fix a latent finalize-time bug. Out of scope for this
@@ -594,21 +603,19 @@ construction.
 
 ### `MergeDialog.cs` changes
 
-- New `ShowTreeDialog(RecordingTree tree, MergeDialogButtonLabels labels,
-  Action postChoice)` overload. Existing two-button layout (Merge / Discard)
-  is unchanged - only the button label strings come from the new
-  `MergeDialogButtonLabels` enum (`Default` -> "Merge to Timeline" /
-  "Discard"; `ReFlyAttempt` -> "Merge Re-Fly to Timeline" / "Discard
-  Re-Fly attempt"). Wrap the existing `MergeCommit` and `MergeDiscard`
-  callbacks to invoke `postChoice?.Invoke()` after their existing work.
-- `MergeCommit` and `MergeDiscard` are unchanged - they already do the
-  right thing for Re-Fly via `TryCommitReFlySupersede` and
+- `MergeCommit` and `MergeDiscard` are unchanged - they already do
+  the right thing for Re-Fly via `TryCommitReFlySupersede` and
   `TryDiscardActiveReFlyAttempt`. **No new `ReFlyExitDialog` class.**
-- Existing Re-Fly body-copy adaptation (`MergeDialog.cs:144-169`) stays.
-  Tweak the headline copy slightly when the dialog is opened via the
-  pre-transition path (e.g. "Re-Fly attempt - leaving flight" instead of
-  "Confirm Merge to Timeline") - same body, different title and button
-  labels.
+- Existing Re-Fly body-copy adaptation (`MergeDialog.cs:144-169`)
+  stays. The pre-transition path uses a different dialog title
+  ("Re-Fly attempt - leaving flight" vs the existing "Confirm Merge
+  to Timeline"). The dialog title comes from a new field on the
+  `MergeDialogButtonLabels` enum (or an extra `string title` arg on
+  the new overload - implementer's choice; the labels enum carrying
+  copy is the simpler option).
+- New `MergeDialogButtonLabels` enum: `Default` -> "Merge to
+  Timeline" / "Discard"; `ReFlyAttempt` -> "Merge Re-Fly to
+  Timeline" / "Discard Re-Fly attempt".
 - Existing `OnDismiss -> ClearPendingFlag` path stays
   (`MergeDialog.cs:217-223`). No change needed.
 - New `ShowTreeDialog(RecordingTree liveTree, MergeDialogButtonLabels
@@ -670,12 +677,12 @@ construction.
 
 ### `RecordingStore.cs` changes
 
-- Add `internal static bool IsNextTreeSceneExitCommitSuppressionArmed` -
-  read-only public peek (no consume) for use by the new prefix. The
-  existing `NextTreeSceneExitCommitSuppressionArmedForTesting` getter
-  (`RecordingStore.cs:1191`) does the same thing under a "ForTesting"
-  name; either rename + reuse, or add a sibling property. Renaming is
-  cleaner since the flag's existence is no longer test-only.
+- Rename the existing `NextTreeSceneExitCommitSuppressionArmedForTesting`
+  getter (`RecordingStore.cs:1191`) to
+  `IsNextTreeSceneExitCommitSuppressionArmed`. The flag's existence
+  is no longer test-only - the new `HighLogic.LoadScene` prefix
+  peeks it as a production code path. Update the one existing test
+  caller in the same commit.
 - No new flag. The `SuppressNextTreeSceneExitFinalize` flag the previous
   draft proposed is unnecessary - the existing pending-tree contract
   carries the same information.
@@ -725,13 +732,17 @@ construction.
 | New | `Source/Parsek/SceneExitInterceptor.cs` | Harmony patch (`HarmonyPriority.Last`) + decision helper + idle-pad fast path (live-state); paired `s_AllowNextLoadScene` + `s_AllowNextLoadSceneDestination` token; persistent save (`SafeWritePersistent`) in callback |
 | Modified | `Source/Parsek/MergeDialog.cs` | New `(tree, labels, preCommitFinalize, postChoice)` overload of `ShowTreeDialog`; new `MergeDialogButtonLabels` enum (`Default` / `ReFlyAttempt`); pre-transition title copy; **add `ActiveMergeJournal` guard to `MergeDiscard` and `TryDiscardActiveReFlyAttempt` (P1.C from earlier review)**; hide Discard when journal active |
 | Modified | `Source/Parsek/ParsekFlight.cs` | Expose `FinalizeTreeOnSceneChangeForCallback`, `HasActiveTree`, `ActiveTreeForDisplay`, `IsActiveTreeIdleOnPad` |
-| Modified | `Source/Parsek/RecordingStore.cs` | Rename `NextTreeSceneExitCommitSuppressionArmedForTesting` to `IsNextTreeSceneExitCommitSuppressionArmed` (or add sibling) |
+| Modified | `Source/Parsek/RecordingStore.cs` | Rename `NextTreeSceneExitCommitSuppressionArmedForTesting` -> `IsNextTreeSceneExitCommitSuppressionArmed` and update the existing test caller |
 | Modified | `Source/Parsek/VesselSpawner.cs` | New `BackfillMaxDistanceAbsoluteOnly(Recording)` sibling that filters to Absolute-frame points (Opus pass-4 P1 #3) |
 | Modified | `Source/Parsek/ParsekScenario.cs` | Drop main-menu force-auto-merge; deferred-coroutine canary Warn; (optional) reuse decision helper |
 | New | `Source/Parsek.Tests/SceneExitInterceptorTests.cs` | Decision helper matrix (live-state); prefix bypass conditions (3-way: token+dest, suppression peek, dest filter); deferred-finalize wiring; popup-dismiss-no-mutation; `SafeWritePersistent` MAINMENU-block test seam |
 | Modified | `Source/Parsek.Tests/MergeDialogTests.cs` | New `(labels, preCommitFinalize, postChoice)` path; ReFlyAttempt button labels; journal-active guard tests for `MergeDiscard` + `TryDiscardActiveReFlyAttempt`; "no pending tree after preCommitFinalize" Warn-and-skip path |
 | Modified | `Source/Parsek/InGameTests/RuntimeTests.cs` | Dialog appears in flight scene, not after load (multiple flight-exit paths); F9-during-dialog cleanup; KSPCommunityFixes coexistence |
-| Modified | `CHANGELOG.md` + `docs/dev/todo-and-known-bugs.md` | Per repo "Documentation Updates - Per Commit, Not Per PR" rule |
+
+CHANGELOG / todo doc updates are listed in the dedicated section
+near the end of this plan, not in this table (matches the convention
+in `docs/dev/plans/fix-440B-reconcile-earnings-transformed.md` and
+peers).
 
 No `ReFlyExitDialog.cs` (removed from previous draft - existing
 `MergeDialog.ShowTreeDialog` covers Re-Fly natively).
@@ -814,18 +825,15 @@ LANDED/SPLASHED situations pass through unchanged.)
 - Crew-swap captured (Opus #3): assert post-merge persistent.sfs has
   the swapped roster (`CrewReservationManager.SwapReservedCrewInFlight`
   ran, our save captured it).
-- Save throws on MAINMENU: assert transition is *blocked*, error popup
-  shown, `s_AllowNextLoadScene` not set, `pendingTree` not stashed
-  (callback aborted before finalize? - actually finalize runs first;
-  decide whether to roll-back finalize on save fail or accept the
-  inconsistency. Document the trade-off in the plan.) Implementation
-  decision: finalize runs first, save fails, error popup shown -
-  user retries the exit, which re-enters the prefix; the second
-  attempt sees `HasActiveTree == false` (already finalized) but
-  `HasPendingTree == true`, takes a different code path (no
-  pre-finalize, dialog already showed?). Need a "merge journal active /
-  pending tree from previous prefix attempt" branch in the prefix.
-  Open question - see "Open questions" below.
+- Save throws on MAINMENU: assert transition is *blocked*, error
+  popup shown, `s_AllowNextLoadScene` not set. Phase 1 already ran
+  before the failed save, so `MergeCommit` / `MergeDiscard` already
+  cleared `pendingTree` (`MergeDialog.cs:316` `CommitPendingTree` and
+  `MergeDiscard`'s `DiscardPendingTreeAndRecalculate` both null
+  `pendingTree`). On retry, prefix sees `HasActiveTree == false` AND
+  `HasPendingTree == false`, returns `true`, stock saveAndExit runs
+  and persists the post-mutation state. See "Open questions" item 1
+  for the full recovery contract.
 - Save throws on SPACECENTER / TRACKSTATION / EDITOR: assert prefix
   logs Warn and continues with LoadScene; destination scene's own
   save cycle eventually persists.
