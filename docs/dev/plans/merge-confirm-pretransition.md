@@ -607,22 +607,34 @@ non-Absolute section (`ParsekFlight.cs:15783-15788`). For a vessel
 that did move, maxDist is dominated by real Absolute-frame distances
 anyway. The defensive fix is to filter to Absolute-frame points only.
 
-Implementation:
+Implementation (as-shipped):
 
 ```csharp
 internal bool IsActiveTreeIdleOnPad()
 {
     if (activeTree == null) return false;
+    if (activeTree.Recordings == null || activeTree.Recordings.Count == 0)
+        return false;
+    if (restoringActiveTree) return false;   // mirror existing defensive guard
+
+    // Flush live recorder data into the tree (non-destructive; recorder
+    // stays IsRecording=true) so subsequent walks over rec.TrackSections
+    // see the in-flight data. Without this, atmospheric flights with
+    // empty TrackSections would default MaxDistanceFromLaunch to 0 and
+    // falsely classify as idle (Opus pass-7 P1 silent-data-loss bug).
+    FlushRecorderIntoActiveTreeForSerialization();
+
+    bool anyHasPoints = false;
     foreach (var rec in activeTree.Recordings.Values)
     {
         if (rec == null) continue;
-        // Live max-distance walk over Absolute-frame points only.
-        // Skips RELATIVE-frame points (where lat/lon/alt are anchor-local
-        // metres, not body-fixed coords) to avoid the GetWorldSurfacePosition
-        // garbage described in the Opus pass-4 review.
         VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+        if (rec.Points != null && rec.Points.Count > 0) anyHasPoints = true;
         if (!IsIdleOnPad(rec)) return false;
     }
+    // Bug #290d safeguard: refuse to classify an all-empty-points tree as
+    // idle (data-loss, not idle-on-pad).
+    if (!anyHasPoints) return false;
     return true;
 }
 ```

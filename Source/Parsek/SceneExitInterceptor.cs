@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 
 namespace Parsek
@@ -80,6 +81,15 @@ namespace Parsek
             /// <summary>Re-Fly attempt-scoped dialog with Re-Fly labels.</summary>
             ReFlyAttempt,
         }
+
+        // Stock saveAndExit calls FlightGlobals.ClearpersistentIdDictionaries
+        // (internal) before SaveGame and AnalyticsUtil.LogSaveGameClosed
+        // (internal) after SaveGame on MAINMENU. Both are inaccessible from
+        // outside Assembly-CSharp; reflect them like the in-game test runner
+        // does at RuntimeTests.cs:6566-6568.
+        private static readonly MethodInfo s_FlightGlobalsClearPersistentIdDictionariesMethod =
+            typeof(FlightGlobals).GetMethod("ClearpersistentIdDictionaries",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
 
         /// <summary>Test reset: clears all static state and seams.</summary>
         internal static void ResetTestOverrides()
@@ -221,15 +231,40 @@ namespace Parsek
                 if (HighLogic.CurrentGame != null)
                     GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
 
-                // Stock saveAndExit also calls FlightGlobals.ClearpersistentIdDictionaries
-                // (internal) and AnalyticsUtil.LogSaveGameClosed (internal),
-                // but both are inaccessible from outside Assembly-CSharp.
-                // Skipping is safe: ClearpersistentIdDictionaries clears a
-                // runtime cache that is rebuilt on the next scene load (the
-                // cache is not serialized, so the saved persistent.sfs is
-                // unaffected). The analytics call is non-functional. If
-                // these become observably needed in playtest, switch to
-                // reflection.
+                // Stock saveAndExit calls FlightGlobals.ClearpersistentIdDictionaries
+                // before SaveGame to null stale pid pointers. ProtoVessel.Save
+                // and friends resolve live Part references through these
+                // dictionaries; entries pointing at soon-to-be-destroyed
+                // GameObjects could leak into the saved scenario module
+                // state. Method is internal to Assembly-CSharp so we
+                // reflect it (RuntimeTests.cs:6566 already does the same
+                // for stock-fidelity test runs).
+                if (s_FlightGlobalsClearPersistentIdDictionariesMethod != null)
+                {
+                    try
+                    {
+                        s_FlightGlobalsClearPersistentIdDictionariesMethod.Invoke(null, null);
+                    }
+                    catch (TargetInvocationException tex)
+                    {
+                        ParsekLog.Warn("SceneExit",
+                            $"FlightGlobals.ClearpersistentIdDictionaries (reflected) threw " +
+                            $"{tex.InnerException?.GetType().Name ?? tex.GetType().Name}: " +
+                            $"{tex.InnerException?.Message ?? tex.Message}; continuing");
+                    }
+                    catch (Exception rex)
+                    {
+                        ParsekLog.Warn("SceneExit",
+                            $"FlightGlobals.ClearpersistentIdDictionaries reflection invoke threw " +
+                            $"{rex.GetType().Name}: {rex.Message}; continuing");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Warn("SceneExit",
+                        "FlightGlobals.ClearpersistentIdDictionaries reflection unavailable - " +
+                        "stale pid mappings may persist into saved scenario state");
+                }
 
                 if (HighLogic.CurrentGame == null)
                 {
@@ -294,14 +329,15 @@ namespace Parsek
         /// preCommitFinalize + MergeCommit/Discard. Persists state and
         /// re-invokes <c>HighLogic.LoadScene</c> with the bypass token set.
         ///
-        /// <para>Token-set ordering: <see cref="SafeWritePersistent"/> fires
-        /// <c>onSceneConfirmExit</c> BEFORE we set the bypass token. A
-        /// foreign listener that synchronously calls
-        /// <c>HighLogic.LoadScene</c> from its handler would hit our prefix
-        /// without the token armed - the gate re-evaluates and (if the
-        /// active tree is still around) re-shows the dialog. Acceptable
-        /// fallback; the more common case is no-listener / passive
-        /// listener where this ordering doesn't matter.</para>
+        /// <para>Token-set ordering: <see cref="SafeWritePersistent"/>
+        /// fires <c>onSceneConfirmExit</c> BEFORE we set the bypass token.
+        /// A foreign listener that synchronously calls
+        /// <c>HighLogic.LoadScene</c> from its handler would hit our
+        /// prefix without the token armed. By the time postChoice runs,
+        /// <c>MergeCommit</c> / <c>MergeDiscard</c> already cleared
+        /// <c>activeTree</c> + <c>pendingTree</c>, so the prefix's gate
+        /// sees <c>HasActiveTree == false</c> and lets the foreign call
+        /// through (no dialog re-prompt). Acceptable fallback.</para>
         /// </summary>
         internal static Action BuildPostChoice(GameScenes destination)
         {

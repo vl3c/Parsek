@@ -2772,16 +2772,27 @@ namespace Parsek
         /// extra TrackSection boundary at the current UT - identical to
         /// what every <c>OnSave</c> tick produces.</para>
         ///
-        /// <para>Mirrors the <see cref="IsTreeIdleOnPad"/> data-loss
-        /// safeguard at <c>ParsekFlight.cs:15983-15991</c>: a tree where no
-        /// recording has any trajectory points is data-loss, not idle. We
-        /// refuse to classify and return false so the dialog still shows.</para>
+        /// <para>Mirrors the <see cref="IsTreeIdleOnPad(RecordingTree)"/>
+        /// data-loss safeguard (in the <c>anyHasPoints</c> block of that
+        /// function): a tree where no recording has any trajectory points
+        /// is data-loss, not idle. We refuse to classify and return false
+        /// so the dialog still shows.</para>
         /// </summary>
         internal bool IsActiveTreeIdleOnPad()
         {
             if (activeTree == null) return false;
             if (activeTree.Recordings == null || activeTree.Recordings.Count == 0)
                 return false;
+            // Mirror the existing defensive guard pattern used by other
+            // mutating paths in this file (e.g. line 2727 in
+            // FinalizeTreeOnSceneChangeCore): if a restore coroutine owns
+            // the recorder/activeTree, do not flush.
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    "IsActiveTreeIdleOnPad: skipped - restore coroutine in progress");
+                return false;
+            }
 
             // Flush live recorder data into the tree so subsequent walks
             // over rec.TrackSections / rec.Points see the in-flight data.
