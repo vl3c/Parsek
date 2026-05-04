@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 plain rewind kept stale Re-Fly marker
+
+- ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.
+
+**Fix:** `HandleRewindOnLoad` now clears any active Re-Fly marker imported from the rewind save as soon as the plain rewind path is detected, clears render-session state with the required lifecycle log, and reapplies the Re-Fly revert button gate against the now-null marker. The existing future-recording activation policy is unchanged.
+
+**Coverage:** `RewindTimelineTests.PlainRewindLoad_ClearsLoadedActiveReFlyMarker`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Active - v0.9.1 PR708 post-merge Phase D continuation
 
 - After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).
@@ -20,6 +32,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Carry-forward validation:** before Phase D starts, keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if the next work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
 
 **Status:** Open until PR708 is merged and D.0 is recorded.
+
+---
+
+## Done - v0.9.2 stable landed EVA side-branch auto-seal
+
+- ~~A Jebediah EVA side-branch that ended safely landed could still be promoted to an open Unfinished Flight as `strandedEva`, leaving Fly disabled by the active Re-Fly marker while Seal remained available.~~ Source: `logs/2026-05-04_1817`. The recording `b1c726b9a36b4c3082ff41d532f1289c` finalized as `TerminalState=Landed`, with `type=EVA`, `sit=LANDED`, and `landed=True` in its vessel sidecar. `RecordingStore.CommitTree` then classified it as `strandedEva` and promoted it to `CommittedProvisional`; the re-fly auto-seal helper never ran because this was a tree-commit side branch, not the active supersede provisional.
+
+**Fix:** `RecordingStore.ApplyRewindProvisionalMergeStates` now treats `strandedEva` as an auto-seal close when the effective terminal recording is an EVA with a safe surface terminal (`Landed` or `Splashed`). The slot receives `Sealed=true` plus `sealedRealTime`, the supersede state version is bumped, and the recording remains `Immutable` instead of becoming `CommittedProvisional`. The legacy classifier still reports normal loaded landed EVAs as stranded unless the commit-time auto-seal has stamped the slot.
+
+**Coverage:** `TreeCommitTests.CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional`, plus existing `UnfinishedFlightsMembershipTests.StrandedEvaLegacyNoFocusSignal_IsMember`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
+## Done - v0.9.2 rewind crew reservations after cutoff
+
+- ~~After a plain Rewind, crew from a committed recording could become selectable for new missions even though the recorded flight never recovered them.~~ Source: `logs/2026-05-04_1817`. Runtime trace showed the pre-rewind ledger walk reserving Jebediah, Bill, and Bob, then `HandleRewindOnLoad` rescuing stripped/orphaned roster entries back to `Available` and calling `LedgerOrchestrator.RecalculateAndPatch(0)`. The cutoff walk correctly filtered future career rows, but it also filtered the future `KerbalAssignment` rows that `KerbalsModule` needs for crew-dialog reservations, leaving `reservations=0`.
+
+**Fix:** cutoff recalculations still walk resources/contracts/facilities at the supplied UT, but now rebuild `KerbalsModule` from the full Effective Ledger Set so committed future recordings continue to own their crew until recovery/death. The recompute updates in-memory reservations only; live roster mutation remains behind `LedgerOrchestrator`'s existing patch gate. The existing tombstone recompute path was generalized and reused, keeping tombstoned crew assignments excluded while avoiding post-rewind resource re-credit.
+
+**Coverage:** `RewindUtCutoffTests.CutoffZero_KeepsCareerStateAtCutoffButProjectsCrewReservations`, `RewindUtCutoffTests.MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations`, `LedgerOrchestratorTests.RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch`, plus the nearby `RewindUtCutoffTests` and `CrewReservationRecomputeTests` suites.
+
+**Status:** CLOSED 2026-05-04.
 
 ---
 
