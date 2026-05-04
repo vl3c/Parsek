@@ -451,8 +451,25 @@ internal static class HighLogic_LoadScene_Patch
             scene, flight);
         if (variant == DialogVariant.None) return true;
 
-        // (5) idle-on-pad auto-discard fast path. Reads live recorder /
-        //     activeTree state via ParsekFlight.IsActiveTreeIdleOnPad.
+        // (5) idle-on-pad auto-discard fast path. Mutation contract
+        //     (Opus pass-7 P2): TryAutoDiscardIdleActiveTree both
+        //     detects AND discards. After return-true here, the
+        //     active tree must be gone, no pending tree must be
+        //     stashed, and no deferred merge dialog must be queued
+        //     by the destination scene's OnLoad. Two steps:
+        //       a. Detect via flight.IsActiveTreeIdleOnPad() (reads
+        //          live state via BackfillMaxDistanceAbsoluteOnly).
+        //       b. If idle, call flight.AutoDiscardIdleActiveTree(
+        //          "scene-exit idle-on-pad auto-discard"), which
+        //          tears down activeTree / recorder /
+        //          backgroundRecorder and runs ledger recalc -
+        //          mirroring the pattern at ParsekFlight.cs:3151-3166
+        //          (post-destruction auto-discard).
+        //     Stock LoadScene then proceeds. OnSceneChangeRequested
+        //     sees activeTree == null and no-ops. The destination
+        //     scene loads with no pending tree, so the OnLoad
+        //     idle-on-pad branch at ParsekScenario.cs:1682-1689 does
+        //     not fire (its precondition is HasPendingTree).
         if (SceneExitInterceptor.TryAutoDiscardIdleActiveTree(scene, flight))
             return true;
 
@@ -830,6 +847,30 @@ construction.
   the live `activeTree` and live vessel position. Walks recordings,
   computes distance-from-launch from live data rather than from the
   post-#290d `MaxDistanceFromLaunch` field.
+- New `internal void AutoDiscardIdleActiveTree(string reason)` -
+  tears down the live recorder / activeTree without going through
+  finalize / stash. Mirrors the cleanup block at
+  `ParsekFlight.cs:3151-3166`:
+  ```csharp
+  ParsekLog.Info("Flight",
+      $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
+  ScreenMessage("Recording discarded - idle on pad", 3f);
+  recorder = null;
+  if (backgroundRecorder != null)
+  {
+      backgroundRecorder.Shutdown();
+      Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+      backgroundRecorder = null;
+  }
+  activeTree = null;
+  // No pending tree was ever stashed (we discard pre-finalize), so
+  // DiscardPendingTreeAndRecalculate is overkill - just do the
+  // ledger recalc directly to roll back any in-flight ledger
+  // entries from this aborted recording.
+  LedgerOrchestrator.RecalculateAndPatch();
+  ```
+  Called by `SceneExitInterceptor.TryAutoDiscardIdleActiveTree` when
+  `IsActiveTreeIdleOnPad()` returns true.
 - No changes to `FinalizeTreeOnSceneChange` itself. After the callback
   runs `MergeCommit` or `MergeDiscard`, both `activeTree` and
   `pendingTree` are cleared, so the existing checks at
@@ -854,7 +895,7 @@ construction.
 | --- | --- | --- |
 | New | `Source/Parsek/SceneExitInterceptor.cs` | Harmony patch (`HarmonyPriority.Last`) + decision helper + idle-pad fast path (live-state); paired `s_AllowNextLoadScene` + `s_AllowNextLoadSceneDestination` token; persistent save (`SafeWritePersistent`) in callback |
 | Modified | `Source/Parsek/MergeDialog.cs` | New `(tree, labels, preCommitFinalize, postChoice)` overload of `ShowTreeDialog`; new `MergeDialogButtonLabels` enum (`Default` / `ReFlyAttempt`); pre-transition title copy; **add `ActiveMergeJournal` guard to `MergeDiscard` and `TryDiscardActiveReFlyAttempt` (P1.C from earlier review)**; hide Discard when journal active |
-| Modified | `Source/Parsek/ParsekFlight.cs` | Expose `FinalizeTreeOnSceneChangeForCallback`, `HasActiveTree`, `ActiveTreeForDisplay`, `IsActiveTreeIdleOnPad` |
+| Modified | `Source/Parsek/ParsekFlight.cs` | Expose `FinalizeTreeOnSceneChangeForCallback`, `HasActiveTree`, `ActiveTreeForDisplay`, `IsActiveTreeIdleOnPad`, `AutoDiscardIdleActiveTree` |
 | Modified | `Source/Parsek/RecordingStore.cs` | Rename `NextTreeSceneExitCommitSuppressionArmedForTesting` -> `IsNextTreeSceneExitCommitSuppressionArmed` and update the existing test caller |
 | Modified | `Source/Parsek/VesselSpawner.cs` | New `BackfillMaxDistanceAbsoluteOnly(Recording)` sibling that filters to Absolute-frame points (Opus pass-4 P1 #3) |
 | Modified | `Source/Parsek/ParsekScenario.cs` | Drop main-menu force-auto-merge; deferred-coroutine canary Warn; (optional) reuse decision helper |
@@ -1021,6 +1062,20 @@ LANDED/SPLASHED situations pass through unchanged.)
   dialog, reading live `MaxDistanceFromLaunch` backfilled by
   `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` over the live
   recording's Points.
+- **Idle-on-pad fast path mutation contract** (Opus pass-7 P2):
+  set up a flight with an idle activeTree on the pad. Trigger the
+  prefix with dest=SPACECENTER. Assert: (a)
+  `flight.HasActiveTree == false` after the prefix returns true,
+  (b) `RecordingStore.HasPendingTree == false`, (c)
+  `ParsekScenario.MergeDialogPending == false`, (d) the live
+  `recorder` and `backgroundRecorder` are null, (e) ledger
+  recalc fired, (f) the ScreenMessage "Recording discarded -
+  idle on pad" was posted, (g) the dialog was NOT shown
+  (`MergeDialog.MergeDialogPending` flag never set). Subsequent
+  in-game `OnSceneChangeRequested` simulation (with
+  `activeTree == null`) is a no-op for the tree path. Subsequent
+  `ParsekScenario.OnLoad` simulation (with no pending tree) does
+  NOT trigger the deferred merge dialog at line 1696.
 - Merge-journal-active hides Discard on regular and Re-Fly
   button-labels variants; handler refusal also fires when invoked
   directly.
