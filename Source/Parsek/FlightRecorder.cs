@@ -41,6 +41,14 @@ namespace Parsek
             Half
         }
 
+        internal struct ReFlyPostLoadSettleDecision
+        {
+            public bool Hold;
+            public bool Clear;
+            public int ConsecutiveUnpackedFrames;
+            public string Reason;
+        }
+
         // Recording output
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
@@ -48,6 +56,17 @@ namespace Parsek
         public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
         public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+
+        // Two unpacked frames let Krakensbane/frame velocity settle after pack->unpack;
+        // 0.1s covers scene-load physics tick variability across local framerates.
+        internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
+        internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
+        internal static Func<float> TimeSinceLevelLoadProviderForTesting;
+        private bool reFlyPostLoadSettleActive;
+        private int reFlyPostLoadSettleUnpackedFrames;
+        private float reFlyPostLoadSettleStartLevelTime;
+        private string reFlyPostLoadSettleSessionId;
+        private string reFlyPostLoadSettleRecordingId;
 
         // Environment tracking
         private EnvironmentHysteresis environmentHysteresis;
@@ -372,6 +391,128 @@ namespace Parsek
                 return QuickloadResumeUTProviderForTesting();
 
             return Planetarium.GetUniversalTime();
+        }
+
+        private static float GetTimeSinceLevelLoad()
+        {
+            return TimeSinceLevelLoadProviderForTesting != null
+                ? TimeSinceLevelLoadProviderForTesting()
+                : Time.timeSinceLevelLoad;
+        }
+
+        internal static ReFlyPostLoadSettleDecision EvaluateReFlyPostLoadSettle(
+            bool active,
+            bool vesselPacked,
+            float elapsedLevelSeconds,
+            int consecutiveUnpackedFrames,
+            int requiredUnpackedFrames = ReFlyPostLoadSettleRequiredUnpackedFrames,
+            float minElapsedLevelSeconds = ReFlyPostLoadSettleMinLevelSeconds)
+        {
+            if (!active)
+            {
+                return new ReFlyPostLoadSettleDecision
+                {
+                    Hold = false,
+                    Clear = false,
+                    ConsecutiveUnpackedFrames = 0,
+                    Reason = "inactive"
+                };
+            }
+
+            if (vesselPacked)
+            {
+                return new ReFlyPostLoadSettleDecision
+                {
+                    Hold = true,
+                    Clear = false,
+                    ConsecutiveUnpackedFrames = 0,
+                    Reason = "packed"
+                };
+            }
+
+            int unpackedFrames = Math.Max(0, consecutiveUnpackedFrames) + 1;
+            if (unpackedFrames < requiredUnpackedFrames)
+            {
+                return new ReFlyPostLoadSettleDecision
+                {
+                    Hold = true,
+                    Clear = false,
+                    ConsecutiveUnpackedFrames = unpackedFrames,
+                    Reason = "unpacked-frame-warmup"
+                };
+            }
+
+            if (elapsedLevelSeconds < minElapsedLevelSeconds)
+            {
+                return new ReFlyPostLoadSettleDecision
+                {
+                    Hold = true,
+                    Clear = false,
+                    ConsecutiveUnpackedFrames = unpackedFrames,
+                    Reason = "level-time-warmup"
+                };
+            }
+
+            return new ReFlyPostLoadSettleDecision
+            {
+                Hold = false,
+                Clear = true,
+                ConsecutiveUnpackedFrames = unpackedFrames,
+                Reason = "settled"
+            };
+        }
+
+        internal static bool ShouldArmReFlyPostLoadSettle(
+            bool isPromotion,
+            bool vesselInAtmosphere,
+            string activeTreeId,
+            string activeRecordingId,
+            ReFlySessionMarker marker,
+            out string reason)
+        {
+            if (!isPromotion)
+            {
+                reason = "not-promotion";
+                return false;
+            }
+            if (!vesselInAtmosphere)
+            {
+                reason = "not-atmospheric";
+                return false;
+            }
+            if (marker == null)
+            {
+                reason = "marker-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.SessionId))
+            {
+                reason = "marker-session-missing";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.TreeId) || string.IsNullOrEmpty(activeTreeId))
+            {
+                reason = "tree-id-missing";
+                return false;
+            }
+            if (!string.Equals(marker.TreeId, activeTreeId, StringComparison.Ordinal))
+            {
+                reason = "tree-mismatch";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId) || string.IsNullOrEmpty(activeRecordingId))
+            {
+                reason = "active-recording-missing";
+                return false;
+            }
+            if (!string.Equals(marker.ActiveReFlyRecordingId, activeRecordingId, StringComparison.Ordinal))
+            {
+                reason = "active-recording-mismatch";
+                return false;
+            }
+
+            reason = "armed";
+            return true;
         }
 
         internal static bool TryGetTailTrackSectionEnvironment(Recording rec, out SegmentEnvironment env)
@@ -5290,12 +5431,25 @@ namespace Parsek
             CaptureStartLocation(v, isPromotion);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
             InsertBoundaryAnchorAndSnapshot(v);
+            ArmReFlyPostLoadSettleIfNeeded(v, isPromotion);
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
             if (v.packed)
             {
-                // Take one boundary point first
-                SamplePosition(v);
+                if (reFlyPostLoadSettleActive
+                    && ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+                {
+                    // The low-level trajectory write gate would suppress this too;
+                    // keep the packed-start skip visible as a one-shot Info log.
+                    ParsekLog.Info("Recorder",
+                        $"Re-Fly post-load settle skipped packed atmospheric start boundary sample " +
+                        $"(alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
+                }
+                else
+                {
+                    // Take one boundary point first
+                    SamplePosition(v);
+                }
 
                 // Skip orbit segment if below atmosphere — Keplerian orbit ignores drag
                 if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
@@ -5451,6 +5605,7 @@ namespace Parsek
             highFidelitySamplingReason = null;
             reFlyTreeSamplingProximityMeters = double.NaN;
             reFlyTreeSamplingProximitySource = null;
+            ResetReFlyPostLoadSettle();
             highFidelityProximityVesselPids.Clear();
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
@@ -5472,6 +5627,134 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
                 $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m" +
                 $", altThreshold={currentAltitudeThreshold:F0}m, aboveThreshold={wasAboveAltitudeThreshold}");
+        }
+
+        private void ResetReFlyPostLoadSettle()
+        {
+            reFlyPostLoadSettleActive = false;
+            reFlyPostLoadSettleUnpackedFrames = 0;
+            reFlyPostLoadSettleStartLevelTime = 0f;
+            reFlyPostLoadSettleSessionId = null;
+            reFlyPostLoadSettleRecordingId = null;
+        }
+
+        internal void ActivateReFlyPostLoadSettleForTesting(string sessionId, string recordingId)
+        {
+            reFlyPostLoadSettleActive = true;
+            reFlyPostLoadSettleUnpackedFrames = 0;
+            reFlyPostLoadSettleStartLevelTime = 0f;
+            reFlyPostLoadSettleSessionId = sessionId;
+            reFlyPostLoadSettleRecordingId = recordingId;
+        }
+
+        internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
+
+        private void ArmReFlyPostLoadSettleIfNeeded(Vessel v, bool isPromotion)
+        {
+            bool vesselInAtmosphere = v != null
+                && v.mainBody != null
+                && ShouldSkipOrbitSegmentForAtmosphere(
+                    v.mainBody.atmosphere,
+                    v.altitude,
+                    v.mainBody.atmosphereDepth);
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (!ShouldArmReFlyPostLoadSettle(
+                    isPromotion,
+                    vesselInAtmosphere,
+                    ActiveTree?.Id,
+                    ActiveTree?.ActiveRecordingId,
+                    marker,
+                    out string reason))
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"Re-Fly post-load settle not armed: reason={reason} " +
+                    $"isPromotion={isPromotion} inAtmosphere={vesselInAtmosphere}");
+                return;
+            }
+
+            reFlyPostLoadSettleActive = true;
+            reFlyPostLoadSettleUnpackedFrames = 0;
+            reFlyPostLoadSettleStartLevelTime = GetTimeSinceLevelLoad();
+            reFlyPostLoadSettleSessionId = marker.SessionId;
+            reFlyPostLoadSettleRecordingId = marker.ActiveReFlyRecordingId;
+            string altText = v != null
+                ? v.altitude.ToString("F0", CultureInfo.InvariantCulture)
+                : "NaN";
+
+            ParsekLog.Info("Recorder",
+                $"Re-Fly post-load settle armed: session={ShortId(reFlyPostLoadSettleSessionId)} " +
+                $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                $"packed={v?.packed} alt={altText} " +
+                $"requiredUnpackedFrames={ReFlyPostLoadSettleRequiredUnpackedFrames} " +
+                $"minLevelSeconds={ReFlyPostLoadSettleMinLevelSeconds.ToString("F3", CultureInfo.InvariantCulture)}");
+        }
+
+        private bool ShouldHoldReFlyPostLoadSettle(Vessel v, double currentUT)
+        {
+            if (!reFlyPostLoadSettleActive)
+                return false;
+
+            float elapsed = GetTimeSinceLevelLoad() - reFlyPostLoadSettleStartLevelTime;
+            ReFlyPostLoadSettleDecision decision = EvaluateReFlyPostLoadSettle(
+                active: true,
+                vesselPacked: v != null && v.packed,
+                elapsedLevelSeconds: elapsed,
+                consecutiveUnpackedFrames: reFlyPostLoadSettleUnpackedFrames);
+            reFlyPostLoadSettleUnpackedFrames = decision.ConsecutiveUnpackedFrames;
+
+            if (decision.Clear)
+            {
+                ParsekLog.Info("Recorder",
+                    $"Re-Fly post-load settle complete: session={ShortId(reFlyPostLoadSettleSessionId)} " +
+                    $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                    $"ut={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames} " +
+                    $"elapsedLevelSeconds={elapsed.ToString("F3", CultureInfo.InvariantCulture)}");
+                ResetReFlyPostLoadSettle();
+                return false;
+            }
+
+            if (decision.Hold)
+            {
+                ParsekLog.VerboseRateLimited("Recorder",
+                    "refly-post-load-settle|" + (reFlyPostLoadSettleSessionId ?? "<no-session>"),
+                    $"Re-Fly post-load settle holding trajectory sample: " +
+                    $"session={ShortId(reFlyPostLoadSettleSessionId)} " +
+                    $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                    $"reason={decision.Reason} packed={v?.packed} " +
+                    $"ut={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames} " +
+                    $"elapsedLevelSeconds={elapsed.ToString("F3", CultureInfo.InvariantCulture)}",
+                    1.0);
+                return true;
+            }
+
+            ResetReFlyPostLoadSettle();
+            return false;
+        }
+
+        private bool ShouldSuppressReFlyPostLoadTrajectoryWrite(double ut, string source)
+        {
+            if (!reFlyPostLoadSettleActive)
+                return false;
+
+            ParsekLog.VerboseRateLimited("Recorder",
+                "refly-post-load-settle-write|" + (reFlyPostLoadSettleSessionId ?? "<no-session>") + "|" + (source ?? "unknown"),
+                $"Re-Fly post-load settle suppressed trajectory write: " +
+                $"source={source ?? "unknown"} " +
+                $"session={ShortId(reFlyPostLoadSettleSessionId)} " +
+                $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames}",
+                1.0);
+            return true;
+        }
+
+        private static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return "(none)";
+            return id.Length <= 8 ? id : id.Substring(0, 8);
         }
 
         /// <summary>
@@ -5522,6 +5805,8 @@ namespace Parsek
                 // if the anchor UT would equal the first live sample's UT
                 double anchorUT = anchor.ut - 0.001;
                 anchor.ut = anchorUT;
+                // Safe before the Re-Fly settle gate arms: BoundaryAnchor is the prior
+                // chain segment's already-recorded endpoint, not post-load live state.
                 Recording.Add(anchor);
                 lastRecordedUT = anchorUT;
                 lastRecordedVelocity = anchor.velocity;
@@ -6433,6 +6718,9 @@ namespace Parsek
             RefreshFinalizationCache(v, "periodic");
 
             double currentUT = Planetarium.GetUniversalTime();
+            if (ShouldHoldReFlyPostLoadSettle(v, currentUT))
+                return;
+
             Vector3 currentVelocity = SampleCurrentVelocity(v);
             if (v.packed)
             {
@@ -6798,6 +7086,13 @@ namespace Parsek
         {
             if (v == null || string.IsNullOrWhiteSpace(candidate.RecordingId))
                 return false;
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(boundaryUT, "relative-boundary-seed"))
+            {
+                // Suppression is a handled boundary during the settle window. Returning
+                // false would force the caller down the absolute fallback path and write
+                // the bad packed-frame sample we are deliberately avoiding.
+                return true;
+            }
             if (!TryResolveAnchorPoseForCandidate(
                     candidate,
                     boundaryUT,
@@ -7399,6 +7694,9 @@ namespace Parsek
         /// </summary>
         private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
+                return;
+
             if (object.ReferenceEquals(v, null))
             {
                 CommitRecordedPointWithoutVessel(point, absoluteShadowPoint);
@@ -7526,6 +7824,9 @@ namespace Parsek
             TrajectoryPoint point,
             TrajectoryPoint? absoluteShadowPoint = null)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
+                return;
+
             if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
             {
                 TrimRecordingToUT(point.ut);
@@ -7789,6 +8090,8 @@ namespace Parsek
                     "SamplePosition called with null vessel");
                 return;
             }
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(ut, "sample-position"))
+                return;
 
             Vector3 currentVelocity = SampleCurrentVelocity(v);
             TrajectoryPoint point = BuildTrajectoryPoint(
@@ -7811,6 +8114,8 @@ namespace Parsek
                     $"section-start seam skipped: reason={reason ?? "<unknown>"} null vessel");
                 return;
             }
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(startUT, "section-start-seam-" + (reason ?? "unknown")))
+                return;
 
             TrajectoryPoint seamPoint = BuildTrajectoryPoint(v, SampleCurrentVelocity(v), startUT);
             TryCanonicalizeActiveReFlyRecordingPoint(ref seamPoint, "section-start-seam");
@@ -7824,6 +8129,9 @@ namespace Parsek
 
         private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(seamPoint.ut, "section-start-seam-" + (reason ?? "unknown")))
+                return;
+
             if (!trackSectionActive
                 || currentTrackSection.referenceFrame != ReferenceFrame.Absolute
                 || currentTrackSection.frames == null)
@@ -8212,6 +8520,8 @@ namespace Parsek
         private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? absoluteShadowPoint = null)
         {
             if (!point.HasValue) return;
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.Value.ut, "section-boundary-seed"))
+                return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
