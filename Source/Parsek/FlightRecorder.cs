@@ -5437,6 +5437,8 @@ namespace Parsek
                 if (reFlyPostLoadSettleActive
                     && ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
                 {
+                    // The low-level trajectory write gate would suppress this too;
+                    // keep the packed-start skip visible as a one-shot Info log.
                     ParsekLog.Info("Recorder",
                         $"Re-Fly post-load settle skipped packed atmospheric start boundary sample " +
                         $"(alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
@@ -5633,6 +5635,17 @@ namespace Parsek
             reFlyPostLoadSettleSessionId = null;
             reFlyPostLoadSettleRecordingId = null;
         }
+
+        internal void ActivateReFlyPostLoadSettleForTesting(string sessionId, string recordingId)
+        {
+            reFlyPostLoadSettleActive = true;
+            reFlyPostLoadSettleUnpackedFrames = 0;
+            reFlyPostLoadSettleStartLevelTime = 0f;
+            reFlyPostLoadSettleSessionId = sessionId;
+            reFlyPostLoadSettleRecordingId = recordingId;
+        }
+
+        internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
 
         private void ArmReFlyPostLoadSettleIfNeeded(Vessel v, bool isPromotion)
         {
@@ -7070,7 +7083,12 @@ namespace Parsek
             if (v == null || string.IsNullOrWhiteSpace(candidate.RecordingId))
                 return false;
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(boundaryUT, "relative-boundary-seed"))
+            {
+                // Suppression is a handled boundary during the settle window. Returning
+                // false would force the caller down the absolute fallback path and write
+                // the bad packed-frame sample we are deliberately avoiding.
                 return true;
+            }
             if (!TryResolveAnchorPoseForCandidate(
                     candidate,
                     boundaryUT,

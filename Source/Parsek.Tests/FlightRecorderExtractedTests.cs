@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -142,6 +141,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EvaluateReFlyPostLoadSettle_Inactive_DoesNotHoldOrClear()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: false,
+                vesselPacked: true,
+                elapsedLevelSeconds: 0.0f,
+                consecutiveUnpackedFrames: 3);
+
+            Assert.False(result.Hold);
+            Assert.False(result.Clear);
+            Assert.Equal(0, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("inactive", result.Reason);
+        }
+
+        [Fact]
         public void EvaluateReFlyPostLoadSettle_FirstUnpackedFrame_Holds()
         {
             var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
@@ -208,48 +222,45 @@ namespace Parsek.Tests
             Assert.Equal("armed", reason);
         }
 
-        [Fact]
-        public void ShouldArmReFlyPostLoadSettle_NonPromotion_ReturnsFalse()
+        [Theory]
+        [InlineData(false, true, true, "sess", "tree", "rec", "tree", "rec", "not-promotion")]
+        [InlineData(true, false, true, "sess", "tree", "rec", "tree", "rec", "not-atmospheric")]
+        [InlineData(true, true, false, null, null, null, "tree", "rec", "marker-missing")]
+        [InlineData(true, true, true, null, "tree", "rec", "tree", "rec", "marker-session-missing")]
+        [InlineData(true, true, true, "sess", null, "rec", "tree", "rec", "tree-id-missing")]
+        [InlineData(true, true, true, "sess", "tree-a", "rec", "tree-b", "rec", "tree-mismatch")]
+        [InlineData(true, true, true, "sess", "tree", null, "tree", "rec", "active-recording-missing")]
+        [InlineData(true, true, true, "sess", "tree", "rec", "tree", "other", "active-recording-mismatch")]
+        public void ShouldArmReFlyPostLoadSettle_RejectionsReturnExpectedReason(
+            bool isPromotion,
+            bool vesselInAtmosphere,
+            bool includeMarker,
+            string markerSessionId,
+            string markerTreeId,
+            string markerRecordingId,
+            string activeTreeId,
+            string activeRecordingId,
+            string expectedReason)
         {
-            var marker = new ReFlySessionMarker
-            {
-                SessionId = "sess",
-                TreeId = "tree",
-                ActiveReFlyRecordingId = "rec"
-            };
+            ReFlySessionMarker marker = includeMarker
+                ? new ReFlySessionMarker
+                {
+                    SessionId = markerSessionId,
+                    TreeId = markerTreeId,
+                    ActiveReFlyRecordingId = markerRecordingId
+                }
+                : null;
 
             bool arm = FlightRecorder.ShouldArmReFlyPostLoadSettle(
-                isPromotion: false,
-                vesselInAtmosphere: true,
-                activeTreeId: "tree",
-                activeRecordingId: "rec",
-                marker: marker,
+                isPromotion,
+                vesselInAtmosphere,
+                activeTreeId,
+                activeRecordingId,
+                marker,
                 out string reason);
 
             Assert.False(arm);
-            Assert.Equal("not-promotion", reason);
-        }
-
-        [Fact]
-        public void ShouldArmReFlyPostLoadSettle_RecordingMismatch_ReturnsFalse()
-        {
-            var marker = new ReFlySessionMarker
-            {
-                SessionId = "sess",
-                TreeId = "tree",
-                ActiveReFlyRecordingId = "rec"
-            };
-
-            bool arm = FlightRecorder.ShouldArmReFlyPostLoadSettle(
-                isPromotion: true,
-                vesselInAtmosphere: true,
-                activeTreeId: "tree",
-                activeRecordingId: "other",
-                marker: marker,
-                out string reason);
-
-            Assert.False(arm);
-            Assert.Equal("active-recording-mismatch", reason);
+            Assert.Equal(expectedReason, reason);
         }
 
         [Fact]
@@ -257,7 +268,7 @@ namespace Parsek.Tests
         {
             var recorder = new FlightRecorder();
             recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 10.0);
-            SetReFlyPostLoadSettleActive(recorder);
+            recorder.ActivateReFlyPostLoadSettleForTesting("session-1", "recording-1");
 
             recorder.AppendSectionStartSeamPointForTesting(
                 new TrajectoryPoint
@@ -270,37 +281,11 @@ namespace Parsek.Tests
                 "post-load-test");
 
             Assert.Empty(recorder.Recording);
-            TrackSection section = GetCurrentTrackSection(recorder);
+            TrackSection section = recorder.CurrentTrackSectionForTesting;
             Assert.NotNull(section.frames);
             Assert.Empty(section.frames);
             Assert.Contains(logLines, l => l.Contains("suppressed trajectory write")
                 && l.Contains("section-start-seam-post-load-test"));
-        }
-
-        private static void SetReFlyPostLoadSettleActive(FlightRecorder recorder)
-        {
-            SetPrivateField(recorder, "reFlyPostLoadSettleActive", true);
-            SetPrivateField(recorder, "reFlyPostLoadSettleSessionId", "session-1");
-            SetPrivateField(recorder, "reFlyPostLoadSettleRecordingId", "recording-1");
-        }
-
-        private static TrackSection GetCurrentTrackSection(FlightRecorder recorder)
-        {
-            return (TrackSection)GetPrivateField(recorder, "currentTrackSection");
-        }
-
-        private static object GetPrivateField(FlightRecorder recorder, string name)
-        {
-            FieldInfo field = typeof(FlightRecorder).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(field);
-            return field.GetValue(recorder);
-        }
-
-        private static void SetPrivateField(FlightRecorder recorder, string name, object value)
-        {
-            FieldInfo field = typeof(FlightRecorder).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(field);
-            field.SetValue(recorder, value);
         }
 
         #endregion
