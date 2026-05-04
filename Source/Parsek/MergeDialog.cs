@@ -438,11 +438,21 @@ namespace Parsek
             // origin trim/restore fallbacks. New sessions fork into a separate
             // provisional, so removing the fork from the committed list above
             // already abandons the attempt without touching origin's data.
+            // For legacy in-flight sessions: prefer restoring origin from
+            // the v0.9.1 PR #733 PRE_REFLY_ORIGINAL snapshot (read into the
+            // transient LegacyPreReFlyOriginalRecording field at load time
+            // and persisted across F5/F9). When the snapshot is absent
+            // (older save with no snapshot, or snapshot was lost), fall
+            // through to the v0.9.0 trim path, which is data-lossy in some
+            // cases but is the only recovery option.
             bool legacyInPlaceSession = marker != null
                 && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
                 && string.Equals(marker.ActiveReFlyRecordingId,
                     marker.OriginChildRecordingId, System.StringComparison.Ordinal);
+            bool legacyOriginalRestored = legacyInPlaceSession
+                && RestoreOriginFromLegacyPreReFlyOriginalSnapshot(tree, marker);
             bool inPlaceTrimmed = legacyInPlaceSession
+                && !legacyOriginalRestored
                 && committedTreeDetached
                 && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
@@ -474,7 +484,8 @@ namespace Parsek
                 $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
                 $"transientCleared={transientCleared}, " +
-                $"legacyInPlaceSession={legacyInPlaceSession}, inPlaceTrimmed={inPlaceTrimmed}, " +
+                $"legacyInPlaceSession={legacyInPlaceSession}, " +
+                $"legacyOriginalRestored={legacyOriginalRestored}, inPlaceTrimmed={inPlaceTrimmed}, " +
                 $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
                 $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
@@ -721,15 +732,89 @@ namespace Parsek
             return cleared;
         }
 
-        // Issue #734: RestoreInPlaceOriginalRecordingFromSnapshot was the
-        // PR #733 conservative rollback path -- it rebuilt the origin
-        // recording from the captured PRE_REFLY_ORIGINAL snapshot when the
-        // pre-fork in-place attempt mutated origin in flight. The fork
-        // model in #734 never mutates origin, so the rollback snapshot is
-        // unnecessary and the helper has been removed. The legacy
-        // TrimInPlaceAttemptBackToOriginRewindPoint path below remains as
-        // a fallback for any in-flight session originally created under
-        // the pre-fork mutation path.
+        // Issue #734 migration window: the PR #733 conservative rollback
+        // path is preserved as a one-release migration aid for legacy
+        // in-flight sessions that loaded from a v0.9.1 save with
+        // PRE_REFLY_ORIGINAL still on disk. The codec reads the snapshot
+        // into Recording.LegacyPreReFlyOriginalRecording at load time;
+        // this helper restores origin from it during Discard so the v0.9.1
+        // data-loss fix survives the upgrade. The fork model never
+        // populates the legacy field for new sessions, so this path is
+        // gated to fire at most once per upgraded save before the snapshot
+        // disappears with the next save.
+        private static bool RestoreOriginFromLegacyPreReFlyOriginalSnapshot(
+            RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.Recordings == null || marker == null)
+                return false;
+            if (string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                || string.IsNullOrEmpty(marker.SessionId))
+                return false;
+            if (!tree.Recordings.TryGetValue(
+                    marker.OriginChildRecordingId, out Recording origin)
+                || origin == null)
+            {
+                return false;
+            }
+            if (origin.LegacyPreReFlyOriginalRecording == null
+                || string.IsNullOrEmpty(origin.LegacyPreReFlyOriginalSessionId)
+                || !string.Equals(
+                    origin.LegacyPreReFlyOriginalSessionId,
+                    marker.SessionId,
+                    System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            Recording snapshot = origin.LegacyPreReFlyOriginalRecording;
+            // Restore in-place: the recording instance stays the same so any
+            // tree.Recordings / CommittedRecordings / supersede references
+            // remain valid.
+            origin.Points = snapshot.Points != null
+                ? new System.Collections.Generic.List<TrajectoryPoint>(snapshot.Points)
+                : new System.Collections.Generic.List<TrajectoryPoint>();
+            origin.OrbitSegments = snapshot.OrbitSegments != null
+                ? new System.Collections.Generic.List<OrbitSegment>(snapshot.OrbitSegments)
+                : new System.Collections.Generic.List<OrbitSegment>();
+            origin.PartEvents = snapshot.PartEvents != null
+                ? new System.Collections.Generic.List<PartEvent>(snapshot.PartEvents)
+                : new System.Collections.Generic.List<PartEvent>();
+            origin.FlagEvents = snapshot.FlagEvents != null
+                ? new System.Collections.Generic.List<FlagEvent>(snapshot.FlagEvents)
+                : new System.Collections.Generic.List<FlagEvent>();
+            origin.SegmentEvents = snapshot.SegmentEvents != null
+                ? new System.Collections.Generic.List<SegmentEvent>(snapshot.SegmentEvents)
+                : new System.Collections.Generic.List<SegmentEvent>();
+            origin.TrackSections = snapshot.TrackSections != null
+                ? Recording.DeepCopyTrackSections(snapshot.TrackSections)
+                : new System.Collections.Generic.List<TrackSection>();
+            origin.TerminalStateValue = snapshot.TerminalStateValue;
+            origin.TerminalPosition = snapshot.TerminalPosition;
+            origin.EndpointPhase = snapshot.EndpointPhase;
+            origin.EndpointBodyName = snapshot.EndpointBodyName;
+            origin.TerrainHeightAtEnd = snapshot.TerrainHeightAtEnd;
+            origin.MergeState = snapshot.MergeState;
+            origin.ChildBranchPointId = snapshot.ChildBranchPointId;
+            origin.VesselDestroyed = snapshot.VesselDestroyed;
+            origin.ExplicitStartUT = snapshot.ExplicitStartUT;
+            origin.ExplicitEndUT = snapshot.ExplicitEndUT;
+            origin.CreatingSessionId = null;
+            origin.ProvisionalForRpId = null;
+            origin.SupersedeTargetId = null;
+            origin.LegacyPreReFlyOriginalSessionId = null;
+            origin.LegacyPreReFlyOriginalRecording = null;
+            origin.MarkFilesDirty();
+
+            ParsekLog.Info("MergeDialog",
+                "Restored origin from legacy v0.9.1 PRE_REFLY_ORIGINAL snapshot: "
+                + "rec=" + (origin.RecordingId ?? "<no-id>")
+                + " sess=" + (marker.SessionId ?? "<no-id>")
+                + " points=" + origin.Points.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " trackSections=" + origin.TrackSections.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " (one-release migration aid; the snapshot is now cleared, "
+                + "future saves will not contain a PRE_REFLY_ORIGINAL node)");
+            return true;
+        }
 
         private static bool TrimInPlaceAttemptBackToOriginRewindPoint(
             RecordingTree tree,

@@ -310,6 +310,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsInPlaceContinuationArrival_ForkModeMarker_ReturnsTrue()
+        {
+            // Issue #734 fork shape: distinct ids + InPlaceContinuation flag.
+            // The post-switch auto-record arming suppression must fire here
+            // for the same reason it fires for the legacy active==origin
+            // case -- the player is still on the same physical vessel.
+            const uint forkPid = 3474243253u;
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-fork-of-booster",
+                OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
+            };
+            var committed = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-booster", VesselPersistentId = forkPid },
+                new Recording { RecordingId = "rec-fork-of-booster", VesselPersistentId = forkPid },
+            };
+
+            Assert.True(ParsekFlight.IsInPlaceContinuationArrivalForMarker(
+                forkPid, marker, committed));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuationArrival_ForkModeMarkerWithoutFlag_ReturnsFalse()
+        {
+            // Distinct ids without the InPlaceContinuation flag is the
+            // ordinary placeholder pattern, not in-place. Suppression must
+            // NOT fire -- the active vessel is a fresh strip-spawned one
+            // and post-switch auto-record arming is correct.
+            const uint placeholderPid = 4444u;
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-placeholder",
+                OriginChildRecordingId = "rec-origin",
+                InPlaceContinuation = false,
+            };
+            var committed = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-placeholder", VesselPersistentId = placeholderPid },
+            };
+
+            Assert.False(ParsekFlight.IsInPlaceContinuationArrivalForMarker(
+                placeholderPid, marker, committed));
+        }
+
+        [Fact]
         public void MergeDialog_InPlaceContinuationActiveLeaf_RendersCanPersistTrue()
         {
             // After the marker-aware restore + 7-minute booster flight + scene

@@ -898,19 +898,85 @@ namespace Parsek
                 }
             }
 
-            // Issue #734: PRE_REFLY_ORIGINAL is a legacy node that was written
-            // by the pre-fork in-place Re-Fly path so Discard could roll the
-            // origin recording back. The fork model never mutates origin, so
-            // the rollback snapshot is unnecessary; we ignore the node when
-            // loading older saves and leave it to be dropped on the next save.
-            if (!RecordingStore.SuppressLogging
-                && recNode.GetNode("PRE_REFLY_ORIGINAL") != null)
+            // Issue #734 migration window: PRE_REFLY_ORIGINAL was written by
+            // the v0.9.1 PR #733 code so Discard could roll the origin
+            // recording back after the pre-fork in-place mutation collapsed
+            // origin's data. The fork model never mutates origin, so the
+            // rollback snapshot is unnecessary for new sessions. But a save
+            // written mid-Re-Fly under v0.9.1 still carries it, and that
+            // legacy session loads with `active == origin` (no
+            // InPlaceContinuation flag) and origin's `.prec` may already
+            // contain the destructive in-place mutation. Decode the snapshot
+            // into a transient migration field on the recording so
+            // <see cref="MergeDialog.MergeDiscard"/>'s legacy-discard branch
+            // can restore origin from it instead of falling through to the
+            // v0.9.0 trim path that PR #733 was added to replace. The codec
+            // never writes the snapshot back for new sessions, so a single
+            // commit/discard cycle removes the legacy payload.
+            ConfigNode legacyOriginalNode = recNode.GetNode("PRE_REFLY_ORIGINAL");
+            if (legacyOriginalNode != null)
             {
-                ParsekLog.Verbose("RecordingTree",
-                    "PRE_REFLY_ORIGINAL ignored: rec=" + (rec.RecordingId ?? "<no-id>")
-                    + " (legacy node from pre-#734 in-place rollback path; fork model "
-                    + "no longer needs the rollback snapshot)");
+                string legacySessionId = legacyOriginalNode.GetValue("sessionId");
+                ConfigNode legacyRecordingNode = legacyOriginalNode.GetNode("RECORDING");
+                if (!string.IsNullOrEmpty(legacySessionId)
+                    && legacyRecordingNode != null)
+                {
+                    Recording legacySnapshot = new Recording
+                    {
+                        RecordingFormatVersion = rec.RecordingFormatVersion,
+                    };
+                    LoadRecordingFrom(legacyRecordingNode, legacySnapshot);
+                    TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(
+                        legacyRecordingNode, legacySnapshot);
+                    legacySnapshot.VesselSnapshot = LoadInlineSnapshot(
+                        legacyOriginalNode, "VESSEL_SNAPSHOT");
+                    legacySnapshot.GhostVisualSnapshot = LoadInlineSnapshot(
+                        legacyOriginalNode, "GHOST_SNAPSHOT");
+                    legacySnapshot.ClearPreReFlySessionSnapshots();
+                    legacySnapshot.LegacyPreReFlyOriginalSessionId = null;
+                    legacySnapshot.LegacyPreReFlyOriginalRecording = null;
+                    rec.LegacyPreReFlyOriginalSessionId = legacySessionId;
+                    rec.LegacyPreReFlyOriginalRecording = legacySnapshot;
+                    if (!RecordingStore.SuppressLogging)
+                    {
+                        var icL = CultureInfo.InvariantCulture;
+                        ParsekLog.Info("RecordingTree",
+                            "PRE_REFLY_ORIGINAL loaded into legacy migration field: rec="
+                            + (rec.RecordingId ?? "<no-id>")
+                            + " sess=" + legacySessionId
+                            + " points=" + (legacySnapshot.Points?.Count ?? 0).ToString(icL)
+                            + " trackSections=" + (legacySnapshot.TrackSections?.Count ?? 0).ToString(icL)
+                            + " (v0.9.1 snapshot; v0.9.2 fork model uses it only as "
+                            + "Discard rollback for legacy in-flight sessions)");
+                    }
+                }
+                else if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingTree",
+                        "PRE_REFLY_ORIGINAL malformed (missing sessionId or RECORDING child): rec="
+                        + (rec.RecordingId ?? "<no-id>") + " - dropping legacy node");
+                }
             }
+        }
+
+        private static ConfigNode LoadInlineSnapshot(ConfigNode parent, string wrapperName)
+        {
+            if (parent == null || string.IsNullOrEmpty(wrapperName))
+                return null;
+            ConfigNode wrapper = parent.GetNode(wrapperName);
+            if (wrapper == null || wrapper.nodes == null || wrapper.nodes.Count == 0)
+                return null;
+            ConfigNode snapshot = null;
+            string nodeName = wrapper.GetValue("nodeName");
+            if (!string.IsNullOrEmpty(nodeName))
+                snapshot = wrapper.GetNode(nodeName);
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("VESSEL");
+            if (snapshot == null)
+                snapshot = wrapper.GetNode("SNAPSHOT");
+            if (snapshot == null)
+                snapshot = wrapper.nodes[0];
+            return snapshot != null ? snapshot.CreateCopy() : null;
         }
 
         #endregion

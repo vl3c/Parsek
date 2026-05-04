@@ -124,6 +124,19 @@ namespace Parsek
         [NonSerialized] private string cachedPreReFlyAnchorRecordingSessionId;
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
 
+        // Issue #734 migration window (transient, never re-saved): when an
+        // .sfs written by the v0.9.1 PR #733 code carries a PRE_REFLY_ORIGINAL
+        // node, the codec reads it into LegacyPreReFlyOriginalRecording so
+        // MergeDialog's legacy-discard branch can restore origin from the
+        // snapshot for the in-flight session that loaded the save. This
+        // field is intentionally transient -- AtomicMarkerWrite never
+        // populates it for new sessions and the codec never writes it back,
+        // so once the legacy session commits or discards the field is gone
+        // forever. Remove this seam once we are confident no v0.9.1 saves
+        // remain in the wild (target: v0.9.3+).
+        [NonSerialized] internal string LegacyPreReFlyOriginalSessionId;
+        [NonSerialized] internal Recording LegacyPreReFlyOriginalRecording;
+
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
@@ -701,6 +714,16 @@ namespace Parsek
             clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
                 ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
                 : null;
+            // Preserve the v0.9.1 PRE_REFLY_ORIGINAL migration field so a
+            // splice / repair clone of a legacy in-flight recording does not
+            // silently drop the rollback snapshot before MergeDialog's
+            // legacy-discard branch can use it. The snapshot is the
+            // source's reference (no inner-recording deep clone) because
+            // it's already a transient frozen copy and #734's discard path
+            // only reads its lists; the source's snapshot is cleared the
+            // moment the discard fires.
+            clone.LegacyPreReFlyOriginalSessionId = source.LegacyPreReFlyOriginalSessionId;
+            clone.LegacyPreReFlyOriginalRecording = source.LegacyPreReFlyOriginalRecording;
 
             return clone;
         }

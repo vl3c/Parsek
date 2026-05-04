@@ -617,12 +617,14 @@ namespace Parsek.Tests
             Assert.Null(scenario.ActiveMergeJournal);
         }
 
-        // Issue #734: MergeDiscard_ReFlyInPlaceCommittedTreePath_RestoresPreReFlyOriginalSnapshot
-        // and MergeDiscard_ReFlyInPlaceDetachedPath_RestoresPreReFlyOriginalSnapshot covered the
-        // PR #733 conservative rollback path. The fork model in #734 never
-        // mutates the origin recording, so the snapshot rollback is no longer
-        // captured or replayed. Fork-mode discard coverage lives in
-        // ForkedInPlaceReFlyDiscardTests.
+        // Issue #734: the v0.9.1 RestoreInPlaceOriginalRecordingFromSnapshot
+        // tests are gone because the fork model never mutates origin and the
+        // PR #733 capture path is no longer fired for new sessions.
+        // Fork-mode discard coverage lives in
+        // MergeDiscard_ReFlyInPlaceFork_RemovesForkLeavesOriginIntact below.
+        // Legacy in-flight migration (a v0.9.1 save with PRE_REFLY_ORIGINAL
+        // loaded under v0.9.2 and then discarded) is covered by
+        // MergeDiscard_LegacyInPlaceSessionWithMigrationSnapshot_RestoresOrigin.
 
         [Fact]
         public void MergeDiscard_ReFlyInPlaceDetachedPath_TrimsOriginBackToRewindPoint()
@@ -975,6 +977,212 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Re-Fly Attempt Discard")
                 && l.Contains("legacyInPlaceSession=False"));
+        }
+
+        // ================================================================
+        // 8. Issue #734 legacy migration: a v0.9.1 in-flight save loaded
+        //    under v0.9.2 carries PRE_REFLY_ORIGINAL on origin (read into
+        //    Recording.LegacyPreReFlyOriginalRecording). Discard must
+        //    restore origin from that snapshot instead of falling through
+        //    to the v0.9.0 trim path that PR #733 was added to replace.
+        // ================================================================
+
+        /// <summary>
+        /// Issue #734 legacy migration regression: when a v0.9.1 save is
+        /// loaded mid in-flight Re-Fly under v0.9.2, the codec reads the
+        /// PRE_REFLY_ORIGINAL node into the transient
+        /// <see cref="Recording.LegacyPreReFlyOriginalRecording"/> field.
+        /// On Discard the legacy in-place branch (active == origin) prefers
+        /// the snapshot restore path over the trim path, so origin is
+        /// reconstructed byte-for-byte instead of trimmed (the trim path
+        /// is still used as a fallback when no snapshot is present).
+        /// </summary>
+        [Fact]
+        public void MergeDiscard_LegacyInPlaceSessionWithMigrationSnapshot_RestoresOrigin()
+        {
+            const string treeId = "tree-734-legacy-migration";
+            const string sessionId = "sess-734-legacy-migration";
+            const string rpId = "rp_merge_dialog";
+            const string originId = "rec-legacy-origin";
+
+            // Origin as it was BEFORE the v0.9.1 in-place mutation: a
+            // landed flight with two real points and one TrackSection.
+            // This is what the snapshot will restore us to.
+            var snapshot = MakeRecording(originId, treeId, 100.0, 200.0);
+            snapshot.MergeState = MergeState.Immutable;
+            snapshot.ExplicitStartUT = 100.0;
+            snapshot.ExplicitEndUT = 200.0;
+            snapshot.TerminalStateValue = TerminalState.Landed;
+            snapshot.TerminalPosition = new SurfacePosition
+            {
+                body = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0,
+                situation = SurfaceSituation.Landed,
+            };
+            snapshot.EndpointPhase = RecordingEndpointPhase.SurfacePosition;
+            snapshot.EndpointBodyName = "Kerbin";
+            snapshot.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0, endUT = 200.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            });
+
+            // Origin AS LOADED FROM v0.9.1 SAVE: trajectory data already
+            // mutated by the in-place attempt, terminal state cleared,
+            // session metadata still tagged, and the legacy migration
+            // field populated by the codec from the on-disk
+            // PRE_REFLY_ORIGINAL node.
+            var origin = MakeRecording(originId, treeId, 100.0, 260.0, emptyPoints: true);
+            origin.Points.Add(new TrajectoryPoint { ut = 130.0, bodyName = "Kerbin" });
+            origin.MergeState = MergeState.NotCommitted;
+            origin.CreatingSessionId = sessionId;
+            origin.ProvisionalForRpId = rpId;
+            origin.SupersedeTargetId = originId;
+            origin.ChildBranchPointId = "attempt-bp";
+            origin.VesselDestroyed = true;
+            origin.LegacyPreReFlyOriginalSessionId = sessionId;
+            origin.LegacyPreReFlyOriginalRecording = snapshot;
+
+            var pendingTree = MakeTree(treeId, originId, origin);
+            RecordingStore.StashPendingTree(pendingTree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp-734-legacy",
+                UT = 130.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
+                },
+            };
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                // Legacy in-place marker shape: active == origin, no
+                // InPlaceContinuation flag.
+                ActiveReFlySessionMarker = MakeMarker(sessionId, treeId, originId, originId),
+            };
+            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeDialog.MergeDiscard(pendingTree);
+
+            // Origin must be restored from the legacy snapshot. The
+            // snapshot was built via MakeRecording which adds three points
+            // (start / mid / end), plus the explicit TrackSection below.
+            Assert.Equal(3, origin.Points.Count);
+            Assert.Single(origin.TrackSections);
+            Assert.Equal(TerminalState.Landed, origin.TerminalStateValue);
+            Assert.True(origin.TerminalPosition.HasValue);
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+            Assert.Null(origin.CreatingSessionId);
+            Assert.Null(origin.ProvisionalForRpId);
+            Assert.Null(origin.SupersedeTargetId);
+            // Legacy migration field is consumed by the restore so the
+            // next save does not re-write a PRE_REFLY_ORIGINAL node.
+            Assert.Null(origin.LegacyPreReFlyOriginalSessionId);
+            Assert.Null(origin.LegacyPreReFlyOriginalRecording);
+
+            // The trim fallback must NOT have run (the snapshot-restore
+            // log line fires; the trim log line does not).
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("Restored origin from legacy v0.9.1 PRE_REFLY_ORIGINAL snapshot"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("TrimInPlaceAttemptBackToOriginRewindPoint:"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("User chose: Re-Fly Attempt Discard")
+                && l.Contains("legacyInPlaceSession=True")
+                && l.Contains("legacyOriginalRestored=True")
+                && l.Contains("inPlaceTrimmed=False"));
+        }
+
+        /// <summary>
+        /// Issue #734 legacy migration: when a v0.9.1 save is loaded but
+        /// no PRE_REFLY_ORIGINAL was on disk (older save / snapshot lost),
+        /// Discard falls back to the v0.9.0 trim path. Pin the fallback
+        /// behavior so a future regression in the snapshot-detection gate
+        /// is visible.
+        /// </summary>
+        [Fact]
+        public void MergeDiscard_LegacyInPlaceSessionWithoutMigrationSnapshot_FallsThroughToTrim()
+        {
+            const string treeId = "tree-734-legacy-no-snapshot";
+            const string sessionId = "sess-734-legacy-no-snapshot";
+            const string rpId = "rp_merge_dialog";
+            const string originId = "rec-legacy-origin-no-snap";
+
+            var origin = MakeRecording(originId, treeId, 100.0, 260.0);
+            origin.MergeState = MergeState.NotCommitted;
+            origin.CreatingSessionId = sessionId;
+            origin.ProvisionalForRpId = rpId;
+            origin.SupersedeTargetId = originId;
+            origin.TerminalStateValue = TerminalState.Landed;
+            origin.TerminalPosition = new SurfacePosition
+            {
+                body = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = 3.0,
+                situation = SurfaceSituation.Landed,
+            };
+            origin.EndpointPhase = RecordingEndpointPhase.SurfacePosition;
+            origin.EndpointBodyName = "Kerbin";
+            // No LegacyPreReFlyOriginalRecording set -- older v0.9.0 save
+            // or one whose snapshot capture failed.
+
+            var pendingTree = MakeTree(treeId, originId, origin);
+            RecordingStore.StashPendingTree(pendingTree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp-734-legacy-trim",
+                UT = 130.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
+                },
+            };
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                ActiveReFlySessionMarker = MakeMarker(sessionId, treeId, originId, originId),
+            };
+            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeDialog.MergeDiscard(pendingTree);
+
+            // Surface a useful failure message: dump the discard log line so a
+            // future regression in the legacy/fork gate is diagnosable.
+            string discardLine = logLines.FirstOrDefault(l =>
+                l.Contains("User chose: Re-Fly Attempt Discard"));
+            Assert.NotNull(discardLine);
+
+            // Trim fallback fired (terminal state cleared, points trimmed).
+            Assert.True(origin.EndUT == 130.0,
+                "expected EndUT=130 after trim; got " + origin.EndUT
+                + " (origin.Points.Count=" + origin.Points.Count
+                + " ExplicitEndUT=" + origin.ExplicitEndUT
+                + " discardLine=" + discardLine + ")");
+            Assert.Null(origin.TerminalStateValue);
+            Assert.Contains("legacyInPlaceSession=True", discardLine);
+            Assert.Contains("legacyOriginalRestored=False", discardLine);
+            Assert.Contains("inPlaceTrimmed=True", discardLine);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Restored origin from legacy v0.9.1"));
         }
     }
 }

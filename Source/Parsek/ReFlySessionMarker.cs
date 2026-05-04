@@ -99,6 +99,32 @@ namespace Parsek
 
         internal const string NodeName = "REFLY_SESSION_MARKER";
 
+        /// <summary>
+        /// Returns true when <paramref name="marker"/> represents an
+        /// in-place Re-Fly continuation in either the post-#734 fork shape
+        /// (<see cref="InPlaceContinuation"/> = true with
+        /// <c>ActiveReFlyRecordingId != OriginChildRecordingId</c>) or the
+        /// pre-fork legacy shape
+        /// (<c>ActiveReFlyRecordingId == OriginChildRecordingId</c>, no flag).
+        /// All in-place gating across the codebase routes through this
+        /// helper so call sites cannot drift -- the legacy id-equality
+        /// pattern alone silently dropped fork-mode markers because the
+        /// new shape sets the ids to different values.
+        /// </summary>
+        public static bool IsInPlaceContinuation(ReFlySessionMarker marker)
+        {
+            if (marker == null) return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (marker.InPlaceContinuation)
+                return true;
+            return string.Equals(
+                marker.ActiveReFlyRecordingId,
+                marker.OriginChildRecordingId,
+                StringComparison.Ordinal);
+        }
+
         /// <summary>Saves into a dedicated child node on the parent.</summary>
         public void SaveInto(ConfigNode parent)
         {
@@ -247,15 +273,11 @@ namespace Parsek
                     Reason = "marker-fields-empty",
                 };
             }
-            // Two valid in-place shapes: post-#734 fork (InPlaceContinuation=true,
+            // Accept both the post-#734 fork shape (InPlaceContinuation=true,
             // active != origin) and the pre-fork legacy in-place pattern
             // (active == origin). Anything else is a placeholder Re-Fly that
             // does not need the swap.
-            bool legacyInPlace = string.Equals(
-                marker.ActiveReFlyRecordingId,
-                marker.OriginChildRecordingId,
-                StringComparison.Ordinal);
-            if (!marker.InPlaceContinuation && !legacyInPlace)
+            if (!IsInPlaceContinuation(marker))
             {
                 return new InPlaceContinuationTarget
                 {

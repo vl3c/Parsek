@@ -1074,7 +1074,9 @@ namespace Parsek
         /// Callers must only attach forks once <paramref name="tree"/>'s
         /// background-map shape is final for the marker write phase.
         /// </summary>
-        internal static bool EnsureForkAttachedToTree(RecordingTree tree, Recording fork, string callSite)
+        internal static bool EnsureForkAttachedToTree(
+            RecordingTree tree, Recording fork, string callSite,
+            bool skipBackgroundMapRebuild = false)
         {
             if (tree == null || fork == null
                 || string.IsNullOrEmpty(fork.RecordingId)
@@ -1082,16 +1084,25 @@ namespace Parsek
             {
                 return false;
             }
-            if (tree.Recordings.TryGetValue(fork.RecordingId, out var existing)
-                && ReferenceEquals(existing, fork))
+            bool overwroteStaleInstance = false;
+            if (tree.Recordings.TryGetValue(fork.RecordingId, out var existing))
             {
-                return false;
+                if (ReferenceEquals(existing, fork))
+                    return false;
+                overwroteStaleInstance = true;
+                ParsekLog.Warn(InvokeTag,
+                    $"{callSite ?? "EnsureForkAttachedToTree"}: replacing existing tree.Recordings[{fork.RecordingId}] " +
+                    $"with a different Recording instance — this is unexpected (a stale fork " +
+                    $"or a partial rollback may have left a different object under the same id)");
             }
             tree.Recordings[fork.RecordingId] = fork;
-            tree.RebuildBackgroundMap();
+            if (!skipBackgroundMapRebuild)
+                tree.RebuildBackgroundMap();
             ParsekLog.Verbose(InvokeTag,
                 $"{callSite ?? "EnsureForkAttachedToTree"}: attached in-place fork rec={fork.RecordingId} " +
-                $"to tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})");
+                $"to tree '{tree.TreeName ?? "<unnamed>"}' (id={tree.Id ?? "<no-id>"})" +
+                (overwroteStaleInstance ? " (replaced stale instance)" : "") +
+                (skipBackgroundMapRebuild ? " (caller will rebuild background map)" : ""));
             return true;
         }
 
@@ -1970,14 +1981,14 @@ namespace Parsek
         {
             var kill = new List<uint>();
             if (marker == null) return kill;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            // Accept both legacy in-place (active == origin) and the
+            // post-#734 fork shape (InPlaceContinuation flag, active != origin).
+            // Both keep the player on the SAME physical vessel as origin, so
+            // the parent-chain doubled-vessel cleanup applies identically.
+            // Pure placeholder Re-Fly (the player flies a fresh vessel) is
+            // skipped -- that active vessel is legitimately alive in scene.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return kill;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-                return kill; // placeholder pattern -- skip; the active vessel is alive in scene
             if (string.IsNullOrEmpty(marker.TreeId)) return kill;
             if (trees == null || trees.Count == 0) return kill;
             if (leftAlonePids == null || leftAlonePids.Count == 0) return kill;

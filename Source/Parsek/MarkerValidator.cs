@@ -162,13 +162,21 @@ namespace Parsek
             // Immutable, no RP reap, UF row never clears). The placeholder
             // pattern stays NotCommitted-only because no committed
             // recording is being reused there.
-            bool inPlaceContinuation = string.Equals(
+            // The relax-set (CommittedProvisional / Immutable) only applies
+            // to the legacy in-place pattern where the active recording IS
+            // the origin (a committed recording reused as the live target).
+            // Post-#734 fork markers carry InPlaceContinuation=true with
+            // active != origin and a fresh NotCommitted provisional, which
+            // the first clause accepts directly -- they do not need the
+            // relax-set. Use a name that reflects that distinction so the
+            // rejection log isn't misleading for fork-mode markers.
+            bool legacyReusedCommittedActive = string.Equals(
                 marker.ActiveReFlyRecordingId,
                 marker.OriginChildRecordingId,
                 StringComparison.Ordinal);
             bool acceptableState =
                 active.MergeState == MergeState.NotCommitted
-                || (inPlaceContinuation
+                || (legacyReusedCommittedActive
                     && (active.MergeState == MergeState.CommittedProvisional
                         || active.MergeState == MergeState.Immutable));
             if (!acceptableState)
@@ -176,8 +184,10 @@ namespace Parsek
                 return MarkerValidationResult.Invalid(
                     "ActiveReFlyRecordingId",
                     "checked=ActiveReFlyRecordingId.mergeState " +
-                    $"state={active.MergeState} inPlace={inPlaceContinuation} " +
-                    "expected=NotCommitted-or-inPlace-CommittedProvisional/Immutable; rejected because state/pattern is not valid for a live marker");
+                    $"state={active.MergeState} " +
+                    $"inPlace={ReFlySessionMarker.IsInPlaceContinuation(marker)} " +
+                    $"legacyReusedCommittedActive={legacyReusedCommittedActive} " +
+                    "expected=NotCommitted-or-legacyReusedCommittedActive-CommittedProvisional/Immutable; rejected because state/pattern is not valid for a live marker");
             }
 
             if (string.IsNullOrEmpty(marker.RewindPointId))
@@ -211,7 +221,7 @@ namespace Parsek
                         "rejected because InvokedUT exceeds the 1E+15 sanity ceiling"));
 
             return MarkerValidationResult.Ok(
-                BuildAcceptedDetails(active, inPlaceContinuation, marker.InvokedUT, now, rewindPoint.UT));
+                BuildAcceptedDetails(active, legacyReusedCommittedActive, marker.InvokedUT, now, rewindPoint.UT));
         }
 
         private static bool TreeExists(string treeId)

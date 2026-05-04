@@ -3448,13 +3448,12 @@ namespace Parsek
         {
             if (newPid == 0u) return false;
             if (marker == null) return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Accept both legacy in-place (active == origin) and the
+            // post-#734 fork shape (InPlaceContinuation flag, active != origin).
+            // Both keep the player on the SAME physical vessel; the
+            // post-switch auto-record arming we want to suppress is the
+            // same in either case.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
             if (committedRecordings == null) return false;
             for (int i = 0; i < committedRecordings.Count; i++)
@@ -23854,15 +23853,14 @@ namespace Parsek
             pose = default(RelativeAnchorPose);
             IReadOnlyList<RecordingTree> searchTrees = null;
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // The bypass exists because the player is actively flying the
+            // anchor vessel (origin's pid) during in-place Re-Fly, so the
+            // live anchor pose has diverged from the recording. Both legacy
+            // in-place and the post-#734 fork share the same physical
+            // vessel as origin and therefore need the bypass.
             bool shouldCheckReFlyBypass =
-                marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && !string.IsNullOrEmpty(victimRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal);
+                !string.IsNullOrEmpty(victimRecordingId)
+                && ReFlySessionMarker.IsInPlaceContinuation(marker);
             if (shouldCheckReFlyBypass)
             {
                 searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -24196,16 +24194,9 @@ namespace Parsek
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> searchTrees)
         {
-            if (marker == null)
+            if (string.IsNullOrEmpty(victimRecordingId))
                 return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || string.IsNullOrEmpty(victimRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
 
             if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
@@ -24255,13 +24246,12 @@ namespace Parsek
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             IReadOnlyList<RecordingTree> searchTrees = null;
             bool activeReFlyBypass = false;
-            if (marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Both legacy in-place (active == origin) and the post-#734 fork
+            // (InPlaceContinuation flag, active != origin) keep the player on
+            // the same physical vessel as origin, so the v7 RELATIVE absolute-
+            // shadow shortcut applies identically -- the live anchor pose has
+            // diverged from the recording.
+            if (ReFlySessionMarker.IsInPlaceContinuation(marker))
             {
                 searchTrees =
                     GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -24906,18 +24896,17 @@ namespace Parsek
         {
             if (tree == null || tree.Recordings == null || marker == null)
                 return false;
+            // Only the post-#734 fork shape needs reconciliation. Legacy
+            // in-place markers (active == origin) cannot reach this point
+            // because the InPlaceContinuation flag is only set by the new
+            // AtomicMarkerWrite fork path; legacy in-flight markers loaded
+            // from older saves do not carry the flag, and origin is already
+            // in tree.Recordings by construction for those.
             if (!marker.InPlaceContinuation)
                 return false;
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
                 || string.IsNullOrEmpty(marker.OriginChildRecordingId))
                 return false;
-            if (string.Equals(marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId, StringComparison.Ordinal))
-            {
-                // Legacy in-place pattern (active == origin). Origin is
-                // already in the tree by construction.
-                return false;
-            }
             if (!string.IsNullOrEmpty(marker.TreeId)
                 && !string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal))
             {
@@ -24953,8 +24942,13 @@ namespace Parsek
                 return false;
             }
 
+            // Skip the helper's own RebuildBackgroundMap because
+            // RestoreActiveTreeFromPending's swap branch (which fires
+            // immediately after this reconcile) calls RebuildBackgroundMap
+            // itself; doing it here would double-rebuild.
             return RewindInvoker.EnsureForkAttachedToTree(
-                tree, fork, "RestoreActiveTreeFromPending:reconcile");
+                tree, fork, "RestoreActiveTreeFromPending:reconcile",
+                skipBackgroundMapRebuild: true);
         }
 
         internal static bool ShouldUsePreReFlyAnchorTrajectory(
@@ -24970,15 +24964,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(candidate.RecordingId)
                 || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
                 return false;
-            // Two valid in-place shapes: post-#734 fork (InPlaceContinuation
-            // flag with active != origin; the fork carries the snapshot
-            // copied from origin) and the pre-fork legacy in-place pattern
-            // (active == origin; the snapshot is on origin itself).
-            bool legacyInPlace = string.Equals(
-                marker.ActiveReFlyRecordingId,
-                marker.OriginChildRecordingId,
-                StringComparison.Ordinal);
-            if (!marker.InPlaceContinuation && !legacyInPlace)
+            // Accept both the post-#734 fork shape (InPlaceContinuation flag,
+            // snapshot lives on the fork) and the pre-fork legacy in-place
+            // pattern (active == origin, snapshot lives on origin).
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
             if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
                 return false;
