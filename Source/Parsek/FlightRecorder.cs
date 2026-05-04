@@ -57,6 +57,8 @@ namespace Parsek
         public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
 
+        // Two unpacked frames let Krakensbane/frame velocity settle after pack->unpack;
+        // 0.1s covers scene-load physics tick variability across local framerates.
         internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
         internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
         internal static Func<float> TimeSinceLevelLoadProviderForTesting;
@@ -5803,6 +5805,8 @@ namespace Parsek
                 // if the anchor UT would equal the first live sample's UT
                 double anchorUT = anchor.ut - 0.001;
                 anchor.ut = anchorUT;
+                // Safe before the Re-Fly settle gate arms: BoundaryAnchor is the prior
+                // chain segment's already-recorded endpoint, not post-load live state.
                 Recording.Add(anchor);
                 lastRecordedUT = anchorUT;
                 lastRecordedVelocity = anchor.velocity;

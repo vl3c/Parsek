@@ -288,6 +288,29 @@ namespace Parsek.Tests
                 && l.Contains("section-start-seam-post-load-test"));
         }
 
+        [Fact]
+        public void CloseCurrentTrackSection_PostLoadSettleSuppressedSeam_DiscardsShortEmptySection()
+        {
+            var recorder = new FlightRecorder();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 10.0);
+            recorder.ActivateReFlyPostLoadSettleForTesting("session-1", "recording-1");
+
+            recorder.AppendSectionStartSeamPointForTesting(
+                new TrajectoryPoint
+                {
+                    ut = 10.05,
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0
+                },
+                "env-transition");
+            recorder.CloseCurrentTrackSection(10.05);
+
+            Assert.Empty(recorder.TrackSections);
+            Assert.Contains(logLines, l => l.Contains("TrackSection discarded")
+                && l.Contains("zero frames"));
+        }
+
         #endregion
 
         #region ShouldRefreshSnapshot guard
