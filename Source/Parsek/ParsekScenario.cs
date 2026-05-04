@@ -1884,24 +1884,50 @@ namespace Parsek
                 loadPhase = "deferred-seed";
                 StartCoroutine(DeferredSeedAndRecalculate());
 
-                // Diagnostic summary of loaded recordings with UT context
+                // Diagnostic summary of loaded recordings with UT context. Per-recording
+                // status used to be enumerated at Verbose, but a save with hundreds of
+                // recordings (synthetic showcases, KSC eligibles, long histories) emits
+                // hundreds of identical "future (starts in …s)" lines per scenario load.
+                // Bucket the statuses into counts; keep IN_PROGRESS detail (rare and
+                // most useful when debugging spawn timing) at Verbose.
                 loadPhase = "load-summary";
                 double loadUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("Scenario", $"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
+                ParsekLog.Info("Scenario",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Scenario load summary — UT: {0:F0}, {1} recording(s)",
+                        loadUT, recordings.Count));
+                int futureCount = 0, inProgressCount = 0, pastCount = 0;
+                List<string> inProgressDetail = null;
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var loadedRec = recordings[i];
                     double duration = loadedRec.EndUT - loadedRec.StartUT;
-                    string status;
                     if (loadUT < loadedRec.StartUT)
-                        status = $"future (starts in {loadedRec.StartUT - loadUT:F0}s)";
-                    else if (loadUT <= loadedRec.EndUT && duration > 0)
-                        status = $"IN PROGRESS ({(loadUT - loadedRec.StartUT) / duration * 100:F0}%)";
+                    {
+                        futureCount++;
+                    }
                     else if (loadUT <= loadedRec.EndUT)
-                        status = "IN PROGRESS";
+                    {
+                        inProgressCount++;
+                        if (inProgressDetail == null)
+                            inProgressDetail = new List<string>();
+                        string pct = duration > 0
+                            ? string.Format(CultureInfo.InvariantCulture, "({0:F0}%)",
+                                (loadUT - loadedRec.StartUT) / duration * 100)
+                            : "";
+                        inProgressDetail.Add($"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}".TrimEnd());
+                    }
                     else
-                        status = "past";
-                    ParsekLog.Verbose("Scenario", $"  #{i}: \"{loadedRec.VesselName}\" — {status}");
+                    {
+                        pastCount++;
+                    }
+                }
+                ParsekLog.Verbose("Scenario",
+                    $"Load summary buckets: future={futureCount} in-progress={inProgressCount} past={pastCount}");
+                if (inProgressDetail != null)
+                {
+                    foreach (var line in inProgressDetail)
+                        ParsekLog.Verbose("Scenario", line);
                 }
 
                 if (CrewReservationManager.CrewReplacements.Count > 0)

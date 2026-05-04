@@ -2046,6 +2046,23 @@ namespace Parsek
 
         internal static bool TailPreservesTerminalSpawnState(Recording rec, double trimUT)
         {
+            return TailPreservesTerminalSpawnStateInternal(
+                rec, trimUT, logUnstableRefusal: true, unstableTerminal: out _);
+        }
+
+        /// <summary>
+        /// Log-suppression-aware overload. When <paramref name="logUnstableRefusal"/>
+        /// is false, the dedicated `refused trim for unstable terminal` Verbose line
+        /// is suppressed and the caller learns through <paramref name="unstableTerminal"/>
+        /// whether the refusal was an unstable-terminal carve-out vs. a stable-terminal
+        /// shape-match failure. Used by the bulk optimization pass so a save with
+        /// hundreds of Destroyed / Recovered / Boarded boring-tail leaves doesn't
+        /// emit one log line per recording per pass.
+        /// </summary>
+        internal static bool TailPreservesTerminalSpawnStateInternal(
+            Recording rec, double trimUT, bool logUnstableRefusal, out bool unstableTerminal)
+        {
+            unstableTerminal = false;
             if (rec == null || !rec.TerminalStateValue.HasValue)
                 return true;
 
@@ -2074,11 +2091,15 @@ namespace Parsek
                 case TerminalState.Destroyed:
                 case TerminalState.Recovered:
                 case TerminalState.Boarded:
-                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    unstableTerminal = true;
+                    if (logUnstableRefusal)
+                        LogUnstableTerminalTrimRefusal(rec, trimUT);
                     return false;
 
                 default:
-                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    unstableTerminal = true;
+                    if (logUnstableRefusal)
+                        LogUnstableTerminalTrimRefusal(rec, trimUT);
                     return false;
             }
         }
@@ -2464,21 +2485,46 @@ namespace Parsek
         internal static bool TrimBoringTail(Recording rec, List<Recording> allRecordings,
             double bufferSeconds = DefaultTailBufferSeconds)
         {
+            return TrimBoringTailInternal(rec, allRecordings, bufferSeconds,
+                logSkipReason: true, skipCategory: out _);
+        }
+
+        /// <summary>
+        /// Skip-category-aware overload. When <paramref name="logSkipReason"/> is false,
+        /// every per-recording verbose skip line emitted by this method (including the
+        /// dedicated `refused trim for unstable terminal` line that <see cref="TailPreservesTerminalSpawnState"/>
+        /// owns) is suppressed and the caller receives the short category name in
+        /// <paramref name="skipCategory"/> so a bulk pass over hundreds of recordings
+        /// can emit a single aggregated summary instead of one log line per skipped
+        /// recording. Categories: <c>rec-null-or-too-few-points</c>, <c>not-leaf</c>,
+        /// <c>too-short</c>, <c>no-track-sections</c>, <c>last-section-not-boring</c>,
+        /// <c>all-boring-too-few-points</c>, <c>buffer-not-met</c>, <c>terminal-mismatch</c>,
+        /// <c>unstable-terminal</c>, <c>no-points-past-trim-ut</c>, <c>keep-count-too-low</c>.
+        /// </summary>
+        internal static bool TrimBoringTailInternal(
+            Recording rec, List<Recording> allRecordings,
+            double bufferSeconds, bool logSkipReason, out string skipCategory)
+        {
+            skipCategory = null;
             if (rec == null || rec.Points.Count < 2)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (rec-null-or-too-few-points) " +
-                    $"id='{rec?.RecordingId ?? "(null)"}' pointCount={(rec?.Points?.Count ?? 0)}");
+                skipCategory = "rec-null-or-too-few-points";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (rec-null-or-too-few-points) " +
+                        $"id='{rec?.RecordingId ?? "(null)"}' pointCount={(rec?.Points?.Count ?? 0)}");
                 return false;
             }
 
             // Only trim leaf recordings
             if (!IsLeafRecording(rec, allRecordings))
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (not-leaf) " +
-                    $"id='{rec.RecordingId}' chainId='{rec.ChainId ?? "(null)"}' " +
-                    $"chainIndex={rec.ChainIndex} childBranchPointId='{rec.ChildBranchPointId ?? "(null)"}'");
+                skipCategory = "not-leaf";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (not-leaf) " +
+                        $"id='{rec.RecordingId}' chainId='{rec.ChainId ?? "(null)"}' " +
+                        $"chainIndex={rec.ChainIndex} childBranchPointId='{rec.ChildBranchPointId ?? "(null)"}'");
                 return false;
             }
 
@@ -2486,20 +2532,24 @@ namespace Parsek
             double duration = rec.EndUT - rec.StartUT;
             if (duration <= MinDurationForTrimSeconds)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (too-short) " +
-                    $"id='{rec.RecordingId}' " +
-                    $"duration={duration.ToString("F1", CultureInfo.InvariantCulture)}s " +
-                    $"<= min={MinDurationForTrimSeconds.ToString("F1", CultureInfo.InvariantCulture)}s");
+                skipCategory = "too-short";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (too-short) " +
+                        $"id='{rec.RecordingId}' " +
+                        $"duration={duration.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                        $"<= min={MinDurationForTrimSeconds.ToString("F1", CultureInfo.InvariantCulture)}s");
                 return false;
             }
 
             // Must have TrackSections to detect boring tails
             if (rec.TrackSections == null || rec.TrackSections.Count == 0)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (no-track-sections) " +
-                    $"id='{rec.RecordingId}' trackSections={(rec.TrackSections?.Count ?? -1)}");
+                skipCategory = "no-track-sections";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (no-track-sections) " +
+                        $"id='{rec.RecordingId}' trackSections={(rec.TrackSections?.Count ?? -1)}");
                 return false;
             }
 
@@ -2507,10 +2557,12 @@ namespace Parsek
             var lastSection = rec.TrackSections[rec.TrackSections.Count - 1];
             if (!GhostPlaybackLogic.IsBoringEnvironment(lastSection.environment))
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (last-section-not-boring) " +
-                    $"id='{rec.RecordingId}' lastEnv={lastSection.environment} " +
-                    $"sectionCount={rec.TrackSections.Count}");
+                skipCategory = "last-section-not-boring";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (last-section-not-boring) " +
+                        $"id='{rec.RecordingId}' lastEnv={lastSection.environment} " +
+                        $"sectionCount={rec.TrackSections.Count}");
                 return false;
             }
 
@@ -2525,9 +2577,11 @@ namespace Parsek
                 // survive for valid interpolation (the trim logic requires keepCount >= 2).
                 if (rec.Points.Count < 3)
                 {
-                    ParsekLog.Verbose("Optimizer",
-                        $"TrimBoringTail: skipped (all-boring-too-few-points) " +
-                        $"id='{rec.RecordingId}' pointCount={rec.Points.Count}");
+                    skipCategory = "all-boring-too-few-points";
+                    if (logSkipReason)
+                        ParsekLog.Verbose("Optimizer",
+                            $"TrimBoringTail: skipped (all-boring-too-few-points) " +
+                            $"id='{rec.RecordingId}' pointCount={rec.Points.Count}");
                     return false; // too few to trim meaningfully
                 }
                 lastInterestingUT = rec.Points[1].ut;
@@ -2536,31 +2590,41 @@ namespace Parsek
             double trimUT = lastInterestingUT + bufferSeconds;
             if (trimUT >= rec.EndUT)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (buffer-not-met) " +
-                    $"id='{rec.RecordingId}' " +
-                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $">= endUT={rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"(lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"buffer={bufferSeconds.ToString("F1", CultureInfo.InvariantCulture)}s)");
+                skipCategory = "buffer-not-met";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (buffer-not-met) " +
+                        $"id='{rec.RecordingId}' " +
+                        $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $">= endUT={rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"(lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"buffer={bufferSeconds.ToString("F1", CultureInfo.InvariantCulture)}s)");
                 return false; // boring tail is shorter than buffer
             }
 
-            if (!TailPreservesTerminalSpawnState(rec, trimUT))
+            // Two distinct skip flavors live behind this gate. The unstable-terminal
+            // carve-out (Destroyed/Boarded/Recovered/default) has its own dedicated
+            // `refused trim for unstable terminal` log line that the gate emits when
+            // logging is allowed; we route that through the same `logSkipReason` flag
+            // so the bulk pass stays silent on per-recording lines for that bucket
+            // too. The stable-terminal shape-match failure path keeps its own
+            // per-recording log because the divergence numbers (ecc/inc/LAN deltas)
+            // don't aggregate cleanly into a summary line.
+            if (!TailPreservesTerminalSpawnStateInternal(
+                rec, trimUT, logUnstableRefusal: logSkipReason, unstableTerminal: out bool unstableTerminal))
             {
-                // Unstable terminals (Destroyed/Boarded/Recovered/default) emit
-                // their own dedicated `refused trim for unstable terminal` log
-                // line from inside the gate; the (terminal-mismatch) wording
-                // here is only accurate for the stable-terminal shape-match
-                // failure path (the tail genuinely diverged from the terminal
-                // orbit/surface state). Skip the duplicate-and-misleading line
-                // for unstable terminals.
-                if (!IsUnstableTerminalState(rec.TerminalStateValue))
+                if (unstableTerminal)
                 {
-                    ParsekLog.Verbose("Optimizer",
-                        $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
-                        $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
-                        $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                    skipCategory = "unstable-terminal";
+                }
+                else
+                {
+                    skipCategory = "terminal-mismatch";
+                    if (logSkipReason)
+                        ParsekLog.Verbose("Optimizer",
+                            $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
+                            $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
+                            $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
                 }
                 return false;
             }
@@ -2581,20 +2645,24 @@ namespace Parsek
             // No points past trimUT — nothing to trim
             if (keepCount == 0)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (no-points-past-trim-ut) " +
-                    $"id='{rec.RecordingId}' " +
-                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"pointCount={rec.Points.Count}");
+                skipCategory = "no-points-past-trim-ut";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (no-points-past-trim-ut) " +
+                        $"id='{rec.RecordingId}' " +
+                        $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"pointCount={rec.Points.Count}");
                 return false;
             }
             // Must keep at least 2 points for valid interpolation
             if (keepCount < 2)
             {
-                ParsekLog.Verbose("Optimizer",
-                    $"TrimBoringTail: skipped (keep-count-too-low) " +
-                    $"id='{rec.RecordingId}' keepCount={keepCount} " +
-                    $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)}");
+                skipCategory = "keep-count-too-low";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (keep-count-too-low) " +
+                        $"id='{rec.RecordingId}' keepCount={keepCount} " +
+                        $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)}");
                 return false;
             }
             rec.Points.RemoveRange(keepCount, rec.Points.Count - keepCount);
