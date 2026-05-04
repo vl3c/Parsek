@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -249,6 +250,57 @@ namespace Parsek.Tests
 
             Assert.False(arm);
             Assert.Equal("active-recording-mismatch", reason);
+        }
+
+        [Fact]
+        public void AppendSectionStartSeamPoint_PostLoadSettleActive_SuppressesTrajectoryWrite()
+        {
+            var recorder = new FlightRecorder();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 10.0);
+            SetReFlyPostLoadSettleActive(recorder);
+
+            recorder.AppendSectionStartSeamPointForTesting(
+                new TrajectoryPoint
+                {
+                    ut = 10.0,
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0
+                },
+                "post-load-test");
+
+            Assert.Empty(recorder.Recording);
+            TrackSection section = GetCurrentTrackSection(recorder);
+            Assert.NotNull(section.frames);
+            Assert.Empty(section.frames);
+            Assert.Contains(logLines, l => l.Contains("suppressed trajectory write")
+                && l.Contains("section-start-seam-post-load-test"));
+        }
+
+        private static void SetReFlyPostLoadSettleActive(FlightRecorder recorder)
+        {
+            SetPrivateField(recorder, "reFlyPostLoadSettleActive", true);
+            SetPrivateField(recorder, "reFlyPostLoadSettleSessionId", "session-1");
+            SetPrivateField(recorder, "reFlyPostLoadSettleRecordingId", "recording-1");
+        }
+
+        private static TrackSection GetCurrentTrackSection(FlightRecorder recorder)
+        {
+            return (TrackSection)GetPrivateField(recorder, "currentTrackSection");
+        }
+
+        private static object GetPrivateField(FlightRecorder recorder, string name)
+        {
+            FieldInfo field = typeof(FlightRecorder).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return field.GetValue(recorder);
+        }
+
+        private static void SetPrivateField(FlightRecorder recorder, string name, object value)
+        {
+            FieldInfo field = typeof(FlightRecorder).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(recorder, value);
         }
 
         #endregion

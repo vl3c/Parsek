@@ -5718,6 +5718,23 @@ namespace Parsek
             return false;
         }
 
+        private bool ShouldSuppressReFlyPostLoadTrajectoryWrite(double ut, string source)
+        {
+            if (!reFlyPostLoadSettleActive)
+                return false;
+
+            ParsekLog.VerboseRateLimited("Recorder",
+                "refly-post-load-settle-write|" + (reFlyPostLoadSettleSessionId ?? "<no-session>") + "|" + (source ?? "unknown"),
+                $"Re-Fly post-load settle suppressed trajectory write: " +
+                $"source={source ?? "unknown"} " +
+                $"session={ShortId(reFlyPostLoadSettleSessionId)} " +
+                $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames}",
+                1.0);
+            return true;
+        }
+
         private static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id))
@@ -7052,6 +7069,8 @@ namespace Parsek
         {
             if (v == null || string.IsNullOrWhiteSpace(candidate.RecordingId))
                 return false;
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(boundaryUT, "relative-boundary-seed"))
+                return true;
             if (!TryResolveAnchorPoseForCandidate(
                     candidate,
                     boundaryUT,
@@ -7653,6 +7672,9 @@ namespace Parsek
         /// </summary>
         private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
+                return;
+
             if (object.ReferenceEquals(v, null))
             {
                 CommitRecordedPointWithoutVessel(point, absoluteShadowPoint);
@@ -7780,6 +7802,9 @@ namespace Parsek
             TrajectoryPoint point,
             TrajectoryPoint? absoluteShadowPoint = null)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
+                return;
+
             if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
             {
                 TrimRecordingToUT(point.ut);
@@ -8043,6 +8068,8 @@ namespace Parsek
                     "SamplePosition called with null vessel");
                 return;
             }
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(ut, "sample-position"))
+                return;
 
             Vector3 currentVelocity = SampleCurrentVelocity(v);
             TrajectoryPoint point = BuildTrajectoryPoint(
@@ -8065,6 +8092,8 @@ namespace Parsek
                     $"section-start seam skipped: reason={reason ?? "<unknown>"} null vessel");
                 return;
             }
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(startUT, "section-start-seam-" + (reason ?? "unknown")))
+                return;
 
             TrajectoryPoint seamPoint = BuildTrajectoryPoint(v, SampleCurrentVelocity(v), startUT);
             TryCanonicalizeActiveReFlyRecordingPoint(ref seamPoint, "section-start-seam");
@@ -8078,6 +8107,9 @@ namespace Parsek
 
         private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
         {
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(seamPoint.ut, "section-start-seam-" + (reason ?? "unknown")))
+                return;
+
             if (!trackSectionActive
                 || currentTrackSection.referenceFrame != ReferenceFrame.Absolute
                 || currentTrackSection.frames == null)
@@ -8466,6 +8498,8 @@ namespace Parsek
         private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? absoluteShadowPoint = null)
         {
             if (!point.HasValue) return;
+            if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.Value.ut, "section-boundary-seed"))
+                return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
