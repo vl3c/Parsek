@@ -357,6 +357,8 @@ namespace Parsek.Tests
                 && l.Contains("SceneLoadTree"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KerbalsModule]") && l.Contains("ApplyToRoster"));
         }
 
         [Fact]

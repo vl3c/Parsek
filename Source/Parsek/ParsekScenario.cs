@@ -2145,6 +2145,7 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
                 $"(using {recordings.Count} in-memory recordings)");
+            ClearActiveReFlyMarkerForPlainRewind();
 
             // Restore milestone mutable state with resetUnmatched=true
             // (milestones created after rewind point get reset to unreplayed)
@@ -2243,13 +2244,14 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Re-reserve crew from all recording snapshots.
-            // Pass the adjusted rewind UT explicitly so the walk drops any ledger
-            // actions with UT > adjusted (e.g., milestones achieved after the rewind
-            // target). RewindContext.RewindAdjustedUT is still populated at this point;
-            // EndRewind() below clears it. The deferred coroutine captures the same
-            // value into a local BEFORE its yield so its second call is independent
-            // of RewindContext state.
+            // Restore career state to the rewind target. The cutoff walk keeps
+            // funds/science/tech at the adjusted UT; LedgerOrchestrator then
+            // reprojects crew reservations from the full committed timeline so
+            // future recorded crew remain unavailable for new missions.
+            // RewindContext.RewindAdjustedUT is still populated at this point;
+            // EndRewind() below clears it. The deferred coroutine captures the
+            // same value into a local BEFORE its yield so its second call is
+            // independent of RewindContext state.
             LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
@@ -2262,6 +2264,33 @@ namespace Parsek
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
             RewindContext.EndRewind();
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
+        }
+
+        /// <summary>
+        /// Clears a loaded active Re-Fly marker while the plain rewind OnLoad branch resumes replay.
+        /// </summary>
+        internal bool ClearActiveReFlyMarkerForPlainRewind()
+        {
+            var marker = ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            string sessionId = marker.SessionId ?? "<no-id>";
+            string activeRecordingId = marker.ActiveReFlyRecordingId ?? "<no-id>";
+            string originRecordingId = marker.OriginChildRecordingId ?? "<no-id>";
+            string rewindPointId = marker.RewindPointId ?? "<no-rp>";
+
+            // This discards only stale session state; supersede caches do not
+            // depend on the marker and should not be bumped for this cleanup.
+            ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            // Plain rewind loads before FlightDriver state is ready, so Apply is
+            // normally a logged no-op here. Keep it paired with marker clears.
+            ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");
+            ParsekLog.Info("Rewind",
+                "OnLoad: cleared stale active Re-Fly marker during plain rewind " +
+                $"sess={sessionId} active={activeRecordingId} origin={originRecordingId} rp={rewindPointId}");
+            return true;
         }
 
         internal string BuildScenarioLifecycleExceptionMessageForTesting(
@@ -5009,8 +5038,9 @@ namespace Parsek
 
             // Pass the adjusted UT captured BEFORE `yield return null` above.
             // RewindContext.EndRewind() has already cleared the global by the time
-            // this coroutine resumes, so we cannot read from RewindContext here —
-            // the synchronous HandleRewindOnLoad call already ran and cleared state.
+            // this coroutine resumes, so we cannot read from RewindContext here.
+            // The cutoff applies to career resources; crew reservations are rebuilt
+            // from the full committed timeline inside LedgerOrchestrator.
             LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
 
             // Belt-and-suspenders guard: if some future refactor accidentally schedules
