@@ -2145,6 +2145,7 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
                 $"(using {recordings.Count} in-memory recordings)");
+            ClearActiveReFlyMarkerForPlainRewind();
 
             // Restore milestone mutable state with resetUnmatched=true
             // (milestones created after rewind point get reset to unreplayed)
@@ -2262,6 +2263,26 @@ namespace Parsek
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
             RewindContext.EndRewind();
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
+        }
+
+        internal bool ClearActiveReFlyMarkerForPlainRewind()
+        {
+            var marker = ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            string sessionId = marker.SessionId ?? "<no-id>";
+            string activeRecordingId = marker.ActiveReFlyRecordingId ?? "<no-id>";
+            string originRecordingId = marker.OriginChildRecordingId ?? "<no-id>";
+            string rewindPointId = marker.RewindPointId ?? "<no-rp>";
+
+            ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");
+            ParsekLog.Info("Rewind",
+                "OnLoad: cleared stale active Re-Fly marker during plain rewind " +
+                $"sess={sessionId} active={activeRecordingId} origin={originRecordingId} rp={rewindPointId}");
+            return true;
         }
 
         internal string BuildScenarioLifecycleExceptionMessageForTesting(

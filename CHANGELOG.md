@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Plain Rewind-to-Launch now clears any loaded active Re-Fly marker before replay resumes, preventing stale session suppression from hiding post-rewind ghosts and leaving Watch unavailable for recordings that should become watchable again.
+
 ### Enhancements
 
 ### Internals
