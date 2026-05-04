@@ -204,12 +204,10 @@ namespace Parsek.Tests
             var recA = new Recording { RecordingId = "rec-A" };
             recA.Points.Add(new TrajectoryPoint { ut = 1.0 });
             recA.CapturePreReFlyAnchorTrajectory("sess-target");
-            recA.CapturePreReFlyOriginalRecording("sess-target");
 
             var recB = new Recording { RecordingId = "rec-B" };
             recB.Points.Add(new TrajectoryPoint { ut = 2.0 });
             recB.CapturePreReFlyAnchorTrajectory("sess-other");
-            recB.CapturePreReFlyOriginalRecording("sess-other");
 
             RecordingStore.AddCommittedInternal(recA);
             RecordingStore.AddCommittedInternal(recB);
@@ -230,12 +228,10 @@ namespace Parsek.Tests
             }
 
             Assert.False(recA.HasPreReFlyAnchorTrajectory("sess-target"));
-            Assert.False(recA.HasPreReFlyOriginalRecording("sess-target"));
             Assert.True(recB.HasPreReFlyAnchorTrajectory("sess-other"));
-            Assert.True(recB.HasPreReFlyOriginalRecording("sess-other"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("Cleared 1 pre-Re-Fly snapshot host")
+                && l.Contains("Cleared 1 pre-Re-Fly anchor snapshot")
                 && l.Contains("sess-target"));
         }
 
@@ -286,34 +282,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingTreeRecordCodec_RoundTrip_PreservesPreReFlyOriginalSnapshot()
+        public void RecordingTreeRecordCodec_RoundTrip_DropsLegacyPreReFlyOriginalNode()
         {
+            // Issue #734: PRE_REFLY_ORIGINAL was the PR #733 rollback snapshot
+            // for the legacy in-place mutation path. The fork model never
+            // mutates origin, so the snapshot is no longer captured. The
+            // load path must silently drop the legacy node and continue
+            // without reporting failure so older saves still load cleanly.
             var rec = new Recording
             {
-                RecordingId = "rec-original-roundtrip",
-                VesselName = "Original Round Trip",
-                TreeId = "tree-original",
+                RecordingId = "rec-legacy-original",
+                VesselName = "Legacy Original",
+                TreeId = "tree-legacy",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                MergeState = MergeState.CommittedProvisional,
-                ExplicitStartUT = 100.0,
-                ExplicitEndUT = 200.0,
-                VesselSnapshot = MakeSnapshot("Original Vessel"),
-                GhostVisualSnapshot = MakeSnapshot("Original Ghost"),
             };
-            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" });
-            rec.TrackSections.Add(MakeAbsoluteSectionWithFrame(100.0, 200.0));
-            rec.CapturePreReFlyOriginalRecording("sess-original");
-
-            rec.Points.Clear();
-            rec.Points.Add(new TrajectoryPoint { ut = 130.0, bodyName = "Kerbin" });
-            rec.ChildBranchPointId = "attempt-child-bp";
-            rec.VesselDestroyed = true;
-            rec.ExplicitEndUT = 130.0;
-            rec.VesselSnapshot = MakeSnapshot("Attempt Vessel");
 
             var node = new ConfigNode("RECORDING");
             RecordingTreeRecordCodec.SaveRecordingInto(node, rec);
+            Assert.Null(node.GetNode("PRE_REFLY_ORIGINAL"));
+
+            // Hand-craft a legacy PRE_REFLY_ORIGINAL node so the load path
+            // exercises the silent-drop branch.
+            ConfigNode legacy = node.AddNode("PRE_REFLY_ORIGINAL");
+            legacy.AddValue("sessionId", "sess-legacy");
+            ConfigNode legacyRec = legacy.AddNode("RECORDING");
+            legacyRec.AddValue("recordingId", "rec-legacy-original");
 
             var loaded = new Recording
             {
@@ -321,21 +314,11 @@ namespace Parsek.Tests
             };
             RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
 
-            Assert.True(loaded.HasPreReFlyOriginalRecording("sess-original"));
-            Recording restored = loaded.BuildPreReFlyOriginalRecording("sess-original");
-            Assert.NotNull(restored);
-            Assert.Equal("rec-original-roundtrip", restored.RecordingId);
-            Assert.Equal("tree-original", restored.TreeId);
-            Assert.Equal(MergeState.CommittedProvisional, restored.MergeState);
-            Assert.Equal(2, restored.Points.Count);
-            Assert.Equal(200.0, restored.EndUT);
-            Assert.Null(restored.ChildBranchPointId);
-            Assert.False(restored.VesselDestroyed);
-            Assert.NotNull(restored.VesselSnapshot);
-            Assert.Equal("Original Vessel", restored.VesselSnapshot.GetValue("name"));
-            Assert.NotNull(restored.GhostVisualSnapshot);
-            Assert.Equal("Original Ghost", restored.GhostVisualSnapshot.GetValue("name"));
-            Assert.False(restored.HasPreReFlyOriginalRecording("sess-original"));
+            Assert.Equal("rec-legacy-original", loaded.RecordingId);
+            Assert.Equal("Legacy Original", loaded.VesselName);
+            // The legacy snapshot fields are gone; nothing should have been
+            // attached to the recording from the dropped node.
+            Assert.False(loaded.HasPreReFlyAnchorTrajectory("sess-legacy"));
         }
 
         [Fact]
@@ -406,8 +389,6 @@ namespace Parsek.Tests
             Assert.Null(clone.PreReFlyAnchorPoints);
             Assert.Null(clone.PreReFlyAnchorOrbitSegments);
             Assert.Null(clone.PreReFlyAnchorTrackSections);
-            Assert.Null(clone.PreReFlyOriginalSessionId);
-            Assert.Null(clone.PreReFlyOriginalRecording);
             Assert.False(clone.HasPreReFlyAnchorTrajectory("any-sess"));
         }
 

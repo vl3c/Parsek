@@ -70,6 +70,19 @@ namespace Parsek
         public string InvokedRealTime;
 
         /// <summary>
+        /// True when the Re-Fly session was invoked in the in-place
+        /// continuation case: the player keeps flying the same physical
+        /// vessel as the slot's origin recording, so
+        /// <see cref="OriginChildRecordingId"/> and the strip-selected
+        /// vessel pid match. The active attempt is forked into a separate
+        /// <see cref="ActiveReFlyRecordingId"/> recording that supersedes
+        /// origin at commit; before this flag, in-place sessions pointed
+        /// the marker at the origin id directly and mutated the origin
+        /// recording in flight (issue #734).
+        /// </summary>
+        public bool InPlaceContinuation;
+
+        /// <summary>
         /// Snapshot of <see cref="BranchPoint.Id"/>s that already existed
         /// in the marker's tree at session-creation time. Used by
         /// <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>
@@ -103,6 +116,8 @@ namespace Parsek
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
                 node.AddValue("invokedRealTime", InvokedRealTime);
+            if (InPlaceContinuation)
+                node.AddValue("inPlaceContinuation", "true");
             if (PreSessionBranchPointIds != null)
             {
                 // Always emit the sentinel so absent-vs-empty round-trips
@@ -164,6 +179,10 @@ namespace Parsek
 
             m.InvokedRealTime = node.GetValue("invokedRealTime");
 
+            string inPlaceFlag = node.GetValue("inPlaceContinuation");
+            m.InPlaceContinuation = string.Equals(
+                inPlaceFlag, "true", StringComparison.OrdinalIgnoreCase);
+
             string presentFlag = node.GetValue("preSessionBranchPointIdsPresent");
             if (string.Equals(presentFlag, "true", StringComparison.OrdinalIgnoreCase))
             {
@@ -183,10 +202,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug #585: in-place continuation Re-Fly marker carve-out for
-        /// <c>RestoreActiveTreeFromPending</c>. When the marker exists,
-        /// represents an in-place continuation
-        /// (<c>OriginChildRecordingId == ActiveReFlyRecordingId</c>), and the
+        /// In-place continuation Re-Fly marker carve-out for
+        /// <c>RestoreActiveTreeFromPending</c>. When the marker exists and
+        /// represents an in-place continuation (post-#734 fork:
+        /// <see cref="InPlaceContinuation"/>=true; pre-fork legacy:
+        /// <c>OriginChildRecordingId == ActiveReFlyRecordingId</c>), and the
         /// marker's recording id is present in the freshly-popped tree, the
         /// restore coroutine MUST resolve the expected active vessel from the
         /// marker's recording -- NOT from the tree's stale
@@ -227,14 +247,16 @@ namespace Parsek
                     Reason = "marker-fields-empty",
                 };
             }
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Two valid in-place shapes: post-#734 fork (InPlaceContinuation=true,
+            // active != origin) and the pre-fork legacy in-place pattern
+            // (active == origin). Anything else is a placeholder Re-Fly that
+            // does not need the swap.
+            bool legacyInPlace = string.Equals(
+                marker.ActiveReFlyRecordingId,
+                marker.OriginChildRecordingId,
+                StringComparison.Ordinal);
+            if (!marker.InPlaceContinuation && !legacyInPlace)
             {
-                // Placeholder pattern (origin != active) -- the tree's
-                // ActiveRecordingId still points at the live pre-rewind
-                // vessel which is what we want; no swap.
                 return new InPlaceContinuationTarget
                 {
                     ShouldSwap = false,

@@ -24886,13 +24886,16 @@ namespace Parsek
             if (string.IsNullOrEmpty(candidate.RecordingId)
                 || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
                 return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
+            // Two valid in-place shapes: post-#734 fork (InPlaceContinuation
+            // flag with active != origin; the fork carries the snapshot
+            // copied from origin) and the pre-fork legacy in-place pattern
+            // (active == origin; the snapshot is on origin itself).
+            bool legacyInPlace = string.Equals(
+                marker.ActiveReFlyRecordingId,
+                marker.OriginChildRecordingId,
+                StringComparison.Ordinal);
+            if (!marker.InPlaceContinuation && !legacyInPlace)
                 return false;
-            }
             if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
                 return false;
             if (!string.IsNullOrEmpty(victimRecordingId)

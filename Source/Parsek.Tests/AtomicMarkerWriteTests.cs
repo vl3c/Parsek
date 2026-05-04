@@ -553,24 +553,26 @@ namespace Parsek.Tests
         // ---------- In-place continuation vs new-recording paths (item 11) -----
 
         /// <summary>
-        /// In-place continuation path: when the Limbo-restore kept the origin
-        /// recording alive in the restored tree AND the strip-selected vessel
-        /// pid matches the origin's <see cref="Recording.VesselPersistentId"/>,
-        /// AtomicMarkerWrite must point the marker directly at the origin id
-        /// without creating a placeholder. This eliminates the legacy
-        /// placeholder-and-redirect cascade and the cycle-poisoning class of
-        /// bug it introduced (#568).
+        /// In-place continuation path (issue #734): when the Limbo-restore
+        /// kept the origin recording alive in the restored tree AND the
+        /// strip-selected vessel pid matches the origin's
+        /// <see cref="Recording.VesselPersistentId"/>, AtomicMarkerWrite
+        /// forks the active attempt into a fresh provisional Recording with
+        /// a NEW recording id. The fork inherits origin's vessel identity
+        /// and freezes origin's trajectory under the fork's pre-Re-Fly
+        /// anchor snapshot; origin itself is not mutated, not tagged, and
+        /// the marker carries the InPlaceContinuation flag.
         /// </summary>
         [Fact]
-        public void AtomicMarkerWrite_InPlaceContinuation_PointsMarkerAtOriginNoPlaceholder()
+        public void AtomicMarkerWrite_InPlaceContinuation_ForksAttemptIntoNewProvisional()
         {
             const uint kOriginPid = 9999u;
             var scenario = MakeScenario();
             var (rp, slot) = MakeRpAndSlot();
 
             // Install the origin recording (committed) with the same pid as
-            // the strip-selected vessel. AtomicMarkerWrite must detect this
-            // and skip the placeholder.
+            // the strip-selected vessel. AtomicMarkerWrite must detect the
+            // in-place case and fork the attempt into a separate provisional.
             var origin = new Recording
             {
                 RecordingId = slot.OriginChildRecordingId,
@@ -583,19 +585,20 @@ namespace Parsek.Tests
             };
             origin.Points.Add(new TrajectoryPoint { ut = 100.0 });
             origin.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            origin.TrackSections.Add(new TrackSection { startUT = 100.0, endUT = 200.0 });
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_origin");
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
-            // Helper either adds 1 (TreeId already set) or creates a tree
-            // that may carry a wrapper recording — capture the actual count
-            // and assert delta semantics rather than absolute equality.
+            string originCreatingSessionBefore = origin.CreatingSessionId;
+            string originProvisionalForRpBefore = origin.ProvisionalForRpId;
 
             RewindInvoker.AtomicMarkerWrite(
                 rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_inplace");
 
-            // No placeholder added — committed list size unchanged.
-            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
-            // The pre-existing origin recording is still in the list (by reference).
+            // Fork added to the committed list — committed list size grew by one.
+            Assert.Equal(committedCountBefore + 1, RecordingStore.CommittedRecordings.Count);
+
+            // Origin still committed by reference and unchanged.
             bool foundOrigin = false;
             for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
             {
@@ -606,33 +609,57 @@ namespace Parsek.Tests
                 }
             }
             Assert.True(foundOrigin, "origin recording must remain committed across in-place continuation");
+            Assert.Equal(2, origin.Points.Count);
+            Assert.Single(origin.TrackSections);
+            Assert.Equal(originCreatingSessionBefore, origin.CreatingSessionId);
+            Assert.Equal(originProvisionalForRpBefore, origin.ProvisionalForRpId);
 
-            // Marker points directly at the origin id.
+            // Marker points at a NEW fork recording id, not at origin.
             var marker = scenario.ActiveReFlySessionMarker;
             Assert.NotNull(marker);
             Assert.Equal("sess_inplace", marker.SessionId);
-            Assert.Equal(origin.RecordingId, marker.ActiveReFlyRecordingId);
+            Assert.NotEqual(origin.RecordingId, marker.ActiveReFlyRecordingId);
             Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
             Assert.Equal(slot.OriginChildRecordingId, marker.SupersedeTargetId);
-            // Origin's TreeId is reused on the marker.
+            Assert.True(marker.InPlaceContinuation,
+                "marker must carry InPlaceContinuation=true so the restore swap and anchor gate can recognise the fork");
             Assert.Equal("tree_origin", marker.TreeId);
-            Assert.Equal("sess_inplace", origin.CreatingSessionId);
-            Assert.Equal(rp.RewindPointId, origin.ProvisionalForRpId);
-            Assert.True(origin.HasPreReFlyOriginalRecording("sess_inplace"));
-            Recording originalSnapshot = origin.BuildPreReFlyOriginalRecording("sess_inplace");
-            Assert.NotNull(originalSnapshot);
-            Assert.Equal(2, originalSnapshot.Points.Count);
-            Assert.Equal(200.0, originalSnapshot.EndUT);
-            Assert.Null(originalSnapshot.CreatingSessionId);
-            Assert.Null(originalSnapshot.ProvisionalForRpId);
 
-            // INFO log advertises the in-place continuation diagnosis so a
-            // future regression that loses the detection is diagnosable.
+            // Locate the fork in the committed list and assert its identity.
+            Recording fork = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null
+                    && string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                {
+                    fork = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(fork);
+            Assert.Equal(MergeState.NotCommitted, fork.MergeState);
+            Assert.Equal("sess_inplace", fork.CreatingSessionId);
+            Assert.Equal(rp.RewindPointId, fork.ProvisionalForRpId);
+            Assert.Equal(origin.RecordingId, fork.SupersedeTargetId);
+            Assert.Equal(origin.VesselPersistentId, fork.VesselPersistentId);
+            Assert.Equal(origin.VesselName, fork.VesselName);
+            Assert.Equal(origin.TreeId, fork.TreeId);
+            // The fork's pre-Re-Fly anchor snapshot was copied from origin so
+            // resolver / display alignment paths keyed by ActiveReFlyRecordingId
+            // continue to see the original frozen trajectory data.
+            Assert.True(fork.HasPreReFlyAnchorTrajectory("sess_inplace"));
+            Assert.Equal(2, fork.PreReFlyAnchorPoints.Count);
+            Assert.Single(fork.PreReFlyAnchorTrackSections);
+
+            // INFO log advertises the in-place fork diagnosis so a future
+            // regression that loses the detection or reverts to the
+            // origin-mutation path is diagnosable.
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
-                && l.Contains("in-place continuation detected")
-                && l.Contains(origin.RecordingId)
-                && l.Contains("no placeholder created"));
+                && l.Contains("in-place continuation forked")
+                && l.Contains(fork.RecordingId)
+                && l.Contains(origin.RecordingId));
 
             // Started log carries inPlaceContinuation=True.
             Assert.Contains(logLines, l =>
@@ -877,13 +904,14 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Reverse of the in-place test: even when the origin recording is
-        /// committed and the pids match, an exception during marker write
-        /// must NOT remove the (pre-existing) origin recording. The rollback
-        /// only touches a placeholder that this path never added.
+        /// Issue #734: in the fork model, an exception during marker write
+        /// must remove the freshly-added fork from the committed list and
+        /// MUST leave the origin recording untouched (origin is never
+        /// mutated, never tagged, and never gets a snapshot captured on it
+        /// in the fork model).
         /// </summary>
         [Fact]
-        public void AtomicMarkerWrite_InPlaceContinuation_ExceptionDoesNotRemoveOrigin()
+        public void AtomicMarkerWrite_InPlaceContinuation_ExceptionRemovesForkLeavesOriginIntact()
         {
             const uint kOriginPid = 7777u;
             var scenario = MakeScenario();
@@ -906,13 +934,12 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 12.0 },
             };
             origin.Points.Add(new TrajectoryPoint { ut = 33.0 });
-            origin.CapturePreReFlyOriginalRecording("prior_original_session");
 
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (tag == "CheckpointA:AfterProvisional")
+                if (tag == "CheckpointB:BeforeMarker")
                     throw new InvalidOperationException("simulated marker failure");
             };
 
@@ -922,8 +949,7 @@ namespace Parsek.Tests
                     rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_inplace_fail");
             });
 
-            // Origin is NOT removed — the rollback path skips the recording-
-            // remove call when no placeholder was added.
+            // Fork was added then removed by rollback; committed list size unchanged.
             Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
             // Marker is cleared (rollback).
             Assert.Null(ParsekScenario.Instance.ActiveReFlySessionMarker);
@@ -938,16 +964,16 @@ namespace Parsek.Tests
                 }
             }
             Assert.NotNull(storedOrigin);
+            // Origin's prior session metadata and snapshot are untouched.
             Assert.Equal("prior_session", storedOrigin.PreReFlyAnchorSessionId);
             Assert.Single(storedOrigin.PreReFlyAnchorPoints);
             Assert.Equal(12.0, storedOrigin.PreReFlyAnchorPoints[0].ut);
-            Assert.True(storedOrigin.HasPreReFlyOriginalRecording("prior_original_session"));
             Assert.Equal("prior_session", storedOrigin.CreatingSessionId);
             Assert.Equal("prior_rp", storedOrigin.ProvisionalForRpId);
         }
 
         [Fact]
-        public void AtomicMarkerWrite_InPlaceContinuation_CheckpointBBeforeMarker_RollsBackOriginTagging()
+        public void AtomicMarkerWrite_InPlaceContinuation_CheckpointBBeforeMarker_RemovesForkLeavesOriginIntact()
         {
             const uint kOriginPid = 8888u;
             var scenario = MakeScenario();
@@ -974,7 +1000,6 @@ namespace Parsek.Tests
             {
                 new TrajectoryPoint { ut = 12.0 },
             };
-            origin.CapturePreReFlyOriginalRecording("prior_original_session");
 
             RewindInvoker.CheckpointHookForTesting = tag =>
             {
@@ -988,13 +1013,16 @@ namespace Parsek.Tests
                     rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_marker_fail");
             });
 
+            // The fork was added between CheckpointA:BeforeProvisional and
+            // CheckpointA:AfterProvisional; the rollback path removed it
+            // before rethrowing, so the committed list is back to just origin.
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Same(origin, RecordingStore.CommittedRecordings[0]);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            // Origin's pre-existing snapshot/session metadata is untouched.
             Assert.Equal("prior_anchor_session", origin.PreReFlyAnchorSessionId);
             Assert.Single(origin.PreReFlyAnchorPoints);
             Assert.Equal(12.0, origin.PreReFlyAnchorPoints[0].ut);
-            Assert.True(origin.HasPreReFlyOriginalRecording("prior_original_session"));
             Assert.Equal("prior_session", origin.CreatingSessionId);
             Assert.Equal("prior_rp", origin.ProvisionalForRpId);
         }

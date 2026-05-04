@@ -617,186 +617,12 @@ namespace Parsek.Tests
             Assert.Null(scenario.ActiveMergeJournal);
         }
 
-        [Fact]
-        public void MergeDiscard_ReFlyInPlaceCommittedTreePath_RestoresPreReFlyOriginalSnapshot()
-        {
-            const string treeId = "tree-refly-inplace-committed-restore";
-            const string sessionId = "sess-refly-inplace-committed-restore";
-            const string rpId = "rp_merge_dialog";
-            const string sessionRpId = "rp-session-created-discard";
-            const string originId = "rec-origin-inplace-committed-restore";
-
-            var origin = MakeRecording(originId, treeId, 100.0, 260.0);
-            origin.MergeState = MergeState.CommittedProvisional;
-            origin.ExplicitStartUT = 100.0;
-            origin.ExplicitEndUT = 260.0;
-            origin.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 100.0,
-                endUT = 260.0,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 260.0, bodyName = "Kerbin" },
-                },
-            });
-            origin.CapturePreReFlyOriginalRecording(sessionId);
-
-            origin.Points.Clear();
-            origin.Points.Add(new TrajectoryPoint { ut = 130.0, bodyName = "Kerbin" });
-            origin.TrackSections.Clear();
-            origin.MergeState = MergeState.NotCommitted;
-            origin.CreatingSessionId = sessionId;
-            origin.ProvisionalForRpId = rpId;
-            origin.SupersedeTargetId = originId;
-            origin.ChildBranchPointId = "attempt-child-bp";
-            origin.VesselDestroyed = true;
-            origin.ExplicitStartUT = 129.5;
-            origin.ExplicitEndUT = 130.0;
-
-            var committedTree = MakeTree(treeId, originId, origin);
-            committedTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "bp-preexisting",
-                Type = BranchPointType.Dock,
-                UT = 90.0,
-            });
-            committedTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "attempt-child-bp",
-                Type = BranchPointType.JointBreak,
-                UT = 130.0,
-                ParentRecordingIds = new List<string> { originId },
-                ChildRecordingIds = new List<string> { "attempt-child-rec" },
-            });
-            RecordingStore.AddCommittedTreeForTesting(committedTree);
-            RecordingStore.AddCommittedInternal(origin);
-
-            var pendingTree = MakeTree(treeId, originId, origin);
-            pendingTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "bp-preexisting",
-                Type = BranchPointType.Dock,
-                UT = 90.0,
-            });
-            pendingTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "attempt-child-bp",
-                Type = BranchPointType.JointBreak,
-                UT = 130.0,
-                ParentRecordingIds = new List<string> { originId },
-                ChildRecordingIds = new List<string> { "attempt-child-rec" },
-            });
-            RecordingStore.StashPendingTree(pendingTree);
-
-            var rp = new RewindPoint
-            {
-                RewindPointId = rpId,
-                BranchPointId = "bp-inplace-committed-restore",
-                UT = 130.0,
-                SessionProvisional = true,
-                CreatingSessionId = sessionId,
-                ChildSlots = new List<ChildSlot>
-                {
-                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
-                },
-            };
-            var sessionRp = new RewindPoint
-            {
-                RewindPointId = sessionRpId,
-                BranchPointId = "attempt-child-bp",
-                UT = 135.0,
-                SessionProvisional = true,
-                CreatingSessionId = sessionId,
-            };
-            var otherSessionRp = new RewindPoint
-            {
-                RewindPointId = "rp-other-session",
-                BranchPointId = "bp-preexisting",
-                UT = 136.0,
-                SessionProvisional = true,
-                CreatingSessionId = "different-session",
-            };
-            var deletedRps = new List<string>();
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
-            {
-                deletedRps.Add(id);
-                return true;
-            };
-            var durableSaveNames = new List<string>();
-            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
-            {
-                durableSaveNames.Add(saveName);
-                return saveName + ".sfs";
-            };
-            var scenario = new ParsekScenario
-            {
-                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
-                LedgerTombstones = new List<LedgerTombstone>(),
-                RewindPoints = new List<RewindPoint> { rp, sessionRp, otherSessionRp },
-                ActiveReFlySessionMarker = MakeMarker(
-                    sessionId, treeId, originId, originId),
-            };
-            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
-            scenario.ActiveReFlySessionMarker.PreSessionBranchPointIds =
-                new List<string> { "bp-preexisting" };
-            ParsekScenario.SetInstanceForTesting(scenario);
-
-            MergeDialog.MergeDiscard(pendingTree);
-
-            Recording restored = RecordingStore.CommittedRecordings
-                .FirstOrDefault(r => r.RecordingId == originId);
-            RecordingTree restoredTree = RecordingStore.CommittedTrees
-                .FirstOrDefault(t => t.Id == treeId);
-            Assert.NotNull(restored);
-            Assert.NotNull(restoredTree);
-            Assert.NotSame(origin, restored);
-            Assert.Same(restored, restoredTree.Recordings[originId]);
-            Assert.Equal(3, restored.Points.Count);
-            Assert.Equal(260.0, restored.EndUT);
-            Assert.Single(restored.TrackSections);
-            Assert.Equal(MergeState.CommittedProvisional, restored.MergeState);
-            Assert.Null(restored.ChildBranchPointId);
-            Assert.False(restored.VesselDestroyed);
-            Assert.Null(restored.CreatingSessionId);
-            Assert.Null(restored.ProvisionalForRpId);
-            Assert.Null(restored.SupersedeTargetId);
-            Assert.True(restored.FilesDirty);
-            Assert.False(restored.HasPreReFlyOriginalRecording(sessionId));
-            Assert.False(rp.SessionProvisional);
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.DoesNotContain(scenario.RewindPoints, point => point.RewindPointId == sessionRpId);
-            Assert.Contains(scenario.RewindPoints, point => point.RewindPointId == rpId);
-            Assert.Contains(scenario.RewindPoints, point => point.RewindPointId == "rp-other-session");
-            Assert.Contains(deletedRps, id => id == sessionRpId);
-            Assert.DoesNotContain(deletedRps, id => id == rpId);
-            Assert.Contains(durableSaveNames, name => name == "persistent");
-            Assert.Contains(restoredTree.BranchPoints, bp => bp.Id == "bp-preexisting");
-            Assert.DoesNotContain(restoredTree.BranchPoints, bp => bp.Id == "attempt-child-bp");
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => ReferenceEquals(r, origin));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("TrimInPlaceAttemptBackToOriginRewindPoint"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[MergeDialog]")
-                && l.Contains("RestoreInPlaceOriginalRecordingFromSnapshot")
-                && l.Contains(originId)
-                && l.Contains("updateCommittedStore=True")
-                && l.Contains("committedTreeReplacements=1")
-                && l.Contains("committedCopyAdded=True")
-                && l.Contains("dirtyQueuedForScenarioSave=True"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[ReFlySession]")
-                && l.Contains("Discard removed session provisional RP")
-                && l.Contains(sessionRpId));
-            Assert.Contains(logLines, l =>
-                l.Contains("[MergeDialog]")
-                && l.Contains("User chose: Re-Fly Attempt Discard")
-                && l.Contains("inPlaceOriginalRestored=True")
-                && l.Contains("discardedSessionRps=1")
-                && l.Contains("restoredCommittedTree=False")
-                && l.Contains("durableSaved=True"));
-        }
+        // Issue #734: MergeDiscard_ReFlyInPlaceCommittedTreePath_RestoresPreReFlyOriginalSnapshot
+        // and MergeDiscard_ReFlyInPlaceDetachedPath_RestoresPreReFlyOriginalSnapshot covered the
+        // PR #733 conservative rollback path. The fork model in #734 never
+        // mutates the origin recording, so the snapshot rollback is no longer
+        // captured or replayed. Fork-mode discard coverage lives in
+        // ForkedInPlaceReFlyDiscardTests.
 
         [Fact]
         public void MergeDiscard_ReFlyInPlaceDetachedPath_TrimsOriginBackToRewindPoint()
@@ -865,128 +691,6 @@ namespace Parsek.Tests
             Assert.Null(origin.SupersedeTargetId);
             Assert.False(rp.SessionProvisional);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-        }
-
-        [Fact]
-        public void MergeDiscard_ReFlyInPlaceDetachedPath_RestoresPreReFlyOriginalSnapshot()
-        {
-            const string treeId = "tree-refly-inplace-detached-restore";
-            const string sessionId = "sess-refly-inplace-detached-restore";
-            const string rpId = "rp_merge_dialog";
-            const string originId = "rec-origin-inplace-detached-restore";
-
-            var origin = MakeRecording(originId, treeId, 100.0, 260.0);
-            origin.MergeState = MergeState.CommittedProvisional;
-            origin.ExplicitStartUT = 100.0;
-            origin.ExplicitEndUT = 260.0;
-            origin.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 100.0,
-                endUT = 260.0,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 260.0, bodyName = "Kerbin" },
-                },
-            });
-            origin.CapturePreReFlyOriginalRecording(sessionId);
-
-            origin.Points.Clear();
-            origin.Points.Add(new TrajectoryPoint { ut = 130.0, bodyName = "Kerbin" });
-            origin.TrackSections.Clear();
-            origin.MergeState = MergeState.NotCommitted;
-            origin.CreatingSessionId = sessionId;
-            origin.ProvisionalForRpId = rpId;
-            origin.SupersedeTargetId = originId;
-            origin.ChildBranchPointId = "attempt-child-bp";
-            origin.VesselDestroyed = true;
-            origin.ExplicitStartUT = 129.5;
-            origin.ExplicitEndUT = 130.0;
-
-            var pendingTree = MakeTree(treeId, originId, origin);
-            pendingTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "bp-preexisting",
-                Type = BranchPointType.Dock,
-                UT = 90.0,
-            });
-            pendingTree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "attempt-child-bp",
-                Type = BranchPointType.JointBreak,
-                UT = 130.0,
-                ParentRecordingIds = new List<string> { originId },
-                ChildRecordingIds = new List<string> { "attempt-child-rec" },
-            });
-            RecordingStore.StashPendingTree(pendingTree);
-
-            var rp = new RewindPoint
-            {
-                RewindPointId = rpId,
-                BranchPointId = "bp-inplace-detached-restore",
-                UT = 130.0,
-                SessionProvisional = true,
-                CreatingSessionId = sessionId,
-                ChildSlots = new List<ChildSlot>
-                {
-                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
-                },
-            };
-            var scenario = new ParsekScenario
-            {
-                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
-                LedgerTombstones = new List<LedgerTombstone>(),
-                RewindPoints = new List<RewindPoint> { rp },
-                ActiveReFlySessionMarker = MakeMarker(
-                    sessionId, treeId, originId, originId),
-            };
-            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
-            scenario.ActiveReFlySessionMarker.PreSessionBranchPointIds =
-                new List<string> { "bp-preexisting" };
-            ParsekScenario.SetInstanceForTesting(scenario);
-
-            MergeDialog.MergeDiscard(pendingTree);
-
-            Recording restored = RecordingStore.CommittedRecordings
-                .FirstOrDefault(r => r.RecordingId == originId);
-            Assert.NotNull(restored);
-            Assert.NotSame(origin, restored);
-            Assert.Equal(3, restored.Points.Count);
-            Assert.Equal(260.0, restored.EndUT);
-            Assert.Single(restored.TrackSections);
-            Assert.Equal(MergeState.CommittedProvisional, restored.MergeState);
-            Assert.Null(restored.ChildBranchPointId);
-            Assert.False(restored.VesselDestroyed);
-            Assert.Null(restored.CreatingSessionId);
-            Assert.Null(restored.ProvisionalForRpId);
-            Assert.Null(restored.SupersedeTargetId);
-            Assert.True(restored.FilesDirty);
-            Assert.False(restored.HasPreReFlyOriginalRecording(sessionId));
-            Assert.False(rp.SessionProvisional);
-            Assert.Null(scenario.ActiveReFlySessionMarker);
-            RecordingTree restoredTree = RecordingStore.CommittedTrees
-                .FirstOrDefault(t => t.Id == treeId);
-            Assert.NotNull(restoredTree);
-            Assert.Contains(restoredTree.BranchPoints, bp => bp.Id == "bp-preexisting");
-            Assert.DoesNotContain(restoredTree.BranchPoints, bp => bp.Id == "attempt-child-bp");
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("TrimInPlaceAttemptBackToOriginRewindPoint"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[MergeDialog]")
-                && l.Contains("RestoreInPlaceOriginalRecordingFromSnapshot")
-                && l.Contains(originId)
-                && l.Contains("points=3"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[MergeDialog]")
-                && l.Contains("User chose: Re-Fly Attempt Discard")
-                && l.Contains("inPlaceOriginalRestored=True")
-                && l.Contains("restoredCommittedTree=True"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[MergeDialog]")
-                && l.Contains("RestoreSanitizedPendingTreeIfDetached")
-                && l.Contains("prunedSessionBranchPoints=1")
-                && l.Contains("dirtyQueuedForScenarioSave=1"));
         }
 
         // ================================================================
@@ -1132,6 +836,145 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]") && l.Contains("MergeDiscard") && l.Contains("null"));
+        }
+
+        // ================================================================
+        // 7. Issue #734: in-place fork model -- discard removes the fork
+        //    and leaves origin (and its sidecar trajectory) intact
+        // ================================================================
+
+        /// <summary>
+        /// Issue #734 regression: a long-running in-place Re-Fly attempt
+        /// records new trajectory into the FORK recording, not into origin.
+        /// On Discard, the fork is removed from the committed list (and from
+        /// the pending tree), and origin keeps its full pre-Re-Fly Points /
+        /// TrackSections / terminal state untouched. Before #734 the recorder
+        /// rebound to origin and Discard had to either roll the origin back
+        /// from a snapshot or trim it -- both of which collapsed the recorded
+        /// data when anything went wrong (issue #733).
+        /// </summary>
+        [Fact]
+        public void MergeDiscard_ReFlyInPlaceFork_RemovesForkLeavesOriginIntact()
+        {
+            const string treeId = "tree-734-fork-discard";
+            const string sessionId = "sess-734-fork-discard";
+            const string rpId = "rp_734_fork";
+            const string originId = "rec-734-origin";
+            const string forkId = "rec-734-fork";
+
+            // Origin: a finished landed flight with two real points and one
+            // TrackSection. Captures the contract that origin's payload must
+            // survive Discard byte-for-byte.
+            var origin = MakeRecording(originId, treeId, 100.0, 200.0);
+            origin.MergeState = MergeState.Immutable;
+            origin.ExplicitStartUT = 100.0;
+            origin.ExplicitEndUT = 200.0;
+            origin.TerminalStateValue = TerminalState.Landed;
+            origin.TerminalPosition = new SurfacePosition
+            {
+                body = "Kerbin",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                situation = SurfaceSituation.Landed,
+            };
+            origin.EndpointPhase = RecordingEndpointPhase.SurfacePosition;
+            origin.EndpointBodyName = "Kerbin";
+            origin.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            });
+            int originPointCountBefore = origin.Points.Count;
+            int originTrackSectionCountBefore = origin.TrackSections.Count;
+            TerminalState? originTerminalBefore = origin.TerminalStateValue;
+
+            // Fork: the active provisional recording the recorder appended to
+            // during the long-running in-place attempt. Inherits origin's
+            // vessel identity but carries a NEW recording id and its own
+            // (post-Re-Fly) trajectory data.
+            var fork = MakeRecording(forkId, treeId, 200.0, 360.0);
+            fork.MergeState = MergeState.NotCommitted;
+            fork.CreatingSessionId = sessionId;
+            fork.ProvisionalForRpId = rpId;
+            fork.SupersedeTargetId = originId;
+            fork.VesselPersistentId = origin.VesselPersistentId;
+            fork.VesselName = origin.VesselName;
+            fork.TerminalStateValue = TerminalState.Destroyed;
+            // Mirror what AtomicMarkerWrite does: copy origin's frozen
+            // trajectory under the fork's own pre-Re-Fly anchor snapshot so
+            // the resolver / display alignment paths keyed by
+            // ActiveReFlyRecordingId still see the original frozen trajectory.
+            fork.CapturePreReFlyAnchorTrajectoryFrom(origin, sessionId);
+
+            // Tree topology mirrors AtomicMarkerWrite: origin is in the
+            // committed tree (immutable mission history), the FORK lives in
+            // the pending tree only as the active provisional recording the
+            // recorder flushes into. Both reference the same origin instance
+            // so the assertions can pin origin's payload byte-for-byte.
+            var committedTree = MakeTree(treeId, originId, origin);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(fork);
+
+            var pendingTree = MakeTree(treeId, forkId, origin, fork);
+            RecordingStore.StashPendingTree(pendingTree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp-734-fork",
+                UT = 200.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
+                },
+            };
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                ActiveReFlySessionMarker = MakeMarker(sessionId, treeId, forkId, originId),
+            };
+            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
+            scenario.ActiveReFlySessionMarker.InPlaceContinuation = true;
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeDialog.MergeDiscard(pendingTree);
+
+            // Origin survives the discard byte-for-byte: same instance, same
+            // points, same TrackSections, same terminal state.
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => ReferenceEquals(r, origin));
+            Assert.Equal(originPointCountBefore, origin.Points.Count);
+            Assert.Equal(originTrackSectionCountBefore, origin.TrackSections.Count);
+            Assert.Equal(originTerminalBefore, origin.TerminalStateValue);
+            Assert.Equal("Kerbin", origin.EndpointBodyName);
+            // No legacy trim-back path runs in fork mode because the fork
+            // owns the attempt's data.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("TrimInPlaceAttemptBackToOriginRewindPoint"));
+
+            // Fork is gone from both committed list and the pending tree.
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r.RecordingId == forkId);
+
+            // Marker, pending tree slot, scenario journal are cleared.
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("User chose: Re-Fly Attempt Discard")
+                && l.Contains("legacyInPlaceSession=False"));
         }
     }
 }

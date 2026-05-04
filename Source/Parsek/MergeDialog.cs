@@ -432,11 +432,18 @@ namespace Parsek
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
-            bool inPlaceOriginalRestored =
-                RestoreInPlaceOriginalRecordingFromSnapshot(
-                    tree, marker, updateCommittedStore: !committedTreeDetached);
-            bool inPlaceTrimmed = committedTreeDetached
-                && !inPlaceOriginalRestored
+            // Issue #734: only legacy in-flight sessions written by the
+            // pre-fork in-place mutation path
+            // (ActiveReFlyRecordingId == OriginChildRecordingId) need the
+            // origin trim/restore fallbacks. New sessions fork into a separate
+            // provisional, so removing the fork from the committed list above
+            // already abandons the attempt without touching origin's data.
+            bool legacyInPlaceSession = marker != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && string.Equals(marker.ActiveReFlyRecordingId,
+                    marker.OriginChildRecordingId, System.StringComparison.Ordinal);
+            bool inPlaceTrimmed = legacyInPlaceSession
+                && committedTreeDetached
                 && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
             int discardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
@@ -466,8 +473,8 @@ namespace Parsek
                 $"active={marker.ActiveReFlyRecordingId ?? "<none>"}, " +
                 $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
-                $"transientCleared={transientCleared}, inPlaceTrimmed={inPlaceTrimmed}, " +
-                $"inPlaceOriginalRestored={inPlaceOriginalRestored}, " +
+                $"transientCleared={transientCleared}, " +
+                $"legacyInPlaceSession={legacyInPlaceSession}, inPlaceTrimmed={inPlaceTrimmed}, " +
                 $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
                 $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
@@ -714,177 +721,15 @@ namespace Parsek
             return cleared;
         }
 
-        private static bool RestoreInPlaceOriginalRecordingFromSnapshot(
-            RecordingTree tree,
-            ReFlySessionMarker marker,
-            bool updateCommittedStore)
-        {
-            if (tree == null || tree.Recordings == null || marker == null)
-                return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || !string.Equals(marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            if (!tree.Recordings.TryGetValue(
-                    marker.OriginChildRecordingId, out Recording origin)
-                || origin == null)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"RestoreInPlaceOriginalRecordingFromSnapshot: origin rec={marker.OriginChildRecordingId ?? "<none>"} " +
-                    $"missing from tree={tree.Id ?? "<none>"}");
-                return false;
-            }
-
-            Recording restored = origin.BuildPreReFlyOriginalRecording(marker.SessionId);
-            if (restored == null)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"RestoreInPlaceOriginalRecordingFromSnapshot: no original snapshot for " +
-                    $"rec={origin.RecordingId ?? "<none>"} sess={marker.SessionId ?? "<none>"}");
-                return false;
-            }
-
-            restored.RecordingId = marker.OriginChildRecordingId;
-            restored.TreeId = !string.IsNullOrEmpty(tree.Id) ? tree.Id : restored.TreeId;
-            restored.CreatingSessionId = null;
-            restored.ProvisionalForRpId = null;
-            restored.SupersedeTargetId = null;
-            restored.ClearPreReFlySessionSnapshots();
-            restored.MarkFilesDirty();
-
-            tree.Recordings[marker.OriginChildRecordingId] = restored;
-            int prunedSessionBranchPoints = 0;
-            int committedTreeReplacements = 0;
-            int committedTreePrunedBranchPoints = 0;
-            bool committedCopyAdded = false;
-            if (updateCommittedStore)
-            {
-                prunedSessionBranchPoints += PruneSessionCreatedBranchPoints(tree, marker);
-                tree.RebuildBackgroundMap();
-                committedTreeReplacements = ReplaceCommittedTreeRecordingById(
-                    tree.Id, marker.OriginChildRecordingId, restored);
-                committedTreePrunedBranchPoints = PruneSessionCreatedBranchPointsInCommittedTrees(
-                    tree.Id, tree, marker);
-            }
-            int removedCommittedCopies = RemoveCommittedRecordingsById(marker.OriginChildRecordingId);
-            if (updateCommittedStore)
-            {
-                RecordingStore.AddCommittedInternal(restored);
-                committedCopyAdded = true;
-            }
-
-            ParsekLog.Info("MergeDialog",
-                $"RestoreInPlaceOriginalRecordingFromSnapshot: rec={restored.RecordingId ?? "<none>"} " +
-                $"sess={marker.SessionId ?? "<none>"} " +
-                $"points={(restored.Points?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"trackSections={(restored.TrackSections?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"removedCommittedCopies={removedCommittedCopies.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"updateCommittedStore={updateCommittedStore} " +
-                $"committedTreeReplacements={committedTreeReplacements.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"committedCopyAdded={committedCopyAdded} " +
-                $"prunedSessionBranchPoints={prunedSessionBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"committedTreePrunedBranchPoints={committedTreePrunedBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"dirtyQueuedForScenarioSave={restored.FilesDirty} " +
-                $"explicitStartUT={restored.ExplicitStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"explicitEndUT={restored.ExplicitEndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
-            return true;
-        }
-
-        private static int ReplaceCommittedTreeRecordingById(
-            string treeId,
-            string recordingId,
-            Recording restored)
-        {
-            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(recordingId)
-                || restored == null)
-            {
-                return 0;
-            }
-
-            var committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees == null || committedTrees.Count == 0)
-                return 0;
-
-            int replaced = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                RecordingTree committedTree = committedTrees[i];
-                if (committedTree == null || committedTree.Recordings == null)
-                    continue;
-                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
-                    continue;
-                if (!committedTree.Recordings.ContainsKey(recordingId))
-                    continue;
-
-                committedTree.Recordings[recordingId] = restored;
-                committedTree.RebuildBackgroundMap();
-                replaced++;
-            }
-
-            return replaced;
-        }
-
-        private static int PruneSessionCreatedBranchPointsInCommittedTrees(
-            string treeId,
-            RecordingTree dialogTree,
-            ReFlySessionMarker marker)
-        {
-            if (string.IsNullOrEmpty(treeId))
-                return 0;
-
-            var committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees == null || committedTrees.Count == 0)
-                return 0;
-
-            int pruned = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                RecordingTree committedTree = committedTrees[i];
-                if (committedTree == null || object.ReferenceEquals(committedTree, dialogTree))
-                    continue;
-                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
-                    continue;
-
-                int prunedFromTree = PruneSessionCreatedBranchPoints(committedTree, marker);
-                if (prunedFromTree > 0)
-                    committedTree.RebuildBackgroundMap();
-                pruned += prunedFromTree;
-            }
-
-            return pruned;
-        }
-
-        private static int RemoveCommittedRecordingsById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return 0;
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0)
-                return 0;
-
-            var matches = new List<Recording>();
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null)
-                    continue;
-                if (string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
-                    matches.Add(rec);
-            }
-
-            int removed = 0;
-            for (int i = 0; i < matches.Count; i++)
-            {
-                if (RecordingStore.RemoveCommittedInternal(matches[i]))
-                    removed++;
-            }
-
-            return removed;
-        }
+        // Issue #734: RestoreInPlaceOriginalRecordingFromSnapshot was the
+        // PR #733 conservative rollback path -- it rebuilt the origin
+        // recording from the captured PRE_REFLY_ORIGINAL snapshot when the
+        // pre-fork in-place attempt mutated origin in flight. The fork
+        // model in #734 never mutates origin, so the rollback snapshot is
+        // unnecessary and the helper has been removed. The legacy
+        // TrimInPlaceAttemptBackToOriginRewindPoint path below remains as
+        // a fallback for any in-flight session originally created under
+        // the pre-fork mutation path.
 
         private static bool TrimInPlaceAttemptBackToOriginRewindPoint(
             RecordingTree tree,
