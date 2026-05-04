@@ -309,7 +309,7 @@ namespace Parsek.Tests
 
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
-            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
         }
 
@@ -328,7 +328,7 @@ namespace Parsek.Tests
 
             Assert.Equal(1, caps.LoadGameCalls);
             Assert.Equal(0, caps.SceneCalls);
-            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
@@ -348,11 +348,11 @@ namespace Parsek.Tests
             RecordingStore.ArmNextTreeSceneExitCommitSuppression(
                 "discardReFly sess=sess_guard target=Launch facility=--");
 
-            Assert.True(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.True(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
                 GameScenes.SPACECENTER, out string reason));
             Assert.Contains("discardReFly", reason);
-            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.False(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
                 GameScenes.SPACECENTER, out _));
         }
@@ -386,7 +386,7 @@ namespace Parsek.Tests
             flight.FinalizeTreeOnSceneChangeForTesting(GameScenes.SPACECENTER, 123.4);
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting);
+            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Null(GetPrivateField<RecordingTree>(flight, "activeTree"));
             Assert.True(activeRecording.FilesDirty,
                 "Suppressed discard must not flush dirty sidecar state.");

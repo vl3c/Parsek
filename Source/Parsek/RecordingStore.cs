@@ -1250,7 +1250,16 @@ namespace Parsek
             return true;
         }
 
-        internal static bool NextTreeSceneExitCommitSuppressionArmedForTesting
+        /// <summary>
+        /// Read-only peek (no consume) of the tree-scene-exit-commit
+        /// suppression flag. Production callers (the
+        /// <c>HighLogic.LoadScene</c> prefix in
+        /// <c>SceneExitInterceptor</c>) check this to detect that a
+        /// transition is already owned by Discard Re-Fly so they can
+        /// bypass without stealing the flag from
+        /// <c>FinalizeTreeOnSceneChange</c>'s consume contract.
+        /// </summary>
+        internal static bool IsNextTreeSceneExitCommitSuppressionArmed
             => suppressNextTreeSceneExitCommit;
 
         /// <summary>
