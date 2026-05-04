@@ -204,15 +204,23 @@ namespace Parsek
                     entries))
                     count++;
 
-                // Separation — tree-child split point. Two flavours:
+                // Separation / Unfinished Flight — split-point affordance.
+                // Plain Separation rows are still tree-child only, but
+                // UnfinishedFlightSeparation rows are emitted for every
+                // classifier-visible UF member. This covers active-parent
+                // slots whose RP points at rec.ChildBranchPointId: they
+                // appear in STASH / have Fly+Seal in the Recordings table
+                // even though they are not tree children.
+                //
+                // Two flavours:
                 //
                 //   * UnfinishedFlightSeparation (T1, default-visible) —
-                //     terminal=Destroyed/Crashed AND a matching RP exists.
+                //     shared classifier says the row is re-flyable.
                 //     Renders with Fly/Seal buttons in the timeline so the
                 //     player can re-fly or close the slot directly from here.
                 //
                 //   * Separation (T2, detail-only) — formerly-UF rows
-                //     whose RP was reaped on merge. Just label and GoTo
+                //     or non-UF tree-child split rows. Just label and GoTo
                 //     button; no Fly action.
                 //
                 // The choice is rebuilt on every cache refresh, so a UF
@@ -325,19 +333,25 @@ namespace Parsek
             bool isTreeChild,
             List<TimelineEntry> entries)
         {
-            if (!isTreeChild || rec.IsDebris)
+            if (rec.IsDebris)
                 return false;
 
             bool isUf = EffectiveState.IsUnfinishedFlight(rec);
+            if (!isTreeChild && !isUf)
+                return false;
+
             var sepType = isUf
                 ? TimelineEntryType.UnfinishedFlightSeparation
                 : TimelineEntryType.Separation;
             string displayText = isUf
                 ? TimelineEntryDisplay.GetUnfinishedFlightSeparationText(rec.VesselName)
                 : TimelineEntryDisplay.GetSeparationText(rec.VesselName);
+            double ut = isUf
+                ? ResolveUnfinishedFlightTimelineUT(rec, rec.StartUT)
+                : rec.StartUT;
             entries.Add(new TimelineEntry
             {
-                UT = rec.StartUT,
+                UT = ut,
                 Type = sepType,
                 DisplayText = displayText,
                 Source = TimelineSource.Recording,
@@ -349,9 +363,20 @@ namespace Parsek
 
             ParsekLog.Verbose("Timeline",
                 $"  +{(isUf ? "UF-Separation" : "Separation")} #{recordingIndex} '{rec.VesselName}' " +
-                $"UT={rec.StartUT:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
+                $"UT={ut:F1} terminal={rec.TerminalStateValue} text=\"{displayText}\"");
 
             return true;
+        }
+
+        private static double ResolveUnfinishedFlightTimelineUT(Recording rec, double fallbackUT)
+        {
+            RewindPoint rp;
+            int slotListIndex;
+            return UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    rec, out rp, out slotListIndex)
+                && rp != null
+                ? rp.UT
+                : fallbackUT;
         }
 
         private static bool TryAddVesselSpawnEntry(
