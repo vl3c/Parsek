@@ -150,6 +150,25 @@ namespace Parsek
 
         internal const int KscFlatPointFrameSourceKey = 0;
 
+        // Renders a TerminalState->count dictionary as `Key1=N, Key2=M` ordered
+        // by descending count with an ordinal name tie-break, so the breakdown
+        // line is stable across log diffs. Returns "(none)" for empty dicts so
+        // the surrounding `terminal(...)` parens never collapse to `terminal()`.
+        private static string FormatTerminalCounts(Dictionary<string, int> counts)
+        {
+            if (counts == null || counts.Count == 0)
+                return "(none)";
+            var ordered = new List<KeyValuePair<string, int>>(counts);
+            ordered.Sort((a, b) =>
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+            });
+            var parts = new List<string>(ordered.Count);
+            foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+            return string.Join(", ", parts);
+        }
+
         private static int CompareAutoLoopQueueCandidates(AutoLoopQueueCandidate a, AutoLoopQueueCandidate b)
         {
             int cmp = a.PlaybackStartUT.CompareTo(b.PlaybackStartUT);
@@ -208,6 +227,7 @@ namespace Parsek
             int ghostCount = 0;
             int loopingCount = 0;
             var terminalCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var ineligibleTerminalCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             // [ERS-exempt] reason: ParsekKSC keys ghost dictionaries by committed
             // recording index (kscGhosts[i]); converting to ERS here would break
             // the index<->ghost correspondence.
@@ -217,12 +237,16 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                string termKey = rec.TerminalStateValue?.ToString() ?? "<null>";
                 if (ShouldShowInKSC(rec, supersedes))
                 {
                     ghostCount++;
                     if (rec.LoopPlayback) loopingCount++;
-                    string termKey = rec.TerminalStateValue?.ToString() ?? "<null>";
                     terminalCounts[termKey] = terminalCounts.TryGetValue(termKey, out int prev) ? prev + 1 : 1;
+                }
+                else
+                {
+                    ineligibleTerminalCounts[termKey] = ineligibleTerminalCounts.TryGetValue(termKey, out int iprev) ? iprev + 1 : 1;
                 }
             }
 
@@ -231,15 +255,15 @@ namespace Parsek
                 $"{ghostCount} eligible for KSC ghost playback");
             // Eligibility breakdown — replaces the per-recording verbose enumeration
             // that emitted hundreds of lines on every KSC entry for saves with many
-            // synthetic / showcase recordings.
-            if (ghostCount > 0)
+            // synthetic / showcase recordings. Always emits when there are committed
+            // recordings: when ghostCount==0 the ineligible-side breakdown is the
+            // primary diagnostic for "why is nothing showing in KSC?".
+            if (committed.Count > 0)
             {
-                var ordered = new List<KeyValuePair<string, int>>(terminalCounts);
-                ordered.Sort((a, b) => b.Value.CompareTo(a.Value));
-                var parts = new List<string>(ordered.Count);
-                foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
                 ParsekLog.Verbose("KSCGhost",
-                    $"Eligible breakdown: looping={loopingCount} terminal({string.Join(", ", parts.ToArray())})");
+                    $"Eligible breakdown: looping={loopingCount} " +
+                    $"terminal({FormatTerminalCounts(terminalCounts)}) " +
+                    $"ineligible({FormatTerminalCounts(ineligibleTerminalCounts)})");
             }
         }
 

@@ -2043,12 +2043,18 @@ namespace Parsek
                 int totalSkipped = 0;
                 foreach (var n in skipCounts.Values) totalSkipped += n;
                 var ordered = new List<KeyValuePair<string, int>>(skipCounts);
-                ordered.Sort((a, b) => b.Value.CompareTo(a.Value));
+                // Descending count, then ordinal name as tie-break, so equal-count
+                // categories don't reorder run-to-run (List<T>.Sort is not stable).
+                ordered.Sort((a, b) =>
+                {
+                    int c = b.Value.CompareTo(a.Value);
+                    return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+                });
                 var parts = new List<string>(ordered.Count);
                 foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
                 ParsekLog.Verbose("RecordingStore",
                     $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
-                    string.Join(", ", parts.ToArray()));
+                    string.Join(", ", parts));
             }
         }
 

@@ -2046,6 +2046,23 @@ namespace Parsek
 
         internal static bool TailPreservesTerminalSpawnState(Recording rec, double trimUT)
         {
+            return TailPreservesTerminalSpawnStateInternal(
+                rec, trimUT, logUnstableRefusal: true, unstableTerminal: out _);
+        }
+
+        /// <summary>
+        /// Log-suppression-aware overload. When <paramref name="logUnstableRefusal"/>
+        /// is false, the dedicated `refused trim for unstable terminal` Verbose line
+        /// is suppressed and the caller learns through <paramref name="unstableTerminal"/>
+        /// whether the refusal was an unstable-terminal carve-out vs. a stable-terminal
+        /// shape-match failure. Used by the bulk optimization pass so a save with
+        /// hundreds of Destroyed / Recovered / Boarded boring-tail leaves doesn't
+        /// emit one log line per recording per pass.
+        /// </summary>
+        internal static bool TailPreservesTerminalSpawnStateInternal(
+            Recording rec, double trimUT, bool logUnstableRefusal, out bool unstableTerminal)
+        {
+            unstableTerminal = false;
             if (rec == null || !rec.TerminalStateValue.HasValue)
                 return true;
 
@@ -2074,11 +2091,15 @@ namespace Parsek
                 case TerminalState.Destroyed:
                 case TerminalState.Recovered:
                 case TerminalState.Boarded:
-                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    unstableTerminal = true;
+                    if (logUnstableRefusal)
+                        LogUnstableTerminalTrimRefusal(rec, trimUT);
                     return false;
 
                 default:
-                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                    unstableTerminal = true;
+                    if (logUnstableRefusal)
+                        LogUnstableTerminalTrimRefusal(rec, trimUT);
                     return false;
             }
         }
@@ -2470,12 +2491,15 @@ namespace Parsek
 
         /// <summary>
         /// Skip-category-aware overload. When <paramref name="logSkipReason"/> is false,
-        /// per-recording verbose skip lines are suppressed and the caller receives the
-        /// short category name in <paramref name="skipCategory"/> so a bulk pass over
-        /// hundreds of recordings can emit a single aggregated summary instead of one
-        /// log line per skipped recording. The terminal-mismatch detail line still
-        /// emits — it's diagnostic-only when it does fire (rare), and contains
-        /// per-recording orbit-shape divergence numbers that don't aggregate.
+        /// every per-recording verbose skip line emitted by this method (including the
+        /// dedicated `refused trim for unstable terminal` line that <see cref="TailPreservesTerminalSpawnState"/>
+        /// owns) is suppressed and the caller receives the short category name in
+        /// <paramref name="skipCategory"/> so a bulk pass over hundreds of recordings
+        /// can emit a single aggregated summary instead of one log line per skipped
+        /// recording. Categories: <c>rec-null-or-too-few-points</c>, <c>not-leaf</c>,
+        /// <c>too-short</c>, <c>no-track-sections</c>, <c>last-section-not-boring</c>,
+        /// <c>all-boring-too-few-points</c>, <c>buffer-not-met</c>, <c>terminal-mismatch</c>,
+        /// <c>unstable-terminal</c>, <c>no-points-past-trim-ut</c>, <c>keep-count-too-low</c>.
         /// </summary>
         internal static bool TrimBoringTailInternal(
             Recording rec, List<Recording> allRecordings,
@@ -2578,29 +2602,29 @@ namespace Parsek
                 return false; // boring tail is shorter than buffer
             }
 
-            if (!TailPreservesTerminalSpawnState(rec, trimUT))
+            // Two distinct skip flavors live behind this gate. The unstable-terminal
+            // carve-out (Destroyed/Boarded/Recovered/default) has its own dedicated
+            // `refused trim for unstable terminal` log line that the gate emits when
+            // logging is allowed; we route that through the same `logSkipReason` flag
+            // so the bulk pass stays silent on per-recording lines for that bucket
+            // too. The stable-terminal shape-match failure path keeps its own
+            // per-recording log because the divergence numbers (ecc/inc/LAN deltas)
+            // don't aggregate cleanly into a summary line.
+            if (!TailPreservesTerminalSpawnStateInternal(
+                rec, trimUT, logUnstableRefusal: logSkipReason, unstableTerminal: out bool unstableTerminal))
             {
-                // Unstable terminals (Destroyed/Boarded/Recovered/default) emit
-                // their own dedicated `refused trim for unstable terminal` log
-                // line from inside the gate; the (terminal-mismatch) wording
-                // here is only accurate for the stable-terminal shape-match
-                // failure path (the tail genuinely diverged from the terminal
-                // orbit/surface state). Skip the duplicate-and-misleading line
-                // for unstable terminals.
-                if (!IsUnstableTerminalState(rec.TerminalStateValue))
+                if (unstableTerminal)
                 {
-                    skipCategory = "terminal-mismatch";
-                    // Terminal-mismatch carries per-recording orbit-shape divergence
-                    // detail that wouldn't aggregate cleanly; emit even from the
-                    // bulk pass since it fires rarely enough not to spam.
-                    ParsekLog.Verbose("Optimizer",
-                        $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
-                        $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
-                        $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
+                    skipCategory = "unstable-terminal";
                 }
                 else
                 {
-                    skipCategory = "unstable-terminal";
+                    skipCategory = "terminal-mismatch";
+                    if (logSkipReason)
+                        ParsekLog.Verbose("Optimizer",
+                            $"TrimBoringTail: skipped (terminal-mismatch) '{rec.VesselName}' ({rec.RecordingId}) " +
+                            $"because tail still diverges from terminal state after trimUT={trimUT:F1} " +
+                            $"(terminal={rec.TerminalStateValue?.ToString() ?? "null"})");
                 }
                 return false;
             }

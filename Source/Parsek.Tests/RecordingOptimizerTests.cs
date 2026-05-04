@@ -4275,6 +4275,81 @@ namespace Parsek.Tests
                 && l.Contains("trim-too-short-direct"));
         }
 
+        // Regression for review-pass P2: the bulk-pass log-suppression contract
+        // must extend through TailPreservesTerminalSpawnState. Pre-fix, that helper
+        // emitted its own `refused trim for unstable terminal` Verbose line when
+        // the recording's terminal was Destroyed/Recovered/Boarded — even when the
+        // bulk caller passed logSkipReason: false — so a save with many recovered
+        // boring-tail leaves still produced one [Optimizer] line per recording
+        // per pass. The fix routes the dedicated refusal log through the same
+        // logSkipReason flag and surfaces the bucket via skipCategory instead.
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonFalse_UnstableTerminal_SuppressesRefusalLogAndReportsCategory()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Long-enough boring tail that lastInterestingUT + buffer < endUT, so the
+            // gate is reached. Destroyed terminal triggers the unstable-terminal
+            // carve-out inside TailPreservesTerminalSpawnState.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-unstable-bulk";
+            rec.VesselName = "DestroyedProbe";
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: false,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("unstable-terminal", skipCategory);
+            // Bulk path stays silent on per-recording lines (both the
+            // TrimBoringTail skip and the TailPreservesTerminalSpawnState refusal).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("TrimBoringTail: skipped"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal"));
+        }
+
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonTrue_UnstableTerminal_EmitsDedicatedRefusalLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-unstable-direct";
+            rec.VesselName = "DestroyedProbe";
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: true,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("unstable-terminal", skipCategory);
+            // Direct-call path surfaces the refusal through the dedicated log line.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-unstable-direct"));
+        }
+
         #endregion
 
         #region RunOptimizationPass -- tree with branch points

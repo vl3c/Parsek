@@ -1892,7 +1892,10 @@ namespace Parsek
                 // most useful when debugging spawn timing) at Verbose.
                 loadPhase = "load-summary";
                 double loadUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("Scenario", $"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
+                ParsekLog.Info("Scenario",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Scenario load summary — UT: {0:F0}, {1} recording(s)",
+                        loadUT, recordings.Count));
                 int futureCount = 0, inProgressCount = 0, pastCount = 0;
                 List<string> inProgressDetail = null;
                 for (int i = 0; i < recordings.Count; i++)
@@ -1909,7 +1912,8 @@ namespace Parsek
                         if (inProgressDetail == null)
                             inProgressDetail = new List<string>();
                         string pct = duration > 0
-                            ? $"({(loadUT - loadedRec.StartUT) / duration * 100:F0}%)"
+                            ? string.Format(CultureInfo.InvariantCulture, "({0:F0}%)",
+                                (loadUT - loadedRec.StartUT) / duration * 100)
                             : "";
                         inProgressDetail.Add($"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}".TrimEnd());
                     }
