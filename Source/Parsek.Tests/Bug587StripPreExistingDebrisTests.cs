@@ -977,5 +977,71 @@ namespace Parsek.Tests
                 && l.Contains("excludedStripped=2")
                 && l.Contains("excludedGhostMap=1"));
         }
+
+        // ============================================================
+        // Issue #734: fork-mode markers must trigger the same
+        // doubled-vessel cleanup as the legacy in-place pattern. Pre-#734
+        // the gate was `active == origin` and silently skipped fork-mode
+        // markers (which carry distinct ids + InPlaceContinuation=true),
+        // letting the parent-chain phantom vessel (#587) regress.
+        // ============================================================
+
+        [Fact]
+        public void ResolveDebris_ForkModeInPlaceMarker_KillsDebrisMatchingDestroyedRec()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_734_fork",
+                ActiveReFlyRecordingId = "rec-fork", // distinct from origin
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-debris-1", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (300u, "Kerbal X Debris"),
+            };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null);
+
+            // The fork-mode marker must reach the kill walk; without the
+            // helper update this would return empty (silent regression).
+            Assert.Contains(300u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_ForkModePlaceholderPattern_ReturnsEmpty()
+        {
+            // Fork mode REQUIRES the InPlaceContinuation flag. A marker
+            // with distinct ids but the flag NOT set is a plain placeholder
+            // pattern (the player flies a fresh strip-spawned vessel) and
+            // must NOT trigger the kill walk -- there is no live "same
+            // physical vessel as origin" in scene to dedupe against.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-fresh-provisional",
+                OriginChildRecordingId = "rec-origin",
+                TreeId = "tree-1",
+                InPlaceContinuation = false,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)> { (100u, "Kerbal X Debris") };
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, null);
+
+            Assert.Empty(kill);
+        }
     }
 }
