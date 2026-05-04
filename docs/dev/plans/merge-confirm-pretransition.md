@@ -35,9 +35,10 @@ warning popups (atmosphere / throttle / quit confirmation) must still run first.
 | Decision | Choice |
 | --- | --- |
 | Quit-to-Main-Menu | Show dialog (drop force-auto-merge) |
-| Tree finalize timing | Pre-finalize *before* showing the dialog so the dialog operates on an already-stashed pending tree |
+| Tree finalize timing | Defer ALL finalize work to the dialog button callback (Opus pass-2/pass-3 redesign) |
 | Cancel button on regular dialog | None - click commits the player to leaving |
 | Re-Fly-aware dialog | Reuse `MergeDialog.ShowTreeDialog` with Re-Fly-attempt-scoped button labels and body copy (existing dialog already handles Re-Fly merge / discard correctly inside `MergeCommit` / `MergeDiscard`) |
+| autoMerge ON + Re-Fly active | **Behaviour change**: previously this combination silent-auto-committed via `AutoCommitTreeGhostOnly` (`ParsekScenario.cs:1700-1716`) without invoking `TryCommitReFlySupersede`. The new pre-transition path always shows the Re-Fly dialog, routing through `MergeDialog.MergeCommit` -> `TryCommitReFlySupersede` for full supersede / tombstone semantics. This is a real change beyond UX timing: previously-silent commits now require a click. Documented as intentional - the silent path was arguably under-implementing the supersede contract. |
 | Stock KSP danger / quit confirmations | Must run first (see patch chokepoint below) |
 
 ## Patch chokepoint - decompilation findings
@@ -186,7 +187,7 @@ finalize-then-act sequence:
 ```csharp
 Action proceed = () =>
 {
-    var fl = ParsekFlight.fetch;
+    var fl = ParsekFlight.Instance;
     fl?.FinalizeTreeOnSceneChangeForCallback(scene);   // stash + teardown
     var pending = RecordingStore.PendingTree;
     if (pending != null)
@@ -340,9 +341,11 @@ v1 on it.
 Owns:
 
 - A Harmony Prefix on `HighLogic.LoadScene(GameScenes)`.
-- `internal static bool s_AllowNextLoadScene` - one-shot bypass token. Set by
-  the dialog button callbacks just before re-invoking `HighLogic.LoadScene`,
-  consumed by the next prefix entry.
+- `internal static bool s_AllowNextLoadScene` and
+  `internal static GameScenes s_AllowNextLoadSceneDestination` -
+  paired one-shot bypass token. Set by the dialog button callbacks
+  just before re-invoking `HighLogic.LoadScene`, consumed (with
+  destination match check) by the next prefix entry.
 - `internal static DialogVariant ShouldShowDialogBeforeSceneChange(GameScenes
   destination)` - pure decision helper, unit-testable.
 - `internal enum DialogVariant { None, RegularMerge, ReFlyAttempt }`.
@@ -358,12 +361,24 @@ internal static class HighLogic_LoadScene_Patch
     static bool Prefix(GameScenes scene)
     {
         // (1) one-shot self-bypass token: our own dialog callback re-invoked LoadScene.
+        //     Includes a destination check (Opus pass-3 F7) so a stray foreign
+        //     LoadScene between our callback's set and prefix's consume cannot
+        //     silently steal the token.
         if (SceneExitInterceptor.s_AllowNextLoadScene)
         {
+            var expected = SceneExitInterceptor.s_AllowNextLoadSceneDestination;
             SceneExitInterceptor.s_AllowNextLoadScene = false;
-            ParsekLog.Verbose("SceneExit",
-                $"LoadScene prefix: bypassing via s_AllowNextLoadScene dest={scene}");
-            return true;
+            SceneExitInterceptor.s_AllowNextLoadSceneDestination = GameScenes.LOADING;
+            if (expected == scene)
+            {
+                ParsekLog.Verbose("SceneExit",
+                    $"LoadScene prefix: bypassing via s_AllowNextLoadScene dest={scene}");
+                return true;
+            }
+            ParsekLog.Warn("SceneExit",
+                $"LoadScene prefix: token consumed for unexpected dest={scene} " +
+                $"(expected {expected}); falling through to normal handling");
+            // fall through to normal flow
         }
 
         // (2) cheap filter - only intercept exits from FLIGHT to a flight-exit dest.
@@ -390,7 +405,7 @@ internal static class HighLogic_LoadScene_Patch
         //     the callback if and only if the player commits to a Merge or
         //     Discard choice. Popup-dismiss-without-click leaves the recorder
         //     and activeTree intact.
-        var flight = ParsekFlight.fetch;
+        var flight = ParsekFlight.Instance;
         if (flight == null || !flight.HasActiveTree) return true;
 
         var variant = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
@@ -426,6 +441,7 @@ internal static class HighLogic_LoadScene_Patch
             // Phase 2: persist mutations. Hard-block on MAINMENU save throw.
             if (!SafeWritePersistent(scene)) return;
             SceneExitInterceptor.s_AllowNextLoadScene = true;
+            SceneExitInterceptor.s_AllowNextLoadSceneDestination = scene;
             HighLogic.LoadScene(scene);
         };
 
@@ -509,13 +525,23 @@ sitting on the pad, every recording's `MaxDistanceFromLaunch` reads
 0.0, so a naive port of `IsTreeIdleOnPad` would always return true and
 auto-discard every flight that exits via the new prefix.
 
-The new `ParsekFlight.IsActiveTreeIdleOnPad()` must call
-`VesselSpawner.BackfillMaxDistance(rec)` on each live recording before
-the threshold check. `BackfillMaxDistance` iterates `Recording.Points`,
-which ARE accumulated continuously by the live recorder, so the
-backfill produces the correct distance for live data. The backfill is
-idempotent (computes from Points each call), so re-running it later
-inside `FinalizeTreeRecordings` is fine.
+The new `ParsekFlight.IsActiveTreeIdleOnPad()` does NOT just call
+`VesselSpawner.BackfillMaxDistance` directly. Per Opus pass-4 P1 #3,
+`BackfillMaxDistance` -> `ComputeMaxDistanceCore` (`VesselSpawner.cs:3294-3315`)
+calls `body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)`
+on every point regardless of `TrackSection.referenceFrame`. For
+RELATIVE-frame TrackSections (per-CLAUDE.md "Rotation / world frame"
+gotcha), those three fields are anchor-local Cartesian metres, not
+body-fixed lat/lon/alt. Feeding them into `GetWorldSurfacePosition`
+produces a position deep inside the planet and a `maxDist` in the
+thousands of km - falsely defeating the idle-on-pad fast path for
+recordings that contain any RELATIVE-frame points.
+
+For an idle-on-pad recording (vessel never moved off the pad), no
+RELATIVE-frame points exist (the recorder never enters a relative
+frame for a stationary pad-bound vessel). For a vessel that did move,
+maxDist is dominated by real Absolute-frame distances anyway. The
+defensive fix is to filter to Absolute-frame points only.
 
 Implementation:
 
@@ -526,15 +552,45 @@ internal bool IsActiveTreeIdleOnPad()
     foreach (var rec in activeTree.Recordings.Values)
     {
         if (rec == null) continue;
-        VesselSpawner.BackfillMaxDistance(rec);   // live -> populated
+        // Live max-distance walk over Absolute-frame points only.
+        // Skips RELATIVE-frame points (where lat/lon/alt are anchor-local
+        // metres, not body-fixed coords) to avoid the GetWorldSurfacePosition
+        // garbage described in the Opus pass-4 review.
+        VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
         if (!IsIdleOnPad(rec)) return false;
     }
     return true;
 }
 ```
 
-`IsIdleOnPad(rec)` is the existing private helper used by
-`IsTreeIdleOnPad` (`ParsekFlight.cs:15878`).
+`VesselSpawner.BackfillMaxDistanceAbsoluteOnly(Recording)` is a new
+sibling of the existing `BackfillMaxDistance`. It iterates Points but
+calls `Recording.IsPointInAbsoluteFrame(pointIndex)` (or equivalent)
+to skip non-Absolute points. For finalize-time use, the existing
+`BackfillMaxDistance` keeps walking all points (today's behaviour);
+the live path uses the Absolute-only variant.
+
+(Stretch: fix `BackfillMaxDistance` itself to honour `referenceFrame`,
+which would also fix a latent finalize-time bug. Out of scope for this
+plan, but flag as a follow-up TODO.)
+
+`IsIdleOnPad(rec)` is the existing internal helper at
+`ParsekFlight.cs:15729-15736`. It reads `rec.MaxDistanceFromLaunch`
+plus `HasPadLocalizedMotionOverride(rec)`. `HasPadLocalizedMotionOverride`
+walks `rec.Points` itself - it has the same RELATIVE-frame concern, so
+the Absolute-only variant must apply there too. Either:
+- Add a sibling `HasPadLocalizedMotionOverrideAbsoluteOnly(rec)` that
+  filters, or
+- Trust the gate at line 15743 (`MaxDistanceFromLaunch < 30m`); since
+  our live `BackfillMaxDistanceAbsoluteOnly` only writes a small value
+  for genuinely-idle recordings, the gate filters out the call into
+  `TryGetPadLocalizedMotionMetrics` for non-idle recordings.
+
+The latter is sufficient: if `MaxDistanceFromLaunch >= 30m`, the
+override is gated off and Points-walk doesn't run. Only when the
+recording is genuinely idle (small Absolute-only maxDist) does the
+override path run, and an idle recording has no RELATIVE points by
+construction.
 
 ### `MergeDialog.cs` changes
 
@@ -560,11 +616,26 @@ internal bool IsActiveTreeIdleOnPad()
   Merge / Discard button handlers run, in order:
   ```
   preCommitFinalize?.Invoke();   // pre-transition: stash pending tree
-  var pending = RecordingStore.PendingTree ?? liveTree;
-  if (clickedMerge) MergeCommit(pending, decisions, spawnCount);
-  else              MergeDiscard(pending);
+  var pending = RecordingStore.PendingTree;
+  if (pending == null)
+  {
+      // preCommitFinalize ran but produced no pending tree
+      // (active recorder had nothing to commit, all recordings auto-discarded).
+      // Skip MergeCommit/Discard - they assert a pending tree exists.
+      ParsekLog.Warn("MergeDialog",
+          "ShowTreeDialog: preCommitFinalize produced no pending tree, " +
+          "skipping commit/discard");
+  }
+  else if (clickedMerge) MergeCommit(pending, decisions, spawnCount);
+  else                   MergeDiscard(pending);
   postChoice?.Invoke();
   ```
+  No `?? liveTree` fallback - `MergeCommit` calls
+  `RecordingStore.CommitPendingTree()` which asserts a pending tree
+  exists (`MergeDialog.cs:316`). A null `PendingTree` after
+  `preCommitFinalize` means there's nothing to commit; silently
+  skipping with a Warn is the right behaviour, not feeding it the
+  live tree (which would crash inside `CommitPendingTree`).
   Decisions are built inside `ShowTreeDialog` exactly as today
   (`MergeDialog.cs:100-125`: `ComputeSessionSuppressedSubtree` +
   `activeReFlyTargetId` + `BuildDefaultVesselDecisions`). Pre-transition
@@ -651,14 +722,16 @@ internal bool IsActiveTreeIdleOnPad()
 
 | Status | Path | Change |
 | --- | --- | --- |
-| New | `Source/Parsek/SceneExitInterceptor.cs` | Harmony patch + decision helper + idle-pad fast path; pre-finalize-then-decide ordering; persistent save in callback |
-| Modified | `Source/Parsek/MergeDialog.cs` | `(labels, postChoice)` overload of `ShowTreeDialog`; new `MergeDialogButtonLabels` enum; pre-transition title copy; **add `ActiveMergeJournal` guard to `MergeDiscard` and `TryDiscardActiveReFlyAttempt` (P1.C)**; hide Discard when journal active |
-| Modified | `Source/Parsek/ParsekFlight.cs` | Expose `FinalizeTreeOnSceneChangeForCallback` and `HasActiveTree` |
+| New | `Source/Parsek/SceneExitInterceptor.cs` | Harmony patch (`HarmonyPriority.Last`) + decision helper + idle-pad fast path (live-state); paired `s_AllowNextLoadScene` + `s_AllowNextLoadSceneDestination` token; persistent save (`SafeWritePersistent`) in callback |
+| Modified | `Source/Parsek/MergeDialog.cs` | New `(tree, labels, preCommitFinalize, postChoice)` overload of `ShowTreeDialog`; new `MergeDialogButtonLabels` enum (`Default` / `ReFlyAttempt`); pre-transition title copy; **add `ActiveMergeJournal` guard to `MergeDiscard` and `TryDiscardActiveReFlyAttempt` (P1.C from earlier review)**; hide Discard when journal active |
+| Modified | `Source/Parsek/ParsekFlight.cs` | Expose `FinalizeTreeOnSceneChangeForCallback`, `HasActiveTree`, `ActiveTreeForDisplay`, `IsActiveTreeIdleOnPad` |
 | Modified | `Source/Parsek/RecordingStore.cs` | Rename `NextTreeSceneExitCommitSuppressionArmedForTesting` to `IsNextTreeSceneExitCommitSuppressionArmed` (or add sibling) |
+| Modified | `Source/Parsek/VesselSpawner.cs` | New `BackfillMaxDistanceAbsoluteOnly(Recording)` sibling that filters to Absolute-frame points (Opus pass-4 P1 #3) |
 | Modified | `Source/Parsek/ParsekScenario.cs` | Drop main-menu force-auto-merge; deferred-coroutine canary Warn; (optional) reuse decision helper |
-| New | `Source/Parsek.Tests/SceneExitInterceptorTests.cs` | Decision helper matrix; prefix bypass conditions; pre-finalize wiring; popup-teardown retry; persistent-save test seam |
-| Modified | `Source/Parsek.Tests/MergeDialogTests.cs` | New `(labels, postChoice)` path; ReFlyAttempt button labels; journal-active guard tests for `MergeDiscard` + `TryDiscardActiveReFlyAttempt` |
-| Modified | `Source/Parsek/InGameTests/RuntimeTests.cs` | Dialog appears in flight scene, not after load (multiple flight-exit paths) |
+| New | `Source/Parsek.Tests/SceneExitInterceptorTests.cs` | Decision helper matrix (live-state); prefix bypass conditions (3-way: token+dest, suppression peek, dest filter); deferred-finalize wiring; popup-dismiss-no-mutation; `SafeWritePersistent` MAINMENU-block test seam |
+| Modified | `Source/Parsek.Tests/MergeDialogTests.cs` | New `(labels, preCommitFinalize, postChoice)` path; ReFlyAttempt button labels; journal-active guard tests for `MergeDiscard` + `TryDiscardActiveReFlyAttempt`; "no pending tree after preCommitFinalize" Warn-and-skip path |
+| Modified | `Source/Parsek/InGameTests/RuntimeTests.cs` | Dialog appears in flight scene, not after load (multiple flight-exit paths); F9-during-dialog cleanup; KSPCommunityFixes coexistence |
+| Modified | `CHANGELOG.md` + `docs/dev/todo-and-known-bugs.md` | Per repo "Documentation Updates - Per Commit, Not Per PR" rule |
 
 No `ReFlyExitDialog.cs` (removed from previous draft - existing
 `MergeDialog.ShowTreeDialog` covers Re-Fly natively).
@@ -772,15 +845,19 @@ LANDED/SPLASHED situations pass through unchanged.)
 
 ### Defensive tests
 
-- Idle-on-pad pre-transition auto-discard fires before showing dialog
-  (using finalized `MaxDistanceFromLaunch` per P1.A).
-- Merge-journal-active hides Discard on regular and Re-Fly button-labels
-  variants; handler refusal also fires when invoked directly.
+- Idle-on-pad pre-transition auto-discard fires before showing dialog,
+  reading live `MaxDistanceFromLaunch` backfilled by
+  `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` over the live
+  recording's Points.
+- Merge-journal-active hides Discard on regular and Re-Fly
+  button-labels variants; handler refusal also fires when invoked
+  directly.
 - Popup `OnDismiss` without a button click: existing
   `ClearPendingFlag("popup teardown")` runs; no `s_AllowNextLoadScene`
-  leak (it was never set); pending tree remains stashed. Subsequent
-  scene-exit attempt re-enters the prefix and reuses the existing
-  pending tree without re-finalizing.
+  leak (it was never set); `activeTree` and recorder remain intact
+  because `preCommitFinalize` only runs inside the button-click
+  delegate. Subsequent scene-exit attempt re-enters the prefix from
+  the same in-flight state.
 - Deferred coroutine path emits the canary Warn when triggered.
 
 ### In-game tests
@@ -820,21 +897,21 @@ LANDED/SPLASHED situations pass through unchanged.)
 - We patch `HighLogic.LoadScene`, a hot KSP method. Filter is one
   comparison; cost is negligible. Verify in-game with `Verbose` log on
   every prefix entry during the first few minutes of a session.
-- Pre-finalize side effects fire in flight (BG checkpoint, ballistic-tail
-  extension, IncompleteBallisticSceneExitFinalizer, ledger-orchestrated
-  resource deltas). These already run during `OnSceneChangeRequested` -
-  we just hoist them by a few frames. No KSP-state mutation that depends
-  on the destination scene having loaded yet.
-- Pre-finalize "starves" the active recorder (`recorder = null`,
-  `backgroundRecorder.Shutdown()` at `ParsekFlight.cs:2840-2845`). If the
-  player dismisses the popup without clicking a button (P2 retry case),
-  the player is left in flight with no recording. Acceptable - they
-  can't escape via Esc anyway because `MultiOptionDialog` without an
-  explicit Cancel button does not allow Esc-dismiss; the popup-teardown
-  case is a Unity edge condition, not a normal flow.
-- Save throw in callback: logged as Warn, transition continues. Player
-  may lose Parsek state on game unload. Worse alternative would be to
-  block the transition forever - declined.
+- Finalize side effects (BG checkpoint, ballistic-tail extension,
+  `IncompleteBallisticSceneExitFinalizer`, ledger-orchestrated
+  resource deltas) fire inside the dialog button callback rather than
+  in `OnSceneChangeRequested`. They run a few frames earlier than
+  today and while the player is still in flight (paused under
+  `PauseMenu.Display`'s `FlightDriver.SetPause(true)`). No KSP-state
+  mutation that depends on the destination scene having loaded yet.
+- Save throw in callback: MAINMENU is a hard-block (error popup, no
+  transition). SC/TS/EDITOR is logged as Warn and continues; the
+  destination scene's own save cycle eventually persists. Worst case
+  on disk-full at SC: the on-disk state lags by one save cycle. See
+  `Persisting our mutations to disk` for the rationale.
+- Dialog dismissed without button click (Unity edge condition): the
+  recorder, `activeTree`, and `backgroundRecorder` are all intact
+  because nothing was finalized. Player resumes flight cleanly.
 - Dialog while in flight: KSP's `MultiOptionDialog` works in any scene
   with a live UI canvas. Confirmed by existing `ReFlyRevertDialog` which
   spawns the same kind of popup mid-flight.
@@ -892,21 +969,12 @@ LANDED/SPLASHED situations pass through unchanged.)
    worth a watchdog timer; document the risk and add a one-frame
    reaper in `ParsekFlight.Update` if observed in playtest.
 
-3. **`s_AllowNextLoadScene` wrong-destination warn** (Opus pass-3 F7):
-   step (1) of the prefix consumes the token unconditionally. If a
-   foreign mod's `LoadScene` slipped between callback set and our
-   prefix's consume, the token would be consumed for the wrong
-   destination. Add a stored `s_AllowNextLoadSceneDestination` that
-   the prefix checks against the actual `scene` param; if mismatched,
-   log Warn ("token consumed for unexpected dest=...") and fall
-   through to normal handling.
-
-2. **Suppression flag leak on `LoadScene` throw** (Opus #6): narrow
-   window where our prefix peeks the flag, bypasses, but stock
-   `LoadScene` itself throws before reaching `OnSceneChangeRequested`.
-   Flag stays armed; next regular flight-exit silently discards. Not
-   worth a watchdog timer; document the risk and add a one-frame
-   reaper in `ParsekFlight.Update` if observed in playtest.
+3. **`s_AllowNextLoadScene` wrong-destination warn** (Opus pass-3 F7,
+   pass-4 implementation): paired
+   `s_AllowNextLoadSceneDestination` field carries the expected
+   destination. Prefix step (1) checks `expected == scene` before
+   bypassing; mismatch logs Warn and falls through. Implemented in
+   the patch sketch above.
 
 ## CHANGELOG / todo updates
 
