@@ -783,9 +783,11 @@ namespace Parsek
 
                 if (ShouldAutoSealStableEvaCommitSlot(rec, qualifyReason, tree))
                 {
-                    AutoSealStableEvaCommitSlot(rec, rp, slot, slotListIndex, tree, qualifyReason);
-                    autoSealed++;
-                    continue;
+                    if (AutoSealStableEvaCommitSlot(rec, rp, slot, slotListIndex, tree, qualifyReason))
+                    {
+                        autoSealed++;
+                        continue;
+                    }
                 }
 
                 rec.MergeState = MergeState.CommittedProvisional;
@@ -819,7 +821,7 @@ namespace Parsek
                 || tip.TerminalStateValue.Value == TerminalState.Splashed;
         }
 
-        private static void AutoSealStableEvaCommitSlot(
+        private static bool AutoSealStableEvaCommitSlot(
             Recording rec,
             RewindPoint rp,
             ChildSlot slot,
@@ -828,7 +830,7 @@ namespace Parsek
             string qualifyReason)
         {
             if (slot == null || slot.Sealed)
-                return;
+                return false;
 
             Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
             string terminal = tip?.TerminalStateValue.HasValue == true
@@ -839,6 +841,8 @@ namespace Parsek
             slot.SealedRealTime =
                 DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
 
+            // CommitTree is already inside the merge/save lifecycle. Unlike the
+            // manual Seal button, do not force a persistent save or RP reap here.
             var scenario = ParsekScenario.Instance;
             if (!object.ReferenceEquals(null, scenario))
                 scenario.BumpSupersedeStateVersion();
@@ -847,6 +851,7 @@ namespace Parsek
                 $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
                 $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
                 $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason}");
+            return true;
         }
 
         private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)

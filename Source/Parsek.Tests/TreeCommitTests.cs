@@ -636,6 +636,17 @@ namespace Parsek.Tests
         [Fact]
         public void CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting()
         {
+            AssertStableSurfaceEvaChildAutoSeals(TerminalState.Landed);
+        }
+
+        [Fact]
+        public void CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting()
+        {
+            AssertStableSurfaceEvaChildAutoSeals(TerminalState.Splashed);
+        }
+
+        private void AssertStableSurfaceEvaChildAutoSeals(TerminalState terminal)
+        {
             bool priorSuppress = ParsekLog.SuppressLogging;
             bool? priorVerboseOverride = ParsekLog.VerboseOverrideForTesting;
             var logLines = new List<string>();
@@ -649,7 +660,7 @@ namespace Parsek.Tests
                 tree.BranchPoints[0].Type = BranchPointType.EVA;
                 tree.BranchPoints[0].RewindPointId = "rp_stage";
                 tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
-                tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
+                tree.Recordings["child2"].TerminalStateValue = terminal;
                 tree.Recordings["child2"].VesselName = "Jebediah Kerman";
                 tree.Recordings["child2"].EvaCrewName = "Jebediah Kerman";
 
@@ -684,7 +695,7 @@ namespace Parsek.Tests
                     l.Contains("[UnfinishedFlights]")
                     && l.Contains("CommitTree auto-sealed stable EVA")
                     && l.Contains("rec=child2")
-                    && l.Contains("terminal=Landed")
+                    && l.Contains($"terminal={terminal}")
                     && l.Contains("reason=strandedEva"));
             }
             finally
@@ -693,6 +704,39 @@ namespace Parsek.Tests
                 ParsekLog.SuppressLogging = priorSuppress;
                 ParsekLog.VerboseOverrideForTesting = priorVerboseOverride;
             }
+        }
+
+        [Fact]
+        public void CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional()
+        {
+            var tree = MakeTreeWithBranch("orbiting_eva_tree");
+            tree.BranchPoints[0].Type = BranchPointType.EVA;
+            tree.BranchPoints[0].RewindPointId = "rp_stage";
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].VesselName = "Jebediah Kerman";
+            tree.Recordings["child2"].EvaCrewName = "Jebediah Kerman";
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_stage",
+                BranchPointId = "bp1",
+                SessionProvisional = true,
+                CreatingSessionId = null,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "child1"),
+                    Slot(1, "child2"),
+                }
+            };
+            InstallScenarioWithRps(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
+            Assert.False(rp.ChildSlots[1].Sealed);
+            Assert.True(string.IsNullOrEmpty(rp.ChildSlots[1].SealedRealTime));
         }
 
         [Fact]
