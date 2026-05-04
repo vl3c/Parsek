@@ -894,6 +894,37 @@ namespace Parsek.Tests
                 ReFlyRevertButtonGate.ResetForTesting();
                 Parsek.Rendering.RenderSessionState.ResetForTesting();
                 ParsekScenario.SetInstanceForTesting(null);
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void PlainRewindLoad_WithoutActiveReFlyMarker_IsNoOp()
+        {
+            var logLines = new List<string>();
+            bool applyCalled = false;
+            var scenario = new ParsekScenario();
+
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ReFlyRevertButtonGate.ApplyForTesting = _ => applyCalled = true;
+
+            try
+            {
+                bool cleared = scenario.ClearActiveReFlyMarkerForPlainRewind();
+
+                Assert.False(cleared);
+                Assert.Null(scenario.ActiveReFlySessionMarker);
+                Assert.False(applyCalled);
+                Assert.Empty(logLines);
+            }
+            finally
+            {
+                ReFlyRevertButtonGate.ResetForTesting();
+                Parsek.Rendering.RenderSessionState.ResetForTesting();
+                ParsekScenario.SetInstanceForTesting(null);
+                ParsekLog.ResetTestOverrides();
             }
         }
 

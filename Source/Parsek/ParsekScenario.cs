@@ -2265,6 +2265,9 @@ namespace Parsek
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
         }
 
+        /// <summary>
+        /// Clears a loaded active Re-Fly marker while the plain rewind OnLoad branch resumes replay.
+        /// </summary>
         internal bool ClearActiveReFlyMarkerForPlainRewind()
         {
             var marker = ActiveReFlySessionMarker;
@@ -2276,8 +2279,12 @@ namespace Parsek
             string originRecordingId = marker.OriginChildRecordingId ?? "<no-id>";
             string rewindPointId = marker.RewindPointId ?? "<no-rp>";
 
+            // This discards only stale session state; supersede caches do not
+            // depend on the marker and should not be bumped for this cleanup.
             ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            // Plain rewind loads before FlightDriver state is ready, so Apply is
+            // normally a logged no-op here. Keep it paired with marker clears.
             ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");
             ParsekLog.Info("Rewind",
                 "OnLoad: cleared stale active Re-Fly marker during plain rewind " +
