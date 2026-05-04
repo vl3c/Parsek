@@ -42,6 +42,11 @@ namespace Parsek
         /// in between our set and our prefix entry; we Warn and fall through
         /// to normal handling rather than silently letting the foreign call
         /// bypass the dialog.
+        ///
+        /// <para><see cref="GameScenes.LOADING"/> is the "not armed"
+        /// sentinel: it is never a flight-exit destination so it cannot be
+        /// confused with a real armed value. If KSP adds a new flight-exit
+        /// destination in a future version, audit this sentinel.</para>
         /// </summary>
         internal static GameScenes s_AllowNextLoadSceneDestination = GameScenes.LOADING;
 
@@ -243,13 +248,18 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                ParsekLog.Error("SceneExit",
-                    $"SafeWritePersistent threw {ex.GetType().Name}: {ex.Message} dest={destination}");
                 if (destination == GameScenes.MAINMENU)
                 {
+                    ParsekLog.Error("SceneExit",
+                        $"SafeWritePersistent threw {ex.GetType().Name}: {ex.Message} " +
+                        $"dest={destination} - hard-blocking transition");
                     ShowSaveFailedPopup();
                     return false;
                 }
+                ParsekLog.Warn("SceneExit",
+                    $"SafeWritePersistent threw {ex.GetType().Name}: {ex.Message} " +
+                    $"dest={destination} - continuing transition (destination scene's " +
+                    "save cycle will eventually persist)");
                 return true;
             }
         }
@@ -283,6 +293,15 @@ namespace Parsek
         /// Builds the postChoice closure invoked after the dialog's
         /// preCommitFinalize + MergeCommit/Discard. Persists state and
         /// re-invokes <c>HighLogic.LoadScene</c> with the bypass token set.
+        ///
+        /// <para>Token-set ordering: <see cref="SafeWritePersistent"/> fires
+        /// <c>onSceneConfirmExit</c> BEFORE we set the bypass token. A
+        /// foreign listener that synchronously calls
+        /// <c>HighLogic.LoadScene</c> from its handler would hit our prefix
+        /// without the token armed - the gate re-evaluates and (if the
+        /// active tree is still around) re-shows the dialog. Acceptable
+        /// fallback; the more common case is no-listener / passive
+        /// listener where this ordering doesn't matter.</para>
         /// </summary>
         internal static Action BuildPostChoice(GameScenes destination)
         {

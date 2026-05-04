@@ -2758,18 +2758,64 @@ namespace Parsek
         /// Idle-on-pad recordings cannot have RELATIVE-frame TrackSections
         /// (the recorder skips RELATIVE entry while the vessel is on
         /// surface, see <c>FlightRecorder.cs:5099-5131</c>).
+        ///
+        /// <para>This method MUTATES: it calls
+        /// <see cref="FlushRecorderIntoActiveTreeForSerialization"/> first
+        /// so the live recorder's <c>Recording</c> + open
+        /// <c>TrackSections</c> become populated on the tree recordings
+        /// (<see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>
+        /// reads <c>rec.TrackSections</c> only). Without this, atmospheric
+        /// flights that haven't crossed an env boundary or saved yet have
+        /// empty <c>TrackSections</c> and the helper would falsely report
+        /// idle (Opus pass-7 review P1). The flush is non-destructive: the
+        /// recorder stays IsRecording=true and the only side effect is one
+        /// extra TrackSection boundary at the current UT - identical to
+        /// what every <c>OnSave</c> tick produces.</para>
+        ///
+        /// <para>Mirrors the <see cref="IsTreeIdleOnPad"/> data-loss
+        /// safeguard at <c>ParsekFlight.cs:15983-15991</c>: a tree where no
+        /// recording has any trajectory points is data-loss, not idle. We
+        /// refuse to classify and return false so the dialog still shows.</para>
         /// </summary>
         internal bool IsActiveTreeIdleOnPad()
         {
             if (activeTree == null) return false;
             if (activeTree.Recordings == null || activeTree.Recordings.Count == 0)
                 return false;
+
+            // Flush live recorder data into the tree so subsequent walks
+            // over rec.TrackSections / rec.Points see the in-flight data.
+            FlushRecorderIntoActiveTreeForSerialization();
+
+            bool anyHasPoints = false;
             foreach (var rec in activeTree.Recordings.Values)
             {
                 if (rec == null) continue;
                 VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
-                if (!IsIdleOnPad(rec)) return false;
+                if (rec.Points != null && rec.Points.Count > 0)
+                    anyHasPoints = true;
+                if (!IsIdleOnPad(rec))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"IsActiveTreeIdleOnPad: '{rec.VesselName}' maxDist=" +
+                        $"{rec.MaxDistanceFromLaunch:F1}m - not idle");
+                    return false;
+                }
             }
+
+            // Bug #290d safeguard: a tree where no recording has trajectory
+            // points is data-loss, not idle-on-pad. Don't auto-discard.
+            if (!anyHasPoints)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
+                    "have 0 points - cannot determine idle, returning false");
+                return false;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
+                "within 30m - idle on pad");
             return true;
         }
 

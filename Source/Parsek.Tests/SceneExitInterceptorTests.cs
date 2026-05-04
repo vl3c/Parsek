@@ -237,5 +237,66 @@ namespace Parsek.Tests
             bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
             Assert.False(result);
         }
+
+        // ---------- TryAutoDiscardIdleActiveTree -----------------------
+
+        [Fact]
+        public void TryAutoDiscardIdleActiveTree_NullFlight_ReturnsFalse()
+        {
+            bool result = SceneExitInterceptor.TryAutoDiscardIdleActiveTree(
+                GameScenes.SPACECENTER, flight: null);
+            Assert.False(result);
+        }
+
+        // ---------- BackfillMaxDistanceAbsoluteOnly --------------------
+
+        [Fact]
+        public void BackfillMaxDistanceAbsoluteOnly_NullRecording_ReturnsCleanly()
+        {
+            // No exception expected.
+            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(null);
+        }
+
+        [Fact]
+        public void BackfillMaxDistanceAbsoluteOnly_NullTrackSections_ReturnsCleanly()
+        {
+            var rec = new Recording { RecordingId = "rec-null-ts" };
+            rec.TrackSections = null;
+            // Should not throw, should not write MaxDistanceFromLaunch.
+            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+            Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
+        }
+
+        [Fact]
+        public void BackfillMaxDistanceAbsoluteOnly_EmptyTrackSections_LeavesMaxDistanceUntouched()
+        {
+            var rec = new Recording { RecordingId = "rec-empty-ts" };
+            rec.MaxDistanceFromLaunch = 42.5;   // pre-existing value
+            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+            // Empty TrackSections list -> no Absolute frames found -> no
+            // write to MaxDistanceFromLaunch (preserves prior value).
+            Assert.Equal(42.5, rec.MaxDistanceFromLaunch);
+        }
+
+        [Fact]
+        public void BackfillMaxDistanceAbsoluteOnly_AllRelativeSections_LeavesMaxDistanceUntouched()
+        {
+            var rec = new Recording { RecordingId = "rec-relative-only" };
+            rec.MaxDistanceFromLaunch = 99.9;
+            rec.TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { latitude = 1.0, longitude = 2.0, altitude = 3.0, bodyName = "Kerbin" },
+                    },
+                },
+            };
+            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+            // Only RELATIVE sections -> no Absolute frames -> no write.
+            Assert.Equal(99.9, rec.MaxDistanceFromLaunch);
+        }
     }
 }
