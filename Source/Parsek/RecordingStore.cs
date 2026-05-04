@@ -732,9 +732,11 @@ namespace Parsek
         /// <summary>
         /// A child under a Rewind Point that qualifies as an unfinished flight
         /// is committed, but its rewind slot stays open until a later successful
-        /// re-fly or explicit Seal closes it. Legacy/default recordings are
-        /// born Immutable, so stamp that precise shape during the normal tree
-        /// commit path.
+        /// re-fly or explicit Seal closes it. Stable surface EVA side-branches
+        /// are the exception: when the only classifier reason is stranded EVA
+        /// and the terminal is safe, the commit closes the slot immediately.
+        /// Legacy/default recordings are born Immutable, so stamp that precise
+        /// shape during the normal tree commit path.
         /// </summary>
         private static void ApplyRewindProvisionalMergeStates(RecordingTree tree)
         {
@@ -744,6 +746,7 @@ namespace Parsek
                 return;
 
             int promoted = 0;
+            int autoSealed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null) continue;
@@ -778,6 +781,13 @@ namespace Parsek
                     continue;
                 }
 
+                if (ShouldAutoSealStableEvaCommitSlot(rec, qualifyReason, tree))
+                {
+                    AutoSealStableEvaCommitSlot(rec, rp, slot, slotListIndex, tree, qualifyReason);
+                    autoSealed++;
+                    continue;
+                }
+
                 rec.MergeState = MergeState.CommittedProvisional;
                 rec.FilesDirty = true;
                 promoted++;
@@ -788,8 +798,55 @@ namespace Parsek
                     $"to CommittedProvisional");
             }
 
-            if (promoted > 0)
+            if (promoted > 0 || autoSealed > 0)
                 BumpStateVersion();
+        }
+
+        private static bool ShouldAutoSealStableEvaCommitSlot(
+            Recording rec,
+            string qualifyReason,
+            RecordingTree tree)
+        {
+            if (!string.Equals(qualifyReason, "strandedEva", StringComparison.Ordinal))
+                return false;
+
+            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            if (tip == null || string.IsNullOrEmpty(tip.EvaCrewName)
+                || !tip.TerminalStateValue.HasValue)
+                return false;
+
+            return tip.TerminalStateValue.Value == TerminalState.Landed
+                || tip.TerminalStateValue.Value == TerminalState.Splashed;
+        }
+
+        private static void AutoSealStableEvaCommitSlot(
+            Recording rec,
+            RewindPoint rp,
+            ChildSlot slot,
+            int slotListIndex,
+            RecordingTree tree,
+            string qualifyReason)
+        {
+            if (slot == null || slot.Sealed)
+                return;
+
+            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            string terminal = tip?.TerminalStateValue.HasValue == true
+                ? tip.TerminalStateValue.Value.ToString()
+                : "<none>";
+
+            slot.Sealed = true;
+            slot.SealedRealTime =
+                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+                scenario.BumpSupersedeStateVersion();
+
+            ParsekLog.Info("UnfinishedFlights",
+                $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
+                $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
+                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason}");
         }
 
         private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)

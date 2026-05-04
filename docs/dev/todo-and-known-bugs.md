@@ -23,6 +23,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.1 stable landed EVA side-branch auto-seal
+
+- ~~A Jebediah EVA side-branch that ended safely landed could still be promoted to an open Unfinished Flight as `strandedEva`, leaving Fly disabled by the active Re-Fly marker while Seal remained available.~~ Source: `logs/2026-05-04_1817`. The recording `b1c726b9a36b4c3082ff41d532f1289c` finalized as `TerminalState=Landed`, with `type=EVA`, `sit=LANDED`, and `landed=True` in its vessel sidecar. `RecordingStore.CommitTree` then classified it as `strandedEva` and promoted it to `CommittedProvisional`; the re-fly auto-seal helper never ran because this was a tree-commit side branch, not the active supersede provisional.
+
+**Fix:** `RecordingStore.ApplyRewindProvisionalMergeStates` now treats `strandedEva` as an auto-seal close when the effective terminal recording is an EVA with a safe surface terminal (`Landed` or `Splashed`). The slot receives `Sealed=true` plus `sealedRealTime`, the supersede state version is bumped, and the recording remains `Immutable` instead of becoming `CommittedProvisional`. The legacy classifier still reports normal loaded landed EVAs as stranded unless the commit-time auto-seal has stamped the slot.
+
+**Coverage:** `TreeCommitTests.CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, plus existing `UnfinishedFlightsMembershipTests.StrandedEvaLegacyNoFocusSignal_IsMember`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Done - v0.9.1 pending-tree cleanup view for Re-Fly restore
 
 - ~~After Rewind + Watch, re-entering a spawned Re-Fly vessel could leave the Recordings window showing zero rows until the deferred merge dialog restored the mission tree, and that pending-tree window could also drop supersede rows and auto-generated group hierarchy.~~ Source: `logs/2026-05-03_0059_newest`. Runtime trace: `TryTakeCommittedTreeForSpawnedVesselRestore` detached the 13-recording `Kerbal X` tree from `CommittedTrees` / `CommittedRecordings` so the active vessel could own it again, then `OnSave` wrote `0 committed recordings` plus an `ACTIVE` tree. On the following KSC load, `TryRestoreActiveTreeNode` kept the in-memory finalized pending tree and skipped `.sfs` replacement, but `LoadTimeSweep.SweepOrphanSupersedes` still checked only committed recordings and removed a valid supersede relation as fully orphaned. The group hierarchy prune had the same committed-only view, so it could treat pending-tree-only mission/debris groups as stale.

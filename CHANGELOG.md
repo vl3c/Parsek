@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - An orphaned chain predecessor (same vessel pid, contiguous boundary, missing `ChainId`) is grafted back as the chain's `[0]` entry on load and re-saved, restoring the seamless ghost handoff so the next stage no longer respawns engine FX/audio at the chain boundary.
 - Unowned science subjects from stock transmission and vessel recovery now enter the ledger immediately, so Parsek no longer patches the science pool back down before those rewards are committed.
 - Re-Fly temp quicksaves now force the selected real vessel's `CTRLSTATE/mainThrottle`, `CTRLSTATE/wheelThrottle`, and persisted engine-module throttle fields to `0` before KSP loads it, so the player never spawns into a Re-Fly attempt with recorded throttle input already open.
