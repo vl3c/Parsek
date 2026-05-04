@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 plain rewind kept stale Re-Fly marker
+
+- ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.
+
+**Fix:** `HandleRewindOnLoad` now clears any active Re-Fly marker imported from the rewind save as soon as the plain rewind path is detected, clears render-session state with the required lifecycle log, and reapplies the Re-Fly revert button gate against the now-null marker. The existing future-recording activation policy is unchanged.
+
+**Coverage:** `RewindTimelineTests.PlainRewindLoad_ClearsLoadedActiveReFlyMarker`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Active - v0.9.1 PR708 post-merge Phase D continuation
 
 - After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).

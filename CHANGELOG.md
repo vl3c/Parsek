@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 - Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - Timeline now shows Fly/Seal for every STASH-eligible recording, including active-parent breakup slots, so the Re-Fly filter matches the Recordings table.
+- Plain Rewind-to-Launch now clears any loaded active Re-Fly marker before replay resumes, preventing stale session suppression from hiding post-rewind ghosts and leaving Watch unavailable for recordings that should become watchable again.
 
 ### Enhancements
 
