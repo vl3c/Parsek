@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.9.2
+
+### Bug Fixes
+
+### Enhancements
+
+### Internals
+
+### Tests
+
+---
+
 ## 0.9.1
 
 ### Bug Fixes
