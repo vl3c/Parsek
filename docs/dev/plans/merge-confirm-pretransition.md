@@ -402,31 +402,29 @@ internal static class HighLogic_LoadScene_Patch
         if (SceneExitInterceptor.TryAutoDiscardIdleActiveTree(scene, flight))
             return true;
 
-        // (6) show dialog on the live activeTree. Same dialog for both
-        //     variants - Re-Fly-aware copy and Re-Fly-aware MergeCommit /
-        //     MergeDiscard already live inside MergeDialog.
-        Action<bool> proceed = (isMerge) =>
+        // (6) show dialog on the live activeTree. ShowTreeDialog owns
+        //     decision-building (Re-Fly suppressed-subtree closure +
+        //     activeReFlyTargetId, see MergeDialog.cs:100-125) and
+        //     button-action wiring; we only supply the postChoice that
+        //     runs after MergeCommit / MergeDiscard.
+        Action postChoice = () =>
         {
-            // Phase 1: full finalize-then-act (matches what
-            // OnSceneChangeRequested would have done a moment later).
-            flight.FinalizeTreeOnSceneChangeForCallback(scene);
-            var pending = RecordingStore.PendingTree;
-            if (pending != null)
-            {
-                if (isMerge)
-                {
-                    var decisions = MergeDialog.BuildDefaultVesselDecisionsForPending(pending);
-                    MergeDialog.MergeCommit(pending, decisions, ComputeSpawnCount(decisions));
-                }
-                else
-                {
-                    MergeDialog.MergeDiscard(pending);
-                }
-            }
+            // Phase 1: full finalize-then-act. ShowTreeDialog already
+            // ran MergeCommit or MergeDiscard before postChoice fires;
+            // FinalizeTreeOnSceneChangeForCallback is what stashes the
+            // pending tree that Merge/Discard then operate on. So the
+            // ordering inside ShowTreeDialog's button handler must be:
+            //   1. flight.FinalizeTreeOnSceneChangeForCallback(scene)
+            //   2. MergeCommit(pending, decisions, spawnCount)   OR
+            //      MergeDiscard(pending)
+            //   3. postChoice()  <-- this lambda
+            //
+            // (See "MergeDialog.cs changes" below for the new
+            // ShowTreeDialog signature that passes scene into the
+            // lambda body.)
 
             // Phase 2: persist mutations. Hard-block on MAINMENU save throw.
             if (!SafeWritePersistent(scene)) return;
-
             SceneExitInterceptor.s_AllowNextLoadScene = true;
             HighLogic.LoadScene(scene);
         };
@@ -436,8 +434,9 @@ internal static class HighLogic_LoadScene_Patch
             buttonLabels: variant == DialogVariant.ReFlyAttempt
                 ? MergeDialogButtonLabels.ReFlyAttempt
                 : MergeDialogButtonLabels.Default,
-            onMerge: () => proceed(isMerge: true),
-            onDiscard: () => proceed(isMerge: false));
+            preCommitFinalize: () =>
+                flight.FinalizeTreeOnSceneChangeForCallback(scene),
+            postChoice: postChoice);
 
         return false;   // block stock LoadScene; dialog drives it
     }
@@ -499,12 +498,43 @@ live read returns. Document this in a comment in the helper so future
 maintainers understand they cannot drift.
 
 Idle-on-pad auto-discard runs after the variant decision and reads the
-live activeTree via a new `ParsekFlight.IsActiveTreeIdleOnPad()` that
-mirrors the existing `IsTreeIdleOnPad(RecordingStore.PendingTree)`
-check used by the OnLoad path (`ParsekScenario.cs:1684`). The new
-method walks active recordings and computes idle-on-pad from live
-vessel position rather than from the post-#290d-backfilled
-`MaxDistanceFromLaunch` field.
+live activeTree.
+
+**Important** (Opus re-review pass 3 F1): `MaxDistanceFromLaunch` is
+*not* continuously maintained on live recordings. The field is only
+populated by `VesselSpawner.BackfillMaxDistance(rec)` at finalize time
+(`ParsekFlight.cs:12175-12182`, the `#290d` backfill) and at split
+boundaries (`ParsekFlight.cs:4066, :4717`). On a live `activeTree`
+sitting on the pad, every recording's `MaxDistanceFromLaunch` reads
+0.0, so a naive port of `IsTreeIdleOnPad` would always return true and
+auto-discard every flight that exits via the new prefix.
+
+The new `ParsekFlight.IsActiveTreeIdleOnPad()` must call
+`VesselSpawner.BackfillMaxDistance(rec)` on each live recording before
+the threshold check. `BackfillMaxDistance` iterates `Recording.Points`,
+which ARE accumulated continuously by the live recorder, so the
+backfill produces the correct distance for live data. The backfill is
+idempotent (computes from Points each call), so re-running it later
+inside `FinalizeTreeRecordings` is fine.
+
+Implementation:
+
+```csharp
+internal bool IsActiveTreeIdleOnPad()
+{
+    if (activeTree == null) return false;
+    foreach (var rec in activeTree.Recordings.Values)
+    {
+        if (rec == null) continue;
+        VesselSpawner.BackfillMaxDistance(rec);   // live -> populated
+        if (!IsIdleOnPad(rec)) return false;
+    }
+    return true;
+}
+```
+
+`IsIdleOnPad(rec)` is the existing private helper used by
+`IsTreeIdleOnPad` (`ParsekFlight.cs:15878`).
 
 ### `MergeDialog.cs` changes
 
@@ -525,6 +555,23 @@ vessel position rather than from the post-#290d-backfilled
   labels.
 - Existing `OnDismiss -> ClearPendingFlag` path stays
   (`MergeDialog.cs:217-223`). No change needed.
+- New `ShowTreeDialog(RecordingTree liveTree, MergeDialogButtonLabels
+  labels, Action preCommitFinalize, Action postChoice)` overload. The
+  Merge / Discard button handlers run, in order:
+  ```
+  preCommitFinalize?.Invoke();   // pre-transition: stash pending tree
+  var pending = RecordingStore.PendingTree ?? liveTree;
+  if (clickedMerge) MergeCommit(pending, decisions, spawnCount);
+  else              MergeDiscard(pending);
+  postChoice?.Invoke();
+  ```
+  Decisions are built inside `ShowTreeDialog` exactly as today
+  (`MergeDialog.cs:100-125`: `ComputeSessionSuppressedSubtree` +
+  `activeReFlyTargetId` + `BuildDefaultVesselDecisions`). Pre-transition
+  callers do NOT duplicate that decision-build; reusing the existing
+  internals preserves the Re-Fly suppressed-subtree closure that's
+  load-bearing for Re-Fly correctness. The post-load deferred path
+  calls the existing zero-arg `ShowTreeDialog(tree)` and is unchanged.
 - **Add the merge-journal-active guard to the discard handlers, not just
   to button construction (P1.C).** The previous draft was wrong:
   `MergeDialog.MergeDiscard` does *not* currently check
@@ -620,15 +667,25 @@ No `ReFlyExitDialog.cs` (removed from previous draft - existing
 
 ### `ShouldShowDialogBeforeSceneChange` decision helper
 
-| autoMerge | ReFly active | Has pending tree | Term state | Destination | Expected |
+| autoMerge | ReFly active | Has active tree | Live vessel state | Destination | Expected |
 | --- | --- | --- | --- | --- | --- |
 | OFF | no | yes | any | KSC / TS / MAINMENU / EDITOR | RegularMerge |
-| ON | no | yes | Landed | KSC | RegularMerge |
-| ON | no | yes | Landed | TS | RegularMerge |
-| ON | no | yes | Crashed | KSC | None |
+| ON | no | yes | LandedOrSplashed | KSC | RegularMerge |
+| ON | no | yes | LandedOrSplashed | TS | RegularMerge |
+| ON | no | yes | not LandedOrSplashed | KSC / TS | None |
 | ON | no | yes | any | MAINMENU | RegularMerge (new) |
 | any | yes | yes | any | any non-flight | ReFlyAttempt |
 | any | no | no | - | any | None |
+
+(Opus pass-3 F10 fix: column header is "Has active tree", reading
+`flight.HasActiveTree`, not "has pending tree" - the deferred-finalize
+design queries live state.)
+
+(Opus pass-3 F5 note: `vessel.LandedOrSplashed` and post-finalize
+`TerminalStateValue ∈ {Landed, Splashed}` agree because
+`RecordingTree.DetermineTerminalState` (`RecordingTree.cs:860-900`)
+override paths only fire for SUB_ORBITAL or ORBITING base states;
+LANDED/SPLASHED situations pass through unchanged.)
 
 ### Prefix bypass conditions (P1 + P2 coverage)
 
@@ -794,27 +851,55 @@ No `ReFlyExitDialog.cs` (removed from previous draft - existing
 
 ## Open questions
 
-1. **MAINMENU save-fail rollback**: if Phase 1 finalize runs (committing
-   or discarding the tree), then Phase 2 save fails on MAINMENU and we
-   block the transition, the player is left in flight with `activeTree
-   == null` (Phase 1 already cleared it) and either a committed tree
-   in the persistent storage or a popped pending tree. They cannot
-   resume recording the same flight. They can:
+1. **MAINMENU save-fail recovery**: if Phase 1 finalize runs
+   (committing or discarding the tree), then Phase 2 save fails on
+   MAINMENU and we block the transition, the player is left in flight
+   with `activeTree == null` (Phase 1 cleared it) and either a
+   committed tree or a discarded tree in memory. They cannot resume
+   recording the same flight. **The dialog is one-shot per
+   flight-exit attempt** - subsequent prefix entries see
+   `HasActiveTree == false` and short-circuit, so the merge dialog
+   does not reappear.
 
-   - Try Quit-to-Main-Menu again - prefix sees `HasActiveTree ==
-     false` and short-circuits to `return true` (no dialog needed,
-     transition proceeds with the in-memory state we already
-     mutated). But persistent.sfs is still pre-mutation. So this is
-     just kicking the can down the road.
-   - Try Quit-to-Main-Menu again, but the second time the save
-     succeeds (transient disk error resolved). Acceptable recovery.
-   - Use Space Center instead - prefix sees `HasActiveTree == false`,
-     transitions to SC, the SC scene's own save cycle runs, captures
-     our state.
+   Recovery contract: any subsequent flight-exit attempt - to any
+   destination - routes through stock `saveAndExit` (PauseMenu paths)
+   or stock direct-LoadScene (FlightResultsDialog paths), with stock
+   then capturing our post-mutation in-memory state. So:
 
-   Document path 3 in the error popup ("Could not save before quitting
-   to main menu. Try going to Space Center instead, then quit from
-   there."). Accept that path 1 is degraded but path 3 is clean.
+   - **Retry Quit-to-Main-Menu**: stock `saveAndExit` runs (it always
+     calls `GamePersistence.SaveGame` regardless of our prefix's
+     state). If the disk transient cleared, save succeeds and the
+     post-mutation state lands on disk before MAINMENU loads. Clean
+     recovery.
+   - **Use Space Center / Tracking Station instead**: stock
+     `saveAndExit` runs the same way; SC/TS scene loads with the
+     mutated state on disk. Clean recovery.
+   - **Stock save also throws on retry**: PauseMenu's `saveAndExit`
+     does NOT block on save throw (it eats the exception per stock
+     KSP behaviour and continues to `HighLogic.LoadScene`). So the
+     player ends up on MAINMENU with persistent.sfs at the
+     pre-mutation state, but the in-memory mutation is gone. This is
+     identical to a hard-crash-during-save scenario - rare, and
+     accepted as the cost of disk failures.
+
+   Error popup text: "Could not save before quitting to main menu.
+   Try again, or quit to Space Center first."
+
+2. **Suppression flag leak on `LoadScene` throw** (Opus #6): narrow
+   window where our prefix peeks the flag, bypasses, but stock
+   `LoadScene` itself throws before reaching `OnSceneChangeRequested`.
+   Flag stays armed; next regular flight-exit silently discards. Not
+   worth a watchdog timer; document the risk and add a one-frame
+   reaper in `ParsekFlight.Update` if observed in playtest.
+
+3. **`s_AllowNextLoadScene` wrong-destination warn** (Opus pass-3 F7):
+   step (1) of the prefix consumes the token unconditionally. If a
+   foreign mod's `LoadScene` slipped between callback set and our
+   prefix's consume, the token would be consumed for the wrong
+   destination. Add a stored `s_AllowNextLoadSceneDestination` that
+   the prefix checks against the actual `scene` param; if mismatched,
+   log Warn ("token consumed for unexpected dest=...") and fall
+   through to normal handling.
 
 2. **Suppression flag leak on `LoadScene` throw** (Opus #6): narrow
    window where our prefix peeks the flag, bypasses, but stock
