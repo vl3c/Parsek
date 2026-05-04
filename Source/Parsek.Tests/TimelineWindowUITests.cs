@@ -1,9 +1,24 @@
+using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
-    public class TimelineWindowUITests
+    [Collection("Sequential")]
+    public class TimelineWindowUITests : IDisposable
     {
+        public TimelineWindowUITests()
+        {
+            ParsekScenario.ResetInstanceForTesting();
+            EffectiveState.ResetCachesForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekScenario.ResetInstanceForTesting();
+            EffectiveState.ResetCachesForTesting();
+        }
+
         [Fact]
         public void GetRowActionButtonWidth_ShortTimelineActionsShareWidth_AndGoToStaysWider()
         {
@@ -85,6 +100,46 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "rewind.sfs" };
 
             Assert.True(TimelineWindowUI.ShouldShowRewindButton(rec, isFuture: false));
+        }
+
+        [Fact]
+        public void ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsFalse()
+        {
+            const string branchPointId = "bp-breakup";
+            var rec = new Recording
+            {
+                RecordingId = "rec-active-parent",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ChildBranchPointId = branchPointId,
+                RewindSaveFileName = "rewind.sfs"
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp-breakup",
+                        BranchPointId = branchPointId,
+                        SessionProvisional = false,
+                        ChildSlots = new List<ChildSlot>
+                        {
+                            new ChildSlot
+                            {
+                                SlotIndex = 0,
+                                OriginChildRecordingId = rec.RecordingId,
+                                Controllable = true
+                            }
+                        }
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(rec));
+            Assert.False(TimelineWindowUI.ShouldShowRewindButton(rec, isFuture: false));
         }
 
         [Fact]
