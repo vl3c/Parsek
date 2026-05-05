@@ -710,6 +710,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes the active Re-Fly attempt's recordings, branch-point
+        /// topology (session-authored branch points + dangling parent/child
+        /// id refs), sidecar files, transient marker fields, and any stale
+        /// <c>tree.ActiveRecordingId</c> from in-memory and on-disk storage.
+        /// Shared between Discard call sites - the post-transition merge
+        /// dialog (<see cref="TryDiscardActiveReFlyAttempt"/>) and the
+        /// Esc/Revert dialog (<see cref="RevertInterceptor.DiscardReFlyHandler"/>)
+        /// - so both paths converge on the same attempt-id collection,
+        /// pruning, and topology cleanup. Pre-PR-#734 the Revert path only
+        /// removed the fork from <see cref="RecordingStore.CommittedRecordings"/>,
+        /// leaving the committed-tree fork dictionary entry, attempt-authored
+        /// debris children created by <c>CreateBreakupChildRecording</c>,
+        /// session-authored branch points, dangling parent/child id refs,
+        /// and stale <c>ActiveRecordingId</c> behind for OnSave to serialise
+        /// as committed mission history.
+        /// Caller is responsible for clearing the marker / scenario journal
+        /// and any flow-specific cleanup; this helper handles only the
+        /// recording/topology side.
+        /// </summary>
+        internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology(
+            ReFlySessionMarker marker, string callSite)
+        {
+            var summary = new AttemptDiscardSummary();
+            if (marker == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneActiveReFlyAttemptOwnedTopology: null marker " +
+                    $"callSite={callSite ?? "<none>"} - nothing to prune");
+                return summary;
+            }
+
+            var tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            if (tree == null)
+            {
+                // Degenerate case: marker points at a tree id that no
+                // longer lives in PendingTree, CommittedTrees, or the
+                // live activeTree. Fall back to the legacy single-id fork
+                // removal so the flat committed list is at least cleaned.
+                // Topology pruning is impossible without a tree handle -
+                // future Re-Fly on this id would have to discover the
+                // missing context another way.
+                if (!string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                {
+                    var single = new HashSet<string>(System.StringComparer.Ordinal)
+                    {
+                        marker.ActiveReFlyRecordingId,
+                    };
+                    summary.AttemptIds = single;
+                    summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
+                }
+                ParsekLog.Warn("MergeDialog",
+                    $"PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found " +
+                    $"for treeId={marker.TreeId ?? "<none>"} callSite={callSite ?? "<none>"} " +
+                    $"sess={marker.SessionId ?? "<none>"} - falling back to single-id removal " +
+                    $"(lost descendant + topology cleanup; removedCommitted={summary.RemovedCommitted})");
+                return summary;
+            }
+
+            summary.AttemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            summary.RemovedCommitted = RemoveCommittedAttemptRecordings(summary.AttemptIds);
+            summary.PurgedEvents = GameStateStore.PurgeEventsForRecordings(
+                summary.AttemptIds,
+                $"{callSite ?? "PruneActiveReFlyAttemptOwnedTopology"} sess={marker.SessionId ?? "<no-id>"}");
+            summary.DeletedFiles = DeleteAttemptRecordingFiles(tree, summary.AttemptIds);
+            summary.PrunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
+                summary.AttemptIds, marker);
+            summary.TransientCleared = ClearReFlyAttemptTransientFields(
+                tree, marker, summary.AttemptIds);
+
+            ParsekLog.Info("MergeDialog",
+                $"PruneActiveReFlyAttemptOwnedTopology callSite={callSite ?? "<none>"} " +
+                $"sess={marker.SessionId ?? "<none>"} " +
+                $"tree={tree.Id ?? "<none>"} " +
+                $"attemptIds={summary.AttemptIds.Count} " +
+                $"removedCommitted={summary.RemovedCommitted} " +
+                $"purgedEvents={summary.PurgedEvents} " +
+                $"deletedFiles={summary.DeletedFiles} " +
+                $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
+                $"transientCleared={summary.TransientCleared}");
+
+            return summary;
+        }
+
+        /// <summary>
+        /// Per-call counters from <see cref="PruneActiveReFlyAttemptOwnedTopology"/>.
+        /// Callers use the counts in their own end-of-flow summary log lines
+        /// and tests assert on them directly.
+        /// </summary>
+        internal struct AttemptDiscardSummary
+        {
+            internal HashSet<string> AttemptIds;
+            internal int RemovedCommitted;
+            internal int PurgedEvents;
+            internal int DeletedFiles;
+            internal int PrunedCommittedTreeEntries;
+            internal int TransientCleared;
+        }
+
+        /// <summary>
         /// Re-Fly-specific Discard branch for the scene-exit merge dialog.
         /// A Re-Fly pending tree often reuses the original committed tree id;
         /// the ordinary tree-discard path would route through

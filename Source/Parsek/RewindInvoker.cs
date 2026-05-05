@@ -1188,34 +1188,34 @@ namespace Parsek
 
         /// <summary>
         /// Snapshots the existing <see cref="BranchPoint.Id"/>s in the
-        /// committed tree referenced by <paramref name="treeId"/>. The
+        /// in-memory tree referenced by <paramref name="treeId"/>. The
         /// returned list is consumed by
         /// <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>
-        /// to distinguish branch points authored DURING this Re-Fly from
-        /// pre-existing ones that the load-time splice path re-grafts
-        /// back into the loaded tree. Returns an empty list (not null)
-        /// when the tree is found with no branch points; returns null
-        /// only when the tree id is empty or no committed tree matches —
-        /// both are unusual at marker creation but a null baseline
-        /// makes the structural-mutation gate conservatively skip on
-        /// merge.
+        /// (auto-seal gate),
+        /// <see cref="MergeDialog.PruneAttemptRecordingsFromCommittedTrees"/>
+        /// (drops session-authored branch points on Discard), and
+        /// <see cref="MergeDialog.AddSessionBranchPointDescendantAttemptIds"/>
+        /// (collects attempt-authored debris children) to distinguish
+        /// branch points authored DURING this Re-Fly from pre-existing
+        /// ones. Returns an empty list (not null) when the tree is
+        /// found with no branch points; returns null only when the tree
+        /// id is empty or no in-memory tree matches.
+        ///
+        /// Lookup order matches <see cref="FindTreeForReFlyFork"/>:
+        /// PendingTree first (the normal Re-Fly load shape after
+        /// <c>TryRestoreActiveTreeNode</c> stashes the loaded tree as
+        /// pending and `RemoveCommittedTreeById` drops the prior
+        /// committed copy), then CommittedTrees, then the live
+        /// <c>ParsekFlight.Instance.ActiveTreeForSerialization</c> (for
+        /// the AtomicMarkerWrite-after-RestoreActiveTreeFromPending race).
+        /// Restricting the lookup to CommittedTrees - as a prior
+        /// implementation did - returned null on the normal pending-tree
+        /// path and silently disabled structural-mutation auto-seal
+        /// plus all session-BP-baseline-aware Discard cleanup.
         /// </summary>
         internal static List<string> SnapshotTreeBranchPointIds(string treeId)
         {
-            if (string.IsNullOrEmpty(treeId)) return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees == null) return null;
-            RecordingTree tree = null;
-            for (int i = 0; i < trees.Count; i++)
-            {
-                var t = trees[i];
-                if (t == null) continue;
-                if (string.Equals(t.Id, treeId, StringComparison.Ordinal))
-                {
-                    tree = t;
-                    break;
-                }
-            }
+            RecordingTree tree = FindTreeForReFlyFork(treeId);
             if (tree == null || tree.BranchPoints == null)
                 return null;
 

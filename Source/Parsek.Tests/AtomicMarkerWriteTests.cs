@@ -1209,5 +1209,95 @@ namespace Parsek.Tests
             Assert.Equal("prior_session", origin.CreatingSessionId);
             Assert.Equal("prior_rp", origin.ProvisionalForRpId);
         }
+
+        // ============================================================
+        // SnapshotTreeBranchPointIds: lookup-chain coverage (issue #734
+        // reviewer P1: the prior CommittedTrees-only scan returned null
+        // on the normal Re-Fly load shape because TryRestoreActiveTreeNode
+        // strips the committed copy via RemoveCommittedTreeById before
+        // stashing the loaded tree as pending. A null baseline silently
+        // disabled the structural-mutation auto-seal, the session-BP
+        // descendant adopt path, and the session-BP prune step.)
+        // ============================================================
+
+        /// <summary>
+        /// Baseline lookup must follow the same Pending → Committed →
+        /// live activeTree chain that <see cref="RewindInvoker.FindTreeForReFlyFork"/>
+        /// uses, so the snapshot is non-null on the normal Re-Fly load
+        /// path where the loaded tree lives only in PendingTree.
+        /// </summary>
+        [Fact]
+        public void SnapshotTreeBranchPointIds_PendingTreeOnly_ReturnsBaseline()
+        {
+            const string treeId = "tree-snapshot-pending";
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = "rec-root",
+                ActiveRecordingId = "rec-root",
+            };
+            tree.BranchPoints.Add(new BranchPoint { Id = "bp_pre_a", UT = 10.0 });
+            tree.BranchPoints.Add(new BranchPoint { Id = "bp_pre_b", UT = 20.0 });
+            // Stash as pending - committed lookup miss is the entire point.
+            RecordingStore.StashPendingTree(tree);
+            Assert.Empty(RecordingStore.CommittedTrees);
+
+            var snapshot = RewindInvoker.SnapshotTreeBranchPointIds(treeId);
+
+            Assert.NotNull(snapshot);
+            Assert.Equal(2, snapshot.Count);
+            Assert.Contains("bp_pre_a", snapshot);
+            Assert.Contains("bp_pre_b", snapshot);
+        }
+
+        /// <summary>
+        /// CommittedTrees lookup still works for sessions whose committed
+        /// copy was never detached.
+        /// </summary>
+        [Fact]
+        public void SnapshotTreeBranchPointIds_CommittedTreeOnly_ReturnsBaseline()
+        {
+            const string treeId = "tree-snapshot-committed";
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = "rec-root",
+                ActiveRecordingId = "rec-root",
+            };
+            tree.BranchPoints.Add(new BranchPoint { Id = "bp_pre_x", UT = 10.0 });
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            Assert.False(RecordingStore.HasPendingTree);
+
+            var snapshot = RewindInvoker.SnapshotTreeBranchPointIds(treeId);
+
+            Assert.NotNull(snapshot);
+            Assert.Single(snapshot);
+            Assert.Equal("bp_pre_x", snapshot[0]);
+        }
+
+        /// <summary>
+        /// Returns null when neither pending nor any committed tree
+        /// matches the id (and the live activeTree fallback misses too -
+        /// no ParsekFlight.Instance in unit-test context).
+        /// </summary>
+        [Fact]
+        public void SnapshotTreeBranchPointIds_NoTreeMatches_ReturnsNull()
+        {
+            var snapshot = RewindInvoker.SnapshotTreeBranchPointIds("tree-nonexistent");
+            Assert.Null(snapshot);
+        }
+
+        /// <summary>
+        /// Empty tree id returns null even if some tree with empty id
+        /// exists (defensive null-id handling).
+        /// </summary>
+        [Fact]
+        public void SnapshotTreeBranchPointIds_NullOrEmptyId_ReturnsNull()
+        {
+            Assert.Null(RewindInvoker.SnapshotTreeBranchPointIds(null));
+            Assert.Null(RewindInvoker.SnapshotTreeBranchPointIds(""));
+        }
     }
 }
