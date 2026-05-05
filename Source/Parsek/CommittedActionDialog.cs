@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Parsek
@@ -8,6 +9,8 @@ namespace Parsek
     /// </summary>
     internal static class CommittedActionDialog
     {
+        internal static Action<string, string, string> TestHookForTesting;
+
         internal static void ShowBlocked(string actionDescription, string reason, string resourceDetail)
         {
             string message = actionDescription + "\n\n" + reason;
@@ -17,6 +20,13 @@ namespace Parsek
             ParsekLog.Info("CommittedAction",
                 $"Blocked action: {actionDescription} - {reason}" +
                 (!string.IsNullOrEmpty(resourceDetail) ? $" ({resourceDetail})" : ""));
+
+            var testHook = TestHookForTesting;
+            if (testHook != null)
+            {
+                testHook(actionDescription, reason, resourceDetail);
+                return;
+            }
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),

@@ -66,6 +66,14 @@ namespace Parsek
             toolTip = "When off, Parsek ghosts are hidden from the tracking station vessel list and map view")]
         public bool showGhostsInTrackingStation = true;
 
+        [GameParameters.CustomParameterUI("Show committed-future overlays in stock UI",
+            toolTip = "When on, stock R&D, Astronaut Complex, and Mission Control screens show actions already committed on the timeline")]
+        public bool showCommittedFutureOverlays = true;
+
+        [GameParameters.CustomParameterUI("Block player actions that conflict with committed timeline",
+            toolTip = "When on, stock UI actions already committed by pending recordings are blocked to preserve timeline consistency")]
+        public bool blockCommittedActions = true;
+
         /// <summary>
         /// Phase 1 of the ghost trajectory rendering pipeline (design doc
         /// §6.1 Stage 1, §17.3.1, §18 Phase 1). When true, Catmull-Rom
