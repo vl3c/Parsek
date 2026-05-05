@@ -759,7 +759,8 @@ namespace Parsek
                 attemptIds,
                 $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}");
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
-            int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(attemptIds);
+            int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
+                attemptIds, marker);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
@@ -1034,22 +1035,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes attempt-owned recording entries from any committed tree's
-        /// <c>Recordings</c> dictionary. Required for the committed-tree-attach
+        /// Removes attempt-owned recording entries AND attempt-authored
+        /// topology (branch points, branch-point parent/child id references,
+        /// recording parent/child branch-point ids) from any committed tree
+        /// the in-place attempt mutated. Required for the committed-tree-attach
         /// shape where <see cref="RewindInvoker.AtomicMarkerWrite"/> attached the
         /// in-place fork to a committed tree because no pending tree existed.
-        /// Without this, the fork dictionary entry survives discard and OnSave
-        /// serialises it as committed mission history. The pending-tree case
-        /// is naturally handled by <see cref="RecordingStore.PopPendingTree"/>
-        /// later in the discard flow.
+        /// Without this, the fork dictionary entry, any session-authored branch
+        /// points (e.g. an in-flight stage separation that ran before the
+        /// merge dialog), and dangling parent/child id refs would survive
+        /// discard and OnSave would serialise them as committed mission history.
+        /// The pending-tree case is naturally handled by
+        /// <see cref="RecordingStore.PopPendingTree"/> later in the discard flow.
         /// </summary>
         private static int PruneAttemptRecordingsFromCommittedTrees(
-            HashSet<string> attemptIds)
+            HashSet<string> attemptIds, ReFlySessionMarker marker)
         {
             if (attemptIds == null || attemptIds.Count == 0)
                 return 0;
 
-            int pruned = 0;
+            int prunedRecordings = 0;
+            int totalScrubbedBranchPointRefs = 0;
+            int totalRemovedSessionBranchPoints = 0;
             var committedTrees = RecordingStore.CommittedTrees;
             if (committedTrees == null)
                 return 0;
@@ -1060,21 +1067,105 @@ namespace Parsek
                 if (committedTree == null || committedTree.Recordings == null)
                     continue;
 
+                int prunedHere = 0;
                 foreach (var attemptId in attemptIds)
                 {
                     if (string.IsNullOrEmpty(attemptId))
                         continue;
                     if (committedTree.Recordings.Remove(attemptId))
-                    {
-                        pruned++;
-                        ParsekLog.Info("MergeDialog",
-                            $"PruneAttemptRecordingsFromCommittedTrees: removed " +
-                            $"rec={attemptId} from committed tree id={committedTree.Id ?? "<none>"}");
-                    }
+                        prunedHere++;
                 }
+
+                // Branch-point ParentRecordingIds / ChildRecordingIds may
+                // reference now-removed attempt recordings; scrub them so
+                // serialised topology never points at deleted ids. Mirrors
+                // RemoveAttemptRecordingsFromTree for the detached-pending
+                // path.
+                int scrubbedRefs = ScrubAttemptIdsFromBranchPointTopology(
+                    committedTree, attemptIds);
+
+                // Session-authored branch points (e.g. an in-flight stage
+                // separation booked during the abandoned attempt) must be
+                // dropped too. PreSessionBranchPointIds is captured against
+                // marker.TreeId only, so applying it to a different
+                // committed tree would erroneously delete that tree's
+                // unrelated branch points - gate on tree id match.
+                int removedSessionBps = 0;
+                if (marker != null
+                    && !string.IsNullOrEmpty(marker.TreeId)
+                    && string.Equals(committedTree.Id, marker.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    removedSessionBps = PruneSessionCreatedBranchPoints(
+                        committedTree, marker);
+                }
+
+                if (prunedHere > 0 || scrubbedRefs > 0 || removedSessionBps > 0)
+                {
+                    // The fork's pid lived in the recorder's active slot AND
+                    // in the tree's background map. After pruning, the map
+                    // must be rebuilt so the abandoned pid does not survive
+                    // as a stale background entry.
+                    committedTree.RebuildBackgroundMap();
+                    ParsekLog.Info("MergeDialog",
+                        $"PruneAttemptRecordingsFromCommittedTrees: " +
+                        $"tree={committedTree.Id ?? "<none>"} " +
+                        $"prunedRecordings={prunedHere} " +
+                        $"scrubbedBranchPointRefs={scrubbedRefs} " +
+                        $"removedSessionBranchPoints={removedSessionBps}");
+                }
+
+                prunedRecordings += prunedHere;
+                totalScrubbedBranchPointRefs += scrubbedRefs;
+                totalRemovedSessionBranchPoints += removedSessionBps;
             }
 
-            return pruned;
+            if (totalScrubbedBranchPointRefs > 0
+                || totalRemovedSessionBranchPoints > 0)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneAttemptRecordingsFromCommittedTrees totals: " +
+                    $"prunedRecordings={prunedRecordings} " +
+                    $"scrubbedBranchPointRefs={totalScrubbedBranchPointRefs} " +
+                    $"removedSessionBranchPoints={totalRemovedSessionBranchPoints}");
+            }
+
+            return prunedRecordings;
+        }
+
+        private static int ScrubAttemptIdsFromBranchPointTopology(
+            RecordingTree tree, HashSet<string> attemptIds)
+        {
+            if (tree == null || tree.BranchPoints == null
+                || attemptIds == null || attemptIds.Count == 0)
+                return 0;
+
+            int scrubbed = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                scrubbed += CountAndRemoveAttemptIds(bp.ParentRecordingIds, attemptIds);
+                scrubbed += CountAndRemoveAttemptIds(bp.ChildRecordingIds, attemptIds);
+            }
+            return scrubbed;
+        }
+
+        private static int CountAndRemoveAttemptIds(
+            List<string> recordingIds, HashSet<string> attemptIds)
+        {
+            if (recordingIds == null || attemptIds == null || attemptIds.Count == 0)
+                return 0;
+            int removed = 0;
+            for (int i = recordingIds.Count - 1; i >= 0; i--)
+            {
+                if (attemptIds.Contains(recordingIds[i]))
+                {
+                    recordingIds.RemoveAt(i);
+                    removed++;
+                }
+            }
+            return removed;
         }
 
         private static int ClearReFlyAttemptTransientFields(
