@@ -6,9 +6,10 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Bug #618: Re-Fly merge cleanup/default decisions covered only the active
-    /// probe chain. A parent upper-stage recording split by the optimizer kept
-    /// its terminal payload on the chain tip, so the stale upper-stage vessel
-    /// could survive the merge as a real spawn.
+    /// probe chain. Parent-chain terminal tips still need explicit cleanup when
+    /// they are part of the suppressed Re-Fly closure, but materializable future
+    /// tips outside that closure must keep their spawn snapshot so rewind can
+    /// spawn them when playback reaches the terminal orbit.
     /// </summary>
     [Collection("Sequential")]
     public class Bug618ReFlyMergeParentChainTipTests : IDisposable
@@ -29,25 +30,36 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            GameStateStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => false);
         }
 
         public void Dispose()
         {
+            VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            GameStateStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            RecordingStore.SaveGameForTesting = null;
         }
 
         [Fact]
-        public void BuildDefaultVesselDecisions_ParentChainOptimizerTip_DefaultsGhostOnly()
+        public void BuildDefaultVesselDecisions_ParentChainOptimizerTip_RemainsSpawnableWhenNotSuppressed()
         {
             var tree = BuildUpperStageToProbeTopology(
                 activeProbeTerminal: TerminalState.Orbiting,
@@ -64,7 +76,9 @@ namespace Parsek.Tests
                 ActiveProbe);
 
             Assert.True(decisions.ContainsKey(UpperTip));
-            Assert.False(decisions[UpperTip]);
+            Assert.True(decisions[UpperTip]);
+            Assert.False(tree.Recordings[UpperTip].VesselSpawned);
+            Assert.Equal(0u, tree.Recordings[UpperTip].SpawnedVesselPersistentId);
 
             Assert.True(decisions.ContainsKey(ActiveProbe));
             Assert.True(decisions[ActiveProbe]);
@@ -76,7 +90,380 @@ namespace Parsek.Tests
                 l.Contains("[MergeDialog]")
                 && l.Contains("parent-chain terminal tip")
                 && l.Contains(UpperTip)
-                && l.Contains("ghost-only"));
+                && l.Contains("retaining")
+                && l.Contains("normal-spawn-policy"));
+        }
+
+        [Fact]
+        public void MergeCommitAdoption_ParentChainOptimizerTipWithExistingSource_AdoptsInsteadOfDuplicating()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Recording upperTip = tree.Recordings[UpperTip];
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.True(decisions[UpperTip]);
+            Assert.NotNull(upperTip.VesselSnapshot);
+            Assert.False(upperTip.VesselSpawned);
+            Assert.Equal(0u, upperTip.SpawnedVesselPersistentId);
+
+            int adopted = MergeDialog.AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree,
+                decisions,
+                ActiveProbe);
+
+            Assert.Equal(1, adopted);
+            Assert.True(upperTip.VesselSpawned);
+            Assert.Equal(100u, upperTip.SpawnedVesselPersistentId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("source vessel pid=100 already exists")
+                && l.Contains("adopting instead of spawning duplicate"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ParentChainOptimizerTipSplitByOptimizer_AdoptsFinalTip()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            SeedPointsForMergeCommit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Recording upperTip = tree.Recordings[UpperTip];
+            Assert.True(decisions[UpperTip]);
+            Assert.False(upperTip.VesselSpawned);
+
+            tree.Recordings[UpperHead].LoopPlayback = true; // block merge so the test exercises split handoff.
+            MakeUpperTipSplittable(tree);
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_adopt",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ActiveProbe,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_adopt",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            Assert.False(RecordingStore.HasPendingTree);
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.NotNull(finalUpperTip);
+            Assert.NotEqual(UpperTip, finalUpperTip.RecordingId);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.False(upperTip.VesselSpawned);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ParentChainOptimizerTipMergedByOptimizer_AdoptsSurvivingRecording()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            SeedPointsForMergeCommit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperHead));
+            Assert.False(decisions[UpperHead]);
+            Assert.True(decisions[UpperTip]);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_adopt_merge",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ActiveProbe,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_adopt_merge",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Assert.False(committedTree.Recordings.ContainsKey(UpperTip));
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.NotNull(finalUpperTip);
+            Assert.Equal(UpperHead, finalUpperTip.RecordingId);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("retainedPreOptimizationTips=1")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ActiveTipMergedByOptimizer_StillAdoptsParentChainTip()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: null,
+                probeTipTerminal: TerminalState.Orbiting);
+            SeedPointsForMergeCommit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ProbeTip);
+
+            Assert.True(decisions[UpperTip]);
+            Assert.True(decisions[ProbeTip]);
+            Assert.False(decisions[ActiveProbe]);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_active_tip_merged",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ProbeTip,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_active_tip_merged",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Assert.False(committedTree.Recordings.ContainsKey(ProbeTip));
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolved optimized-away active Re-Fly recording")
+                && l.Contains(ProbeTip)
+                && l.Contains(ActiveProbe));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("retainedPreOptimizationTips=1")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void MergeCommit_ActiveTipMergedThenSplitByOptimizer_ResolvesOriginHead()
+        {
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 100u);
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: null,
+                probeTipTerminal: TerminalState.Orbiting);
+            SeedPointsForMergeCommit(tree);
+            MakeActiveProbeTipMergeThenSplit(tree);
+            tree.Recordings[ActiveProbe].MergeState = MergeState.NotCommitted;
+            tree.Recordings[ActiveProbe].SupersedeTargetId = ActiveProbe;
+
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ProbeTip);
+
+            RecordingStore.StashPendingTree(tree);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_618_active_tip_merged_split",
+                    TreeId = TreeId,
+                    ActiveReFlyRecordingId = ProbeTip,
+                    OriginChildRecordingId = ActiveProbe,
+                    SupersedeTargetId = ActiveProbe,
+                    RewindPointId = "rp_618_active_tip_merged_split",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) => "ok";
+
+            MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
+
+            RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
+            Assert.NotNull(committedTree);
+            Assert.True(committedTree.Recordings.ContainsKey(ActiveProbe));
+            Assert.False(committedTree.Recordings.ContainsKey(ProbeTip));
+            Recording finalProbeTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[ActiveProbe],
+                committedTree);
+            Assert.NotNull(finalProbeTip);
+            Assert.NotEqual(ActiveProbe, finalProbeTip.RecordingId);
+            Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
+                committedTree.Recordings[UpperHead],
+                committedTree);
+            Assert.True(finalUpperTip.VesselSpawned);
+            Assert.Equal(100u, finalUpperTip.SpawnedVesselPersistentId);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("resolved optimized-away active Re-Fly recording")
+                && l.Contains(ProbeTip)
+                && l.Contains(ActiveProbe));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("in-place continuation detected"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("MergeCommit: active Re-Fly parent-chain adoption pass complete")
+                && l.Contains("retainedPreOptimizationTips=1")
+                && l.Contains("adoptedExistingSource=1"));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_SuppressedParentChainOptimizerTip_DefaultsGhostOnly()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+                UpperTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.False(decisions[UpperTip]);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("forcing ghost-only on suppressed")
+                && l.Contains(UpperTip));
+        }
+
+        [Fact]
+        public void BuildDefaultVesselDecisions_ParentChainOptimizerTipWithoutSnapshot_RemainsGhostOnly()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings[UpperTip].VesselSnapshot = null;
+            var suppressed = new HashSet<string>(StringComparer.Ordinal)
+            {
+                ActiveProbe,
+                ProbeTip,
+            };
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(
+                tree,
+                suppressed,
+                ActiveProbe);
+
+            Assert.True(decisions.ContainsKey(UpperTip));
+            Assert.False(decisions[UpperTip]);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("retaining active Re-Fly parent-chain")
+                && l.Contains(UpperTip));
         }
 
         [Fact]
@@ -101,7 +488,7 @@ namespace Parsek.Tests
             Assert.True(decisions[ProbeTip]);
             Assert.False(decisions[ActiveProbe]);
             Assert.True(decisions.ContainsKey(UpperTip));
-            Assert.False(decisions[UpperTip]);
+            Assert.True(decisions[UpperTip]);
         }
 
         [Fact]
@@ -126,6 +513,97 @@ namespace Parsek.Tests
                 ActiveProbe);
 
             Assert.Empty(tips);
+        }
+
+        [Fact]
+        public void CollectParentChainTips_UsesChainIdentityWhenTerminalHasNoBranchPointBacklink()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings[UpperTip].ChildBranchPointId = null;
+
+            var tips = MergeDialog.CollectActiveReFlyParentChainTerminalTipIds(
+                tree,
+                ActiveProbe);
+
+            Assert.Single(tips);
+            Assert.Contains(UpperTip, tips);
+        }
+
+        [Fact]
+        public void TryResolvePersistDecisionForOptimizedTip_UsesClosestSameChainPredecessorDecision()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings.Remove(UpperTip);
+            var optimizedTip = new Recording
+            {
+                RecordingId = "upper_tip_after_optimizer_618",
+                TreeId = TreeId,
+                VesselName = "Kerbal X Upper Stage",
+                VesselPersistentId = 100u,
+                ChainId = UpperChain,
+                ChainIndex = 2,
+                ChainBranch = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = Snapshot(),
+            };
+            tree.AddOrReplaceRecording(optimizedTip);
+            var decisions = new Dictionary<string, bool>
+            {
+                { UpperHead, false },
+                { ActiveProbe, true },
+            };
+
+            bool persist;
+            bool hadDecision = MergeDialog.TryResolvePersistDecisionForOptimizedTip(
+                tree,
+                decisions,
+                optimizedTip,
+                out persist);
+
+            Assert.True(hadDecision);
+            Assert.False(persist);
+        }
+
+        [Fact]
+        public void TryResolvePersistDecisionForOptimizedTip_ReturnsFalseWhenOptimizedTipLosesOriginalAndPredecessorDecision()
+        {
+            var tree = BuildUpperStageToProbeTopology(
+                activeProbeTerminal: TerminalState.Orbiting,
+                probeTipTerminal: TerminalState.Destroyed);
+            tree.Recordings.Remove(UpperTip);
+            var optimizedTip = new Recording
+            {
+                RecordingId = "upper_tip_after_optimizer_618",
+                TreeId = TreeId,
+                VesselName = "Kerbal X Upper Stage",
+                VesselPersistentId = 100u,
+                ChainId = UpperChain,
+                ChainIndex = 2,
+                ChainBranch = 0,
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = Snapshot(),
+            };
+            tree.AddOrReplaceRecording(optimizedTip);
+            var decisions = new Dictionary<string, bool>
+            {
+                { UpperTip, true },
+                { ActiveProbe, true },
+                { ProbeTip, false },
+            };
+
+            bool persist;
+            bool hadDecision = MergeDialog.TryResolvePersistDecisionForOptimizedTip(
+                tree,
+                decisions,
+                optimizedTip,
+                out persist);
+
+            Assert.False(hadDecision);
+            Assert.False(persist);
         }
 
         [Fact]
@@ -227,6 +705,80 @@ namespace Parsek.Tests
             });
 
             return tree;
+        }
+
+        private static void SeedPointsForMergeCommit(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+
+            int i = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                rec.Points.Clear();
+                rec.Points.Add(new TrajectoryPoint { ut = 100.0 + i });
+                rec.Points.Add(new TrajectoryPoint { ut = 101.0 + i });
+                i++;
+            }
+        }
+
+        private static void MakeUpperTipSplittable(RecordingTree tree)
+        {
+            Recording upperTip = tree.Recordings[UpperTip];
+            upperTip.Points.Clear();
+            upperTip.Points.Add(Point(100.0));
+            upperTip.Points.Add(Point(110.0));
+            upperTip.Points.Add(Point(125.0));
+            upperTip.TrackSections.Clear();
+            upperTip.TrackSections.Add(Section(100.0, 110.0, SegmentEnvironment.Atmospheric));
+            upperTip.TrackSections.Add(Section(110.0, 125.0, SegmentEnvironment.ExoBallistic));
+        }
+
+        private static void MakeActiveProbeTipMergeThenSplit(RecordingTree tree)
+        {
+            Recording activeProbe = tree.Recordings[ActiveProbe];
+            activeProbe.Points.Clear();
+            activeProbe.Points.Add(Point(100.0));
+            activeProbe.Points.Add(Point(105.0));
+            activeProbe.TrackSections.Clear();
+
+            Recording probeTip = tree.Recordings[ProbeTip];
+            probeTip.Points.Clear();
+            probeTip.Points.Add(Point(105.0));
+            probeTip.Points.Add(Point(115.0));
+            probeTip.Points.Add(Point(130.0));
+            probeTip.TrackSections.Clear();
+            probeTip.TrackSections.Add(Section(105.0, 115.0, SegmentEnvironment.Atmospheric));
+            probeTip.TrackSections.Add(Section(115.0, 130.0, SegmentEnvironment.ExoBallistic));
+        }
+
+        private static TrackSection Section(double startUT, double endUT, SegmentEnvironment environment)
+        {
+            return new TrackSection
+            {
+                startUT = startUT,
+                endUT = endUT,
+                environment = environment,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                frames = new List<TrajectoryPoint>
+                {
+                    Point(startUT),
+                    Point(endUT),
+                },
+            };
+        }
+
+        private static TrajectoryPoint Point(double ut)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = "Kerbin",
+                altitude = 100000.0,
+            };
         }
 
         private static ConfigNode Snapshot()

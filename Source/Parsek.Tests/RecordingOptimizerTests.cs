@@ -4212,6 +4212,144 @@ namespace Parsek.Tests
                 && l.Contains("ecc delta"));
         }
 
+        // Bulk-pass logging contract: when `RecordingStore.TrimBoringTailsForOptimization`
+        // walks every committed recording, it now passes `logSkipReason: false` and
+        // aggregates skip categories into a single summary line. Direct callers (and
+        // the existing per-recording skip-reason tests above) keep the verbose detail
+        // by leaving the default-arg overload alone.
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonFalse_SuppressesPerRecordingLogAndReportsCategory()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Same shape as TrimBoringTail_TooShort_LogsSkipReason above (25s, under
+            // the 30s minimum) — but the bulk-mode call must be silent and surface
+            // the category through the out parameter instead.
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-too-short-bulk";
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: false,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("too-short", skipCategory);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("TrimBoringTail: skipped"));
+        }
+
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonTrue_MatchesLegacyPerRecordingLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(17000, 17010, 17025,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-too-short-direct";
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: true,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("too-short", skipCategory);
+            // Legacy per-recording detail still emitted for direct callers.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (too-short)")
+                && l.Contains("trim-too-short-direct"));
+        }
+
+        // Regression for review-pass P2: the bulk-pass log-suppression contract
+        // must extend through TailPreservesTerminalSpawnState. Pre-fix, that helper
+        // emitted its own `refused trim for unstable terminal` Verbose line when
+        // the recording's terminal was Destroyed/Recovered/Boarded — even when the
+        // bulk caller passed logSkipReason: false — so a save with many recovered
+        // boring-tail leaves still produced one [Optimizer] line per recording
+        // per pass. The fix routes the dedicated refusal log through the same
+        // logSkipReason flag and surfaces the bucket via skipCategory instead.
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonFalse_UnstableTerminal_SuppressesRefusalLogAndReportsCategory()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Long-enough boring tail that lastInterestingUT + buffer < endUT, so the
+            // gate is reached. Destroyed terminal triggers the unstable-terminal
+            // carve-out inside TailPreservesTerminalSpawnState.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-unstable-bulk";
+            rec.VesselName = "DestroyedProbe";
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: false,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("unstable-terminal", skipCategory);
+            // Bulk path stays silent on per-recording lines (both the
+            // TrimBoringTail skip and the TailPreservesTerminalSpawnState refusal).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("TrimBoringTail: skipped"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal"));
+        }
+
+        [Fact]
+        public void TrimBoringTailInternal_LogSkipReasonTrue_UnstableTerminal_EmitsDedicatedRefusalLog()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "trim-unstable-direct";
+            rec.VesselName = "DestroyedProbe";
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            var recordings = new List<Recording> { rec };
+
+            bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                rec,
+                recordings,
+                RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: true,
+                skipCategory: out string skipCategory);
+
+            Assert.False(trimmed);
+            Assert.Equal("unstable-terminal", skipCategory);
+            // Direct-call path surfaces the refusal through the dedicated log line.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-unstable-direct"));
+        }
+
         #endregion
 
         #region RunOptimizationPass -- tree with branch points

@@ -732,9 +732,11 @@ namespace Parsek
         /// <summary>
         /// A child under a Rewind Point that qualifies as an unfinished flight
         /// is committed, but its rewind slot stays open until a later successful
-        /// re-fly or explicit Seal closes it. Legacy/default recordings are
-        /// born Immutable, so stamp that precise shape during the normal tree
-        /// commit path.
+        /// re-fly or explicit Seal closes it. Stable surface EVA side-branches
+        /// are the exception: when the only classifier reason is stranded EVA
+        /// and the terminal is safe, the commit closes the slot immediately.
+        /// Legacy/default recordings are born Immutable, so stamp that precise
+        /// shape during the normal tree commit path.
         /// </summary>
         private static void ApplyRewindProvisionalMergeStates(RecordingTree tree)
         {
@@ -744,6 +746,7 @@ namespace Parsek
                 return;
 
             int promoted = 0;
+            int autoSealed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null) continue;
@@ -778,6 +781,15 @@ namespace Parsek
                     continue;
                 }
 
+                if (ShouldAutoSealStableEvaCommitSlot(rec, qualifyReason, tree))
+                {
+                    if (AutoSealStableEvaCommitSlot(rec, rp, slot, slotListIndex, tree, qualifyReason))
+                    {
+                        autoSealed++;
+                        continue;
+                    }
+                }
+
                 rec.MergeState = MergeState.CommittedProvisional;
                 rec.FilesDirty = true;
                 promoted++;
@@ -788,8 +800,58 @@ namespace Parsek
                     $"to CommittedProvisional");
             }
 
-            if (promoted > 0)
+            if (promoted > 0 || autoSealed > 0)
                 BumpStateVersion();
+        }
+
+        private static bool ShouldAutoSealStableEvaCommitSlot(
+            Recording rec,
+            string qualifyReason,
+            RecordingTree tree)
+        {
+            if (!string.Equals(qualifyReason, "strandedEva", StringComparison.Ordinal))
+                return false;
+
+            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            if (tip == null || string.IsNullOrEmpty(tip.EvaCrewName)
+                || !tip.TerminalStateValue.HasValue)
+                return false;
+
+            return tip.TerminalStateValue.Value == TerminalState.Landed
+                || tip.TerminalStateValue.Value == TerminalState.Splashed;
+        }
+
+        private static bool AutoSealStableEvaCommitSlot(
+            Recording rec,
+            RewindPoint rp,
+            ChildSlot slot,
+            int slotListIndex,
+            RecordingTree tree,
+            string qualifyReason)
+        {
+            if (slot == null || slot.Sealed)
+                return false;
+
+            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            string terminal = tip?.TerminalStateValue.HasValue == true
+                ? tip.TerminalStateValue.Value.ToString()
+                : "<none>";
+
+            slot.Sealed = true;
+            slot.SealedRealTime =
+                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+
+            // CommitTree is already inside the merge/save lifecycle. Unlike the
+            // manual Seal button, do not force a persistent save or RP reap here.
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+                scenario.BumpSupersedeStateVersion();
+
+            ParsekLog.Info("UnfinishedFlights",
+                $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
+                $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
+                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason}");
+            return true;
         }
 
         private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)
@@ -1188,7 +1250,16 @@ namespace Parsek
             return true;
         }
 
-        internal static bool NextTreeSceneExitCommitSuppressionArmedForTesting
+        /// <summary>
+        /// Read-only peek (no consume) of the tree-scene-exit-commit
+        /// suppression flag. Production callers (the
+        /// <c>HighLogic.LoadScene</c> prefix in
+        /// <c>SceneExitInterceptor</c>) check this to detect that a
+        /// transition is already owned by Discard Re-Fly so they can
+        /// bypass without stealing the flag from
+        /// <c>FinalizeTreeOnSceneChange</c>'s consume contract.
+        /// </summary>
+        internal static bool IsNextTreeSceneExitCommitSuppressionArmed
             => suppressNextTreeSceneExitCommit;
 
         /// <summary>
@@ -2008,18 +2079,54 @@ namespace Parsek
             // ghost sitting motionless on the surface or coasting in orbit.
             // ORDERING: after splits (which may create new leaf recordings) and before
             // PopulateLoopSyncParentIndices (which uses list indices).
+            //
+            // Logging: per-recording skip-reason verbose lines are suppressed and
+            // aggregated into a single summary at the end of the pass. A save with
+            // hundreds of recordings would otherwise emit hundreds of identical
+            // "skipped (too-short)" lines per scenario load.
             int trimCount = 0;
+            Dictionary<string, int> skipCounts = null;
             for (int i = 0; i < recordings.Count; i++)
             {
-                if (RecordingOptimizer.TrimBoringTail(recordings[i], recordings))
+                bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                    recordings[i],
+                    recordings,
+                    RecordingOptimizer.DefaultTailBufferSeconds,
+                    logSkipReason: false,
+                    skipCategory: out string skipCategory);
+                if (trimmed)
                 {
                     recordings[i].FilesDirty = true;
                     trimCount++;
+                }
+                else if (!string.IsNullOrEmpty(skipCategory))
+                {
+                    if (skipCounts == null)
+                        skipCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                    skipCounts[skipCategory] = skipCounts.TryGetValue(skipCategory, out int prev) ? prev + 1 : 1;
                 }
             }
             if (trimCount > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
+            if (skipCounts != null && skipCounts.Count > 0)
+            {
+                int totalSkipped = 0;
+                foreach (var n in skipCounts.Values) totalSkipped += n;
+                var ordered = new List<KeyValuePair<string, int>>(skipCounts);
+                // Descending count, then ordinal name as tie-break, so equal-count
+                // categories don't reorder run-to-run (List<T>.Sort is not stable).
+                ordered.Sort((a, b) =>
+                {
+                    int c = b.Value.CompareTo(a.Value);
+                    return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+                });
+                var parts = new List<string>(ordered.Count);
+                foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
+                    string.Join(", ", parts));
+            }
         }
 
         /// <summary>

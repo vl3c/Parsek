@@ -24,6 +24,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             RecordingStore.ResetForTesting();
+            FlightRecorder.TimeSinceLevelLoadProviderForTesting = null;
         }
 
         public void Dispose()
@@ -33,6 +34,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            FlightRecorder.TimeSinceLevelLoadProviderForTesting = null;
         }
 
         #region DecideOnVesselSwitch — decision coverage
@@ -117,6 +119,196 @@ namespace Parsek.Tests
 
             var result = FlightRecorder.DecideOnVesselSwitch(100, 300, false, false, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
+        }
+
+        #endregion
+
+        #region Re-Fly post-load settle gate
+
+        [Fact]
+        public void EvaluateReFlyPostLoadSettle_Packed_HoldsAndResetsUnpackedFrames()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: true,
+                vesselPacked: true,
+                elapsedLevelSeconds: 1.0f,
+                consecutiveUnpackedFrames: 3);
+
+            Assert.True(result.Hold);
+            Assert.False(result.Clear);
+            Assert.Equal(0, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("packed", result.Reason);
+        }
+
+        [Fact]
+        public void EvaluateReFlyPostLoadSettle_Inactive_DoesNotHoldOrClear()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: false,
+                vesselPacked: true,
+                elapsedLevelSeconds: 0.0f,
+                consecutiveUnpackedFrames: 3);
+
+            Assert.False(result.Hold);
+            Assert.False(result.Clear);
+            Assert.Equal(0, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("inactive", result.Reason);
+        }
+
+        [Fact]
+        public void EvaluateReFlyPostLoadSettle_FirstUnpackedFrame_Holds()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: true,
+                vesselPacked: false,
+                elapsedLevelSeconds: 1.0f,
+                consecutiveUnpackedFrames: 0);
+
+            Assert.True(result.Hold);
+            Assert.False(result.Clear);
+            Assert.Equal(1, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("unpacked-frame-warmup", result.Reason);
+        }
+
+        [Fact]
+        public void EvaluateReFlyPostLoadSettle_UnpackedButTooSoon_Holds()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: true,
+                vesselPacked: false,
+                elapsedLevelSeconds: 0.05f,
+                consecutiveUnpackedFrames: 1);
+
+            Assert.True(result.Hold);
+            Assert.False(result.Clear);
+            Assert.Equal(2, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("level-time-warmup", result.Reason);
+        }
+
+        [Fact]
+        public void EvaluateReFlyPostLoadSettle_UnpackedAndSettled_Clears()
+        {
+            var result = FlightRecorder.EvaluateReFlyPostLoadSettle(
+                active: true,
+                vesselPacked: false,
+                elapsedLevelSeconds: 0.11f,
+                consecutiveUnpackedFrames: 1);
+
+            Assert.False(result.Hold);
+            Assert.True(result.Clear);
+            Assert.Equal(2, result.ConsecutiveUnpackedFrames);
+            Assert.Equal("settled", result.Reason);
+        }
+
+        [Fact]
+        public void ShouldArmReFlyPostLoadSettle_MatchingAtmosphericPromotion_ReturnsTrue()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree",
+                ActiveReFlyRecordingId = "rec"
+            };
+
+            bool arm = FlightRecorder.ShouldArmReFlyPostLoadSettle(
+                isPromotion: true,
+                vesselInAtmosphere: true,
+                activeTreeId: "tree",
+                activeRecordingId: "rec",
+                marker: marker,
+                out string reason);
+
+            Assert.True(arm);
+            Assert.Equal("armed", reason);
+        }
+
+        [Theory]
+        [InlineData(false, true, true, "sess", "tree", "rec", "tree", "rec", "not-promotion")]
+        [InlineData(true, false, true, "sess", "tree", "rec", "tree", "rec", "not-atmospheric")]
+        [InlineData(true, true, false, null, null, null, "tree", "rec", "marker-missing")]
+        [InlineData(true, true, true, null, "tree", "rec", "tree", "rec", "marker-session-missing")]
+        [InlineData(true, true, true, "sess", null, "rec", "tree", "rec", "tree-id-missing")]
+        [InlineData(true, true, true, "sess", "tree-a", "rec", "tree-b", "rec", "tree-mismatch")]
+        [InlineData(true, true, true, "sess", "tree", null, "tree", "rec", "active-recording-missing")]
+        [InlineData(true, true, true, "sess", "tree", "rec", "tree", "other", "active-recording-mismatch")]
+        public void ShouldArmReFlyPostLoadSettle_RejectionsReturnExpectedReason(
+            bool isPromotion,
+            bool vesselInAtmosphere,
+            bool includeMarker,
+            string markerSessionId,
+            string markerTreeId,
+            string markerRecordingId,
+            string activeTreeId,
+            string activeRecordingId,
+            string expectedReason)
+        {
+            ReFlySessionMarker marker = includeMarker
+                ? new ReFlySessionMarker
+                {
+                    SessionId = markerSessionId,
+                    TreeId = markerTreeId,
+                    ActiveReFlyRecordingId = markerRecordingId
+                }
+                : null;
+
+            bool arm = FlightRecorder.ShouldArmReFlyPostLoadSettle(
+                isPromotion,
+                vesselInAtmosphere,
+                activeTreeId,
+                activeRecordingId,
+                marker,
+                out string reason);
+
+            Assert.False(arm);
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Fact]
+        public void AppendSectionStartSeamPoint_PostLoadSettleActive_SuppressesTrajectoryWrite()
+        {
+            var recorder = new FlightRecorder();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 10.0);
+            recorder.ActivateReFlyPostLoadSettleForTesting("session-1", "recording-1");
+
+            recorder.AppendSectionStartSeamPointForTesting(
+                new TrajectoryPoint
+                {
+                    ut = 10.0,
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0
+                },
+                "post-load-test");
+
+            Assert.Empty(recorder.Recording);
+            TrackSection section = recorder.CurrentTrackSectionForTesting;
+            Assert.NotNull(section.frames);
+            Assert.Empty(section.frames);
+            Assert.Contains(logLines, l => l.Contains("suppressed trajectory write")
+                && l.Contains("section-start-seam-post-load-test"));
+        }
+
+        [Fact]
+        public void CloseCurrentTrackSection_PostLoadSettleSuppressedSeam_DiscardsShortEmptySection()
+        {
+            var recorder = new FlightRecorder();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 10.0);
+            recorder.ActivateReFlyPostLoadSettleForTesting("session-1", "recording-1");
+
+            recorder.AppendSectionStartSeamPointForTesting(
+                new TrajectoryPoint
+                {
+                    ut = 10.05,
+                    latitude = 1.0,
+                    longitude = 2.0,
+                    altitude = 3.0
+                },
+                "env-transition");
+            recorder.CloseCurrentTrackSection(10.05);
+
+            Assert.Empty(recorder.TrackSections);
+            Assert.Contains(logLines, l => l.Contains("TrackSection discarded")
+                && l.Contains("zero frames"));
         }
 
         #endregion

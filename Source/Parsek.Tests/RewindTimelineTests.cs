@@ -849,6 +849,85 @@ namespace Parsek.Tests
             Assert.Contains("#573", reason);
         }
 
+        [Fact]
+        public void PlainRewindLoad_ClearsLoadedActiveReFlyMarker()
+        {
+            var logLines = new List<string>();
+            bool? gateSawActiveMarker = null;
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_stale",
+                    TreeId = "tree_stale",
+                    ActiveReFlyRecordingId = "rec_active",
+                    OriginChildRecordingId = "rec_origin",
+                    RewindPointId = "rp_stale",
+                },
+            };
+
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ReFlyRevertButtonGate.ApplyForTesting = active => gateSawActiveMarker = active;
+
+            try
+            {
+                bool cleared = scenario.ClearActiveReFlyMarkerForPlainRewind();
+
+                Assert.True(cleared);
+                Assert.Null(scenario.ActiveReFlySessionMarker);
+                Assert.False(gateSawActiveMarker);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Pipeline-Session]") &&
+                    l.Contains("Clear: reason=plain-rewind"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Rewind]") &&
+                    l.Contains("cleared stale active Re-Fly marker during plain rewind") &&
+                    l.Contains("sess=sess_stale") &&
+                    l.Contains("active=rec_active") &&
+                    l.Contains("origin=rec_origin") &&
+                    l.Contains("rp=rp_stale"));
+            }
+            finally
+            {
+                ReFlyRevertButtonGate.ResetForTesting();
+                Parsek.Rendering.RenderSessionState.ResetForTesting();
+                ParsekScenario.SetInstanceForTesting(null);
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void PlainRewindLoad_WithoutActiveReFlyMarker_IsNoOp()
+        {
+            var logLines = new List<string>();
+            bool applyCalled = false;
+            var scenario = new ParsekScenario();
+
+            ParsekScenario.SetInstanceForTesting(scenario);
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ReFlyRevertButtonGate.ApplyForTesting = _ => applyCalled = true;
+
+            try
+            {
+                bool cleared = scenario.ClearActiveReFlyMarkerForPlainRewind();
+
+                Assert.False(cleared);
+                Assert.Null(scenario.ActiveReFlySessionMarker);
+                Assert.False(applyCalled);
+                Assert.Empty(logLines);
+            }
+            finally
+            {
+                ReFlyRevertButtonGate.ResetForTesting();
+                Parsek.Rendering.RenderSessionState.ResetForTesting();
+                ParsekScenario.SetInstanceForTesting(null);
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
         /// <summary>
         /// Driving the production sequence end-to-end through
         /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>

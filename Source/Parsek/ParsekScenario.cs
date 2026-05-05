@@ -1654,12 +1654,16 @@ namespace Parsek
                     }
 
                     // Handle pending recordings on non-revert scene exits to non-flight scenes.
-                    // Always auto-commit on main menu (game is being unloaded, dialog would be meaningless).
+                    // The pre-transition merge dialog (SceneExitInterceptor) is the
+                    // primary path; this OnLoad path is the deferred fallback for
+                    // any flight-exit that bypassed our HighLogic.LoadScene prefix
+                    // (KSP version drift, foreign mod patch, etc.). Pre-transition
+                    // path now handles MAINMENU too, so the historical
+                    // forceAutoMerge=MAINMENU shortcut is gone.
                     loadPhase = "pending-outside-flight";
-                    bool forceAutoMerge = HighLogic.LoadedScene == GameScenes.MAINMENU;
                     if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                     {
-                        if (IsAutoMerge || forceAutoMerge)
+                        if (IsAutoMerge)
                         {
                             // Check if commit approval dialog should be shown (#88):
                             // landed/splashed vessel going to KSC or Tracking Station
@@ -1673,7 +1677,7 @@ namespace Parsek
                                     RecordingStore.PendingTree.RootRecordingId, out rootRec))
                                     termState = rootRec.TerminalStateValue;
                             }
-                            bool showApproval = !forceAutoMerge && destScene.HasValue &&
+                            bool showApproval = destScene.HasValue &&
                                 GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
                             RecordingStore.PendingDestinationScene = null;
 
@@ -1884,24 +1888,50 @@ namespace Parsek
                 loadPhase = "deferred-seed";
                 StartCoroutine(DeferredSeedAndRecalculate());
 
-                // Diagnostic summary of loaded recordings with UT context
+                // Diagnostic summary of loaded recordings with UT context. Per-recording
+                // status used to be enumerated at Verbose, but a save with hundreds of
+                // recordings (synthetic showcases, KSC eligibles, long histories) emits
+                // hundreds of identical "future (starts in …s)" lines per scenario load.
+                // Bucket the statuses into counts; keep IN_PROGRESS detail (rare and
+                // most useful when debugging spawn timing) at Verbose.
                 loadPhase = "load-summary";
                 double loadUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("Scenario", $"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
+                ParsekLog.Info("Scenario",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Scenario load summary — UT: {0:F0}, {1} recording(s)",
+                        loadUT, recordings.Count));
+                int futureCount = 0, inProgressCount = 0, pastCount = 0;
+                List<string> inProgressDetail = null;
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var loadedRec = recordings[i];
                     double duration = loadedRec.EndUT - loadedRec.StartUT;
-                    string status;
                     if (loadUT < loadedRec.StartUT)
-                        status = $"future (starts in {loadedRec.StartUT - loadUT:F0}s)";
-                    else if (loadUT <= loadedRec.EndUT && duration > 0)
-                        status = $"IN PROGRESS ({(loadUT - loadedRec.StartUT) / duration * 100:F0}%)";
+                    {
+                        futureCount++;
+                    }
                     else if (loadUT <= loadedRec.EndUT)
-                        status = "IN PROGRESS";
+                    {
+                        inProgressCount++;
+                        if (inProgressDetail == null)
+                            inProgressDetail = new List<string>();
+                        string pct = duration > 0
+                            ? string.Format(CultureInfo.InvariantCulture, "({0:F0}%)",
+                                (loadUT - loadedRec.StartUT) / duration * 100)
+                            : "";
+                        inProgressDetail.Add($"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}".TrimEnd());
+                    }
                     else
-                        status = "past";
-                    ParsekLog.Verbose("Scenario", $"  #{i}: \"{loadedRec.VesselName}\" — {status}");
+                    {
+                        pastCount++;
+                    }
+                }
+                ParsekLog.Verbose("Scenario",
+                    $"Load summary buckets: future={futureCount} in-progress={inProgressCount} past={pastCount}");
+                if (inProgressDetail != null)
+                {
+                    foreach (var line in inProgressDetail)
+                        ParsekLog.Verbose("Scenario", line);
                 }
 
                 if (CrewReservationManager.CrewReplacements.Count > 0)
@@ -2119,6 +2149,7 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
                 $"(using {recordings.Count} in-memory recordings)");
+            ClearActiveReFlyMarkerForPlainRewind();
 
             // Restore milestone mutable state with resetUnmatched=true
             // (milestones created after rewind point get reset to unreplayed)
@@ -2217,13 +2248,14 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Re-reserve crew from all recording snapshots.
-            // Pass the adjusted rewind UT explicitly so the walk drops any ledger
-            // actions with UT > adjusted (e.g., milestones achieved after the rewind
-            // target). RewindContext.RewindAdjustedUT is still populated at this point;
-            // EndRewind() below clears it. The deferred coroutine captures the same
-            // value into a local BEFORE its yield so its second call is independent
-            // of RewindContext state.
+            // Restore career state to the rewind target. The cutoff walk keeps
+            // funds/science/tech at the adjusted UT; LedgerOrchestrator then
+            // reprojects crew reservations from the full committed timeline so
+            // future recorded crew remain unavailable for new missions.
+            // RewindContext.RewindAdjustedUT is still populated at this point;
+            // EndRewind() below clears it. The deferred coroutine captures the
+            // same value into a local BEFORE its yield so its second call is
+            // independent of RewindContext state.
             LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
@@ -2236,6 +2268,33 @@ namespace Parsek
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
             RewindContext.EndRewind();
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
+        }
+
+        /// <summary>
+        /// Clears a loaded active Re-Fly marker while the plain rewind OnLoad branch resumes replay.
+        /// </summary>
+        internal bool ClearActiveReFlyMarkerForPlainRewind()
+        {
+            var marker = ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            string sessionId = marker.SessionId ?? "<no-id>";
+            string activeRecordingId = marker.ActiveReFlyRecordingId ?? "<no-id>";
+            string originRecordingId = marker.OriginChildRecordingId ?? "<no-id>";
+            string rewindPointId = marker.RewindPointId ?? "<no-rp>";
+
+            // This discards only stale session state; supersede caches do not
+            // depend on the marker and should not be bumped for this cleanup.
+            ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            // Plain rewind loads before FlightDriver state is ready, so Apply is
+            // normally a logged no-op here. Keep it paired with marker clears.
+            ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");
+            ParsekLog.Info("Rewind",
+                "OnLoad: cleared stale active Re-Fly marker during plain rewind " +
+                $"sess={sessionId} active={activeRecordingId} origin={originRecordingId} rp={rewindPointId}");
+            return true;
         }
 
         internal string BuildScenarioLifecycleExceptionMessageForTesting(
@@ -4806,6 +4865,18 @@ namespace Parsek
         /// </summary>
         private IEnumerator ShowDeferredMergeDialog()
         {
+            // Canary: the pre-transition merge dialog
+            // (SceneExitInterceptor's HighLogic.LoadScene prefix) is the
+            // primary path. If this deferred coroutine fires, the
+            // pre-transition path missed the transition (mod compat,
+            // KSP version drift, foreign LoadScene patch). Warn so we
+            // can investigate.
+            ParsekLog.Warn("Scenario",
+                $"Deferred merge dialog fired - pre-transition intercept missed " +
+                $"scene={HighLogic.LoadedScene} pendingTree=" +
+                $"{(RecordingStore.HasPendingTree ? RecordingStore.PendingTree?.TreeName ?? "<unnamed>" : "<none>")} " +
+                "(check SceneExitInterceptor or KSP version compat)");
+
             // Wait ~60 frames for scene to fully load (UI skin, singletons, etc.)
             int waitFrames = 60;
             while (waitFrames-- > 0)
@@ -4983,8 +5054,9 @@ namespace Parsek
 
             // Pass the adjusted UT captured BEFORE `yield return null` above.
             // RewindContext.EndRewind() has already cleared the global by the time
-            // this coroutine resumes, so we cannot read from RewindContext here —
-            // the synchronous HandleRewindOnLoad call already ran and cleared state.
+            // this coroutine resumes, so we cannot read from RewindContext here.
+            // The cutoff applies to career resources; crew reservations are rebuilt
+            // from the full committed timeline inside LedgerOrchestrator.
             LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
 
             // Belt-and-suspenders guard: if some future refactor accidentally schedules

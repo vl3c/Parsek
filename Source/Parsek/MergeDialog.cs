@@ -22,6 +22,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Selects the button label / dialog title copy for the
+        /// pre-transition <see cref="ShowTreeDialog"/> overload.
+        /// </summary>
+        internal enum MergeDialogButtonLabels
+        {
+            /// <summary>"Merge to Timeline" / "Discard"</summary>
+            Default,
+            /// <summary>"Merge Re-Fly to Timeline" / "Discard Re-Fly attempt"</summary>
+            ReFlyAttempt,
+        }
+
+        /// <summary>
         /// Fired after a tree is committed via the merge dialog.
         /// ParsekFlight subscribes to re-evaluate ghost chains.
         /// </summary>
@@ -229,6 +241,232 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pre-transition merge dialog overload (Issue: scene-exit confirmation
+        /// in flight). Shows the dialog while the player is still in flight,
+        /// before <c>HighLogic.LoadScene</c> completes. The button handler runs
+        /// <paramref name="preCommitFinalize"/> -> <see cref="MergeCommit"/> /
+        /// <see cref="MergeDiscard"/> -> <paramref name="postChoice"/> in
+        /// order. Decision-building happens AFTER
+        /// <paramref name="preCommitFinalize"/> has stashed the pending tree
+        /// so <see cref="CanPersistVessel"/> reads finalized
+        /// <c>TerminalStateValue</c> rather than the live activeTree's null
+        /// values.
+        ///
+        /// <para>If <see cref="MergeDiscard"/> refuses because of an active
+        /// merge journal (<see cref="ParsekScenario.ActiveMergeJournal"/>),
+        /// <paramref name="postChoice"/> is NOT invoked - the player remains
+        /// in flight and the prefix's blocked LoadScene stays blocked.</para>
+        /// </summary>
+        internal static void ShowTreeDialog(
+            RecordingTree liveTree,
+            MergeDialogButtonLabels labels,
+            System.Action preCommitFinalize,
+            System.Action postChoice)
+        {
+            if (liveTree == null)
+            {
+                ParsekLog.Warn("MergeDialog", "ShowTreeDialog (pre-transition): liveTree is null");
+                return;
+            }
+
+            // Display-only data computed from the live tree. Vessel name,
+            // duration, and Re-Fly recording lookup are safe to read pre-finalize.
+            var reFlyScenario = ParsekScenario.Instance;
+            ReFlySessionMarker marker =
+                !object.ReferenceEquals(null, reFlyScenario)
+                    ? reFlyScenario.ActiveReFlySessionMarker
+                    : null;
+            string title;
+            string message;
+            string mergeLabel;
+            string discardLabel;
+            if (labels == MergeDialogButtonLabels.ReFlyAttempt)
+            {
+                title = "Re-Fly attempt - leaving flight";
+                mergeLabel = "Merge Re-Fly to Timeline";
+                discardLabel = "Discard Re-Fly attempt";
+                Recording reFlyRec = marker != null
+                    ? FindReFlyRecording(marker, liveTree)
+                    : null;
+                string vesselLabel = reFlyRec != null
+                    ? (reFlyRec.VesselName ?? liveTree.TreeName ?? "<unnamed>")
+                    : (liveTree.TreeName ?? "<unnamed>");
+                double reFlyDuration = reFlyRec != null
+                    ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
+                    : ComputeTreeDurationRange(liveTree);
+                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
+                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
+                          "This cannot be undone.</align>";
+            }
+            else
+            {
+                title = "Confirm Merge to Timeline";
+                mergeLabel = "Merge to Timeline";
+                discardLabel = "Discard";
+                double duration = ComputeTreeDurationRange(liveTree);
+                message = $"{liveTree.TreeName} - {FormatDuration(duration)}";
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"Pre-transition tree merge dialog: tree='{liveTree.TreeName}', " +
+                $"recordings={liveTree.Recordings.Count}, labels={labels}");
+
+            // Hide Discard at button-build time when a merge journal is
+            // active (mirrors ReFlyRevertDialog's button gate). Handler
+            // refusal is the load-bearing safety check; this is just UX.
+            bool journalActive =
+                !object.ReferenceEquals(null, reFlyScenario)
+                && reFlyScenario.ActiveMergeJournal != null;
+
+            DialogGUIButton[] buttons = journalActive
+                ? new[]
+                  {
+                      new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
+                          isMerge: true,
+                          preCommitFinalize: preCommitFinalize,
+                          postChoice: postChoice)),
+                  }
+                : new[]
+                  {
+                      new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
+                          isMerge: true,
+                          preCommitFinalize: preCommitFinalize,
+                          postChoice: postChoice)),
+                      new DialogGUIButton(discardLabel, () => RunPreTransitionAction(
+                          isMerge: false,
+                          preCommitFinalize: preCommitFinalize,
+                          postChoice: postChoice)),
+                  };
+
+            PopupDialog.DismissPopup(DialogName);
+            LockInput();
+            ParsekScenario.MergeDialogPending = true;
+            PopupDialog popup = PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    DialogName,
+                    message,
+                    title,
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                false,
+                HighLogic.UISkin
+            );
+            if (popup != null)
+            {
+                popup.OnDismiss += () =>
+                {
+                    ClearPendingFlag("popup teardown");
+                };
+            }
+            else
+            {
+                ClearPendingFlag("popup spawn returned null");
+                ParsekLog.Warn("MergeDialog",
+                    $"ShowTreeDialog (pre-transition): SpawnPopupDialog returned null for tree='{liveTree.TreeName}'");
+            }
+        }
+
+        /// <summary>
+        /// Pre-transition button-handler core: run preCommitFinalize, then
+        /// build decisions on the just-stashed pending tree, then run
+        /// MergeCommit / MergeDiscard. Skip postChoice if the action
+        /// refused (journal-active guard).
+        /// </summary>
+        private static void RunPreTransitionAction(
+            bool isMerge,
+            System.Action preCommitFinalize,
+            System.Action postChoice)
+        {
+            try
+            {
+                preCommitFinalize?.Invoke();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"RunPreTransitionAction: preCommitFinalize threw " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+
+            var pending = RecordingStore.PendingTree;
+            if (pending == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "RunPreTransitionAction: preCommitFinalize produced no pending tree, " +
+                    "skipping commit/discard but proceeding with postChoice");
+                postChoice?.Invoke();
+                return;
+            }
+
+            // Re-derive Re-Fly suppressed-subtree closure on the pending tree,
+            // mirroring the live-path setup in the legacy ShowTreeDialog above.
+            HashSet<string> suppressedIds = null;
+            string activeReFlyTargetId = null;
+            var scenario = ParsekScenario.Instance;
+            ReFlySessionMarker marker =
+                !object.ReferenceEquals(null, scenario)
+                    ? scenario.ActiveReFlySessionMarker
+                    : null;
+            if (marker != null)
+            {
+                activeReFlyTargetId = marker.ActiveReFlyRecordingId;
+                try
+                {
+                    var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+                    if (closure != null && closure.Count > 0)
+                        suppressedIds = new HashSet<string>(closure, System.StringComparer.Ordinal);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"RunPreTransitionAction: ComputeSessionSuppressedSubtree threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - falling back to leaf-only " +
+                        "ghost-only decisions");
+                }
+            }
+
+            var decisions = BuildDefaultVesselDecisions(
+                pending, suppressedIds, activeReFlyTargetId);
+            int spawnCount = 0;
+            foreach (var v in decisions.Values) if (v) spawnCount++;
+
+            bool actionSucceeded;
+            if (isMerge)
+            {
+                MergeCommit(pending, decisions, spawnCount);
+                // CommitPendingTree nulls RecordingStore.PendingTree on success.
+                actionSucceeded = (RecordingStore.PendingTree == null);
+            }
+            else
+            {
+                actionSucceeded = MergeDiscardWithResult(pending);
+            }
+
+            if (!actionSucceeded)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "RunPreTransitionAction: action refused (likely merge-journal-active " +
+                    "guard). Skipping postChoice; player remains in flight.");
+                return;
+            }
+
+            try
+            {
+                postChoice?.Invoke();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"RunPreTransitionAction: postChoice threw " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
 
@@ -299,12 +537,30 @@ namespace Parsek
                 return;
             }
 
+            var scenarioForAdoption = ParsekScenario.Instance;
+            string activeReFlyTargetId =
+                !object.ReferenceEquals(null, scenarioForAdoption)
+                    ? scenarioForAdoption.ActiveReFlySessionMarker?.ActiveReFlyRecordingId
+                    : null;
+            var activeReFlyTargetHint =
+                CaptureOptimizationSurvivorHint(tree, activeReFlyTargetId);
+
             ApplyVesselDecisions(tree, decisions);
+            // Collect after ApplyVesselDecisions so candidates reflect the actual
+            // post-decision snapshot state, but before optimization renames/splits/merges tips.
+            var retainedParentChainTipCandidates =
+                CollectRetainedParentChainTipAdoptionCandidates(
+                    tree, decisions, activeReFlyTargetId);
             RecordingStore.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
             RecordingStore.RunOptimizationPass();
+            AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
             CrewReservationManager.SwapReservedCrewInFlight();
 
@@ -315,7 +571,8 @@ namespace Parsek
             // storage into the committed list) and BEFORE firing
             // OnTreeCommitted (so downstream chain evaluators see the
             // superseded subtree hidden from ERS).
-            ReFlyMergeCommitResult reFlyResult = TryCommitReFlySupersede();
+            ReFlyMergeCommitResult reFlyResult =
+                TryCommitReFlySupersede(activeReFlyTargetHint);
 
             // #292 + rewind-staging follow-up: refresh quicksave only after the
             // re-fly staged commit has either completed or been bypassed.
@@ -345,13 +602,40 @@ namespace Parsek
         /// <see cref="RecordingStore.MarkTreeAsApplied"/>: the tree is
         /// removed from storage by <see cref="RecordingStore.DiscardPendingTree"/>
         /// so there is no surviving caller that needs recording indexes advanced.
+        ///
+        /// <para>Refuses with a Warn log + screen message if a merge journal
+        /// is active (<see cref="ParsekScenario.ActiveMergeJournal"/>) -
+        /// mirrors <see cref="RevertInterceptor.DiscardReFlyHandler"/>'s
+        /// guard so a discard mid-merge does not race the journal
+        /// finisher's rollback.</para>
         /// </summary>
         internal static void MergeDiscard(RecordingTree tree)
         {
+            MergeDiscardWithResult(tree);
+        }
+
+        /// <summary>
+        /// <see cref="MergeDiscard"/> variant that returns whether the
+        /// discard actually ran. Returns false when the merge-journal-active
+        /// guard refuses (used by the pre-transition dialog wrapper to
+        /// avoid invoking <c>postChoice</c> after a refused discard).
+        /// </summary>
+        internal static bool MergeDiscardWithResult(RecordingTree tree)
+        {
             if (tree == null)
             {
-                ParsekLog.Warn("MergeDialog", "MergeDiscard: tree is null — nothing to discard");
-                return;
+                ParsekLog.Warn("MergeDialog", "MergeDiscard: tree is null - nothing to discard");
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"MergeDiscard: refusing - merge journal active " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage("Discard: merge in progress - retry in a moment", 3f);
+                return false;
             }
 
             foreach (var rec in tree.Recordings.Values)
@@ -361,7 +645,7 @@ namespace Parsek
             }
 
             if (TryDiscardActiveReFlyAttempt(tree))
-                return;
+                return true;
 
             // #466: while the merge/discard choice is pending, mid-flight effects stay live
             // in KSP and patching is deferred. Discard must now rebuild from the committed
@@ -372,6 +656,7 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"User chose: Tree Discard (tree='{tree.TreeName}', " +
                 $"recordings={tree.Recordings.Count})");
+            return true;
         }
 
         /// <summary>
@@ -392,6 +677,20 @@ namespace Parsek
             var marker = scenario.ActiveReFlySessionMarker;
             if (marker == null)
                 return false;
+
+            // Defensive belt-and-braces guard for any caller that bypasses
+            // MergeDiscard's gate (test seam, future call site). Mirrors
+            // RevertInterceptor.DiscardReFlyHandler's guard at
+            // RevertInterceptor.cs:345-352.
+            if (scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"TryDiscardActiveReFlyAttempt: refusing - merge journal active " +
+                    $"sess={marker.SessionId ?? "<no-id>"} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage("Discard Re-Fly: merge in progress - retry in a moment", 3f);
+                return false;
+            }
 
             if (!IsReFlyMarkerScopedToTree(marker, tree))
             {
@@ -1335,6 +1634,10 @@ namespace Parsek
         /// is unchanged.
         /// </summary>
         internal static ReFlyMergeCommitResult TryCommitReFlySupersede()
+            => TryCommitReFlySupersede(null);
+
+        private static ReFlyMergeCommitResult TryCommitReFlySupersede(
+            RecordingIdentityHint activeReFlyTargetHint)
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
@@ -1364,6 +1667,28 @@ namespace Parsek
             }
 
             Recording provisional = FindCommittedRecording(provisionalId);
+            if (provisional == null)
+            {
+                provisional = ResolveOptimizedRecordingSurvivor(
+                    activeReFlyTargetHint,
+                    marker);
+                if (provisional != null)
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"TryCommitReFlySupersede: resolved optimized-away active " +
+                        $"Re-Fly recording id={provisionalId} to survivor " +
+                        $"id={provisional.RecordingId ?? "<no-id>"} " +
+                        $"tree={provisional.TreeId ?? "<none>"} " +
+                        $"chainId={provisional.ChainId ?? "<none>"} " +
+                        $"chainBranch={provisional.ChainBranch} " +
+                        $"sourcePid={provisional.VesselPersistentId}");
+                    // Keep the marker pointed at the optimized survivor for the
+                    // supersede cleanup below; MergeCommit's captured active target
+                    // remains the pre-optimization id by design.
+                    marker.ActiveReFlyRecordingId = provisional.RecordingId;
+                    provisionalId = provisional.RecordingId;
+                }
+            }
             if (provisional == null)
             {
                 ParsekLog.Warn("MergeDialog",
@@ -1824,6 +2149,149 @@ namespace Parsek
             return null;
         }
 
+        private sealed class RecordingIdentityHint
+        {
+            internal string RecordingId;
+            internal string TreeId;
+            internal string ChainId;
+            internal int ChainBranch;
+            internal uint VesselPersistentId;
+        }
+
+        private static RecordingIdentityHint CaptureOptimizationSurvivorHint(
+            RecordingTree tree,
+            string recordingId)
+        {
+            if (tree == null
+                || tree.Recordings == null
+                || string.IsNullOrEmpty(recordingId))
+            {
+                return null;
+            }
+
+            Recording rec;
+            if (!tree.Recordings.TryGetValue(recordingId, out rec) || rec == null)
+                return null;
+
+            return CaptureRecordingIdentityHint(rec);
+        }
+
+        private static RecordingIdentityHint CaptureRecordingIdentityHint(Recording rec)
+        {
+            if (rec == null)
+                return null;
+
+            return new RecordingIdentityHint
+            {
+                RecordingId = rec.RecordingId,
+                TreeId = rec.TreeId,
+                ChainId = rec.ChainId,
+                ChainBranch = rec.ChainBranch,
+                VesselPersistentId = rec.VesselPersistentId,
+            };
+        }
+
+        private static Recording ResolveOptimizedRecordingSurvivor(
+            RecordingIdentityHint hint,
+            ReFlySessionMarker marker)
+        {
+            if (hint == null)
+                return null;
+
+            Recording exact = FindCommittedRecording(hint.RecordingId);
+            if (exact != null)
+                return exact;
+
+            Recording origin = marker != null
+                ? FindCommittedRecording(marker.OriginChildRecordingId)
+                : null;
+            if (IsOptimizationSurvivorForHint(origin, hint))
+                return origin;
+
+            Recording supersedeTarget = marker != null
+                ? FindCommittedRecording(marker.SupersedeTargetId)
+                : null;
+            if (IsOptimizationSurvivorForHint(supersedeTarget, hint))
+                return supersedeTarget;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null
+                || string.IsNullOrEmpty(hint.ChainId)
+                || hint.VesselPersistentId == 0u)
+            {
+                return null;
+            }
+
+            Recording best = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                if (!IsOptimizationSurvivorForHint(candidate, hint))
+                    continue;
+
+                if (best == null || candidate.ChainIndex < best.ChainIndex)
+                    best = candidate;
+            }
+
+            return best;
+        }
+
+        private static bool IsOptimizationSurvivorForHint(
+            Recording candidate,
+            RecordingIdentityHint hint)
+        {
+            return IsRecordingIdentityMatch(candidate, hint, allowExactRecordingId: false);
+        }
+
+        private static bool IsRecordingIdentityMatch(
+            Recording candidate,
+            RecordingIdentityHint hint,
+            bool allowExactRecordingId)
+        {
+            if (candidate == null || hint == null)
+                return false;
+            if (allowExactRecordingId
+                && !string.IsNullOrEmpty(hint.RecordingId)
+                && string.Equals(
+                    hint.RecordingId,
+                    candidate.RecordingId,
+                    System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+            if (string.IsNullOrEmpty(candidate.RecordingId))
+                return false;
+            if (string.IsNullOrEmpty(hint.ChainId)
+                || string.IsNullOrEmpty(candidate.ChainId)
+                || !string.Equals(
+                    candidate.ChainId,
+                    hint.ChainId,
+                    System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (candidate.ChainBranch != hint.ChainBranch)
+                return false;
+            if (hint.VesselPersistentId == 0u
+                || candidate.VesselPersistentId == 0u
+                || candidate.VesselPersistentId != hint.VesselPersistentId)
+            {
+                return false;
+            }
+            if (!string.IsNullOrEmpty(hint.TreeId)
+                && !string.Equals(
+                    candidate.TreeId,
+                    hint.TreeId,
+                    System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         #region Extracted helpers
 
         /// <summary>
@@ -1973,8 +2441,8 @@ namespace Parsek
                         notInTree++;
                         continue;
                     }
-                    bool wasGhostOnly;
-                    if (decisions.TryGetValue(suppressedId, out wasGhostOnly) && !wasGhostOnly)
+                    bool priorPersistDecision;
+                    if (decisions.TryGetValue(suppressedId, out priorPersistDecision) && !priorPersistDecision)
                     {
                         alreadyGhostOnly++;
                         continue;
@@ -1995,7 +2463,11 @@ namespace Parsek
                     $"notInTree={notInTree} activeTarget='{activeReFlyTargetId ?? "<none>"}'");
             }
 
-            ApplyActiveReFlyParentChainDefaults(tree, decisions, activeReFlyTargetId);
+            ApplyActiveReFlyParentChainDefaults(
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                suppressedRecordingIds);
 
             return decisions;
         }
@@ -2258,12 +2730,17 @@ namespace Parsek
         private static void ApplyActiveReFlyParentChainDefaults(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
-            string activeReFlyTargetId)
+            string activeReFlyTargetId,
+            HashSet<string> suppressedRecordingIds)
         {
             // This runs only while BuildDefaultVesselDecisions is constructing
-            // the dialog's initial defaults. It is allowed to flip a freshly
-            // inferred spawnable parent-chain tip to ghost-only; there is no
-            // user-edited decision state yet.
+            // the dialog's initial defaults. Keep this path decision-only:
+            // MergeCommit stamps spawned state by adopting already-materialized
+            // source vessels only after the player actually accepts the merge.
+            // Parent-chain terminal tips can be stale old-future cleanup, but
+            // they can also be legitimate future materialized vessels. Keep the
+            // dialog aligned with the normal runtime spawn predicate unless the
+            // tip is explicitly suppressed.
             if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
                 return;
 
@@ -2273,6 +2750,7 @@ namespace Parsek
                 return;
 
             int forced = 0;
+            int retainedSpawnable = 0;
             int alreadyGhostOnly = 0;
             int missing = 0;
 
@@ -2295,6 +2773,30 @@ namespace Parsek
                     continue;
                 }
 
+                bool explicitlySuppressed = suppressedRecordingIds != null
+                    && suppressedRecordingIds.Contains(tipId)
+                    && !string.Equals(
+                        tipId,
+                        activeReFlyTargetId,
+                        System.StringComparison.Ordinal);
+                bool canPersist = hadPriorDecision
+                    ? priorDecision
+                    : CanPersistVessel(rec, tree);
+
+                if (canPersist && !explicitlySuppressed)
+                {
+                    decisions[tipId] = true;
+                    retainedSpawnable++;
+                    ParsekLog.Info("MergeDialog",
+                        $"BuildDefaultVesselDecisions: retaining active Re-Fly parent-chain " +
+                        $"terminal tip spawnable id='{tipId}' vessel='{rec.VesselName}' " +
+                        $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                        $"hasSnapshot={rec.VesselSnapshot != null} " +
+                        $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                        $"reason=normal-spawn-policy activeTarget='{activeReFlyTargetId}'");
+                    continue;
+                }
+
                 decisions[tipId] = false;
                 forced++;
                 ParsekLog.Info("MergeDialog",
@@ -2303,14 +2805,288 @@ namespace Parsek
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
                     $"hasSnapshot={rec.VesselSnapshot != null} " +
                     $"priorDecision={(hadPriorDecision ? "set" : "unset")} " +
+                    $"canPersist={canPersist} explicitlySuppressed={explicitlySuppressed} " +
                     $"activeTarget='{activeReFlyTargetId}'");
             }
 
             ParsekLog.Info("MergeDialog",
                 $"BuildDefaultVesselDecisions: active Re-Fly parent-chain pass complete " +
                 $"candidates={parentTips.Count} forcedGhostOnly={forced} " +
+                $"retainedSpawnable={retainedSpawnable} " +
                 $"alreadyGhostOnly={alreadyGhostOnly} missing={missing} " +
                 $"activeTarget='{activeReFlyTargetId}'");
+        }
+
+        internal static int AdoptExistingSourceVesselsForRetainedParentChainTips(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            var retainedParentChainTipCandidates =
+                CollectRetainedParentChainTipAdoptionCandidates(
+                    tree, decisions, activeReFlyTargetId);
+            return AdoptExistingSourceVesselsForRetainedParentChainTips(
+                tree,
+                decisions,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
+        }
+
+        private static int AdoptExistingSourceVesselsForRetainedParentChainTips(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId,
+            List<RecordingIdentityHint> retainedParentChainTipCandidates)
+        {
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return 0;
+
+            var currentTipRecords = CollectCurrentParentChainTipAdoptionRecords(
+                tree,
+                activeReFlyTargetId,
+                retainedParentChainTipCandidates);
+            if (currentTipRecords == null || currentTipRecords.Count == 0)
+                return 0;
+
+            int checkedSpawnable = 0;
+            int adoptedExistingSource = 0;
+            int skippedNotSpawnable = 0;
+            int missing = 0;
+
+            for (int i = 0; i < currentTipRecords.Count; i++)
+            {
+                Recording rec = currentTipRecords[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    missing++;
+                    continue;
+                }
+                string tipId = rec.RecordingId;
+
+                bool retainedByPreOptimizationTip =
+                    IsRetainedParentChainTipAdoptionCandidate(
+                        rec,
+                        retainedParentChainTipCandidates);
+                if (retainedByPreOptimizationTip)
+                {
+                    if (!CanPersistVessel(rec, tree))
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
+                }
+                else
+                {
+                    bool persist;
+                    bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
+                        tree, decisions, rec, out persist);
+                    if (hadDecision && !persist)
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
+
+                    if (!hadDecision && !CanPersistVessel(rec, tree))
+                    {
+                        skippedNotSpawnable++;
+                        continue;
+                    }
+                }
+
+                checkedSpawnable++;
+                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                    rec,
+                    "MergeDialog",
+                    $"MergeCommit parent-chain tip '{tipId}'"))
+                {
+                    adoptedExistingSource++;
+                }
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"MergeCommit: active Re-Fly parent-chain adoption pass complete " +
+                $"candidates={currentTipRecords.Count} checkedSpawnable={checkedSpawnable} " +
+                $"adoptedExistingSource={adoptedExistingSource} " +
+                $"skippedNotSpawnable={skippedNotSpawnable} missing={missing} " +
+                $"retainedPreOptimizationTips={retainedParentChainTipCandidates?.Count ?? 0} " +
+                $"activeTarget='{activeReFlyTargetId}'");
+            return adoptedExistingSource;
+        }
+
+        private static List<Recording> CollectCurrentParentChainTipAdoptionRecords(
+            RecordingTree tree,
+            string activeReFlyTargetId,
+            List<RecordingIdentityHint> retainedParentChainTipCandidates)
+        {
+            var result = new List<Recording>();
+            var seen = new HashSet<string>(System.StringComparer.Ordinal);
+            if (tree == null || tree.Recordings == null)
+                return result;
+
+            if (retainedParentChainTipCandidates != null
+                && retainedParentChainTipCandidates.Count > 0)
+            {
+                foreach (Recording rec in tree.Recordings.Values)
+                {
+                    AddCurrentParentChainTipIfMatch(
+                        result,
+                        seen,
+                        rec,
+                        IsRetainedParentChainTipAdoptionCandidate(
+                            rec,
+                            retainedParentChainTipCandidates));
+                }
+                return result;
+            }
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return result;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId))
+                    continue;
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec))
+                    continue;
+                AddCurrentParentChainTipIfMatch(result, seen, rec, rec != null);
+            }
+
+            return result;
+        }
+
+        private static void AddCurrentParentChainTipIfMatch(
+            List<Recording> result,
+            HashSet<string> seen,
+            Recording rec,
+            bool matched)
+        {
+            if (!matched
+                || result == null
+                || seen == null
+                || rec == null
+                || string.IsNullOrEmpty(rec.RecordingId))
+            {
+                return;
+            }
+            if (!seen.Add(rec.RecordingId))
+                return;
+            result.Add(rec);
+        }
+
+        private static List<RecordingIdentityHint> CollectRetainedParentChainTipAdoptionCandidates(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            string activeReFlyTargetId)
+        {
+            var result = new List<RecordingIdentityHint>();
+            if (tree == null || decisions == null || string.IsNullOrEmpty(activeReFlyTargetId))
+                return result;
+
+            var parentTips = CollectActiveReFlyParentChainTerminalTipIds(
+                tree, activeReFlyTargetId);
+            if (parentTips == null || parentTips.Count == 0)
+                return result;
+
+            foreach (string tipId in parentTips)
+            {
+                if (string.IsNullOrEmpty(tipId)) continue;
+
+                Recording rec;
+                if (!tree.Recordings.TryGetValue(tipId, out rec) || rec == null)
+                    continue;
+
+                bool persist;
+                bool hadDecision = TryResolvePersistDecisionForOptimizedTip(
+                    tree, decisions, rec, out persist);
+                if (hadDecision && !persist)
+                    continue;
+                if (!CanPersistVessel(rec, tree))
+                    continue;
+
+                var hint = CaptureRecordingIdentityHint(rec);
+                if (hint != null)
+                    result.Add(hint);
+            }
+
+            return result;
+        }
+
+        private static bool IsRetainedParentChainTipAdoptionCandidate(
+            Recording rec,
+            List<RecordingIdentityHint> candidates)
+        {
+            if (rec == null || candidates == null || candidates.Count == 0)
+                return false;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                RecordingIdentityHint candidate = candidates[i];
+                if (candidate == null)
+                    continue;
+
+                if (IsRecordingIdentityMatch(rec, candidate, allowExactRecordingId: true))
+                    return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryResolvePersistDecisionForOptimizedTip(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            Recording rec,
+            out bool persist)
+        {
+            persist = false;
+            if (rec == null || decisions == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && decisions.TryGetValue(rec.RecordingId, out persist))
+            {
+                return true;
+            }
+
+            if (tree == null
+                || tree.Recordings == null
+                || string.IsNullOrEmpty(rec.ChainId))
+            {
+                return false;
+            }
+
+            Recording best = null;
+            bool bestDecision = false;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
+                    continue;
+                bool candidateDecision;
+                if (!decisions.TryGetValue(candidate.RecordingId, out candidateDecision))
+                    continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, System.StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != rec.ChainBranch)
+                    continue;
+                if (!string.IsNullOrEmpty(rec.TreeId)
+                    && !string.Equals(candidate.TreeId, rec.TreeId, System.StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainIndex > rec.ChainIndex)
+                    continue;
+                if (best == null || candidate.ChainIndex > best.ChainIndex)
+                {
+                    best = candidate;
+                    bestDecision = candidateDecision;
+                }
+            }
+
+            if (best == null)
+                return false;
+
+            persist = bestDecision;
+            return true;
         }
 
         internal static HashSet<string> CollectActiveReFlyParentChainTerminalTipIds(
@@ -2451,6 +3227,15 @@ namespace Parsek
                         System.StringComparison.Ordinal))
                         return true;
                 }
+            }
+            if (!string.IsNullOrEmpty(parentRec.ChainId)
+                && string.Equals(parentRec.ChainId, terminalRec.ChainId, System.StringComparison.Ordinal)
+                && parentRec.ChainBranch == terminalRec.ChainBranch
+                && terminalRec.ChainIndex >= parentRec.ChainIndex
+                && (string.IsNullOrEmpty(parentRec.TreeId)
+                    || string.Equals(parentRec.TreeId, terminalRec.TreeId, System.StringComparison.Ordinal)))
+            {
+                return true;
             }
             return false;
         }

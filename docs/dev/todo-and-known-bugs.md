@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 plain rewind kept stale Re-Fly marker
+
+- ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.
+
+**Fix:** `HandleRewindOnLoad` now clears any active Re-Fly marker imported from the rewind save as soon as the plain rewind path is detected, clears render-session state with the required lifecycle log, and reapplies the Re-Fly revert button gate against the now-null marker. The existing future-recording activation policy is unchanged.
+
+**Coverage:** `RewindTimelineTests.PlainRewindLoad_ClearsLoadedActiveReFlyMarker`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
 ## Active - v0.9.1 PR708 post-merge Phase D continuation
 
 - After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).
@@ -20,6 +32,42 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Carry-forward validation:** before Phase D starts, keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if the next work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
 
 **Status:** Open until PR708 is merged and D.0 is recorded.
+
+---
+
+## Done - v0.9.2 atmospheric Re-Fly post-load settle
+
+- ~~The first Re-Fly of `Kerbal X Probe` could start visually aligned and then have the upper stage clip through the Probe booster as the loaded vessel slowed through the first atmospheric frames; the second Re-Fly of the upper-stage capsule showed a visually milder initial-position glitch from the same velocity-frame mismatch.~~ Source: `logs/2026-05-04_1817`. The selected rewind point was position-consistent with the recording at UT 55.84 to about 9 mm, but the first continuation samples were taken while KSP still reported the vessel as packed/on-rails in atmosphere. Those samples used conic `obt_velocity` (about 196 m/s) while the atmospheric recording path was body-fixed `rb_velocityD + Krakensbane.GetFrameVelocity()` (about 312 m/s). The roughly 162 m/s frame delta matched Kerbin rotation projection and produced the repeatable 6.3 m start offset over the first packed physics ticks.
+
+**Fix:** `FlightRecorder` now arms a narrow Re-Fly post-load settle gate only for matching active-session promotions that start inside the atmosphere. While the gate is active, the recorder keeps part polling, anchor detection, environment tracking, and finalization cache refreshes running, but skips all trajectory point writes, including the packed atmospheric start-boundary point, go-off-rails boundary samples, environment/anchor transition samples, and section seam seeds. The gate clears only after the vessel is unpacked for two consecutive physics frames and at least 0.1 seconds have elapsed since it was armed, so the continuation resumes from the normal unpacked/body-fixed sampling path instead of persisting a conic-frame velocity jump.
+
+**Coverage:** `FlightRecorderExtractedTests` covers the settle decision for packed, first-unpacked, time-warmup, and settled states, plus the Re-Fly marker/recording/tree/atmosphere arming predicate.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
+## Done - v0.9.2 stable landed EVA side-branch auto-seal
+
+- ~~A Jebediah EVA side-branch that ended safely landed could still be promoted to an open Unfinished Flight as `strandedEva`, leaving Fly disabled by the active Re-Fly marker while Seal remained available.~~ Source: `logs/2026-05-04_1817`. The recording `b1c726b9a36b4c3082ff41d532f1289c` finalized as `TerminalState=Landed`, with `type=EVA`, `sit=LANDED`, and `landed=True` in its vessel sidecar. `RecordingStore.CommitTree` then classified it as `strandedEva` and promoted it to `CommittedProvisional`; the re-fly auto-seal helper never ran because this was a tree-commit side branch, not the active supersede provisional.
+
+**Fix:** `RecordingStore.ApplyRewindProvisionalMergeStates` now treats `strandedEva` as an auto-seal close when the effective terminal recording is an EVA with a safe surface terminal (`Landed` or `Splashed`). The slot receives `Sealed=true` plus `sealedRealTime`, the supersede state version is bumped, and the recording remains `Immutable` instead of becoming `CommittedProvisional`. The legacy classifier still reports normal loaded landed EVAs as stranded unless the commit-time auto-seal has stamped the slot.
+
+**Coverage:** `TreeCommitTests.CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting`, `TreeCommitTests.CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional`, plus existing `UnfinishedFlightsMembershipTests.StrandedEvaLegacyNoFocusSignal_IsMember`.
+
+**Status:** CLOSED 2026-05-04.
+
+---
+
+## Done - v0.9.2 rewind crew reservations after cutoff
+
+- ~~After a plain Rewind, crew from a committed recording could become selectable for new missions even though the recorded flight never recovered them.~~ Source: `logs/2026-05-04_1817`. Runtime trace showed the pre-rewind ledger walk reserving Jebediah, Bill, and Bob, then `HandleRewindOnLoad` rescuing stripped/orphaned roster entries back to `Available` and calling `LedgerOrchestrator.RecalculateAndPatch(0)`. The cutoff walk correctly filtered future career rows, but it also filtered the future `KerbalAssignment` rows that `KerbalsModule` needs for crew-dialog reservations, leaving `reservations=0`.
+
+**Fix:** cutoff recalculations still walk resources/contracts/facilities at the supplied UT, but now rebuild `KerbalsModule` from the full Effective Ledger Set so committed future recordings continue to own their crew until recovery/death. The recompute updates in-memory reservations only; live roster mutation remains behind `LedgerOrchestrator`'s existing patch gate. The existing tombstone recompute path was generalized and reused, keeping tombstoned crew assignments excluded while avoiding post-rewind resource re-credit.
+
+**Coverage:** `RewindUtCutoffTests.CutoffZero_KeepsCareerStateAtCutoffButProjectsCrewReservations`, `RewindUtCutoffTests.MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations`, `LedgerOrchestratorTests.RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch`, plus the nearby `RewindUtCutoffTests` and `CrewReservationRecomputeTests` suites.
+
+**Status:** CLOSED 2026-05-04.
 
 ---
 
@@ -250,6 +298,16 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 - ~~Watch-mode auto-follow across chain segments preserved the camera mode but still jumped pitch/heading to surprising side angles, even when the chain boundary was continuous in body / position / velocity.~~ Source: `logs/2026-05-01_1712_camera-mode-still-broken/`; on the Kerbal X Probe chain `#7→#10→#11→#12→#13`, every auto-follow `Watch camera apply (segment-apply)` line showed pitch/heading values unrelated to the user's last camera (e.g. `pitch=19.8 hdg=-8.0` on rec #7 → `pitch=-4.6 hdg=-105.1` on rec #10 across an alt 47808m → 70002m boundary, even though both horizon proxies had identical `fwd=(-0.5,0,-0.9)` basis). Root cause: `TransferWatchToNextSegment` kept the world-direction path of `CompensateTransferredWatchAngles`, but the captured `WorldOrbitDirection` was computed from `FlightCamera.pivotRotation` (KSP's body-relative-upright pivot frame), not the horizon proxy / camera pivot the camera was actually composing `camPitch` / `camHdg` against. Decomposing that direction onto the destination basis produced visually surprising local angles even on a same-frame handoff. Fix: chain transfers now call `MakeWatchCameraStateTargetRelative` on the captured state before applying, so the user's last `camPitch` / `camHdg` re-apply directly relative to the next ghost's horizon proxy. Chain boundaries are continuous in body / position / velocity, so the new horizon proxy has near-identical rotation to the old one and identical local angles preserve the view. The stale rationale in `MakeWatchCameraStateTargetRelative`'s XML doc and the `switch-apply` block (which carved out chain transfers as a "no drift window" exception) was updated to record the actual reason — `flightCamera.pivotRotation` is the wrong reference frame in HorizonLocked mode regardless of frame timing.
 
 **Status:** CLOSED 2026-05-01.
+
+---
+
+## Done - v0.9.1 bulk-enumeration log spam in scenario load and KSC entry
+
+- ~~Three Verbose enumerations were emitting one log line per recording during their bulk passes, producing ~700 lines per scenario load on saves with hundreds of recordings.~~ Source: `logs/2026-05-04_0011_spam-check`; KSP.log was 57 MB / 119,940 lines, of which 110,726 were `[Parsek]`-tagged. The `ghostRenderTracing` diagnostic toggle dominated overall (89,592 / 81% — that's expected when on; default-off), but with it disabled three pure bulk enumerations remained near the top of the volume table: `[Optimizer] TrimBoringTail: skipped (…)` at 248 lines per pass (per-recording skip-reason walk inside `RecordingStore.TrimBoringTailsForOptimization`), `[KSCGhost] Recording #N "X" eligible: …` at 267 lines per KSC entry (per-recording enumeration in `ParsekKSC` initialization), and `[Scenario]   #N: "X" — future (starts in N s)` at 243 lines per save load (per-recording status walk in `ParsekScenario` OnLoad's `load-summary` phase). All three already had a sibling INFO summary line; the per-recording detail in the bulk caller carried no information that wasn't already trivially derivable from the recordings themselves.
+
+**Fix:** added an `internal static bool TrimBoringTailInternal(rec, allRecordings, bufferSeconds, bool logSkipReason, out string skipCategory)` overload to `RecordingOptimizer`, plus a parallel `TailPreservesTerminalSpawnStateInternal(rec, trimUT, bool logUnstableRefusal, out bool unstableTerminal)` so the dedicated `refused trim for unstable terminal` Verbose line is also gated by the bulk-pass `logSkipReason` flag (review-pass P2: pre-fix, the bulk path suppressed the outer `TrimBoringTail: skipped` line but the inner refusal still fired per-recording, so the bulk-pass contract was incomplete for the most common bucket — Destroyed / Recovered / Boarded boring-tail leaves). The legacy `TrimBoringTail(rec, allRecordings, bufferSeconds = …)` overload now delegates with `logSkipReason: true`, so direct callers and `RecordingOptimizerTests`'s skip-reason assertions still see per-recording detail. `RecordingStore.TrimBoringTailsForOptimization` calls the new overload with `logSkipReason: false`, accumulates `skipCategory` counts in a local `Dictionary<string, int>`, and emits one `Optimization pass: TrimBoringTail skipped N recording(s) — too-short=A, not-leaf=B, unstable-terminal=C, …` Verbose summary at end of pass with a deterministic descending-count + ordinal-name tie-break sort (so log diffs stay quiet). The `terminal-mismatch` branch keeps its per-recording line in direct-call mode because the wording carries orbit-shape divergence detail (eccentricity / inclination / LAN deltas) that doesn't aggregate, but is also gated on `logSkipReason` for the bulk pass. `ParsekKSC` initialization replaces its per-recording `eligible: …` enumeration with both eligible and ineligible terminal-state bucket counts (`looping=N terminal(state=count, …) ineligible(state=count, …)`) emitted once after the existing INFO summary, always firing when there are committed recordings so the ineligible breakdown is the primary diagnostic when `ghostCount == 0`; the bucket formatter uses the same stable sort. `ParsekScenario` OnLoad's `load-summary` phase replaces the per-recording status walk with three counters (`future=N in-progress=N past=N`) plus per-row Verbose detail only for the `IN PROGRESS` rows (rare and the most useful debug case), and the `Scenario load summary — UT: …` INFO line plus the per-row percentage are now formatted under `CultureInfo.InvariantCulture` so comma-locale systems don't render `(50,%)`. Four new xUnit tests pin the contract: `_LogSkipReasonFalse_SuppressesPerRecordingLogAndReportsCategory` (bulk path, no per-recording line), `_LogSkipReasonTrue_MatchesLegacyPerRecordingLog` (legacy path, per-recording line still emitted), `_LogSkipReasonFalse_UnstableTerminal_SuppressesRefusalLogAndReportsCategory` (bulk path silences the dedicated unstable-terminal refusal log AND the outer skip line), and `_LogSkipReasonTrue_UnstableTerminal_EmitsDedicatedRefusalLog` (direct path keeps the dedicated refusal log). Existing `TrimBoringTail_NotLeaf/TooShort/TerminalMismatch_LogsSkipReason` tests still pass against the default-arg overload.
+
+**Status:** CLOSED 2026-05-04.
 
 ---
 
@@ -2628,6 +2686,8 @@ flight; stale upper-stage parent-chain tips do not stay as visible/spawnable
 recordings after the merge.
 
 **Resolution (2026-04-26):** CLOSED for v0.8.3. `EffectiveState.ResolveChainTerminalRecording` now accepts pending-tree context, and `MergeDialog.BuildDefaultVesselDecisions` applies an active-Re-Fly parent-chain pass that resolves optimizer-created chain tips such as `854fdf... -> e77d90...` before deciding spawnability. The pass only affects directly connected single-parent ancestor-chain terminal tips and leaves multi-parent/destructive cleanup semantics alone. Regression coverage: `Bug618ReFlyMergeParentChainTipTests`.
+
+**Follow-up (2026-05-03, `logs/2026-05-03_2007_upper-stage-orbit-spawn`):** the parent-chain default was too broad. A Kerbal X upper-stage recording (`f9b78f3...`) was trimmed correctly to a stable terminal orbit and spawned once, but the later Re-Fly merge marked that materializable parent-chain tip ghost-only even though it was outside the suppressed Re-Fly closure. The commit nulled `VesselSnapshot`, so after a later rewind the same future recording reached its end with `needsSpawn=False` / `no vessel snapshot` while the probe spawned normally. Fix: the parent-chain pass now keeps tips spawnable when the normal runtime spawn predicate says they can persist and they are not explicitly suppressed. If the tip's source vessel already exists at merge time, the pass adopts it as already spawned instead of spawning a duplicate, preserving #618's stale-vessel protection without destroying the snapshot. Only suppressed, missing-snapshot, or otherwise non-spawnable tips remain ghost-only. Coverage updates `Bug618ReFlyMergeParentChainTipTests` for retained materializable tips, existing-source adoption, suppressed cleanup, and no-snapshot cleanup cases.
 
 **Status:** CLOSED 2026-04-26. Fixed for v0.8.3.
 
