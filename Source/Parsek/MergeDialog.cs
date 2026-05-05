@@ -708,6 +708,7 @@ namespace Parsek
                 attemptIds,
                 $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}");
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
+            int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(attemptIds);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
@@ -738,6 +739,7 @@ namespace Parsek
                 $"active={marker.ActiveReFlyRecordingId ?? "<none>"}, " +
                 $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
+                $"prunedCommittedTreeEntries={prunedCommittedTreeEntries}, " +
                 $"transientCleared={transientCleared}, " +
                 $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
                 $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
@@ -834,6 +836,25 @@ namespace Parsek
 
             if (CommittedTreeContainsRecording(dialogTree?.Id, recordingId))
             {
+                // AtomicMarkerWrite attaches the in-place fork to whichever
+                // tree owns origin's tree id (pending OR committed). When no
+                // pending tree exists at marker-write time, the fork is
+                // attached to the committed tree as a NotCommitted recording.
+                // That fork is the active Re-Fly attempt itself, not committed
+                // mission history, so the guard must let it through; the
+                // tree-pruning step in TryDiscardActiveReFlyAttempt removes
+                // the entry from the committed tree's Recordings dictionary
+                // so OnSave does not serialise the fork as history.
+                if (IsMarkerOwnedNotCommittedFork(recordingId, marker))
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"TryDiscardActiveReFlyAttempt: rec={recordingId} is the marker-owned " +
+                        $"NotCommitted Re-Fly fork attached to committed tree " +
+                        $"{dialogTree?.Id ?? "<none>"}; including in attempt discard");
+                    ids.Add(recordingId);
+                    return;
+                }
+
                 ParsekLog.Warn("MergeDialog",
                     $"TryDiscardActiveReFlyAttempt: rec={recordingId} exists in committed tree " +
                     $"{dialogTree?.Id ?? "<none>"} - excluding from attempt discard to protect mission history");
@@ -841,6 +862,37 @@ namespace Parsek
             }
 
             ids.Add(recordingId);
+        }
+
+        private static bool IsMarkerOwnedNotCommittedFork(
+            string recordingId, ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(recordingId) || marker == null)
+                return false;
+            var rec = LookupCommittedRecordingById(recordingId);
+            if (rec == null || rec.MergeState != MergeState.NotCommitted)
+                return false;
+            return IsReFlyAttemptOwnedRecording(rec, marker);
+        }
+
+        private static Recording LookupCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+                return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec != null
+                    && string.Equals(rec.RecordingId, recordingId,
+                        System.StringComparison.Ordinal))
+                {
+                    return rec;
+                }
+            }
+            return null;
         }
 
         private static bool IsProtectedReFlyRecordingId(
@@ -928,6 +980,50 @@ namespace Parsek
                 deleted++;
             }
             return deleted;
+        }
+
+        /// <summary>
+        /// Removes attempt-owned recording entries from any committed tree's
+        /// <c>Recordings</c> dictionary. Required for the committed-tree-attach
+        /// shape where <see cref="RewindInvoker.AtomicMarkerWrite"/> attached the
+        /// in-place fork to a committed tree because no pending tree existed.
+        /// Without this, the fork dictionary entry survives discard and OnSave
+        /// serialises it as committed mission history. The pending-tree case
+        /// is naturally handled by <see cref="RecordingStore.PopPendingTree"/>
+        /// later in the discard flow.
+        /// </summary>
+        private static int PruneAttemptRecordingsFromCommittedTrees(
+            HashSet<string> attemptIds)
+        {
+            if (attemptIds == null || attemptIds.Count == 0)
+                return 0;
+
+            int pruned = 0;
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees == null)
+                return 0;
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                var committedTree = committedTrees[i];
+                if (committedTree == null || committedTree.Recordings == null)
+                    continue;
+
+                foreach (var attemptId in attemptIds)
+                {
+                    if (string.IsNullOrEmpty(attemptId))
+                        continue;
+                    if (committedTree.Recordings.Remove(attemptId))
+                    {
+                        pruned++;
+                        ParsekLog.Info("MergeDialog",
+                            $"PruneAttemptRecordingsFromCommittedTrees: removed " +
+                            $"rec={attemptId} from committed tree id={committedTree.Id ?? "<none>"}");
+                    }
+                }
+            }
+
+            return pruned;
         }
 
         private static int ClearReFlyAttemptTransientFields(

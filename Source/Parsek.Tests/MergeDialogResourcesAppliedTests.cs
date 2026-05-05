@@ -793,6 +793,121 @@ namespace Parsek.Tests
                 && l.Contains("User chose: Re-Fly Attempt Discard"));
         }
 
+        /// <summary>
+        /// Issue #734 reviewer P1: when AtomicMarkerWrite has to attach the
+        /// in-place fork to a committed tree because no pending tree exists
+        /// at marker-write time, Discard must still drop the fork. The
+        /// pre-fix CommittedTreeContainsRecording guard treated the fork id
+        /// as protected mission history and excluded it from attemptIds, so
+        /// the fork survived in <see cref="RecordingStore.CommittedRecordings"/>
+        /// and in the committed tree's <c>Recordings</c> dictionary - OnSave
+        /// then serialised the abandoned attempt as committed history.
+        /// Post-fix the guard recognises the marker-owned NotCommitted fork
+        /// and the new <c>PruneAttemptRecordingsFromCommittedTrees</c> step
+        /// strips the dictionary entry.
+        /// </summary>
+        [Fact]
+        public void MergeDiscard_ReFlyInPlaceForkAttachedToCommittedTree_RemovesForkAndPrunesTreeEntry()
+        {
+            const string treeId = "tree-734-committed-attach";
+            const string sessionId = "sess-734-committed-attach";
+            const string rpId = "rp_734_committed_attach";
+            const string originId = "rec-734-committed-origin";
+            const string forkId = "rec-734-committed-fork";
+
+            var origin = MakeRecording(originId, treeId, 100.0, 200.0);
+            origin.MergeState = MergeState.Immutable;
+            origin.ExplicitStartUT = 100.0;
+            origin.ExplicitEndUT = 200.0;
+            origin.TerminalStateValue = TerminalState.Landed;
+            origin.EndpointPhase = RecordingEndpointPhase.SurfacePosition;
+            origin.EndpointBodyName = "Kerbin";
+            int originPointCountBefore = origin.Points.Count;
+            TerminalState? originTerminalBefore = origin.TerminalStateValue;
+
+            var fork = MakeRecording(forkId, treeId, 200.0, 360.0);
+            fork.MergeState = MergeState.NotCommitted;
+            fork.CreatingSessionId = sessionId;
+            fork.ProvisionalForRpId = rpId;
+            fork.SupersedeTargetId = originId;
+            fork.VesselPersistentId = origin.VesselPersistentId;
+            fork.VesselName = origin.VesselName;
+            fork.TerminalStateValue = TerminalState.Destroyed;
+
+            // Committed-tree-attach shape: NO pending tree. The fork lives
+            // inside the SAME committed tree as origin because
+            // FindTreeForReFlyFork(originChild.TreeId) found the committed
+            // tree first when no pending tree was stashed.
+            var committedTree = MakeTree(treeId, forkId, origin, fork);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(fork);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.True(committedTree.Recordings.ContainsKey(forkId));
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp-734-committed-attach",
+                UT = 200.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
+                },
+            };
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                ActiveReFlySessionMarker = MakeMarker(sessionId, treeId, forkId, originId),
+            };
+            scenario.ActiveReFlySessionMarker.SupersedeTargetId = originId;
+            scenario.ActiveReFlySessionMarker.InPlaceContinuation = true;
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            // Discard runs against the committed tree (the dialog tree in
+            // this shape because no pending tree exists).
+            MergeDialog.MergeDiscard(committedTree);
+
+            // Origin survives: same instance, untouched payload, still in
+            // both committed list and the committed tree's Recordings dict.
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => ReferenceEquals(r, origin));
+            Assert.Equal(originPointCountBefore, origin.Points.Count);
+            Assert.Equal(originTerminalBefore, origin.TerminalStateValue);
+            Assert.True(committedTree.Recordings.ContainsKey(originId));
+            Assert.Same(origin, committedTree.Recordings[originId]);
+
+            // Fork is gone from the committed list AND from the committed
+            // tree's Recordings dictionary. The dictionary prune is the
+            // critical assertion - pre-fix the guard kept the fork id out
+            // of attemptIds, so neither RemoveCommittedAttemptRecordings
+            // nor any tree pruning ran for it.
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r.RecordingId == forkId);
+            Assert.False(committedTree.Recordings.ContainsKey(forkId));
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+
+            // The two new log lines: the guard inclusion path + the prune
+            // step. Both are required to prove the fix path ran rather
+            // than the old protect-and-skip path.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("marker-owned")
+                && l.Contains(forkId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("PruneAttemptRecordingsFromCommittedTrees")
+                && l.Contains(forkId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("User chose: Re-Fly Attempt Discard"));
+        }
+
         // ================================================================
         // 8. Merge-journal-active discard guard (Opus pass-6 P1.C)
         // ================================================================
