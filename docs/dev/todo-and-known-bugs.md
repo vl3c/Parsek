@@ -792,6 +792,41 @@ ghost files for true alias cases. Regression coverage:
 and the in-game `ReFlyRootFinalization_PreservesRecordedStartGhostMesh`
 PartLoader-backed mesh-build guard.
 
+## 640. Stock committed-future overlay v2 follow-ups
+
+**Status:** TODO - future investigation / review item from PR #721.
+
+PR #721 ships the v1 scope: stock R&D, Astronaut Complex, and Mission
+Control committed-future overlays, plus click-blocks for duplicated tech,
+contract accept, kerbal hire, and facility upgrade actions. The following
+ideas are deliberately out of v1 scope and should be reviewed as separate
+follow-ups after in-game verification:
+
+- KSC facility-upgrade visual overlays in the top-down KSC view. The
+  click-block already exists via `FacilityUpgradePatch`; v2 would add the
+  visual badge and extend the overlay/click-block invariant to facilities.
+- Future-completed / future-failed contract badges in Mission Control, not
+  only future-accepted contract badges.
+- Administration strategy activation overlays, paired with matching
+  click-block behavior if the stock UI has a clickable affordance.
+- Per-row claim / override UI for cases where the player intentionally wants
+  to bypass a committed-future action, instead of using the global setting.
+- Per-user dismissible badges for "hide this warning until next session" style
+  workflows.
+- Non-stock screen integrations, such as Contract Configurator's own Mission
+  Control replacement or other mod-provided building screens.
+- Modded flight-scene building overlays. The current v1 overlays are
+  `SPACECENTER` scene-bound, while the lower-level click-blocks remain
+  scene-agnostic.
+- Tooltip styling polish using KSP's richer
+  `KSP.UI.TooltipTypes.TooltipController_Text` path instead of the v1
+  `GUI.skin.box` fallback.
+
+**Review guidance:** keep the v1 invariant intact for every clickable action:
+if a stock or modded UI exposes a clickable affordance, the overlay candidate
+set and the click-block predicate must share the same `MilestoneStore` source
+helper, with any UI-only suppression kept outside the click-block predicate.
+
 ## 639. FinalizerCache patched-conic atmospheric tail can refresh to `Orbiting` from a future segment
 
 **Status:** TODO - investigated 2026-05-01, not fixed by the active-recorder destruction override.
