@@ -892,6 +892,12 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveReFlySessionMarker);
 
+            // ActiveRecordingId was set to forkId by MakeTree(...,forkId,...);
+            // the prune step must reset it to origin (or null) so the next
+            // session does not target the deleted recording id.
+            Assert.NotEqual(forkId, committedTree.ActiveRecordingId);
+            Assert.Equal(originId, committedTree.ActiveRecordingId);
+
             // The two new log lines: the guard inclusion path (cites the
             // marker-owned fork id) + the per-tree prune summary (cites the
             // tree id and the recording-prune count).
@@ -904,6 +910,14 @@ namespace Parsek.Tests
                 && l.Contains("PruneAttemptRecordingsFromCommittedTrees")
                 && l.Contains("tree=" + treeId)
                 && l.Contains("prunedRecordings=1"));
+            // Stale ActiveRecordingId reset is logged so the audit trail
+            // shows what changed and why.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("reset stale")
+                && l.Contains("tree.ActiveRecordingId")
+                && l.Contains(forkId)
+                && l.Contains(originId));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Re-Fly Attempt Discard"));
@@ -1080,6 +1094,9 @@ namespace Parsek.Tests
             // Marker cleared.
             Assert.Null(scenario.ActiveReFlySessionMarker);
 
+            // ActiveRecordingId was forkId; prune step resets to origin.
+            Assert.Equal(originId, committedTree.ActiveRecordingId);
+
             // The session-BP-descendant walk reports adopting attemptDebris
             // explicitly (the only path that can reach it given the
             // production-shape un-tagged child).
@@ -1090,13 +1107,116 @@ namespace Parsek.Tests
 
             // Per-tree prune summary records all counters - prunedRecordings=2
             // (fork + attempt debris), removedSessionBranchPoints=1
-            // (sessionAuthoredBp).
+            // (sessionAuthoredBp). scrubbedBranchPointRefs=0 because the
+            // session-authored BP that held both attempt id refs is dropped
+            // wholesale BEFORE the topology scrub runs (reorder per Opus
+            // P3); the surviving pre-session BP never referenced any
+            // attempt ids, so there is no remaining scrub work.
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("PruneAttemptRecordingsFromCommittedTrees")
                 && l.Contains("tree=" + treeId)
                 && l.Contains("prunedRecordings=2")
+                && l.Contains("scrubbedBranchPointRefs=0")
                 && l.Contains("removedSessionBranchPoints=1"));
+        }
+
+        /// <summary>
+        /// Companion to the discard test above: pins that the topology
+        /// scrub clears stale attempt-id refs from a SURVIVING (pre-session)
+        /// branch point. The fixture manually pollutes the pre-session BP
+        /// with a forkId child ref - the kind of edge case where the
+        /// in-place attempt's chain segment manager added the fork to a
+        /// pre-existing BP - to confirm the scrub still cleans it after the
+        /// reorder. Without this test the reorder could regress (scrub
+        /// runs but finds nothing) silently.
+        /// </summary>
+        [Fact]
+        public void MergeDiscard_ReFlyInPlaceForkInCommittedTreeWithPolluted_PreSessionBp_ScrubClears()
+        {
+            const string treeId = "tree-734-bp-pollute";
+            const string sessionId = "sess-734-bp-pollute";
+            const string rpId = "rp_734_bp_pollute";
+            const string originId = "rec-734-pollute-origin";
+            const string preSessionBpId = "bp-734-pollute-pre";
+            const string forkId = "rec-734-pollute-fork";
+
+            var origin = MakeRecording(originId, treeId, 100.0, 200.0);
+            origin.MergeState = MergeState.Immutable;
+            origin.ChildBranchPointId = preSessionBpId;
+
+            var fork = MakeRecording(forkId, treeId, 200.0, 360.0);
+            fork.MergeState = MergeState.NotCommitted;
+            fork.CreatingSessionId = sessionId;
+            fork.ProvisionalForRpId = rpId;
+            fork.SupersedeTargetId = originId;
+            fork.VesselPersistentId = origin.VesselPersistentId;
+            fork.VesselName = origin.VesselName;
+
+            // Pre-session BP with origin as parent. Then we manually inject
+            // forkId into its ChildRecordingIds, simulating the edge case
+            // where the in-place attempt added the fork as a child of a
+            // pre-existing BP. The scrub must clear this stale ref.
+            var preSessionBp = new BranchPoint
+            {
+                Id = preSessionBpId,
+                UT = 150.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { originId },
+                ChildRecordingIds = new List<string> { forkId },
+            };
+
+            var committedTree = MakeTree(treeId, forkId, origin, fork);
+            committedTree.BranchPoints.Add(preSessionBp);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(fork);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = "bp-734-bp-pollute",
+                UT = 200.0,
+                SessionProvisional = true,
+                CreatingSessionId = sessionId,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = originId },
+                },
+            };
+            var marker = MakeMarker(sessionId, treeId, forkId, originId);
+            marker.SupersedeTargetId = originId;
+            marker.InPlaceContinuation = true;
+            // Pre-session BP IS in the baseline - it must SURVIVE Discard
+            // (only its stale forkId ref gets scrubbed).
+            marker.PreSessionBranchPointIds = new List<string> { preSessionBpId };
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                ActiveReFlySessionMarker = marker,
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            MergeDialog.MergeDiscard(committedTree);
+
+            // Pre-session BP survives, but the stale forkId ref is gone.
+            Assert.Contains(committedTree.BranchPoints, bp => bp.Id == preSessionBpId);
+            var survivingBp = committedTree.BranchPoints.First(bp => bp.Id == preSessionBpId);
+            Assert.Contains(originId, survivingBp.ParentRecordingIds);
+            Assert.DoesNotContain(forkId, survivingBp.ChildRecordingIds);
+
+            // Per-tree summary: 1 scrubbed ref (the forkId child of the
+            // pre-session BP), 1 pruned recording (fork), 0 session BPs
+            // (none authored mid-attempt in this fixture).
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("PruneAttemptRecordingsFromCommittedTrees")
+                && l.Contains("tree=" + treeId)
+                && l.Contains("prunedRecordings=1")
+                && l.Contains("scrubbedBranchPointRefs=1")
+                && l.Contains("removedSessionBranchPoints=0"));
         }
 
         // ================================================================

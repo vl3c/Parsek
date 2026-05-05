@@ -596,17 +596,22 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Issue #734 reviewer P1 (May 2026): after F5/F9 mid in-place
-        /// Re-Fly the restored tree is deserialised into a NEW Recording
-        /// instance for the fork id, but the committed list still holds the
-        /// pre-load fork object that the recorder is appending samples
-        /// into. Recorder flush appends to the tree's instance,
-        /// TryCommitReFlySupersede resolves the provisional from the
-        /// committed list -- so without convergence the merge sees a stale
-        /// shadow with no recorded data and CommitTree could even add a
-        /// duplicate same-id row by reference. The reconcile path must
-        /// detect the instance divergence and overwrite the tree slot with
-        /// the committed-list instance.
+        /// Issue #734 reviewer P1 (May 2026) - convergence contract for
+        /// any code path that drops two same-id Recording instances into
+        /// the store. Defensive only: the originally-claimed F5/F9 race
+        /// is no longer reachable in production because
+        /// `ParsekScenario.TryRestoreActiveTreeNode` calls
+        /// `RemoveCommittedTreeById` (ParsekScenario.cs:3100) before the
+        /// pending tree is stashed, which strips every recording sharing
+        /// that tree id from CommittedRecordings BEFORE the OnFlightReady
+        /// reconciliation runs - so the committed-list duplicate cannot
+        /// survive into the reconciliation. The contract still matters as
+        /// a safety net: if any future code path (a new restore branch,
+        /// a save-merge edge case, a test harness) drops two same-id
+        /// instances, the reconcile must converge them. Without it the
+        /// recorder appends to one instance, TryCommitReFlySupersede
+        /// resolves from the other, and CommitTree could even add a
+        /// duplicate same-id row by reference.
         /// </summary>
         [Fact]
         public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkInstanceDivergesFromCommittedList_ConvergesToCommittedInstance()
@@ -621,9 +626,9 @@ namespace Parsek.Tests
                 const string forkId = "rec-734-fork-divergence";
 
                 // Two distinct Recording instances under the same fork id
-                // -- mirrors the F5/F9 race: tree was deserialised fresh,
-                // committed list still holds the pre-load object the
-                // recorder has been appending to.
+                // -- a defensive convergence contract; the production
+                // RemoveCommittedTreeById path makes this state
+                // unreachable from the F5/F9 mid-Re-Fly flow today.
                 var committedFork = new Recording
                 {
                     RecordingId = forkId,
@@ -824,10 +829,83 @@ namespace Parsek.Tests
 
                 Assert.False(attached);
                 Assert.False(tree.Recordings.ContainsKey(forkId));
+                // Fixture has the fork missing from BOTH the committed list
+                // AND tree.Recordings, which is the genuine data-loss state -
+                // expect the warn branch.
                 Assert.Contains(logLines, l =>
-                    l.Contains("[Flight]")
+                    l.Contains("[WARN]")
+                    && l.Contains("[Flight]")
                     && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded")
-                    && l.Contains("not in committed list"));
+                    && l.Contains("missing from BOTH"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        /// <summary>
+        /// Regression for Opus reviewer P2: the warn log used to fire on
+        /// every F5/F9 mid-Re-Fly because LoadRecordingTrees skips active
+        /// nodes from CommittedRecordings while TryRestoreActiveTreeNode
+        /// hydrates them only into PendingTree.Recordings. The new branch
+        /// recognises "absent from committed list but present in tree" as
+        /// a normal hydration state and downgrades to Verbose.
+        /// </summary>
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkInTreeButNotCommittedList_LogsVerboseNotWarn()
+        {
+            try
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+
+                const string treeId = "tree-tree-only-fork";
+                const string originId = "rec-origin-tree-only";
+                const string forkId = "rec-fork-tree-only";
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 401u,
+                };
+                // Fork lives only in tree.Recordings, mirroring TryRestoreActiveTreeNode's
+                // F5/F9 mid-Re-Fly hydration (no AddCommittedInternal).
+                var fork = new Recording
+                {
+                    RecordingId = forkId, TreeId = treeId, VesselPersistentId = 401u,
+                    MergeState = MergeState.NotCommitted,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(origin);
+                tree.AddOrReplaceRecording(fork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-tree-only",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.True(tree.Recordings.ContainsKey(forkId));
+                // Verbose branch fired - no Warn for the normal hydration state.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[VERBOSE]")
+                    && l.Contains("[Flight]")
+                    && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded")
+                    && l.Contains("absent from committed list but present in tree.Recordings"));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]")
+                    && l.Contains("[Flight]")
+                    && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded"));
             }
             finally
             {

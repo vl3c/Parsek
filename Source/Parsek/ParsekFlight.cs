@@ -25124,10 +25124,30 @@ namespace Parsek
             }
             if (committedFork == null)
             {
-                ParsekLog.Warn("Flight",
-                    $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
-                    $"not in committed list — recorder flush will warn and stop. " +
-                    $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                // Normal F5/F9 mid-Re-Fly: LoadRecordingTrees skips
+                // isActive nodes and TryRestoreActiveTreeNode populates
+                // PendingTree.Recordings only (no AddCommittedInternal),
+                // so the fork is intentionally absent from the committed
+                // list while present in the tree's Recordings dict. The
+                // recorder will flush correctly via the tree path; only
+                // the genuine "missing from BOTH" state is data-loss.
+                bool inTree = tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
+                if (inTree)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"absent from committed list but present in tree.Recordings " +
+                        $"(normal F5/F9 mid-Re-Fly hydration; recorder flush will work). " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"missing from BOTH committed list AND tree.Recordings — " +
+                        $"recorder flush will warn and stop. " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
                 return false;
             }
 
@@ -25149,13 +25169,18 @@ namespace Parsek
                 return false;
             }
 
-            // Skip the helper's own RebuildBackgroundMap because
-            // RestoreActiveTreeFromPending's swap branch (which fires
-            // immediately after this reconcile) calls RebuildBackgroundMap
-            // itself; doing it here would double-rebuild.
+            // Always rebuild the background map after attach. The earlier
+            // optimisation (skipBackgroundMapRebuild: true) assumed
+            // RestoreActiveTreeFromPending's markerSwap branch would
+            // rebuild immediately afterwards, but that branch only fires
+            // when `ShouldSwap=true`. On the cold-start mid-Re-Fly path
+            // the saved tree's ActiveRecordingId is already the fork id
+            // (`already-pointing-at-marker`), so the swap is a no-op,
+            // the rebuild never runs, and the freshly-attached fork's
+            // pid lingers as a stale background entry. The double-rebuild
+            // when ShouldSwap IS true is cheap.
             return RewindInvoker.EnsureForkAttachedToTree(
-                tree, committedFork, "RestoreActiveTreeFromPending:reconcile",
-                skipBackgroundMapRebuild: true);
+                tree, committedFork, "RestoreActiveTreeFromPending:reconcile");
         }
 
         internal static bool ShouldUsePreReFlyAnchorTrajectory(

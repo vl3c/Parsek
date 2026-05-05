@@ -842,9 +842,12 @@ namespace Parsek
                 priorTip,
                 selected.OriginChildRecordingId,
                 StringComparison.Ordinal);
+            // originChild was looked up via FindRecordingById which scans
+            // CommittedRecordings, so a non-null originChild is by construction
+            // a committed recording. The previous redundant
+            // `IsCommittedRecording(originChild)` clause has been dropped.
             bool inPlaceContinuation =
                 originChild != null
-                && IsCommittedRecording(originChild)
                 && originChild.VesselPersistentId == stripResult.SelectedPid
                 && originIsPriorTip;
 
@@ -861,6 +864,12 @@ namespace Parsek
             ReFlySessionMarker marker;
             try
             {
+                // BuildProvisionalRecording previously also wrote
+                // `SupersedeTargetId = selected.OriginChildRecordingId` as
+                // a placeholder; that initial assignment was removed
+                // because the marker path needs `priorTip` (which differs
+                // from origin when the slot already supersedes origin),
+                // and writing both would shadow the meaningful value.
                 provisional = BuildProvisionalRecording(rp, selected, originChild, sessionId, stripResult);
                 // The merge path consumes marker.SupersedeTargetId. This
                 // recording-level copy is a transient diagnostic on the
@@ -1003,27 +1012,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True iff <paramref name="rec"/> currently appears in
-        /// <see cref="RecordingStore.CommittedRecordings"/> by reference.
-        /// Used by <see cref="AtomicMarkerWrite"/> to detect the in-place
-        /// continuation case (origin survived Limbo restore and is still
-        /// committed) so the fork can capture origin's trajectory snapshot
-        /// and the marker can carry the InPlaceContinuation flag.
-        /// </summary>
-        private static bool IsCommittedRecording(Recording rec)
-        {
-            if (rec == null) return false;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                if (ReferenceEquals(committed[i], rec))
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
         /// Locates the in-memory tree that owns <paramref name="treeId"/> so
         /// the in-place fork (issue #734) can attach itself to the tree the
         /// recorder will eventually flush into. AtomicMarkerWrite usually
@@ -1031,10 +1019,18 @@ namespace Parsek
         /// as pending-Limbo, so <see cref="RecordingStore.PendingTree"/> is
         /// the common target. The lookup additionally falls back to
         /// <see cref="RecordingStore.CommittedTrees"/> for sessions whose
-        /// committed copy was never detached, and the deferred restore
-        /// coroutine runs <see cref="EnsureForkAttachedToTree"/> as a
-        /// safety net for the async-load race where AtomicMarkerWrite
-        /// fires after the tree was already popped into the live activeTree.
+        /// committed copy was never detached, and finally to
+        /// <c>ParsekFlight.Instance.ActiveTreeForSerialization</c> for the
+        /// async-load race where <c>RestoreActiveTreeFromPending</c> fired
+        /// FIRST (popping the pending tree and starting the recorder)
+        /// before AtomicMarkerWrite ran - in that window the tree no
+        /// longer lives in PendingTree, and TryRestoreActiveTreeNode's
+        /// <c>RemoveCommittedTreeById</c> already pulled the prior copy
+        /// out of CommittedTrees. Without this fallback the fork would land
+        /// only in <see cref="RecordingStore.CommittedRecordings"/> with no
+        /// tree home, the recorder's flush would warn-and-stop, and the
+        /// reconciliation pass at the top of RestoreActiveTreeFromPending
+        /// has already completed and would not re-fire.
         /// </summary>
         internal static RecordingTree FindTreeForReFlyFork(string treeId)
         {
@@ -1058,6 +1054,16 @@ namespace Parsek
                     if (string.Equals(committed.Id, treeId, StringComparison.Ordinal))
                         return committed;
                 }
+            }
+
+            // Live activeTree fallback for the AtomicMarkerWrite-late race.
+            // ParsekFlight.Instance is null outside flight scenes (and in
+            // tests that do not set it up), so guard defensively.
+            var live = ParsekFlight.Instance?.ActiveTreeForSerialization;
+            if (live != null
+                && string.Equals(live.Id, treeId, StringComparison.Ordinal))
+            {
+                return live;
             }
 
             return null;
@@ -1133,12 +1139,16 @@ namespace Parsek
             RewindPoint rp, ChildSlot selected, Recording originChild,
             string sessionId, PostLoadStripResult stripResult)
         {
+            // SupersedeTargetId is intentionally NOT initialised here;
+            // AtomicMarkerWrite assigns it to `priorTip` (the slot's
+            // current effective tip) immediately after this call. Writing
+            // it here as `selected.OriginChildRecordingId` was dead code
+            // because the next statement at the call site overwrites it.
             var rec = new Recording
             {
                 RecordingId = "rec_" + Guid.NewGuid().ToString("N"),
                 MergeState = MergeState.NotCommitted,
                 CreatingSessionId = sessionId,
-                SupersedeTargetId = selected.OriginChildRecordingId,
                 ProvisionalForRpId = rp.RewindPointId,
                 ParentBranchPointId = originChild?.ParentBranchPointId ?? rp.BranchPointId,
                 TreeId = originChild?.TreeId,

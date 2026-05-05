@@ -1150,20 +1150,43 @@ namespace Parsek
                         prunedHere++;
                 }
 
-                // Branch-point ParentRecordingIds / ChildRecordingIds may
-                // reference now-removed attempt recordings; scrub them so
-                // serialised topology never points at deleted ids. Mirrors
-                // RemoveAttemptRecordingsFromTree for the detached-pending
-                // path.
-                int scrubbedRefs = ScrubAttemptIdsFromBranchPointTopology(
-                    committedTree, attemptIds);
+                // Repair stale ActiveRecordingId. RestoreActiveTreeFromPending's
+                // markerSwap branch sets `tree.ActiveRecordingId = marker.ActiveReFlyRecordingId`
+                // (the fork id) when the marker takes over an active tree.
+                // The fork was just removed from `committedTree.Recordings`,
+                // so leaving ActiveRecordingId pointing at the deleted id
+                // would round-trip through OnSave and any consumer reading
+                // `tree.ActiveRecordingId ?? tree.RootRecordingId` raw
+                // (e.g. ParsekFlight's recorder-rebind seed) would target a
+                // missing recording on the next session. Mirrors the equivalent
+                // repair `RestoreSanitizedPendingTreeIfDetached` already does
+                // for the detached-pending path.
+                if (prunedHere > 0
+                    && !string.IsNullOrEmpty(committedTree.ActiveRecordingId)
+                    && !committedTree.Recordings.ContainsKey(committedTree.ActiveRecordingId))
+                {
+                    string oldActive = committedTree.ActiveRecordingId;
+                    committedTree.ActiveRecordingId =
+                        marker != null
+                        && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                        && committedTree.Recordings.ContainsKey(marker.OriginChildRecordingId)
+                            ? marker.OriginChildRecordingId
+                            : null;
+                    ParsekLog.Info("MergeDialog",
+                        $"PruneAttemptRecordingsFromCommittedTrees: reset stale " +
+                        $"tree.ActiveRecordingId from '{oldActive}' to " +
+                        $"'{committedTree.ActiveRecordingId ?? "<null>"}' on tree={committedTree.Id ?? "<none>"} " +
+                        $"(prior id was an attempt recording removed by this prune)");
+                }
 
                 // Session-authored branch points (e.g. an in-flight stage
                 // separation booked during the abandoned attempt) must be
-                // dropped too. PreSessionBranchPointIds is captured against
-                // marker.TreeId only, so applying it to a different
-                // committed tree would erroneously delete that tree's
-                // unrelated branch points - gate on tree id match.
+                // dropped too. Done BEFORE the topology scrub so the scrub
+                // only walks BPs that will survive Discard - any work on a
+                // about-to-be-removed BP is wasted. PreSessionBranchPointIds
+                // is captured against marker.TreeId only, so applying it to
+                // a different committed tree would erroneously delete that
+                // tree's unrelated branch points - gate on tree id match.
                 int removedSessionBps = 0;
                 if (marker != null
                     && !string.IsNullOrEmpty(marker.TreeId)
@@ -1173,6 +1196,14 @@ namespace Parsek
                     removedSessionBps = PruneSessionCreatedBranchPoints(
                         committedTree, marker);
                 }
+
+                // Branch-point ParentRecordingIds / ChildRecordingIds on
+                // surviving BPs may reference now-removed attempt recordings;
+                // scrub them so serialised topology never points at deleted
+                // ids. Mirrors RemoveAttemptRecordingsFromTree for the
+                // detached-pending path.
+                int scrubbedRefs = ScrubAttemptIdsFromBranchPointTopology(
+                    committedTree, attemptIds);
 
                 if (prunedHere > 0 || scrubbedRefs > 0 || removedSessionBps > 0)
                 {
