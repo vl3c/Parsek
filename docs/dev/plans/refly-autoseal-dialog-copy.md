@@ -52,11 +52,18 @@ following fire (close-reason builder at `:567-633`):
 | `StructuralMutation` with `BranchPointType == JointBreak` | A part broke off | "broke off a part" |
 | `StructuralMutation` with `BranchPointType == Breakup` | Vessel broke up | "the vessel broke up" |
 | `ClassifierClosed:stableTerminal` AND `IsHardSafetyTerminal` (Docked) | Docked with another vessel | "docked with another vessel" |
-| `ClassifierClosed:stableTerminal` AND `IsHardSafetyTerminal` (Boarded) | Kerbal boarded another vessel | (not reachable in-flight - skipped, see Risks) |
-| `ClassifierClosed:stableTerminal` AND `IsHardSafetyTerminal` (Recovered) | Vessel was recovered | (not reachable in-flight - skipped, see Risks) |
-| `ClassifierClosed:stableTerminalFocusSlot` (player-chosen slot reached stable Orbiting/SubOrbital) | Reached stable orbit | "reached a stable orbit" |
+| `ClassifierClosed:stableTerminal` AND `IsHardSafetyTerminal` (Boarded / Recovered) | Kerbal boarded / vessel recovered | (not reachable in-flight - skipped, see Risks) |
+| `ClassifierClosed:stableTerminalFocusSlot` covers ALL of Landed / Splashed / Orbiting / SubOrbital at the merge-time focus slot (`UnfinishedFlightClassifier.cs:240-256, IsReFlyOverrideStableTerminal:351-363`) | Concluded the attempt at any stable terminal | "landed", "splashed down", "reached a stable orbit", "reached a sub-orbital arc" |
 | `ClassifierClosed:downstreamBp` | Created a downstream branch point | (subset case; covered by structural mutations in practice - skipped) |
 | `classifierQualifies` path with any close reason | Generic concluded outcome | (covered by the above specific cases) |
+
+Note: `stashedStableLeaf` (`UnfinishedFlightClassifier.cs:259-273`) and
+`stableLeafUnconcluded` (`:329`) both **keep the slot open** rather
+than seal it (`SupersedeCommit.cs:623-631`,
+`IsSafeStableRetryClassifierReason:975-981`). The preview does NOT
+need to detect these - the slot stays re-flyable and the default
+"permanently to the timeline" copy applies (which is still correct;
+the merge IS permanent, the slot just remains re-flyable for retry).
 
 ## Constraint: preview is computed pre-finalize
 
@@ -105,8 +112,11 @@ namespace Parsek
         KerbalEva,             // BranchPointType.EVA
         PartBrokeOff,          // BranchPointType.JointBreak
         VesselBrokeUp,         // BranchPointType.Breakup
-        DockedWithAnother,     // live vessel.situation == DOCKED
-        StableOrbit,           // live vessel.situation == ORBITING
+        DockedWithAnother,     // live vessel.situation == DOCKED -> IsHardSafetyTerminal
+        Landed,                // live vessel.situation == LANDED  -> stableTerminalFocusSlot
+        SplashedDown,          // live vessel.situation == SPLASHED -> stableTerminalFocusSlot
+        StableOrbit,           // live vessel.situation == ORBITING && PeR > atmosphere
+        SubOrbitalArc,         // live vessel.situation == SUB_ORBITAL OR ORBITING && PeR <= atmosphere
     }
 
     internal struct ReFlyAutoSealPreviewResult
@@ -191,24 +201,45 @@ Sequence:
    typically remembers ("I undocked" rather than "I undocked and then
    the booster broke up as a consequence").
 
-4. **Live vessel terminal proxy**: if `liveActiveVessel != null`:
-   - `vessel.situation == Vessel.Situations.DOCKED` ->
-     `DockedWithAnother`.
-   - `vessel.situation == Vessel.Situations.ORBITING` -> `StableOrbit`.
-     (KSP marks situation ORBITING only when periapsis is above the
-     body's surface, and above atmosphere if present, so this is a
-     reliable proxy for the production "stable orbit" classification.)
-   - Boarded / Recovered are unreachable in-flight (the vessel left the
-     scene before either could occur) so they are intentionally not
-     surfaced; their auto-seal still happens later via the production
-     classifier, but the dialog wouldn't have been shown for those
-     terminal states anyway because they exit flight first.
+4. **Live vessel terminal proxy**: if `liveActiveVessel != null`,
+   read `liveActiveVessel.situation` and surface a reason for any
+   stable terminal that production seals via `stableTerminalFocusSlot`
+   (`UnfinishedFlightClassifier.IsReFlyOverrideStableTerminal:351-363`
+   covers Landed, Splashed, Orbiting, SubOrbital) or `IsHardSafetyTerminal`
+   (`SupersedeCommit.cs:963-973` covers Docked):
+   - `Vessel.Situations.DOCKED` -> `DockedWithAnother`.
+   - `Vessel.Situations.LANDED` -> `Landed`.
+   - `Vessel.Situations.SPLASHED` -> `SplashedDown`.
+   - `Vessel.Situations.ORBITING`: use
+     `RecordingTree.IsBoundOrbitAboveAtmosphere(orbit.eccentricity,
+     orbit.PeR, body.Radius, body.atmosphere, body.atmosphereDepth)`
+     (already `internal static` at `RecordingTree.cs:827-852`,
+     reachable from preview). True -> `StableOrbit`. False ->
+     `SubOrbitalArc` (decaying orbit; production downgrades to
+     SubOrbital terminal at finalize but still seals via
+     `stableTerminalFocusSlot`).
+   - `Vessel.Situations.SUB_ORBITAL` -> `SubOrbitalArc`.
+   - Anything else (PRELAUNCH, FLYING, ESCAPING) -> no live-terminal
+     reason (other paths still apply).
+   - `Boarded` / `Recovered` are unreachable in-flight (the vessel
+     leaves the scene before either occurs) so they are intentionally
+     not surfaced. Their seal still fires via the production classifier
+     post-finalize, but the dialog never spawns for those terminal
+     states from this entry point.
+
+   The vessel `situation` enum is a one-shot snapshot at dialog spawn.
+   While the dialog is up with `LockInput()` applied, KSP physics still
+   runs in the background; the active vessel's situation could in
+   theory flip (e.g. an unstable orbit decays into atmosphere over a
+   minute while the dialog sits open). Acceptable - the player must
+   click eventually, and re-classification happens at finalize. Add a
+   "// situation sampled at dialog spawn only" comment at the call site.
 
 5. **`WillAutoSeal = Reasons.Count > 0`**.
 
 ### `FormatHumanReadable` spec
 
-| Reason | Phrase |
+| Reason | Phrase (subject-free; phrases are listed after a colon, no leading "you") |
 | --- | --- |
 | `EarnedScience` | "earned science" |
 | `TransmittedScience` | "transmitted science" |
@@ -218,22 +249,41 @@ Sequence:
 | `PartBrokeOff` | "broke off a part" |
 | `VesselBrokeUp` | "the vessel broke up" |
 | `DockedWithAnother` | "docked with another vessel" |
+| `Landed` | "landed" |
+| `SplashedDown` | "splashed down" |
 | `StableOrbit` | "reached a stable orbit" |
+| `SubOrbitalArc` | "reached a sub-orbital arc" |
 
-Composition:
+Composition (Opus pass-1 finding F6: drop "because" + "you" prefix to
+avoid pronoun-mix grammar problems with subject-led phrases like
+"the vessel broke up"):
+
 - 0 reasons: return `null`. Caller shows default copy.
-- 1 reason: `"you {phrase}"`.
-- 2 reasons: `"you {phrase1} and {phrase2}"`.
-- 3+ reasons: `"you {phrase1}, {phrase2}, and {phraseN}"` (Oxford comma).
+- 1 reason: return the bare phrase, e.g. `"transmitted science"`.
+- 2 reasons: `"{phrase1} and {phrase2}"`.
+- 3+ reasons: `"{phrase1}, {phrase2}, and {phraseN}"` (Oxford comma).
+
+The dialog body wraps the phrase in a "for the following reason(s):"
+prefix so the rendered sentence reads naturally regardless of the
+number of reasons. See "Dialog integration" below.
 
 Reason ordering for output stability (player-relevance, descending):
 1. `TransmittedScience` / `RecoveredScience` / `EarnedScience` (group)
 2. Structural mutations (`Undocked`, `KerbalEva`, `PartBrokeOff`, `VesselBrokeUp`)
-3. Live terminal (`DockedWithAnother`, `StableOrbit`)
+3. Live terminal (`DockedWithAnother`, `Landed`, `SplashedDown`, `StableOrbit`, `SubOrbitalArc`)
 
 Within each group, preserve insertion order. The Reasons list is
 ordered at insertion to match this scheme - sort once at the end of
 `Preview` for predictable test output.
+
+This ordering does **not** match production's first-hit close-reason
+log (production walks gates in order and stops on first hit at
+`SupersedeCommit.cs:574-633`). The preview is intentionally a
+**superset** of the production log line: production logs only the
+single reason that gated open vs closed; the dialog shows all the
+player-attributable reasons in a stable order so the player gets the
+full picture. Tests assert this stable readability ordering, not
+parity with production's first-hit selection.
 
 ### Refactor: minimal SupersedeCommit visibility changes
 
@@ -271,30 +321,65 @@ Two helpers in `SupersedeCommit.cs` need `internal` visibility (currently
 
 ### Dialog integration
 
-In `MergeDialog.ShowTreeDialog` (4-arg overload), inside the
-`labels == ReFlyAttempt` branch (currently line 282-309), replace the
-fixed body string with:
+Extract a pure helper `BuildReFlyDialogBody` so the body composition
+is unit-testable without spinning up a Unity dialog (Opus pass-1
+finding F8). Place it on `MergeDialog` (or co-locate with the
+preview helper - `MergeDialog` is more discoverable since it is
+where the dialog body lives today).
 
 ```csharp
+internal static string BuildReFlyDialogBody(
+    string vesselLabel,
+    double reFlyDuration,
+    ReFlyAutoSealPreviewResult preview)
+{
+    string headline = $"<align=\"center\">{vesselLabel} - " +
+                      $"{FormatDuration(reFlyDuration)}</align>\n\n";
+    if (!preview.WillAutoSeal)
+    {
+        return headline +
+            "<align=\"left\">Commit this Re-Fly attempt permanently to " +
+            "the timeline. This cannot be undone.</align>";
+    }
+
+    string reasons = preview.FormatHumanReadable();
+    return headline +
+        "<align=\"left\"><b>This Re-Fly attempt will be merged AND " +
+        $"auto-sealed</b> for the following reason(s): {reasons}. " +
+        "The slot will become permanent and you will not be able to " +
+        "Re-Fly this line of flight again. This cannot be undone.</align>";
+}
+```
+
+Rendered examples (auto-seal branch):
+
+| `Reasons` | Final body (after headline) |
+| --- | --- |
+| `[TransmittedScience]` | "...for the following reason(s): transmitted science. The slot..." |
+| `[Undocked, DockedWithAnother]` | "...for the following reason(s): undocked and docked with another vessel. The slot..." |
+| `[TransmittedScience, Undocked, StableOrbit]` | "...for the following reason(s): transmitted science, undocked, and reached a stable orbit. The slot..." |
+| `[VesselBrokeUp, DockedWithAnother]` | "...for the following reason(s): the vessel broke up and docked with another vessel. The slot..." (mixed-subject phrase still reads correctly under the colon-list form because there is no implicit "you" subject) |
+
+Then in `MergeDialog.ShowTreeDialog` (4-arg overload), replace the
+fixed body string at line 298-300 with:
+
+```csharp
+// situation sampled at dialog spawn only - while the dialog sits
+// open, KSP physics still runs in background and the active vessel
+// situation could in theory flip, but the player has to click
+// eventually and the production classifier re-classifies at finalize.
 var preview = ReFlyAutoSealPreviewer.Preview(
     reFlyRec, marker, reFlyScenario, FlightGlobals.ActiveVessel);
-string body;
-if (preview.WillAutoSeal)
-{
-    string why = preview.FormatHumanReadable();
-    body = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-           $"<align=\"left\"><b>This Re-Fly attempt will be merged AND auto-sealed</b> " +
-           $"because {why}. The slot will become permanent and you will not be " +
-           $"able to Re-Fly this line of flight again. This cannot be undone.</align>";
-}
-else
-{
-    body = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-           "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
-           "This cannot be undone.</align>";
-}
-message = body;
+message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
+
+ParsekLog.Info("MergeDialog",
+    $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
+    $"reasons=[{string.Join(",", preview.Reasons)}] " +
+    $"sess={marker?.SessionId ?? "<no-id>"}");
 ```
+
+This Info log at dialog-show time lets us correlate with the actual
+post-merge classifier outcome in case of preview drift.
 
 Notes:
 
@@ -305,25 +390,13 @@ Notes:
   `<align="left">` matches the existing layout style.
 - `marker` is already resolved in scope.
 
-Logging:
-
-```csharp
-ParsekLog.Info("MergeDialog",
-    $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
-    $"reasons=[{string.Join(",", preview.Reasons)}] " +
-    $"sess={marker?.SessionId ?? "<no-id>"}");
-```
-
-This logs at dialog-show time so we can correlate with the actual
-post-merge classifier outcome in case of preview drift.
-
 ## Files to change
 
 | Status | Path | Change |
 | --- | --- | --- |
 | New | `Source/Parsek/ReFlyAutoSealPreview.cs` | Preview helper + `ReFlyAutoSealReason` enum + `ReFlyAutoSealPreviewResult` struct + `FormatHumanReadable` |
 | Modified | `Source/Parsek/SupersedeCommit.cs` | `CollectRecordingIdsForSafetyGate` -> `internal`; extract shared `ScanReFlySessionStructuralMutations` private helper; new `TryGetFirstReFlySessionStructuralMutationType` internal API |
-| Modified | `Source/Parsek/MergeDialog.cs` | Wire preview into the ReFlyAttempt body copy in the 4-arg `ShowTreeDialog` overload; add canary log line |
+| Modified | `Source/Parsek/MergeDialog.cs` | Add `BuildReFlyDialogBody(vesselLabel, duration, preview)` static helper; wire preview into the ReFlyAttempt body copy in the 4-arg `ShowTreeDialog` overload; add canary log line |
 | New | `Source/Parsek.Tests/ReFlyAutoSealPreviewTests.cs` | Unit tests per reason path + multi-reason composition + null guards + format spec |
 | Modified | `CHANGELOG.md` | Entry under 0.9.2 Enhancements |
 
@@ -336,55 +409,82 @@ Pure unit tests, xUnit. `[Collection("Sequential")]` for shared
 calls `ParsekLog.ResetTestOverrides`, `Ledger.ResetForTesting`,
 `RecordingStore.ResetForTesting`, `ParsekScenario.ResetInstanceForTesting`.
 
+Pronoun convention: phrases are subject-free (Opus pass-1 F6); the
+dialog body wraps them in "for the following reason(s):" so the
+`FormatHumanReadable` column shows the bare phrase.
+
 | Setup | Expected reasons | `FormatHumanReadable` |
 | --- | --- | --- |
 | `marker == null` | `WillAutoSeal=false`, empty | `null` |
 | `liveProvisional == null` | `WillAutoSeal=false`, empty | `null` |
 | `marker.TreeId == null` | `WillAutoSeal=false`, empty | `null` |
 | `liveProvisional.TreeId != marker.TreeId` | `WillAutoSeal=false`, empty | `null` |
+| `liveProvisional.RecordingId != marker.ActiveReFlyRecordingId` (in-place continuation) | preview still runs - TreeId match is the gate, not RecordingId match (matches production: in-place continuation has same TreeId, different RecordingId, same lineage) | depends on other paths |
 | Idle Re-Fly, no events, vessel landed | empty | `null` |
-| Ledger has `ScienceEarning` (Method=Transmitted) tagged on provisional | `[TransmittedScience]` | `"you transmitted science"` |
-| Ledger has `ScienceEarning` (Method=Recovered) tagged on provisional | `[RecoveredScience]` | `"you recovered science"` |
+| Ledger has `ScienceEarning` (Method=Transmitted) tagged on provisional | `[TransmittedScience]` | `"transmitted science"` |
+| Ledger has `ScienceEarning` (Method=Recovered) tagged on provisional | `[RecoveredScience]` | `"recovered science"` |
+| Ledger has 2 `ScienceEarning` rows, both Transmitted, both tagged on provisional | `[TransmittedScience]` (deduped) | `"transmitted science"` |
+| Ledger has 1 Transmitted + 1 Recovered tagged on provisional | `[TransmittedScience, RecoveredScience]` | `"transmitted science and recovered science"` |
 | Ledger has `ScienceEarning` tagged on a chain-segment of the provisional | `[TransmittedScience]` (or whichever Method) | proportional |
 | Ledger has `ScienceEarning` tagged on a different recording (not in lineage) | empty | `null` |
 | Ledger has tombstone-eligible `ScienceEarning` (paired with kerbal death penalty) | empty | `null` |
+| Ledger has tombstone-eligible `ScienceEarning` (`TombstoneEligibility.IsEligible == true` non-paired) | empty | `null` |
 | Ledger has non-`ScienceEarning` action tagged on provisional (e.g. `FundsEarning`) | empty | `null` |
-| Tree has post-RP `Undock` BP in lineage | `[Undocked]` | `"you undocked"` |
-| Tree has post-RP `EVA` BP in lineage | `[KerbalEva]` | `"you sent a kerbal on EVA"` |
-| Tree has post-RP `JointBreak` BP in lineage | `[PartBrokeOff]` | `"you broke off a part"` |
-| Tree has post-RP `Breakup` BP in lineage | `[VesselBrokeUp]` | `"the vessel broke up"` (note: the canned phrase already includes "the vessel" so Format prefixes "you" only when grammatically appropriate; spec at end) |
+| Tree has post-RP `Undock` BP in lineage | `[Undocked]` | `"undocked"` |
+| Tree has post-RP `EVA` BP in lineage | `[KerbalEva]` | `"sent a kerbal on EVA"` |
+| Tree has post-RP `JointBreak` BP in lineage | `[PartBrokeOff]` | `"broke off a part"` |
+| Tree has post-RP `Breakup` BP in lineage | `[VesselBrokeUp]` | `"the vessel broke up"` |
 | Pre-RP BP only (UT < cutoff) | empty | `null` |
 | BP not in Re-Fly target lineage (background vessel) | empty | `null` |
 | BP in `marker.PreSessionBranchPointIds` (re-spliced from load) | empty | `null` |
 | `marker.PreSessionBranchPointIds == null` (legacy marker) | structural skipped, other paths still work | `null` if no other reason |
 | Multiple structural BPs of different types | first only (e.g. `[Undocked]` even if Breakup followed) | first phrase only |
-| Live vessel `situation == DOCKED` | `[DockedWithAnother]` | `"you docked with another vessel"` |
-| Live vessel `situation == ORBITING` | `[StableOrbit]` | `"you reached a stable orbit"` |
-| Live vessel `situation == LANDED` | empty | `null` |
+| Live vessel `situation == DOCKED` | `[DockedWithAnother]` | `"docked with another vessel"` |
+| Live vessel `situation == LANDED` | `[Landed]` | `"landed"` |
+| Live vessel `situation == SPLASHED` | `[SplashedDown]` | `"splashed down"` |
+| Live vessel `situation == ORBITING` && PeR > atmosphereDepth | `[StableOrbit]` | `"reached a stable orbit"` |
+| Live vessel `situation == ORBITING` && PeR <= atmosphereDepth (decaying) | `[SubOrbitalArc]` | `"reached a sub-orbital arc"` |
+| Live vessel `situation == SUB_ORBITAL` | `[SubOrbitalArc]` | `"reached a sub-orbital arc"` |
+| Live vessel `situation == FLYING` (no terminal yet) | empty | `null` (other paths may still apply) |
+| Live vessel `situation == PRELAUNCH` | empty | `null` |
 | `liveActiveVessel == null` | live-vessel reasons skipped, other paths still work | depends |
-| Multi-reason: science + undock | `[TransmittedScience, Undocked]` | `"you transmitted science and undocked"` |
-| Multi-reason: science + undock + dock | 3 reasons, ordered (science, struct, terminal) | `"you transmitted science, undocked, and docked with another vessel"` |
-| Multi-reason: undock + breakup | first structural only `[Undocked]` | `"you undocked"` |
+| Multi-reason: science + undock | `[TransmittedScience, Undocked]` | `"transmitted science and undocked"` |
+| Multi-reason: science + undock + dock | 3 reasons, ordered (science, struct, terminal) | `"transmitted science, undocked, and docked with another vessel"` |
+| Multi-reason: undock + breakup | first structural only `[Undocked]` | `"undocked"` |
+| Multi-reason: science + landed | `[TransmittedScience, Landed]` | `"transmitted science and landed"` |
 
 ### `FormatHumanReadable` standalone
+
+Subject-free phrasing wrapped by the dialog body in "for the following
+reason(s): ...". This sidesteps the pronoun-mix grammar problem with
+phrases like "the vessel broke up" (Opus pass-1 F6).
 
 | Reasons | Output |
 | --- | --- |
 | `[]` | `null` |
-| `[EarnedScience]` | `"you earned science"` |
-| `[TransmittedScience]` | `"you transmitted science"` |
-| `[Undocked]` | `"you undocked"` |
-| `[VesselBrokeUp]` | `"the vessel broke up"` (special case - phrase starts with "the vessel", no "you" prefix) |
-| `[Undocked, KerbalEva]` | `"you undocked and sent a kerbal on EVA"` |
-| `[VesselBrokeUp, DockedWithAnother]` | `"the vessel broke up and you docked with another vessel"` (mixed pronoun handled by sub-clause) |
-| `[TransmittedScience, Undocked, DockedWithAnother]` | `"you transmitted science, undocked, and docked with another vessel"` |
-| `[VesselBrokeUp, TransmittedScience, DockedWithAnother]` | `"the vessel broke up, you transmitted science, and you docked with another vessel"` |
+| `[EarnedScience]` | `"earned science"` |
+| `[TransmittedScience]` | `"transmitted science"` |
+| `[Undocked]` | `"undocked"` |
+| `[VesselBrokeUp]` | `"the vessel broke up"` |
+| `[Landed]` | `"landed"` |
+| `[Undocked, KerbalEva]` | `"undocked and sent a kerbal on EVA"` |
+| `[VesselBrokeUp, DockedWithAnother]` | `"the vessel broke up and docked with another vessel"` |
+| `[TransmittedScience, Undocked, DockedWithAnother]` | `"transmitted science, undocked, and docked with another vessel"` |
+| `[VesselBrokeUp, TransmittedScience, DockedWithAnother]` | `"the vessel broke up, transmitted science, and docked with another vessel"` |
 
-The pronoun-mix is awkward but accurate. Simpler alternative: drop the
-"you" prefix entirely and rely on phrasing -> `"transmitted science and
-undocked"`, `"the vessel broke up"`. Less natural but unambiguous.
-**Decision deferred to user**: pick one of the two styles in §Open
-questions before implementation.
+Composition rules:
+- 0 reasons: `null`.
+- 1 reason: bare phrase.
+- 2 reasons: `"{a} and {b}"`.
+- 3+ reasons: `"{a}, {b}, ..., and {n}"` (Oxford comma).
+
+### `BuildReFlyDialogBody` standalone
+
+| Setup | Body fragment after the headline |
+| --- | --- |
+| `WillAutoSeal=false` | `"Commit this Re-Fly attempt permanently to the timeline. This cannot be undone."` |
+| `WillAutoSeal=true, Reasons=[TransmittedScience]` | `"<b>This Re-Fly attempt will be merged AND auto-sealed</b> for the following reason(s): transmitted science. The slot will become permanent and you will not be able to Re-Fly this line of flight again. This cannot be undone."` |
+| `WillAutoSeal=true, Reasons=[VesselBrokeUp, DockedWithAnother]` | `"...the following reason(s): the vessel broke up and docked with another vessel. The slot..."` |
 
 ### Reason ordering test
 
@@ -404,6 +504,15 @@ would prioritise (it picks the first close-reason hit).
   (matches production behaviour at `SupersedeCommit.cs:706-712`).
 - Marker with empty `RewindPointId` -> structural cutoff falls back to
   `marker.InvokedUT`; preview still works.
+
+### State-version invariance (Opus pass-1 F17)
+
+Add a single test that pins the read-only contract: capture
+`Ledger.StateVersion`, `RecordingStore.SupersedeStateVersion`, and any
+other mutation-tracking counters before and after `Preview()` for a
+non-trivial scenario (provisional, marker, ledger entries, tree, live
+vessel). Assert all counters unchanged. Catches accidental future
+routes through cached / mutating helpers.
 
 ## Risks
 
@@ -426,18 +535,18 @@ would prioritise (it picks the first close-reason hit).
   generic `classifierQualifies` requires a specific terminal state which
   is null pre-finalize).
 
-- **`vessel.situation == ORBITING` proxy correctness**: KSP sets
-  `Vessel.Situations.ORBITING` only when both apsides are above the
-  body's atmosphere (or surface for airless bodies). The
-  `RecordingTree.DetermineTerminalState` override path may still flip
-  between SUB_ORBITAL and ORBITING based on atmospheric drag
-  predictions, but for a vessel currently in stable orbit (no thrust,
-  no atmosphere intersection within current orbit), the live `situation`
-  enum and the post-finalize `TerminalStateValue` agree. Edge case: a
-  vessel coasting through a high-eccentricity orbit that grazes
-  atmosphere may flicker between SUB_ORBITAL and ORBITING; the dialog
-  is a one-shot snapshot at click time, so transient flicker is
-  acceptable.
+- **Stable terminal proxy correctness**: the preview maps live
+  `Vessel.Situations.LANDED/SPLASHED/ORBITING/SUB_ORBITAL/DOCKED` to
+  reasons that match the production seal verdict via
+  `stableTerminalFocusSlot` (Landed/Splashed/Orbiting/SubOrbital) and
+  `IsHardSafetyTerminal` (Docked). A vessel coasting through a
+  high-eccentricity orbit that grazes atmosphere may flicker between
+  SUB_ORBITAL and ORBITING; the preview uses
+  `RecordingTree.IsBoundOrbitAboveAtmosphere` to pick "stable orbit"
+  vs "sub-orbital arc" wording, but BOTH terminals seal under
+  `stableTerminalFocusSlot`, so the seal verdict is correct even if
+  the wording mispredicts. The dialog is a one-shot snapshot at
+  click time, so transient flicker is acceptable.
 
 - **In-place continuation case**: `IsInPlaceContinuation(marker,
   provisional)` returns true when
@@ -481,40 +590,16 @@ would prioritise (it picks the first close-reason hit).
   transmitted, which part broke off). Adds noise without helping the
   player understand the consequence.
 
-## Open questions
+## Open questions (resolved)
 
-1. **Pronoun style**: "you transmitted science" vs "transmitted
-   science" vs "the recording transmitted science." First-person ("you")
-   is most direct but creates pronoun-mix awkwardness when combined
-   with subject-led phrases like "the vessel broke up". Three options:
-   - **A**: keep "you" prefix; accept mixed-subject sentences.
-   - **B**: drop "you", rely on phrasing -> `"transmitted science and
-     undocked"`. Less natural but uniform.
-   - **C**: rewrite "the vessel broke up" -> "you broke up the vessel"
-     so all phrases are "you"-led. Less accurate (vessel breakup is
-     usually involuntary).
+1. **Pronoun style**: subject-free phrasing wrapped in "for the
+   following reason(s):" copy form. Resolved per Opus pass-1 F6.
 
-   Recommend **B** (drop "you"). Implementation defaults to B unless
-   user picks otherwise.
+2. **`Boarded` / `Recovered` detection**: skip - unreachable in-flight.
+   Production classifier seals correctly post-finalize.
 
-2. **`Boarded` / `Recovered` detection**: the preview deliberately
-   skips these because they are unreachable in flight. But is there an
-   in-flight signal (e.g. a `Boarded` ledger row from an earlier crew
-   transfer in the attempt) we should surface? Likely no: the seal for
-   those triggers via `IsHardSafetyTerminal` which reads
-   `TerminalStateValue`, and the recording wouldn't have a Boarded
-   terminal state until finalize.
-
-   Recommend **skip them** (do not surface in dialog). The production
-   classifier still seals correctly post-finalize.
-
-3. **Single structural reason vs all structural reasons**: production
-   logs only the first BP. Should the dialog list all BP types
-   encountered, or just the first?
-
-   Recommend **first only**. The player typically remembers what they
-   actively did (undock); cascading consequences (a follow-on breakup)
-   would clutter the message.
+3. **Single structural reason vs all structural reasons**: first only,
+   matching production's first-bp log at `SupersedeCommit.cs:760-764`.
 
 ## Implementation order
 
