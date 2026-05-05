@@ -469,16 +469,13 @@ namespace Parsek
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
         internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
         // #583: Relative-frame state-vector ghost CREATION reaches the resolver
-        // when the first map-visible UT lies inside a Relative section. We allow
-        // creation through the existing StateVector source kind iff the section's
-        // anchor vessel is resolvable in the scene (CreateGhostVesselFromStateVectors
-        // already dispatches on referenceFrame and resolves world position via the
-        // anchor in the Relative branch — PR #547). When the anchor is not yet
-        // resolvable, defer with this dedicated skip reason so the pending-create
-        // queue retries on the next tick. Distinct from `relative-frame` (the
-        // legacy "always defer" reason kept for sections without an anchor id —
-        // those have no resolvable anchor by construction and are unreachable
-        // from the new path).
+        // when the first map-visible UT lies inside a Relative section. Creation
+        // flows through the existing StateVector source kind when the section's
+        // recorded anchor chain can resolve for the target UT. If it cannot, defer
+        // with this dedicated skip reason so the pending-create queue retries on
+        // the next tick. Distinct from `relative-frame`, the legacy "always defer"
+        // reason kept for Relative sections that cannot attempt recorded-anchor
+        // state-vector resolution.
         internal const string TrackingStationGhostSkipRelativeAnchorUnresolved = "relative-anchor-unresolved";
         internal const string TrackingStationGhostSkipActiveReFlyRelativeLookahead =
             "active-refly-relative-anchor-lookahead";
@@ -3625,9 +3622,9 @@ namespace Parsek
             // sits inside a Relative-frame section. The latter widens the gate
             // so a recording with OrbitalCheckpoint segments elsewhere can still
             // get a map ghost while the playback head is in the docking /
-            // rendezvous section — CreateGhostVesselFromStateVectors's Relative
-            // branch (PR #547) handles the world-position resolution against
-            // the anchor vessel.
+            // rendezvous section; CreateGhostVesselFromStateVectors handles
+            // Relative world-position resolution against the recorded anchor
+            // pose for the target UT.
             bool considerStateVector =
                 !traj.HasOrbitSegments
                 || IsInRelativeFrame(traj, currentUT);
@@ -4175,8 +4172,9 @@ namespace Parsek
                 return false;
             }
 
-            // Resolve the section covering currentUT once — the Relative branch
-            // needs the anchorVesselId, the Absolute branch needs nothing more.
+            // Resolve the section covering currentUT once; the Relative branch
+            // needs the reference-frame metadata, the Absolute branch needs
+            // nothing more.
             TrackSection? currentSection = null;
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -4863,14 +4861,12 @@ namespace Parsek
             TrajectoryPoint? absoluteShadowPoint = null)
         {
             // v7+ Relative sections store an `absoluteFrames` shadow alongside
-            // the anchor-local `frames`. When the caller has determined the
-            // live anchor is unsafe (most commonly: the section is anchored to
-            // the active Re-Fly target PID, so its live pose is being driven
-            // by the player and no longer matches the recording), it can pass
-            // the parallel shadow point here. Resolved through the standard
-            // body-fixed surface lookup it yields the recorded world position
-            // directly — no live anchor multiplication, no rotation drift.
-            // Returns Branch="absolute-shadow" so call-site logs and tests can
+            // the anchor-local `frames`. The state-vector path currently passes
+            // this as null, but the compatibility branch remains available for
+            // callers that already selected the recorded absolute shadow point.
+            // Resolved through the standard body-fixed surface lookup it yields
+            // the recorded world position directly. Returns
+            // Branch="absolute-shadow" so call-site logs and tests can
             // distinguish this fallback from the regular Absolute path.
             if (absoluteShadowPoint.HasValue)
             {
@@ -4931,8 +4927,7 @@ namespace Parsek
 
                 // The lat/lon/alt fields are reused as anchor-local XYZ offsets in
                 // RELATIVE sections (TrajectoryPoint.cs:13-15 docstring). Resolve via
-                // the same canonical helper InterpolateAndPositionRelative uses on the
-                // flight-scene playback path (ParsekFlight.cs:13821).
+                // the same canonical helper used by the flight-scene playback path.
                 Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                     anchorWorldPos,
                     anchorWorldRot,
@@ -5037,8 +5032,8 @@ namespace Parsek
         /// Used for physics-only suborbital recordings that have no orbit segments.
         /// Constructs a Keplerian orbit from position + velocity at the given UT.
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/>: Absolute
-        /// uses surface lat/lon/alt; Relative resolves through the anchor vessel's
-        /// world transform (matches the flight-scene contract in ParsekFlight.cs:13821).
+        /// uses surface lat/lon/alt; Relative resolves through TrackSection.anchorRecordingId
+        /// via the recorded-anchor resolver, then applies the anchor-local offset.
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
@@ -5058,13 +5053,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Overload that exposes <paramref name="retryLater"/> = true when the
-        /// PR #574 active-Re-Fly suppression gate fires. Callers that maintain
-        /// a "pending map vessel" queue (cf.
-        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the
-        /// pending entry alive on (<c>null</c>, <c>retryLater = true</c>) so
-        /// the recording is retried next tick once the Re-Fly session ends —
-        /// rather than silently dropping it forever.
+        /// Overload that exposes <paramref name="retryLater"/> = true when a
+        /// transient state-vector deferral or active-Re-Fly suppression path fires.
+        /// Callers that maintain a "pending map vessel" queue (cf.
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the pending
+        /// entry alive on (<c>null</c>, <c>retryLater = true</c>) so the recording
+        /// is retried next tick rather than silently dropped forever.
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
