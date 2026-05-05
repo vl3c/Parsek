@@ -432,6 +432,7 @@ namespace Parsek
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
             public string relativeAnchorRecordingId;
+            public bool relativeLoopLiveAnchor;     // true only for loop playback's explicit live-PID contract
 
             // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
             // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
@@ -1504,17 +1505,20 @@ namespace Parsek
                             haveAnchor = TryResolveStoredRecordedAnchorPose(
                                 e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
                         }
-                        else
+                        else if (e.relativeLoopLiveAnchor)
                         {
                             // Loop-relative entries keep the explicit live
                             // loop-anchor contract. Non-loop recorded-relative
                             // entries set relativeAnchorRecordingId and resolve
                             // through the branch above.
-                            Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
-                            if (anchor != null)
+                            if (TryResolveLoopLiveAnchorPose(
+                                    e.anchorVesselId,
+                                    e.recordingId,
+                                    e.pointUT,
+                                    out RelativeAnchorPose liveLoopAnchorPose))
                             {
-                                anchorPos = anchor.GetWorldPos3D();
-                                anchorRotation = anchor.transform.rotation;
+                                anchorPos = liveLoopAnchorPose.worldPos;
+                                anchorRotation = liveLoopAnchorPose.worldRotation;
                                 haveAnchor = true;
                             }
                             else
@@ -1526,6 +1530,16 @@ namespace Parsek
                                 anchorPos = Vector3d.zero;
                                 anchorRotation = Quaternion.identity;
                             }
+                        }
+                        else
+                        {
+                            if (e.anchorVesselId != 0u)
+                            {
+                                Rendering.NonLoopLivePidGuard.NonLoopRelativeLivePidLookupAttempted(
+                                    "LateUpdate.Relative");
+                            }
+                            anchorPos = Vector3d.zero;
+                            anchorRotation = Quaternion.identity;
                         }
 
                         if (haveAnchor)
@@ -21458,6 +21472,7 @@ namespace Parsek
                 anchorRecordingId = target.RecordingId,
                 anchorSectionIndex = target.SectionIndex,
                 relativeAnchorRecordingId = target.AnchorRecordingId,
+                relativeLoopLiveAnchor = false,
                 pointUT = targetUT,
             });
 
@@ -21636,6 +21651,7 @@ namespace Parsek
                 anchorRecordingId = target.RecordingId,
                 anchorSectionIndex = target.SectionIndex,
                 relativeAnchorRecordingId = target.AnchorRecordingId,
+                relativeLoopLiveAnchor = false,
                 pointUT = point.ut,
             });
             return true;
@@ -22072,6 +22088,7 @@ namespace Parsek
                     bodyBefore = body, // for fallback in LateUpdate
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
+                    relativeLoopLiveAnchor = true,
                 });
 
                 interpResult = new InterpolationResult(
@@ -22202,6 +22219,7 @@ namespace Parsek
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
+                    relativeLoopLiveAnchor = true,
                 });
             }
             else

@@ -17,7 +17,7 @@ $checks = @(
     },
     @{
         Path = "Source/Parsek/ParsekFlight.cs"
-        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|legacyAnchorPid"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
         Label = "recorded-relative flight playback live PID read"
     },
     @{
@@ -37,6 +37,19 @@ $checks = @(
     }
 )
 
+$requiredChecks = @(
+    @{
+        Path = "Source/Parsek/ParsekFlight.cs"
+        Pattern = "relativeLoopLiveAnchor\s*=\s*true"
+        Label = "loop-only LateUpdate live-anchor flag"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.cs"
+        Pattern = "NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted"
+        Label = "non-loop LateUpdate live-PID DEBUG guard"
+    }
+)
+
 $violations = New-Object System.Collections.Generic.List[string]
 foreach ($check in $checks) {
     $file = Join-Path $RepoRoot $check.Path
@@ -48,6 +61,19 @@ foreach ($check in $checks) {
     $matches = Select-String -Path $file -Pattern $check.Pattern
     foreach ($match in $matches) {
         $violations.Add("$($check.Label): $($check.Path):$($match.LineNumber): $($match.Line.Trim())")
+    }
+}
+
+foreach ($check in $requiredChecks) {
+    $file = Join-Path $RepoRoot $check.Path
+    if (!(Test-Path -LiteralPath $file)) {
+        $violations.Add("missing file: $($check.Path)")
+        continue
+    }
+
+    $matches = Select-String -Path $file -Pattern $check.Pattern
+    if ($matches.Count -eq 0) {
+        $violations.Add("missing required guard: $($check.Label): $($check.Path): pattern '$($check.Pattern)'")
     }
 }
 
