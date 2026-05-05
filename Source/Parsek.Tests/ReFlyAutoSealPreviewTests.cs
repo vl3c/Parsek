@@ -437,5 +437,71 @@ namespace Parsek.Tests
                 "the vessel broke up and docked with another vessel",
                 result.FormatHumanReadable());
         }
+
+        // ---------- BuildReFlyDialogBody --------------------------------
+
+        [Fact]
+        public void BuildBody_NoSeal_UsesDefaultCopy()
+        {
+            var preview = ReFlyAutoSealPreviewResult.NoSeal();
+            string body = MergeDialog.BuildReFlyDialogBody(
+                "TestVessel", 123.0, preview);
+            Assert.Contains("TestVessel", body);
+            Assert.Contains("Commit this Re-Fly attempt permanently to the timeline",
+                body);
+            Assert.Contains("This cannot be undone", body);
+            Assert.DoesNotContain("auto-sealed", body);
+            Assert.DoesNotContain("for the following reason", body);
+        }
+
+        [Fact]
+        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndSlotWarning()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                    { ReFlyAutoSealReason.TransmittedScience },
+            };
+            string body = MergeDialog.BuildReFlyDialogBody(
+                "TestVessel", 123.0, preview);
+            Assert.Contains("merged AND auto-sealed", body);
+            Assert.Contains("for the following reason(s): transmitted science.",
+                body);
+            Assert.Contains("slot will become permanent", body);
+            Assert.Contains("not be able to Re-Fly this line of flight",
+                body);
+            Assert.Contains("This cannot be undone", body);
+        }
+
+        [Fact]
+        public void BuildBody_AutoSeal_MultipleReasons_Composes()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.TransmittedScience,
+                    ReFlyAutoSealReason.Undocked,
+                    ReFlyAutoSealReason.DockedWithAnother,
+                },
+            };
+            string body = MergeDialog.BuildReFlyDialogBody(
+                "TestVessel", 123.0, preview);
+            Assert.Contains(
+                "for the following reason(s): transmitted science, undocked, " +
+                "and docked with another vessel.",
+                body);
+        }
+
+        [Fact]
+        public void BuildBody_HeadlineIncludesVesselNameAndDuration()
+        {
+            var preview = ReFlyAutoSealPreviewResult.NoSeal();
+            string body = MergeDialog.BuildReFlyDialogBody(
+                "MyShip", 65.0, preview);
+            Assert.Contains("<align=\"center\">MyShip - ", body);
+        }
     }
 }
