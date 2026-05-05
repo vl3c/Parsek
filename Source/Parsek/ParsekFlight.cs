@@ -16508,15 +16508,6 @@ namespace Parsek
             if (state?.ghost == null || traj == null) return;
             int playbackIdx = state.playbackIndex;
             bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
-            if (useAnchor && !GhostPlaybackLogic.ValidateLoopAnchor(traj.LoopAnchorVesselId))
-            {
-                long anchorKey = ((long)index << 32) | traj.LoopAnchorVesselId;
-                if (loggedAnchorNotFound.Add(anchorKey))
-                    ParsekLog.Warn("Loop",
-                        $"Loop anchor vessel pid={traj.LoopAnchorVesselId} not found for " +
-                        $"recording #{index} \"{traj.VesselName}\" — falling back to absolute positioning");
-                useAnchor = false;
-            }
             InterpolationResult interpResult;
             // PR #594 P1 review fix: pass `state` so the relative-frame
             // retirement branch can set state.anchorRetiredThisFrame for
@@ -21072,63 +21063,6 @@ namespace Parsek
             return true;
         }
 
-        internal bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-            int recordingIndex,
-            IPlaybackTrajectory trajectory,
-            TrackSection section,
-            uint anchorVesselId,
-            double targetUT,
-            out List<TrajectoryPoint> absoluteFrames)
-        {
-            absoluteFrames = null;
-            if (trajectory == null
-                || section.referenceFrame != ReferenceFrame.Relative
-                || anchorVesselId == 0
-                || section.absoluteFrames == null
-                || section.absoluteFrames.Count < 1
-                || string.IsNullOrEmpty(trajectory.RecordingId))
-            {
-                return false;
-            }
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
-                return false;
-
-            IReadOnlyList<RecordingTree> searchTrees =
-                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
-                return false;
-            if (anchorVesselId != activeReFlyPid)
-                return false;
-            if (string.Equals(
-                    trajectory.RecordingId,
-                    marker.ActiveReFlyRecordingId,
-                    StringComparison.Ordinal))
-                return false;
-
-            absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
-                trajectory,
-                section,
-                targetUT);
-            string logKey = string.Concat(
-                "active-refly-anchor|",
-                trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
-                "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
-            if (loggedRelativeAbsoluteShadowStart.Add(logKey))
-            {
-                ParsekLog.Info("Playback",
-                    $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
-                    $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
-                    $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
-                    $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
-                    "reason=active-refly-anchor");
-            }
-            return true;
-        }
-
         // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
         // bounds. The 0.5s bridge window covers frame/float skew without spanning a
         // real gap to an unrelated future section.
@@ -22086,21 +22020,6 @@ namespace Parsek
                     ? section.anchorVesselId
                     : rec.LoopAnchorVesselId;
 
-                if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                        recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
-                {
-                    // Thread recordingId/sectionIndex so the inner
-                    // InterpolateAndPosition can emit recorded-coordinate
-                    // diagnostics for the loop absolute-shadow path.
-                    InterpolateAndPosition(ghost, absoluteFrames, null,
-                        ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
-                        allowActivation: allowActivation,
-                        skipOrbitSegments: true,
-                        recordingId: rec.RecordingId,
-                        sectionIndex: sectionIdx);
-                    return;
-                }
-
                 if (useAnchor)
                 {
                     long relKey = ((long)recIdx << 32) | anchorVesselId;
@@ -22119,6 +22038,20 @@ namespace Parsek
                         allowActivation, out interpResult);
                     return;
                 }
+
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long missingAnchorKey = RelativeAnchorResolution.DedupeKey(recIdx, anchorVesselId);
+                if (loggedAnchorNotFound.Add(missingAnchorKey))
+                    ParsekLog.Warn("Anchor",
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recIdx,
+                            rec.VesselName,
+                            anchorVesselId,
+                            "PositionLoopGhost"));
+                interpResult = InterpolationResult.Zero;
+                return;
             }
 
             if (sectionIdx >= 0
