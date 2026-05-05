@@ -773,12 +773,12 @@ namespace Parsek
         /// <param name="resolutionBranch">Branch label from
         /// <see cref="StateVectorWorldFrame.Branch"/>: <c>"relative"</c> AND
         /// <c>"absolute-shadow"</c> both suppress, because both describe a
-        /// RELATIVE track section (the latter is the v7 absolute-shadow
-        /// sibling of the same section, used when the live anchor is the
-        /// active Re-Fly target). Suppressing only <c>"relative"</c> would
-        /// leak a parent-chain v7 state-vector ghost into the scene during
-        /// active Re-Fly, contradicting the doubled-ProtoVessel guard
-        /// (PR #613 review P2).</param>
+        /// RELATIVE track section. The absolute-shadow branch is a retained
+        /// v7 compatibility branch for callers that already selected the
+        /// recorded shadow point; create-time lookahead no longer performs a
+        /// live-PID anchor scan. Suppressing both labels preserves the
+        /// doubled-ProtoVessel guard without reintroducing non-loop live-anchor
+        /// map resolution (PR #613 review P2).</param>
         /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
         /// <param name="victimRecordingId">RecordingId of the recording being
         /// mapped. Suppression is rejected with
