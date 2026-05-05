@@ -4296,10 +4296,9 @@ namespace Parsek
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
             // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
             // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
-            // PreContinuationGhostSnapshot, PreReFlyAnchor*,
-            // LegacyPreReFlyOriginal* (v0.9.1 PR #733 migration aid)}. Add
-            // to this preserve-list when any new [NonSerialized] flag
-            // tracking per-session live state is added to Recording.
+            // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this
+            // preserve-list when any new [NonSerialized] flag tracking
+            // per-session live state is added to Recording.
             bool savedFilesDirty = loadedRec.FilesDirty;
             bool savedSidecarLoadFailed = loadedRec.SidecarLoadFailed;
             string savedSidecarLoadFailureReason = loadedRec.SidecarLoadFailureReason;
@@ -4310,8 +4309,6 @@ namespace Parsek
             List<TrajectoryPoint> savedPreReFlyAnchorPoints = loadedRec.PreReFlyAnchorPoints;
             List<OrbitSegment> savedPreReFlyAnchorOrbitSegments = loadedRec.PreReFlyAnchorOrbitSegments;
             List<TrackSection> savedPreReFlyAnchorTrackSections = loadedRec.PreReFlyAnchorTrackSections;
-            string savedLegacyPreReFlyOriginalSessionId = loadedRec.LegacyPreReFlyOriginalSessionId;
-            Recording savedLegacyPreReFlyOriginalRecording = loadedRec.LegacyPreReFlyOriginalRecording;
 
             Recording sourceClone = Recording.DeepClone(committedRec);
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
@@ -4362,8 +4359,6 @@ namespace Parsek
                 loadedRec.PreReFlyAnchorPoints = savedPreReFlyAnchorPoints;
                 loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;
                 loadedRec.PreReFlyAnchorTrackSections = savedPreReFlyAnchorTrackSections;
-                loadedRec.LegacyPreReFlyOriginalSessionId = savedLegacyPreReFlyOriginalSessionId;
-                loadedRec.LegacyPreReFlyOriginalRecording = savedLegacyPreReFlyOriginalRecording;
             }
 
             return true;

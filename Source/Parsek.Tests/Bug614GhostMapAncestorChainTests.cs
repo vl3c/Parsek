@@ -527,6 +527,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-leaf-89eff843",
                 OriginChildRecordingId = "rec-leaf-89eff843",
                 InvokedUT = 159.5,
+                InPlaceContinuation = true,
             };
             var trees = BuildChainSplitThenBreakupTree(
                 rootId: "rec-root-c9df8d86",

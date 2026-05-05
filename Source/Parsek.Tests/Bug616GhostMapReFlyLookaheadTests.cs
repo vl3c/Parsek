@@ -151,7 +151,8 @@ namespace Parsek.Tests
                 TreeId = TreeId,
                 ActiveReFlyRecordingId = activeAndOriginRecId,
                 OriginChildRecordingId = activeAndOriginRecId,
-                InvokedUT = 119.0
+                InvokedUT = 119.0,
+                InPlaceContinuation = true,
             };
         }
 

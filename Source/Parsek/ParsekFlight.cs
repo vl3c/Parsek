@@ -24896,12 +24896,10 @@ namespace Parsek
         {
             if (tree == null || tree.Recordings == null || marker == null)
                 return false;
-            // Only the post-#734 fork shape needs reconciliation. Legacy
-            // in-place markers (active == origin) cannot reach this point
-            // because the InPlaceContinuation flag is only set by the new
-            // AtomicMarkerWrite fork path; legacy in-flight markers loaded
-            // from older saves do not carry the flag, and origin is already
-            // in tree.Recordings by construction for those.
+            // Only the post-#734 fork shape needs reconciliation.
+            // AtomicMarkerWrite is the only writer of the
+            // InPlaceContinuation flag and always pairs it with a fresh
+            // provisional recording.
             if (!marker.InPlaceContinuation)
                 return false;
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
@@ -24912,12 +24910,16 @@ namespace Parsek
             {
                 return false;
             }
-            if (tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId))
-                return false;
 
             // Locate the fork in the committed list. Allowlisted raw read
             // per [ERS-exempt - Phase 6] file-level note in RewindInvoker.
-            Recording fork = null;
+            // The committed-list object is the canonical one: AtomicMarkerWrite
+            // wrote it via AddProvisional, the recorder flushes through
+            // tree.ActiveRecordingId -> tree.Recordings[id], and
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list. The same instance must live in BOTH places or
+            // commit/discard can pull a stale shadow object.
+            Recording committedFork = null;
             var committed = RecordingStore.CommittedRecordings;
             if (committed != null)
             {
@@ -24928,12 +24930,12 @@ namespace Parsek
                     if (string.Equals(rec.RecordingId,
                             marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
                     {
-                        fork = rec;
+                        committedFork = rec;
                         break;
                     }
                 }
             }
-            if (fork == null)
+            if (committedFork == null)
             {
                 ParsekLog.Warn("Flight",
                     $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
@@ -24942,12 +24944,30 @@ namespace Parsek
                 return false;
             }
 
+            // Critical: when an F5/F9 mid-session deserialised tree has
+            // an in-place fork entry, that entry is a *new* Recording
+            // instance, but the committed list still holds the pre-load
+            // fork object. Recorder flush appends to the tree's instance,
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list -- so without convergence the merge sees a
+            // stale shadow with no recorded data and CommitTree can even
+            // re-add a duplicate same-id row by reference. Compare the two
+            // and overwrite the tree slot with the committed instance when
+            // they diverge. EnsureForkAttachedToTree's own no-op short-
+            // circuit fires when they already match.
+            if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId,
+                    out Recording treeFork)
+                && ReferenceEquals(treeFork, committedFork))
+            {
+                return false;
+            }
+
             // Skip the helper's own RebuildBackgroundMap because
             // RestoreActiveTreeFromPending's swap branch (which fires
             // immediately after this reconcile) calls RebuildBackgroundMap
             // itself; doing it here would double-rebuild.
             return RewindInvoker.EnsureForkAttachedToTree(
-                tree, fork, "RestoreActiveTreeFromPending:reconcile",
+                tree, committedFork, "RestoreActiveTreeFromPending:reconcile",
                 skipBackgroundMapRebuild: true);
         }
 

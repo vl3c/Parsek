@@ -98,6 +98,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -136,6 +137,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -174,6 +176,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-probe",
                 OriginChildRecordingId = "rec-probe",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var tree = MakeTree("tree-1",
                 ("rec-upper", "Kerbal X", TerminalState.Orbiting, 300u),
@@ -213,6 +216,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -245,6 +249,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -285,6 +290,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -323,6 +329,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -366,6 +373,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -394,6 +402,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -424,6 +433,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-OTHER",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -446,6 +456,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {
@@ -471,6 +482,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var trees = new List<RecordingTree>
             {

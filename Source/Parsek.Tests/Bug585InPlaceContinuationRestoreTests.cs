@@ -85,6 +85,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-booster",
@@ -102,6 +103,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-OTHER",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -120,6 +122,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -141,6 +144,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -180,6 +184,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule", null);
@@ -197,7 +202,8 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
-                TreeId = null, // legacy
+                TreeId = null, // legacy,
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -261,6 +267,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -282,6 +289,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -299,6 +307,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -578,6 +587,95 @@ namespace Parsek.Tests
                     l.Contains("[Rewind]")
                     && l.Contains("RestoreActiveTreeFromPending:reconcile")
                     && l.Contains("attached in-place fork rec=" + forkId));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        /// <summary>
+        /// Issue #734 reviewer P1 (May 2026): after F5/F9 mid in-place
+        /// Re-Fly the restored tree is deserialised into a NEW Recording
+        /// instance for the fork id, but the committed list still holds the
+        /// pre-load fork object that the recorder is appending samples
+        /// into. Recorder flush appends to the tree's instance,
+        /// TryCommitReFlySupersede resolves the provisional from the
+        /// committed list -- so without convergence the merge sees a stale
+        /// shadow with no recorded data and CommitTree could even add a
+        /// duplicate same-id row by reference. The reconcile path must
+        /// detect the instance divergence and overwrite the tree slot with
+        /// the committed-list instance.
+        /// </summary>
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkInstanceDivergesFromCommittedList_ConvergesToCommittedInstance()
+        {
+            try
+            {
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-734-divergence";
+                const string originId = "rec-734-origin-divergence";
+                const string forkId = "rec-734-fork-divergence";
+
+                // Two distinct Recording instances under the same fork id
+                // -- mirrors the F5/F9 race: tree was deserialised fresh,
+                // committed list still holds the pre-load object the
+                // recorder has been appending to.
+                var committedFork = new Recording
+                {
+                    RecordingId = forkId,
+                    TreeId = treeId,
+                    VesselPersistentId = 500u,
+                    VesselName = "Recording-Fork-Live",
+                    SupersedeTargetId = originId,
+                };
+                committedFork.Points.Add(new TrajectoryPoint { ut = 100.0 });
+                committedFork.Points.Add(new TrajectoryPoint { ut = 110.0 });
+                RecordingStore.AddCommittedInternal(committedFork);
+
+                var staleTreeFork = new Recording
+                {
+                    RecordingId = forkId,
+                    TreeId = treeId,
+                    VesselPersistentId = 500u,
+                    VesselName = "Recording-Fork-Stale-Deserialised",
+                    SupersedeTargetId = originId,
+                };
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 500u,
+                    MergeState = MergeState.Immutable,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(origin);
+                tree.AddOrReplaceRecording(staleTreeFork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-divergence",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.True(attached, "instance divergence must trigger convergence to the committed-list instance");
+                Assert.True(tree.Recordings.TryGetValue(forkId, out Recording resolved));
+                Assert.Same(committedFork, resolved);
+                Assert.NotSame(staleTreeFork, resolved);
+                // The recorder's committed-list payload is now what the
+                // tree-side resolver will hand to TryCommitReFlySupersede;
+                // the stale shadow is discarded.
+                Assert.Equal(2, resolved.Points.Count);
             }
             finally
             {

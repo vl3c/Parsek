@@ -135,6 +135,9 @@ namespace Parsek.Tests
 
         private static ReFlySessionMarker InPlaceMarker(string activeAndOriginRecId)
         {
+            // Tests pre-date the #734 fork model (active != origin); they
+            // pass the same id for both fields and rely on the
+            // InPlaceContinuation flag to opt into the in-place gates.
             return new ReFlySessionMarker
             {
                 SessionId = "sess_587_third_facet_test",
@@ -142,6 +145,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = activeAndOriginRecId,
                 OriginChildRecordingId = activeAndOriginRecId,
                 InvokedUT = 159.5,
+                InPlaceContinuation = true,
             };
         }
 

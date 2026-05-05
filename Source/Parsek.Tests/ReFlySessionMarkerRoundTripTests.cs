@@ -295,16 +295,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsInPlaceContinuation_LegacyShape_True()
+        public void IsInPlaceContinuation_LegacyShape_False()
         {
-            // Pre-fork legacy shape: ids equal, no flag.
+            // Pre-fork legacy shape (ids equal but no InPlaceContinuation
+            // flag) is no longer recognised. The flag is the only signal
+            // -- AtomicMarkerWrite is the sole writer and always pairs
+            // the in-place case with the flag set, so any marker without
+            // the flag is by construction a placeholder pattern.
             var marker = new ReFlySessionMarker
             {
                 ActiveReFlyRecordingId = "rec_origin",
                 OriginChildRecordingId = "rec_origin",
                 InPlaceContinuation = false,
             };
-            Assert.True(ReFlySessionMarker.IsInPlaceContinuation(marker));
+            Assert.False(ReFlySessionMarker.IsInPlaceContinuation(marker));
         }
 
         [Fact]

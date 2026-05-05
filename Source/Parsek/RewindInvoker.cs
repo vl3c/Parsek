@@ -1089,11 +1089,20 @@ namespace Parsek
             {
                 if (ReferenceEquals(existing, fork))
                     return false;
+                // Expected for F5/F9 mid-Re-Fly: TryRestoreActiveTreeNode
+                // deserialised a fresh tree-side Recording for the fork id,
+                // but the committed list still holds the pre-load fork
+                // object that the recorder is appending into. Convergence
+                // is necessary so commit/discard see the populated
+                // committed-list instance, not the empty deserialised
+                // shadow. Log Info so the convergence is auditable but
+                // doesn't signal corruption.
                 overwroteStaleInstance = true;
-                ParsekLog.Warn(InvokeTag,
-                    $"{callSite ?? "EnsureForkAttachedToTree"}: replacing existing tree.Recordings[{fork.RecordingId}] " +
-                    $"with a different Recording instance — this is unexpected (a stale fork " +
-                    $"or a partial rollback may have left a different object under the same id)");
+                ParsekLog.Info(InvokeTag,
+                    $"{callSite ?? "EnsureForkAttachedToTree"}: tree.Recordings[{fork.RecordingId}] " +
+                    $"held a different Recording instance than the committed-list fork; " +
+                    $"converging the tree slot to the committed instance so recorder flush, " +
+                    $"merge, and discard agree on the same object");
             }
             tree.Recordings[fork.RecordingId] = fork;
             if (!skipBackgroundMapRebuild)
