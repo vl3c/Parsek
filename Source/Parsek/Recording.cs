@@ -715,8 +715,7 @@ namespace Parsek
         /// <paramref name="source"/>'s position-history lists onto this
         /// recording. Used by the in-place Re-Fly fork
         /// (issue #734): the new active recording stores the origin's
-        /// frozen trajectory under its own session id so the resolver/
-        /// display alignment paths keyed by
+        /// frozen trajectory under its own session id so resolver paths keyed by
         /// <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
         /// see the original trajectory data without reading the origin
         /// recording directly.
@@ -784,7 +783,7 @@ namespace Parsek
         /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
         /// <see cref="SegmentEvents"/> are intentionally left at their
         /// default-empty initialisers — only position-history data matters
-        /// for the Re-Fly display alignment sample, and emitting events from the
+        /// for the Re-Fly recorded-coordinate resolver, and emitting events from the
         /// snapshot would re-fire structural events at every save. Returns
         /// null when no snapshot is captured for <paramref name="sessionId"/>.
         /// </summary>

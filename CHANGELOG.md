@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Active Re-Fly ghosts now render at recorded coordinates only. The frozen body-fixed display-alignment cache, live-root display offset, root-part pin, active Re-Fly render interpolation, and point-trend smoothing paths were removed so divergent Re-Fly attempts visibly separate from the recorded ghost path instead of shifting old ghosts toward the live vessel.
 - Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - Rewind and time-jump cutoff recalculations now rebuild crew reservations from the full committed timeline while keeping funds/science/tech at the cutoff UT, so crew from unrecovered future recordings no longer reappear in the VAB/SPH crew picker after rewinding.
 - Timeline now shows Fly/Seal for every STASH-eligible recording, including active-parent breakup slots, so the Re-Fly filter matches the Recordings table.

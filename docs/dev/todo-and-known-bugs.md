@@ -35,15 +35,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Active - v0.9.1 PR708 post-merge Phase D continuation
+## Active - v0.9.2 Re-Fly cleanup and v0 reset
 
 - After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).
 
-**Next gate:** capture the explicit D.0 product-behaviour decision before Phase D deletion work. The open decision is whether active Re-Fly ghosts should fully detach from the live vessel and render only at original recorded coordinates during divergent Re-Fly. If yes, Phase D proceeds as enumerative cleanup: delete/fence `TryGetReFlyTreeAnchorOffset` and the temporary Re-Fly display-alignment band-aids, remove non-loop live-PID Relative placement branches, split loop-only live-anchor helpers from non-loop recorded-relative helpers, and audit flight, map, KSC, `AnchorPropagator`, and `ProductionAnchorWorldFrameResolver` consumers against the recorded-coordinate resolver. If no, write a revised product plan before changing code.
+**D.0 decision:** active Re-Fly ghosts must detach from the live vessel and render only at original recorded coordinates during divergent Re-Fly. Divergence is a product signal, not something the renderer should hide by translating old ghosts toward the live attempt.
 
-**Carry-forward validation:** before Phase D starts, keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if the next work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
+**D.1 implementation:** remove the frozen body-fixed display-alignment cache and consumers (`ReFlyDisplayAlignment`, `TryGetReFlyTreeAnchorOffset`, ghost `reFlyTreeOffset`, root-part pinning, active Re-Fly render interpolation, and point-trend smoothing). Recorded-coordinate playback now feeds ghost placement directly, with only the D.5 spawn-frame defer shim left temporarily in place for later branch-local cleanup.
 
-**Status:** Open until PR708 is merged and D.0 is recorded.
+**Carry-forward validation:** keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if later Phase D work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
+
+**Status:** In progress on `refly-phase-d`; D.1 code cleanup is implemented, and D.2 non-loop live-PID Relative placement cleanup is next.
 
 ---
 

@@ -7,14 +7,13 @@ namespace Parsek
 {
     /// <summary>
     /// Gated render-path observability for ghost placement. Detailed rows open
-    /// around first appearance, Re-Fly display alignment, structural-event
+    /// around first appearance, structural-event
     /// windows, section changes, large transform deltas, and retire/hide guard
     /// paths only when the diagnostics setting is enabled.
     /// </summary>
     internal static class GhostRenderTrace
     {
         internal const double InitialWindowSeconds = 4.0;
-        internal const double ReFlyWindowSeconds = 8.0;
         internal const double SectionChangeWindowSeconds = 2.0;
         internal const double AnomalyWindowSeconds = 5.0;
         internal const double LargePoseDeltaMeters = 25.0;
@@ -322,7 +321,6 @@ namespace Parsek
             Vector3d before,
             Vector3d after,
             Quaternion rotation,
-            Vector3d reFlyOffset,
             string reason = null)
         {
             if (!IsEnabled)
@@ -345,8 +343,7 @@ namespace Parsek
                 + " before=" + FormatVector3d(before)
                 + " after=" + FormatVector3d(after)
                 + " deltaMeters=" + FormatDouble(deltaMeters, "F2")
-                + " rot=" + FormatQuaternion(rotation)
-                + " reFlyOffset=" + FormatVector3d(reFlyOffset),
+                + " rot=" + FormatQuaternion(rotation),
                 important: important,
                 force: false);
         }
@@ -398,8 +395,7 @@ namespace Parsek
             Vector3d anchorPosition,
             Quaternion anchorRotation,
             Vector3d localOffset,
-            Vector3d outputPosition,
-            Vector3d reFlyOffset)
+            Vector3d outputPosition)
         {
             if (!IsEnabled)
                 return;
@@ -423,49 +419,9 @@ namespace Parsek
                 + " anchorPos=" + FormatVector3d(anchorPosition)
                 + " anchorRot=" + FormatQuaternion(anchorRotation)
                 + " localOffset=" + FormatVector3d(localOffset)
-                + " output=" + FormatVector3d(outputPosition)
-                + " reFlyOffset=" + FormatVector3d(reFlyOffset),
+                + " output=" + FormatVector3d(outputPosition),
                 important: !success,
                 force: !success);
-        }
-
-        internal static void EmitReFlyAlignment(
-            string recordingId,
-            int ghostIndex,
-            double currentUT,
-            string mode,
-            string reason,
-            ReFlySessionMarker marker,
-            string treeId,
-            Vector3d offset,
-            double offsetMeters,
-            bool force)
-        {
-            if (!IsEnabled)
-                return;
-            if (string.IsNullOrEmpty(recordingId))
-                return;
-
-            OpenDetailedWindow(recordingId, currentUT, ReFlyWindowSeconds, "refly-alignment");
-            EmitPhase(
-                recordingId,
-                ghostIndex,
-                currentUT,
-                currentUT,
-                "ReFlyAlignment",
-                "mode=" + Token(mode)
-                + " reason=" + Token(reason)
-                + " tree=" + ShortId(treeId ?? marker?.TreeId)
-                + " session=" + ShortId(marker?.SessionId)
-                + " active=" + ShortId(marker?.ActiveReFlyRecordingId)
-                + " origin=" + ShortId(marker?.OriginChildRecordingId)
-                + " selectedRootPid=" + (marker != null
-                    ? marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture)
-                    : "0")
-                + " offset=" + FormatVector3d(offset)
-                + " offsetMeters=" + FormatDouble(offsetMeters, "F2"),
-                important: force,
-                force: force);
         }
 
         internal static GateDecision EvaluateGateForTesting(

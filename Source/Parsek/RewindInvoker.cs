@@ -802,7 +802,7 @@ namespace Parsek
         ///     <see cref="Recording.VesselPersistentId"/>. The fork inherits
         ///     the origin's vessel identity and freezes the origin's
         ///     trajectory under the fork's own pre-Re-Fly anchor snapshot
-        ///     so resolver / display-alignment paths keyed by
+        ///     so resolver paths keyed by
         ///     <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/> still
         ///     see the original trajectory data without reading the live
         ///     origin recording. <see cref="ReFlySessionMarker.InPlaceContinuation"/>
@@ -886,11 +886,11 @@ namespace Parsek
                     // unchanged), generation depth, and a defensive copy of
                     // origin's vessel/ghost snapshots so any code path that
                     // queries the active Re-Fly recording's snapshot before
-                    // the recorder has refreshed it (display alignment,
-                    // ghost build, antenna registration) still sees a valid
+                    // the recorder has refreshed it (ghost build, antenna
+                    // registration) still sees a valid
                     // payload. The fork freezes origin's trajectory under
                     // the fork's own pre-Re-Fly anchor snapshot so the
-                    // resolver / display-alignment paths keyed by
+                    // resolver paths keyed by
                     // ActiveReFlyRecordingId still see the original
                     // trajectory data. Origin is left untouched: no live
                     // mutation, no session tagging, no rollback snapshot

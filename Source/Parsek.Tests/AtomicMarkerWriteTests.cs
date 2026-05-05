@@ -641,7 +641,7 @@ namespace Parsek.Tests
             Assert.Equal(origin.TreeId, fork.TreeId);
             Assert.Equal(origin.Generation, fork.Generation);
             // VesselSnapshot / GhostVisualSnapshot are deep-copied so
-            // playback / display-alignment / ghost-build paths reading the
+            // playback / ghost-build paths reading the
             // fork's snapshot before the recorder repopulates it still see a
             // valid payload, and a later mutation on origin does not bleed
             // into the fork.
@@ -652,7 +652,7 @@ namespace Parsek.Tests
             Assert.NotSame(origin.GhostVisualSnapshot, fork.GhostVisualSnapshot);
             Assert.Equal("Origin Ghost", fork.GhostVisualSnapshot.GetValue("name"));
             // The fork's pre-Re-Fly anchor snapshot was copied from origin so
-            // resolver / display alignment paths keyed by ActiveReFlyRecordingId
+            // resolver paths keyed by ActiveReFlyRecordingId
             // continue to see the original frozen trajectory data.
             Assert.True(fork.HasPreReFlyAnchorTrajectory("sess_inplace"));
             Assert.Equal(2, fork.PreReFlyAnchorPoints.Count);
