@@ -21063,11 +21063,6 @@ namespace Parsek
             return true;
         }
 
-        // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
-        // bounds. The 0.5s bridge window covers frame/float skew without spanning a
-        // real gap to an unrelated future section.
-        internal const double AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds = 0.5;
-
         internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
             IPlaybackTrajectory trajectory,
             TrackSection section,
@@ -21079,41 +21074,7 @@ namespace Parsek
             if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
                 return absoluteFrames;
             if (targetUT >= absoluteFrames[0].ut)
-            {
-                TrajectoryPoint forwardBridge;
-                if (!TryFindAbsoluteShadowForwardBridgeFrame(
-                        trajectory, section, targetUT, out forwardBridge))
-                {
-                    return absoluteFrames;
-                }
-
-                TrajectoryPoint last = absoluteFrames[absoluteFrames.Count - 1];
-                if (forwardBridge.ut <= last.ut + 0.0001)
-                    return absoluteFrames;
-
-                var forwardBridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
-                forwardBridged.AddRange(absoluteFrames);
-                forwardBridged.Add(forwardBridge);
-                ParsekLog.WarnRateLimited(
-                    "Playback",
-                    string.Concat(
-                        "absolute-shadow-forward-bridge|",
-                        trajectory?.RecordingId ?? "(none)",
-                        "|",
-                        section.startUT.ToString("R", CultureInfo.InvariantCulture)),
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "RELATIVE absolute shadow forward bridge inserted: recording={0} targetUT={1:F2} " +
-                        "lastShadowUT={2:F2} bridgeUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
-                        ShortRecordingId(trajectory?.RecordingId),
-                        targetUT,
-                        last.ut,
-                        forwardBridge.ut,
-                        section.startUT,
-                        section.endUT),
-                    30.0);
-                return forwardBridged;
-            }
+                return absoluteFrames;
 
             TrajectoryPoint bridge;
             if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
@@ -21143,87 +21104,6 @@ namespace Parsek
                     section.endUT),
                 30.0);
             return bridged;
-        }
-
-        internal static bool TryFindAbsoluteShadowForwardBridgeFrame(
-            IPlaybackTrajectory trajectory,
-            TrackSection relativeSection,
-            double targetUT,
-            out TrajectoryPoint bridge)
-        {
-            bridge = default(TrajectoryPoint);
-            if (relativeSection.referenceFrame != ReferenceFrame.Relative
-                || relativeSection.absoluteFrames == null
-                || relativeSection.absoluteFrames.Count == 0)
-            {
-                return false;
-            }
-
-            double lastShadowUT =
-                relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
-            double adjacentStartLimit = relativeSection.endUT + AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds;
-            bool found = false;
-            double bestUT = double.PositiveInfinity;
-
-            if (trajectory?.TrackSections != null)
-            {
-                for (int i = 0; i < trajectory.TrackSections.Count; i++)
-                {
-                    TrackSection section = trajectory.TrackSections[i];
-                    if (section.referenceFrame == ReferenceFrame.Absolute
-                        && section.frames != null
-                        && section.frames.Count > 0)
-                    {
-                        if (section.startUT < relativeSection.endUT - AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds)
-                            continue;
-                        if (section.startUT > adjacentStartLimit)
-                            continue;
-
-                        TrajectoryPoint candidate = section.frames[0];
-                        if (candidate.ut <= lastShadowUT + 0.0001)
-                            continue;
-                        if (candidate.ut <= targetUT + 0.0001)
-                            continue;
-                        if (candidate.ut >= bestUT)
-                            continue;
-
-                        bridge = candidate;
-                        bestUT = candidate.ut;
-                        found = true;
-                        continue;
-                    }
-
-                    if (section.referenceFrame != ReferenceFrame.Relative
-                        || section.absoluteFrames == null
-                        || section.absoluteFrames.Count == 0)
-                    {
-                        continue;
-                    }
-                    if (section.anchorVesselId != relativeSection.anchorVesselId)
-                        continue;
-                    if (section.startUT > adjacentStartLimit)
-                        continue;
-                    if (section.endUT < relativeSection.endUT - 0.0001)
-                        continue;
-
-                    for (int j = 0; j < section.absoluteFrames.Count; j++)
-                    {
-                        TrajectoryPoint candidate = section.absoluteFrames[j];
-                        if (candidate.ut <= lastShadowUT + 0.0001)
-                            continue;
-                        if (candidate.ut <= targetUT + 0.0001)
-                            continue;
-                        if (candidate.ut >= bestUT)
-                            continue;
-
-                        bridge = candidate;
-                        bestUT = candidate.ut;
-                        found = true;
-                    }
-                }
-            }
-
-            return found;
         }
 
         internal static bool TryFindAbsoluteShadowBridgeFrame(

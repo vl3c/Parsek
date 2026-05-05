@@ -45,9 +45,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **D.2 implementation:** remove the stale-anchor/no-live-anchor absolute-shadow fallback branches and the active-Re-Fly live-anchor bypass selector. Loop Relative playback now uses its explicit live anchor or retires; non-loop Relative playback continues through the recording-id resolver and recorded-coordinate fallback path.
 
+**D.3 implementation:** remove the RELATIVE absolute-shadow forward-bridge fallback (`TryFindAbsoluteShadowForwardBridgeFrame`) and its adjacent-section append path. Sparse RELATIVE sections no longer borrow future absolute/shadow frames; playback stays section-local and lets the recorded-coordinate resolver contract decide the visible pose or retirement.
+
 **Carry-forward validation:** keep the PR708 final bundle as the baseline and consider one targeted map/tracking terminal-spawn smoke if later Phase D work depends on terminal handoff behaviour. Do not treat pre-v11 recordings as correctness fixtures; regenerate any runnable regression fixture under v11 with real `anchorRecordingId` chains. Keep the transient pre-merge-dialog stranded-sidecar save warning as a separate follow-up, not a PR708 merge blocker, unless new evidence shows retained save corruption.
 
-**Status:** In progress on `refly-phase-d`; D.1 and D.2 are implemented, and D.3 forward-bridge fallback cleanup is next.
+**Status:** In progress on `refly-phase-d`; D.1-D.3 are implemented. D.4 live-PID non-loop Relative cleanup and D.7 map/KSC fencing are next.
 
 ---
 

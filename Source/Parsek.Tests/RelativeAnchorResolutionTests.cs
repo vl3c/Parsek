@@ -274,60 +274,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveAbsoluteShadowPlaybackFrames_BridgesForwardFromAdjacentRelativeSection()
+        public void ResolveAbsoluteShadowPlaybackFrames_TargetAfterShadow_ReturnsOriginalFrames()
         {
-            var firstRelative = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 100.5,
-                anchorVesselId = 42u,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0 },
-                },
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
-                }
-            };
-            var adjacentRelative = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.5,
-                endUT = 110.0,
-                anchorVesselId = 42u,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0 },
-                    new TrajectoryPoint { ut = 103.0 },
-                },
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
-                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
-                }
-            };
-            var rec = new Recording
-            {
-                RecordingId = "shadow-forward",
-                TrackSections = new List<TrackSection> { firstRelative, adjacentRelative }
-            };
-
-            List<TrajectoryPoint> resolved =
-                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, firstRelative, 100.4);
-
-            Assert.NotSame(firstRelative.absoluteFrames, resolved);
-            Assert.Equal(2, resolved.Count);
-            Assert.Equal(100.0, resolved[0].ut);
-            Assert.Equal(103.0, resolved[1].ut);
-            Assert.Equal(3.0, resolved[1].latitude);
-        }
-
-        [Fact]
-        public void ResolveAbsoluteShadowPlaybackFrames_BridgesForwardFromAdjacentAbsoluteSection()
-        {
-            var firstRelative = new TrackSection
+            var relativeSection = new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100.0,
@@ -341,99 +290,25 @@ namespace Parsek.Tests
             var adjacentAbsolute = new TrackSection
             {
                 referenceFrame = ReferenceFrame.Absolute,
-                startUT = 100.6,
+                startUT = 100.5,
                 endUT = 110.0,
                 frames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 101.2, latitude = 5.0 },
-                    new TrajectoryPoint { ut = 102.0, latitude = 6.0 },
                 }
             };
             var rec = new Recording
             {
-                RecordingId = "shadow-forward-absolute",
-                TrackSections = new List<TrackSection> { firstRelative, adjacentAbsolute }
+                RecordingId = "shadow-forward-removed",
+                TrackSections = new List<TrackSection> { relativeSection, adjacentAbsolute }
             };
 
             List<TrajectoryPoint> resolved =
-                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, firstRelative, 100.4);
+                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, relativeSection, 100.4);
 
-            Assert.NotSame(firstRelative.absoluteFrames, resolved);
-            Assert.Equal(2, resolved.Count);
+            Assert.Same(relativeSection.absoluteFrames, resolved);
+            Assert.Single(resolved);
             Assert.Equal(100.0, resolved[0].ut);
-            Assert.Equal(101.2, resolved[1].ut);
-            Assert.Equal(5.0, resolved[1].latitude);
-        }
-
-        [Fact]
-        public void TryFindAbsoluteShadowForwardBridgeFrame_SkipsAbsoluteSectionOutsideAdjacencyTolerance()
-        {
-            var firstRelative = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 100.5,
-                anchorVesselId = 42u,
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
-                }
-            };
-            var lateAbsolute = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 101.01,
-                endUT = 110.0,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 101.2, latitude = 5.0 },
-                }
-            };
-            var rec = new Recording
-            {
-                RecordingId = "shadow-forward-absolute-late",
-                TrackSections = new List<TrackSection> { firstRelative, lateAbsolute }
-            };
-
-            TrajectoryPoint bridge;
-            Assert.False(ParsekFlight.TryFindAbsoluteShadowForwardBridgeFrame(
-                rec, firstRelative, 100.4, out bridge));
-        }
-
-        [Fact]
-        public void TryFindAbsoluteShadowForwardBridgeFrame_SkipsMismatchedAnchorVesselId()
-        {
-            var firstRelative = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 100.5,
-                anchorVesselId = 42u,
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
-                }
-            };
-            var otherAnchorRelative = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.5,
-                endUT = 110.0,
-                anchorVesselId = 99u,
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 103.0, latitude = 3.0 },
-                }
-            };
-            var rec = new Recording
-            {
-                RecordingId = "shadow-forward-mismatch",
-                TrackSections = new List<TrackSection> { firstRelative, otherAnchorRelative }
-            };
-
-            TrajectoryPoint bridge;
-            Assert.False(ParsekFlight.TryFindAbsoluteShadowForwardBridgeFrame(
-                rec, firstRelative, 100.4, out bridge));
         }
 
         [Fact]
