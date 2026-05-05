@@ -228,3 +228,14 @@ Source/Parsek/Rendering/SmoothingPipeline.cs
 # session whose supersede commit caused the drift. Read-only against
 # trajectory metadata; same rationale as SmoothingPipeline above.
 Source/Parsek/Rendering/CoBubbleBlender.cs
+
+# ReFlyAutoSealPreviewer.Preview is the read-only auto-seal preview the
+# pre-transition Re-Fly merge dialog uses to customize body copy
+# (transmitted science / undocked / docked etc.). It walks Ledger.Actions
+# directly to mirror SupersedeCommit.IsRetryBlockingRecordingAction's
+# filter (which is the canonical retry-blocker gate). Routing through
+# ELS would hide actions that production seals on - the preview must
+# match production's view of the raw ledger to avoid surfacing different
+# reasons than the post-finalize classifier will. No mutation; no scenario
+# state-version bumps. Same trust scope as SupersedeCommit.cs above.
+Source/Parsek/ReFlyAutoSealPreview.cs

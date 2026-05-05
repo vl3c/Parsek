@@ -1,0 +1,441 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Unit tests for the pre-transition merge dialog auto-seal preview
+    /// (<see cref="ReFlyAutoSealPreviewer"/>). The preview is a read-only,
+    /// conservative subset of the production classifier in
+    /// <see cref="SupersedeCommit"/> - mirrors the gates that are reliable
+    /// from live state (Ledger.Actions, tree topology, live
+    /// <see cref="Vessel.Situations"/>) and surfaces them as
+    /// player-attributable reasons for the dialog body.
+    ///
+    /// <para>The live <see cref="Vessel"/> branches require Unity runtime
+    /// (vessel/orbit/body lookups via <see cref="FlightGlobals"/>); those
+    /// rows in the plan's matrix are exercised via in-game tests rather
+    /// than xUnit. These tests cover the null-vessel paths plus the
+    /// Ledger / tree-topology / format / state-version invariance
+    /// branches, which are reachable without Unity.</para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class ReFlyAutoSealPreviewTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
+
+        public ReFlyAutoSealPreviewTests()
+        {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            RecordingStore.SuppressLogging = true;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            Ledger.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
+            RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            Ledger.ResetForTesting();
+        }
+
+        // ---------- Helpers ---------------------------------------------
+
+        private const string TreeId = "tree-test";
+        private const string ProvisionalId = "rec-provisional";
+
+        private static Recording MakeRecording(
+            string id = ProvisionalId, string treeId = TreeId)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = "TestVessel-" + id,
+                TreeId = treeId,
+            };
+        }
+
+        private static ReFlySessionMarker MakeMarker(
+            string treeId = TreeId,
+            string activeReFlyRecordingId = ProvisionalId)
+        {
+            return new ReFlySessionMarker
+            {
+                SessionId = "sess-test",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = activeReFlyRecordingId,
+                OriginChildRecordingId = activeReFlyRecordingId,
+                RewindPointId = "rp-test",
+                InvokedUT = 100.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+        }
+
+        private static ParsekScenario MakeScenario(
+            ReFlySessionMarker marker = null)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = marker,
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            return scenario;
+        }
+
+        private static GameAction MakeScienceEarning(
+            string recordingId,
+            ScienceMethod method,
+            string subjectId = "crewReport@KerbinSrfLandedShores",
+            float scienceAwarded = 5f)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                RecordingId = recordingId,
+                UT = 200.0,
+                SubjectId = subjectId,
+                ExperimentId = "crewReport",
+                Body = "Kerbin",
+                Situation = "SrfLanded",
+                Biome = "Shores",
+                ScienceAwarded = scienceAwarded,
+                Method = method,
+                ActionId = "act-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+            };
+        }
+
+        // ---------- Null guards -----------------------------------------
+
+        [Fact]
+        public void Preview_NullMarker_ReturnsNoSeal()
+        {
+            var rec = MakeRecording();
+            var result = ReFlyAutoSealPreviewer.Preview(rec, null, null, null);
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
+            Assert.Null(result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Preview_NullProvisional_ReturnsNoSeal()
+        {
+            var marker = MakeMarker();
+            var result = ReFlyAutoSealPreviewer.Preview(null, marker, null, null);
+            Assert.False(result.WillAutoSeal);
+        }
+
+        [Fact]
+        public void Preview_EmptyMarkerTreeId_ReturnsNoSeal()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            marker.TreeId = null;
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            Assert.False(result.WillAutoSeal);
+        }
+
+        [Fact]
+        public void Preview_EmptyProvisionalTreeId_ReturnsNoSeal()
+        {
+            var rec = MakeRecording();
+            rec.TreeId = null;
+            var marker = MakeMarker();
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            Assert.False(result.WillAutoSeal);
+        }
+
+        [Fact]
+        public void Preview_TreeIdMismatch_ReturnsNoSeal()
+        {
+            var rec = MakeRecording(treeId: "tree-A");
+            var marker = MakeMarker(treeId: "tree-B");
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            Assert.False(result.WillAutoSeal);
+        }
+
+        [Fact]
+        public void Preview_RecordingIdMismatchSameTree_StillRunsOtherChecks()
+        {
+            // In-place continuation has provisional.RecordingId !=
+            // marker.ActiveReFlyRecordingId but same TreeId. The preview
+            // gates on TreeId only - RecordingId mismatch must NOT
+            // disqualify (otherwise in-place continuation would never
+            // surface a seal reason). Confirm by adding a science action
+            // tagged on the provisional and asserting it's surfaced.
+            var rec = MakeRecording(id: "rec-other-active");   // different from marker.ActiveReFlyRecordingId
+            var marker = MakeMarker();   // ActiveReFlyRecordingId == ProvisionalId
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(
+                "rec-other-active", ScienceMethod.Transmitted));
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.TransmittedScience, result.Reasons);
+        }
+
+        // ---------- Earned-science branch -------------------------------
+
+        [Fact]
+        public void Preview_TransmittedScience_AddsTransmittedReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Equal(new[] { ReFlyAutoSealReason.TransmittedScience }, result.Reasons);
+            Assert.Equal("transmitted science", result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Preview_RecoveredScience_AddsRecoveredReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Recovered));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Equal(new[] { ReFlyAutoSealReason.RecoveredScience }, result.Reasons);
+            Assert.Equal("recovered science", result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Preview_TwoTransmittedRows_DedupesToOneReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted, subjectId: "subj-A"));
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted, subjectId: "subj-B"));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Single(result.Reasons);
+            Assert.Equal(ReFlyAutoSealReason.TransmittedScience, result.Reasons[0]);
+        }
+
+        [Fact]
+        public void Preview_MixedTransmittedAndRecovered_BothReasons()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted));
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Recovered));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Equal(new[]
+            {
+                ReFlyAutoSealReason.TransmittedScience,
+                ReFlyAutoSealReason.RecoveredScience,
+            }, result.Reasons);
+            Assert.Equal("transmitted science and recovered science",
+                result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Preview_ScienceTaggedOnDifferentRecording_NoReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            // Tag science on a recording NOT in the lineage.
+            Ledger.AddAction(MakeScienceEarning("rec-unrelated", ScienceMethod.Transmitted));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_NonScienceActionTaggedOnProvisional_NoReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            // FundsEarning is world-state-changing but not retry-blocking
+            // (filtered by IsRetryBlockingRecordingAction at SupersedeCommit.cs:1289).
+            // The preview filters non-ScienceEarning types by the same logic.
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                RecordingId = rec.RecordingId,
+                UT = 200.0,
+                FundsAwarded = 1000f,
+                ActionId = "act-funds",
+            });
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.False(result.WillAutoSeal);
+        }
+
+        [Fact]
+        public void Preview_EmptyLedger_NoScienceReason()
+        {
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.False(result.WillAutoSeal);
+        }
+
+        // ---------- State-version invariance ----------------------------
+
+        [Fact]
+        public void Preview_DoesNotMutateLedger()
+        {
+            // Read-only contract: Preview must not mutate Ledger.Actions
+            // even when it walks them. Pin the contract by snapshotting
+            // counts and comparing.
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted));
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                RecordingId = rec.RecordingId,
+                UT = 250.0,
+                FundsAwarded = 500f,
+                ActionId = "act-funds",
+            });
+            int beforeCount = Ledger.Actions.Count;
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Equal(beforeCount, Ledger.Actions.Count);
+        }
+
+        // ---------- FormatHumanReadable standalone ----------------------
+
+        [Fact]
+        public void Phrase_AllReasons_MatchSpec()
+        {
+            var expected = new Dictionary<ReFlyAutoSealReason, string>
+            {
+                { ReFlyAutoSealReason.EarnedScience, "earned science" },
+                { ReFlyAutoSealReason.TransmittedScience, "transmitted science" },
+                { ReFlyAutoSealReason.RecoveredScience, "recovered science" },
+                { ReFlyAutoSealReason.Undocked, "undocked" },
+                { ReFlyAutoSealReason.KerbalEva, "sent a kerbal on EVA" },
+                { ReFlyAutoSealReason.PartBrokeOff, "broke off a part" },
+                { ReFlyAutoSealReason.VesselBrokeUp, "the vessel broke up" },
+                { ReFlyAutoSealReason.DockedWithAnother, "docked with another vessel" },
+                { ReFlyAutoSealReason.Landed, "landed" },
+                { ReFlyAutoSealReason.SplashedDown, "splashed down" },
+                { ReFlyAutoSealReason.StableOrbit, "reached a stable orbit" },
+                { ReFlyAutoSealReason.SubOrbitalArc, "reached a sub-orbital arc" },
+            };
+            foreach (var kvp in expected)
+                Assert.Equal(kvp.Value, ReFlyAutoSealPreviewResult.PhraseFor(kvp.Key));
+        }
+
+        [Fact]
+        public void Format_EmptyReasons_ReturnsNull()
+        {
+            var result = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = false,
+                Reasons = new List<ReFlyAutoSealReason>(),
+            };
+            Assert.Null(result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Format_SingleReason_BarePhrase()
+        {
+            var result = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                    { ReFlyAutoSealReason.TransmittedScience },
+            };
+            Assert.Equal("transmitted science", result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Format_TwoReasons_AndJoiner()
+        {
+            var result = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.Undocked,
+                    ReFlyAutoSealReason.KerbalEva,
+                },
+            };
+            Assert.Equal("undocked and sent a kerbal on EVA",
+                result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Format_ThreeReasons_OxfordComma()
+        {
+            var result = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.TransmittedScience,
+                    ReFlyAutoSealReason.Undocked,
+                    ReFlyAutoSealReason.DockedWithAnother,
+                },
+            };
+            Assert.Equal(
+                "transmitted science, undocked, and docked with another vessel",
+                result.FormatHumanReadable());
+        }
+
+        [Fact]
+        public void Format_MixedSubjectPhrases_StillReadsCleanly()
+        {
+            // "the vessel broke up" is subject-led; under the colon-list
+            // form ("for the following reason(s): the vessel broke up
+            // and docked with another vessel.") the implicit subject of
+            // the second clause is "the vessel" too, which is fine.
+            var result = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.VesselBrokeUp,
+                    ReFlyAutoSealReason.DockedWithAnother,
+                },
+            };
+            Assert.Equal(
+                "the vessel broke up and docked with another vessel",
+                result.FormatHumanReadable());
+        }
+    }
+}
