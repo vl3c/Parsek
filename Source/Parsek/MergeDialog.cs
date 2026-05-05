@@ -295,9 +295,21 @@ namespace Parsek
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(liveTree);
-                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
-                          "This cannot be undone.</align>";
+
+                // Auto-seal preview (situation sampled at dialog spawn
+                // only - while the dialog sits open under LockInput, KSP
+                // physics still runs and the active vessel situation
+                // could in theory flip; the production classifier
+                // re-classifies at finalize, so a transient flicker only
+                // affects the dialog wording, not the seal verdict).
+                var preview = ReFlyAutoSealPreviewer.Preview(
+                    reFlyRec, marker, FlightGlobals.ActiveVessel);
+                message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
+
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
+                    $"reasons=[{string.Join(",", preview.Reasons)}] " +
+                    $"sess={marker?.SessionId ?? "<no-id>"}");
             }
             else
             {
@@ -469,6 +481,45 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        /// <summary>
+        /// Composes the pre-transition Re-Fly merge dialog body. Pure
+        /// helper for unit-testability - the callable
+        /// <see cref="ShowTreeDialog"/> 4-arg overload spawns a
+        /// <see cref="PopupDialog"/> which requires Unity runtime, but
+        /// the body string itself is data-driven and worth pinning in
+        /// xUnit. Callers pass a precomputed
+        /// <see cref="ReFlyAutoSealPreviewResult"/>; this method only
+        /// formats it.
+        /// </summary>
+        internal static string BuildReFlyDialogBody(
+            string vesselLabel,
+            double reFlyDuration,
+            ReFlyAutoSealPreviewResult preview)
+        {
+            string headline = $"<align=\"center\">{vesselLabel} - " +
+                              $"{FormatDuration(reFlyDuration)}</align>\n\n";
+            // The "If not discarded" prefix reminds the player that
+            // Discard remains an option: discarding throws this attempt
+            // away and leaves the slot re-flyable for a future retry.
+            // Merge commits the attempt permanently (and seals the
+            // slot, when the auto-seal preview fires).
+            if (!preview.WillAutoSeal)
+            {
+                return headline +
+                    "<align=\"left\">If not discarded, this Re-Fly attempt " +
+                    "will be committed permanently to the timeline. This " +
+                    "cannot be undone.</align>";
+            }
+
+            string reasons = preview.FormatHumanReadable();
+            return headline +
+                "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
+                $"will be merged AND auto-sealed</b> for the following " +
+                $"reason(s): {reasons}. The slot will become permanent and " +
+                "you will not be able to Re-Fly this line of flight again. " +
+                "This cannot be undone.</align>";
+        }
 
         private static string FormatClearReason(string reason)
             => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;

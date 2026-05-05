@@ -680,6 +680,94 @@ namespace Parsek
             out string detail)
         {
             detail = null;
+            if (!ScanReFlySessionStructuralMutations(
+                    rec, marker,
+                    out int matchedCount,
+                    out int spliceExcludedCount,
+                    out int lineageExcludedCount,
+                    out string firstBpId,
+                    out BranchPointType? firstBpType,
+                    out double cutoffSource,
+                    out string cutoffOriginLabel,
+                    out int baselineCount,
+                    out int lineageCount))
+            {
+                return false;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            detail = $"branchPoints={matchedCount.ToString(ic)}" +
+                $" spliceExcluded={spliceExcludedCount.ToString(ic)}" +
+                $" lineageExcluded={lineageExcludedCount.ToString(ic)}" +
+                $" firstBp={firstBpId ?? "<no-id>"}" +
+                $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
+                $" sinceUT={cutoffSource.ToString("F2", ic)}" +
+                $" cutoffOrigin={cutoffOriginLabel}" +
+                $" baseline={baselineCount.ToString(ic)}" +
+                $" lineage={lineageCount.ToString(ic)}";
+            return true;
+        }
+
+        /// <summary>
+        /// Read-only typed accessor for the pre-transition merge dialog's
+        /// auto-seal preview (<see cref="ReFlyAutoSealPreviewer"/>): returns
+        /// the first structural <see cref="BranchPointType"/> encountered
+        /// during the same scan that <see cref="HasReFlySessionStructuralMutation"/>
+        /// runs. Returns false (and <c>default</c> for <paramref name="firstType"/>)
+        /// when no structural mutation has occurred yet, when the marker
+        /// pre-session baseline is missing, or when guard conditions match
+        /// the production gate's early-return.
+        /// </summary>
+        internal static bool TryGetFirstReFlySessionStructuralMutationType(
+            Recording rec,
+            ReFlySessionMarker marker,
+            out BranchPointType firstType)
+        {
+            if (ScanReFlySessionStructuralMutations(
+                    rec, marker,
+                    out _, out _, out _,
+                    out _,
+                    out BranchPointType? scannedFirstType,
+                    out _, out _, out _, out _)
+                && scannedFirstType.HasValue)
+            {
+                firstType = scannedFirstType.Value;
+                return true;
+            }
+            firstType = default(BranchPointType);
+            return false;
+        }
+
+        /// <summary>
+        /// Shared scan body for <see cref="HasReFlySessionStructuralMutation"/>
+        /// and <see cref="TryGetFirstReFlySessionStructuralMutationType"/>.
+        /// Pure: walks tree topology and the marker baseline; no mutation.
+        /// Returns false when the gate's early-returns trip; the out
+        /// parameters are populated only on success.
+        /// </summary>
+        private static bool ScanReFlySessionStructuralMutations(
+            Recording rec,
+            ReFlySessionMarker marker,
+            out int matchedCount,
+            out int spliceExcludedCount,
+            out int lineageExcludedCount,
+            out string firstBpId,
+            out BranchPointType? firstBpType,
+            out double cutoffSource,
+            out string cutoffOriginLabel,
+            out int baselineCount,
+            out int lineageCount)
+        {
+            matchedCount = 0;
+            spliceExcludedCount = 0;
+            lineageExcludedCount = 0;
+            firstBpId = null;
+            firstBpType = null;
+            cutoffSource = 0.0;
+            cutoffOriginLabel = null;
+            baselineCount = 0;
+            lineageCount = 0;
+
             if (rec == null || marker == null) return false;
             if (string.IsNullOrEmpty(marker.TreeId)) return false;
             if (string.IsNullOrEmpty(rec.TreeId)) return false;
@@ -699,9 +787,10 @@ namespace Parsek
             if (marker.PreSessionBranchPointIds == null) return false;
 
             ParsekScenario scenario = ParsekScenario.Instance;
-            double? cutoffSource = TryResolveReFlyStructuralCutoffUT(
-                marker, scenario, out string cutoffOriginLabel);
-            if (!cutoffSource.HasValue) return false;
+            double? cutoff = TryResolveReFlyStructuralCutoffUT(
+                marker, scenario, out cutoffOriginLabel);
+            if (!cutoff.HasValue) return false;
+            cutoffSource = cutoff.Value;
 
             RecordingTree tree = RecordingStore.CommittedTrees != null
                 ? RecordingStore.CommittedTrees.Find(t =>
@@ -714,6 +803,8 @@ namespace Parsek
             HashSet<string> preSessionSet = new HashSet<string>(
                 marker.PreSessionBranchPointIds, StringComparer.Ordinal);
             HashSet<string> lineageSet = BuildReFlyTargetLineageRecordingIds(rec);
+            baselineCount = marker.PreSessionBranchPointIds.Count;
+            lineageCount = lineageSet.Count;
 
             // A small UT slack absorbs floating-point round-trip drift
             // between the resolved cutoff UT and a branch-point UT that
@@ -721,19 +812,14 @@ namespace Parsek
             // does not author its own branch point at its UT, so this is
             // exclusion-safe.
             const double UtSlackSeconds = 0.001;
-            double cutoff = cutoffSource.Value + UtSlackSeconds;
+            double cutoffWithSlack = cutoffSource + UtSlackSeconds;
 
-            int matchedCount = 0;
-            int spliceExcludedCount = 0;
-            int lineageExcludedCount = 0;
-            string firstBpId = null;
-            BranchPointType? firstBpType = null;
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
                 var bp = tree.BranchPoints[i];
                 if (bp == null) continue;
                 if (!IsStructuralBranchPointType(bp.Type)) continue;
-                if (bp.UT < cutoff) continue;
+                if (bp.UT < cutoffWithSlack) continue;
                 if (!string.IsNullOrEmpty(bp.Id)
                     && preSessionSet.Contains(bp.Id))
                 {
@@ -764,19 +850,7 @@ namespace Parsek
                 }
             }
 
-            if (matchedCount == 0) return false;
-
-            var ic = CultureInfo.InvariantCulture;
-            detail = $"branchPoints={matchedCount.ToString(ic)}" +
-                $" spliceExcluded={spliceExcludedCount.ToString(ic)}" +
-                $" lineageExcluded={lineageExcludedCount.ToString(ic)}" +
-                $" firstBp={firstBpId ?? "<no-id>"}" +
-                $" firstType={(firstBpType.HasValue ? firstBpType.Value.ToString() : "<none>")}" +
-                $" sinceUT={cutoffSource.Value.ToString("F2", ic)}" +
-                $" cutoffOrigin={cutoffOriginLabel}" +
-                $" baseline={marker.PreSessionBranchPointIds.Count.ToString(ic)}" +
-                $" lineage={lineageSet.Count.ToString(ic)}";
-            return true;
+            return matchedCount > 0;
         }
 
         /// <summary>
@@ -1134,7 +1208,10 @@ namespace Parsek
                 + rec.ChainBranch.ToString(CultureInfo.InvariantCulture);
         }
 
-        private static HashSet<string> CollectRecordingIdsForSafetyGate(Recording rec)
+        // Internal so the pre-transition merge dialog's auto-seal preview
+        // (ReFlyAutoSealPreviewer) can build the same lineage set the
+        // production retry-blocking science check uses.
+        internal static HashSet<string> CollectRecordingIdsForSafetyGate(Recording rec)
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
             AddRecordingId(ids, rec);
