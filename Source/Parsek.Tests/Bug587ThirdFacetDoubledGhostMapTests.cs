@@ -8,12 +8,14 @@ namespace Parsek.Tests
     /// Bug #587 third facet (2026-04-25 playtest follow-up): the in-place
     /// continuation Re-Fly path leaves the parent of the active Re-Fly recording
     /// outside <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>'s
-    /// child-ward closure. When that parent recording is mid-flight in a
-    /// <see cref="ReferenceFrame.Relative"/>-anchored section whose anchor is
-    /// the live active Re-Fly target's persistent id,
-    /// <see cref="GhostMapPresence.CreateGhostVesselFromStateVectors"/> would
+    /// child-ward closure. Historically, when that parent recording was
+    /// mid-flight in a <see cref="ReferenceFrame.Relative"/>-anchored section
+    /// whose resolved anchor pid matched the active Re-Fly target,
+    /// <see cref="GhostMapPresence.CreateGhostVesselFromStateVectors"/> could
     /// synthesize a real registered <c>Vessel</c> colocated with the active
-    /// vessel — the "doubled upper-stage" the user reported.
+    /// vessel — the "doubled upper-stage" the user reported. Phase D removed
+    /// the create-time live-PID anchor scan; these tests keep the remaining
+    /// suppression predicate pinned for legacy/compatibility branch labels.
     ///
     /// The first facet (#587) and second facet (#587 follow-up) targeted the
     /// strip-side leftover (a pre-existing in-scene <c>Vessel</c> the
@@ -1263,13 +1265,11 @@ namespace Parsek.Tests
         [Fact]
         public void Suppresses_WhenBranchIsAbsoluteShadow_ParentChainVictim()
         {
-            // Same scenario as the canonical positive test, but the resolver
-            // returned the v7 absolute-shadow branch (the section's anchor PID
-            // matched the active Re-Fly target so the wrapper substituted the
-            // shadow point in lieu of multiplying anchor-local offsets by the
-            // player's live pose). The suppression decision must STILL fire,
-            // because the underlying section is RELATIVE — it's only the
-            // positioning source that changed.
+            // Same scenario as the canonical positive test, but the caller
+            // reports the retained v7 absolute-shadow compatibility branch for
+            // the same RELATIVE section. The suppression decision must STILL
+            // fire for this label; Phase D no longer reaches this branch via a
+            // create-time live-PID anchor scan.
             const uint boosterPid = 2676381515u;
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(
