@@ -17,9 +17,22 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- The "Merge to Timeline / Discard" tree-recording confirmation dialog now appears while the player is still in flight, before the destination scene loads. Quit-to-Main-Menu shows the dialog too (previously force-auto-merged). Re-Fly sessions show Re-Fly-attempt-scoped button labels and a session-scoped body. Stock danger / quit confirmations still run first.
+
 ### Internals
 
+- New `SceneExitInterceptor` Harmony Prefix on `HighLogic.LoadScene(GameScenes)` (HarmonyPriority.Last). Single chokepoint that catches PauseMenu's `saveAndExit`, PauseMenu's CanRestart no-save, and FlightResultsDialog's KSC/Menu/TS direct LoadScene paths. Decision matrix is pure for unit-testability.
+- New `MergeDialog.ShowTreeDialog(tree, labels, preCommitFinalize, postChoice)` overload. Decision-building (`BuildDefaultVesselDecisions`) runs AFTER `preCommitFinalize` so `CanPersistVessel` reads finalized `TerminalStateValue` rather than the live activeTree's null values.
+- New `MergeDialog.MergeDiscardWithResult` returns `bool` so the pre-transition wrapper can detect a refused discard (merge-journal-active guard) and skip the LoadScene re-invoke - keeping the player in flight.
+- `MergeDialog.MergeDiscard` and `MergeDialog.TryDiscardActiveReFlyAttempt` now refuse defensively when `ParsekScenario.ActiveMergeJournal != null`, mirroring `RevertInterceptor.DiscardReFlyHandler`'s long-standing guard. Closes a pre-existing race against the journal finisher.
+- New `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` filters to Absolute-frame TrackSection points so the live idle-on-pad fast path doesn't misread RELATIVE-frame `lat/lon/alt` (which are anchor-local Cartesian metres) as body-fixed coordinates.
+- `RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting` renamed to `IsNextTreeSceneExitCommitSuppressionArmed` - the flag is no longer test-only.
+- The deferred post-load merge dialog coroutine (`ParsekScenario.ShowDeferredMergeDialog`) now logs a Warn canary on entry. Triggers indicate the pre-transition prefix missed a flight-exit (mod compat, KSP version drift).
+
 ### Tests
+
+- New `SceneExitInterceptorTests` covering the decision matrix and `SafeWritePersistent` test seam.
+- New journal-active-guard tests for `MergeDiscard`, `MergeDiscardWithResult`, and `TryDiscardActiveReFlyAttempt`.
 
 ---
 

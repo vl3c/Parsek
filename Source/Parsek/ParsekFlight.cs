@@ -2718,6 +2718,193 @@ namespace Parsek
             FinalizeTreeOnSceneChangeCore(scene, commitUT, logRecorderState: false);
         }
 
+        /// <summary>
+        /// Pre-transition finalize entry for the in-flight merge dialog
+        /// (<see cref="MergeDialog.ShowTreeDialog"/>'s
+        /// <c>preCommitFinalize</c> callback). Identical to what
+        /// <see cref="OnSceneChangeRequested"/> would have run a few frames
+        /// later. The dialog button handler invokes this BEFORE
+        /// <see cref="MergeDialog.MergeCommit"/> /
+        /// <see cref="MergeDialog.MergeDiscard"/> so those operate on the
+        /// just-stashed pending tree.
+        ///
+        /// <para>Mirrors the recorder-state prep that
+        /// <see cref="OnSceneChangeRequested"/> runs immediately before
+        /// <see cref="FinalizeTreeOnSceneChange"/>: stop continuations
+        /// so chain-segment data is baked, clean up the Gloops recorder,
+        /// clear scene-change transient state. Without this prep,
+        /// <c>MergeCommit</c> and the optimization pass run against
+        /// continuation recordings that haven't completed sampling.</para>
+        /// </summary>
+        internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
+        {
+            chainManager.StopAllContinuations("scene-exit dialog pre-finalize");
+            CleanupGloopsRecorder();
+            ClearSceneChangeTransientState();
+            FinalizeTreeOnSceneChangeCore(
+                scene,
+                Planetarium.GetUniversalTime(),
+                logRecorderState: true);
+        }
+
+        // HasActiveTree is the existing public property at line 900.
+
+        /// <summary>
+        /// Read-only accessor for the dialog's display data. Caller must
+        /// not mutate the returned reference; mutation happens inside
+        /// <see cref="MergeDialog.MergeCommit"/> /
+        /// <see cref="MergeDialog.MergeDiscard"/> after
+        /// <see cref="FinalizeTreeOnSceneChangeForCallback"/> stashes the
+        /// pending tree.
+        /// </summary>
+        internal RecordingTree ActiveTreeForDisplay => activeTree;
+
+        /// <summary>
+        /// Live-state idle-on-pad check used by the
+        /// <c>HighLogic.LoadScene</c> prefix's fast path. Returns true if
+        /// every recording in the active tree is idle-on-pad (max
+        /// distance from launch &lt; pad-localized threshold) computed
+        /// from live data via
+        /// <see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>.
+        /// Idle-on-pad recordings cannot have RELATIVE-frame TrackSections
+        /// (the recorder skips RELATIVE entry while the vessel is on
+        /// surface, see <c>FlightRecorder.cs:5099-5131</c>).
+        ///
+        /// <para>This method MUTATES: it calls
+        /// <see cref="FlushRecorderIntoActiveTreeForSerialization"/> first
+        /// so the live recorder's <c>Recording</c> + open
+        /// <c>TrackSections</c> become populated on the tree recordings
+        /// (<see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>
+        /// reads <c>rec.TrackSections</c> only). Without this, atmospheric
+        /// flights that haven't crossed an env boundary or saved yet have
+        /// empty <c>TrackSections</c> and the helper would falsely report
+        /// idle (Opus pass-7 review P1). The flush is non-destructive: the
+        /// recorder stays IsRecording=true and the only side effect is one
+        /// extra TrackSection boundary at the current UT - identical to
+        /// what every <c>OnSave</c> tick produces.</para>
+        ///
+        /// <para>Mirrors the <see cref="IsTreeIdleOnPad(RecordingTree)"/>
+        /// data-loss safeguard (in the <c>anyHasPoints</c> block of that
+        /// function): a tree where no recording has any trajectory points
+        /// is data-loss, not idle. We refuse to classify and return false
+        /// so the dialog still shows.</para>
+        /// </summary>
+        internal bool IsActiveTreeIdleOnPad()
+        {
+            if (activeTree == null) return false;
+            if (activeTree.Recordings == null || activeTree.Recordings.Count == 0)
+                return false;
+            // Mirror the existing defensive guard pattern used by other
+            // mutating paths in this file (e.g. line 2727 in
+            // FinalizeTreeOnSceneChangeCore): if a restore coroutine owns
+            // the recorder/activeTree, do not flush.
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    "IsActiveTreeIdleOnPad: skipped - restore coroutine in progress");
+                return false;
+            }
+
+            // Flush live recorder data into the tree so subsequent walks
+            // over rec.TrackSections / rec.Points see the in-flight data.
+            FlushRecorderIntoActiveTreeForSerialization();
+
+            bool anyHasPoints = false;
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+                if (rec.Points != null && rec.Points.Count > 0)
+                    anyHasPoints = true;
+                if (!IsIdleOnPad(rec))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"IsActiveTreeIdleOnPad: '{rec.VesselName}' maxDist=" +
+                        $"{rec.MaxDistanceFromLaunch:F1}m - not idle");
+                    return false;
+                }
+            }
+
+            // Bug #290d safeguard: a tree where no recording has trajectory
+            // points is data-loss, not idle-on-pad. Don't auto-discard.
+            if (!anyHasPoints)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
+                    "have 0 points - cannot determine idle, returning false");
+                return false;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
+                "within 30m - idle on pad");
+            return true;
+        }
+
+        /// <summary>
+        /// Pre-transition idle-on-pad fast path: tear down the live
+        /// recorder / activeTree without going through finalize / stash.
+        /// Mirrors the suppressed-discard cleanup at
+        /// <see cref="DiscardActiveTreeForSuppressedSceneExit"/>: stop
+        /// the recorder, clear the
+        /// <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/> and
+        /// <see cref="Patches.PhysicsFramePatch.BackgroundRecorderInstance"/>
+        /// references, then null the fields. Also runs the same prep as
+        /// <see cref="OnSceneChangeRequested"/> (continuations, gloops,
+        /// transient state) since the prefix returns true after this and
+        /// <see cref="OnSceneChangeRequested"/> only re-runs that prep
+        /// once it sees <c>activeTree == null</c> - by which point any
+        /// in-flight continuation data would have already been dropped
+        /// without baking.
+        ///
+        /// <para>After this returns, the prefix's blocked
+        /// <c>HighLogic.LoadScene</c> proceeds and
+        /// <see cref="OnSceneChangeRequested"/> sees
+        /// <c>activeTree == null</c>, so no pending tree is stashed and
+        /// the destination scene's OnLoad does not show a deferred merge
+        /// dialog.</para>
+        /// </summary>
+        internal void AutoDiscardIdleActiveTree(string reason)
+        {
+            ParsekLog.Info("Flight",
+                $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
+            ScreenMessage("Recording discarded - idle on pad", 3f);
+
+            // Mirror OnSceneChangeRequested's pre-finalize prep so any
+            // active continuation / gloops / transient state is cleaned
+            // up before we drop the recorder.
+            chainManager.StopAllContinuations("idle-on-pad auto-discard");
+            CleanupGloopsRecorder();
+            ClearSceneChangeTransientState();
+
+            // Mirror DiscardActiveTreeForSuppressedSceneExit's recorder
+            // teardown: ForceStop + clear ActiveRecorder reference before
+            // nulling. Without ForceStop the recorder may still hold
+            // buffered data; without clearing ActiveRecorder, the physics
+            // patch retains a stale reference (regression-checked by
+            // ExtendedRuntimeTests.cs:919's
+            // PhysicsFramePatch_ActiveRecorder_NullWhenNotRecording).
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                    recorder.ForceStop();
+                Patches.PhysicsFramePatch.ActiveRecorder = null;
+                recorder = null;
+            }
+
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.DiscardWithoutPersist(reason);
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+            activeTree = null;
+            // No pending tree was stashed (we discard pre-finalize).
+            // Roll back any in-flight ledger entries from the aborted
+            // recording.
+            LedgerOrchestrator.RecalculateAndPatch();
+        }
+
         private void FinalizeTreeOnSceneChangeCore(
             GameScenes scene,
             double commitUT,

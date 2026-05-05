@@ -3316,6 +3316,93 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Live-state variant of <see cref="BackfillMaxDistance"/>. Walks
+        /// only Absolute-frame TrackSections (where <c>frames</c> entries
+        /// carry body-fixed lat/lon/alt) and skips RELATIVE-frame sections
+        /// whose <c>frames</c> store anchor-local Cartesian metres in the
+        /// same fields. Feeding RELATIVE-frame metres into
+        /// <c>body.GetWorldSurfacePosition(lat, lon, alt)</c> would yield a
+        /// position deep inside the planet and a falsely huge maxDist
+        /// (see CLAUDE.md "Rotation / world frame" gotcha).
+        ///
+        /// <para>Used by <see cref="ParsekFlight.IsActiveTreeIdleOnPad"/>
+        /// to compute distance-from-launch on a live, unfinalized
+        /// <c>Recording</c>. The recorder always opens its first section
+        /// as <c>ReferenceFrame.Absolute</c>
+        /// (<c>FlightRecorder.cs:5488</c>), so the first frame's lat/lon/alt
+        /// is always safe to use as the launch reference.</para>
+        /// </summary>
+        internal static void BackfillMaxDistanceAbsoluteOnly(Recording rec)
+        {
+            if (rec == null || rec.TrackSections == null || rec.TrackSections.Count == 0)
+                return;
+
+            // Find the first Absolute section's first frame for launch reference.
+            TrajectoryPoint? launchFrame = null;
+            CelestialBody bodyFirst = null;
+            for (int i = 0; i < rec.TrackSections.Count && launchFrame == null; i++)
+            {
+                var section = rec.TrackSections[i];
+                if (section.referenceFrame != ReferenceFrame.Absolute) continue;
+                if (section.frames == null || section.frames.Count == 0) continue;
+                var f = section.frames[0];
+                try
+                {
+                    bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == f.bodyName);
+                }
+                catch
+                {
+                    return; // FlightGlobals not available (unit tests)
+                }
+                if (bodyFirst == null)
+                {
+                    ParsekLog.Warn("Spawner",
+                        $"BackfillMaxDistanceAbsoluteOnly: cannot resolve body '{f.bodyName}' for recording '{rec.RecordingId}'");
+                    return;
+                }
+                launchFrame = f;
+            }
+
+            if (launchFrame == null || bodyFirst == null)
+            {
+                // No Absolute-frame data yet (recorder just started, all
+                // RELATIVE, etc.). Nothing to compute - leave existing
+                // MaxDistanceFromLaunch untouched.
+                return;
+            }
+
+            Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
+                launchFrame.Value.latitude, launchFrame.Value.longitude, launchFrame.Value.altitude);
+            double maxDist = 0;
+            int absoluteFrameCount = 0;
+            int skippedSections = 0;
+            for (int s = 0; s < rec.TrackSections.Count; s++)
+            {
+                var section = rec.TrackSections[s];
+                if (section.referenceFrame != ReferenceFrame.Absolute)
+                {
+                    skippedSections++;
+                    continue;
+                }
+                if (section.frames == null) continue;
+                for (int j = 0; j < section.frames.Count; j++)
+                {
+                    var pt = section.frames[j];
+                    CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                    if (bodyPt == null) continue;
+                    Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+                    double d = Vector3d.Distance(launchPos, ptPos);
+                    if (d > maxDist) maxDist = d;
+                    absoluteFrameCount++;
+                }
+            }
+            rec.MaxDistanceFromLaunch = maxDist;
+            ParsekLog.Verbose("Spawner",
+                $"BackfillMaxDistanceAbsoluteOnly: rec={rec.RecordingId} maxDist={maxDist:F0}m " +
+                $"from {absoluteFrameCount} Absolute frames (skipped {skippedSections} non-Absolute sections)");
+        }
+
+        /// <summary>
         /// Resolves the biome name at the given coordinates on the given body.
         /// Returns null if the body is not found or ScienceUtil is unavailable (unit tests).
         /// </summary>

@@ -1654,12 +1654,16 @@ namespace Parsek
                     }
 
                     // Handle pending recordings on non-revert scene exits to non-flight scenes.
-                    // Always auto-commit on main menu (game is being unloaded, dialog would be meaningless).
+                    // The pre-transition merge dialog (SceneExitInterceptor) is the
+                    // primary path; this OnLoad path is the deferred fallback for
+                    // any flight-exit that bypassed our HighLogic.LoadScene prefix
+                    // (KSP version drift, foreign mod patch, etc.). Pre-transition
+                    // path now handles MAINMENU too, so the historical
+                    // forceAutoMerge=MAINMENU shortcut is gone.
                     loadPhase = "pending-outside-flight";
-                    bool forceAutoMerge = HighLogic.LoadedScene == GameScenes.MAINMENU;
                     if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                     {
-                        if (IsAutoMerge || forceAutoMerge)
+                        if (IsAutoMerge)
                         {
                             // Check if commit approval dialog should be shown (#88):
                             // landed/splashed vessel going to KSC or Tracking Station
@@ -1673,7 +1677,7 @@ namespace Parsek
                                     RecordingStore.PendingTree.RootRecordingId, out rootRec))
                                     termState = rootRec.TerminalStateValue;
                             }
-                            bool showApproval = !forceAutoMerge && destScene.HasValue &&
+                            bool showApproval = destScene.HasValue &&
                                 GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
                             RecordingStore.PendingDestinationScene = null;
 
@@ -4857,6 +4861,18 @@ namespace Parsek
         /// </summary>
         private IEnumerator ShowDeferredMergeDialog()
         {
+            // Canary: the pre-transition merge dialog
+            // (SceneExitInterceptor's HighLogic.LoadScene prefix) is the
+            // primary path. If this deferred coroutine fires, the
+            // pre-transition path missed the transition (mod compat,
+            // KSP version drift, foreign LoadScene patch). Warn so we
+            // can investigate.
+            ParsekLog.Warn("Scenario",
+                $"Deferred merge dialog fired - pre-transition intercept missed " +
+                $"scene={HighLogic.LoadedScene} pendingTree=" +
+                $"{(RecordingStore.HasPendingTree ? RecordingStore.PendingTree?.TreeName ?? "<unnamed>" : "<none>")} " +
+                "(check SceneExitInterceptor or KSP version compat)");
+
             // Wait ~60 frames for scene to fully load (UI skin, singletons, etc.)
             int waitFrames = 60;
             while (waitFrames-- > 0)
