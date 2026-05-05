@@ -447,8 +447,8 @@ namespace Parsek.Tests
             string body = MergeDialog.BuildReFlyDialogBody(
                 "TestVessel", 123.0, preview);
             Assert.Contains("TestVessel", body);
-            Assert.Contains("Commit this Re-Fly attempt permanently to the timeline",
-                body);
+            Assert.Contains("If not discarded, this Re-Fly attempt", body);
+            Assert.Contains("committed permanently to the timeline", body);
             Assert.Contains("This cannot be undone", body);
             Assert.DoesNotContain("auto-sealed", body);
             Assert.DoesNotContain("for the following reason", body);
@@ -465,6 +465,7 @@ namespace Parsek.Tests
             };
             string body = MergeDialog.BuildReFlyDialogBody(
                 "TestVessel", 123.0, preview);
+            Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
             Assert.Contains("for the following reason(s): transmitted science.",
                 body);

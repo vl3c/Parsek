@@ -499,19 +499,26 @@ namespace Parsek
         {
             string headline = $"<align=\"center\">{vesselLabel} - " +
                               $"{FormatDuration(reFlyDuration)}</align>\n\n";
+            // The "If not discarded" prefix reminds the player that
+            // Discard remains an option: discarding throws this attempt
+            // away and leaves the slot re-flyable for a future retry.
+            // Merge commits the attempt permanently (and seals the
+            // slot, when the auto-seal preview fires).
             if (!preview.WillAutoSeal)
             {
                 return headline +
-                    "<align=\"left\">Commit this Re-Fly attempt permanently to " +
-                    "the timeline. This cannot be undone.</align>";
+                    "<align=\"left\">If not discarded, this Re-Fly attempt " +
+                    "will be committed permanently to the timeline. This " +
+                    "cannot be undone.</align>";
             }
 
             string reasons = preview.FormatHumanReadable();
             return headline +
-                "<align=\"left\"><b>This Re-Fly attempt will be merged AND " +
-                $"auto-sealed</b> for the following reason(s): {reasons}. " +
-                "The slot will become permanent and you will not be able to " +
-                "Re-Fly this line of flight again. This cannot be undone.</align>";
+                "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
+                $"will be merged AND auto-sealed</b> for the following " +
+                $"reason(s): {reasons}. The slot will become permanent and " +
+                "you will not be able to Re-Fly this line of flight again. " +
+                "This cannot be undone.</align>";
         }
 
         private static string FormatClearReason(string reason)
