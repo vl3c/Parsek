@@ -841,16 +841,15 @@ namespace Parsek
                 return false;
             }
 
-            // Placeholder pattern (provisional != origin): the live vessel
-            // in scene is the player's pre-rewind vessel, NOT a fresh
-            // restoration. Mirror the carve-out in
-            // RewindInvoker.ResolveInPlaceContinuationDebrisToKill — only
-            // in-place continuations (origin == active) trigger the
-            // doubled-vessel placement.
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Placeholder pattern (active != origin AND no InPlaceContinuation
+            // flag): the live vessel in scene is a fresh strip-spawned
+            // vessel different from origin, not the same physical craft, so
+            // the parent-chain doubled-ProtoVessel risk does not apply.
+            // The post-#734 fork case (InPlaceContinuation=true with active
+            // != origin) DOES need suppression -- the player is still flying
+            // the same physical vessel as origin, just routed through a
+            // separate provisional Recording.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
             {
                 suppressReason = "not-suppressed-placeholder-pattern";
                 return false;
@@ -5172,16 +5171,13 @@ namespace Parsek
             if (traj == null || string.IsNullOrEmpty(traj.RecordingId)) return null;
 
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null
-                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || !string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
+            // Accept both legacy in-place (active == origin) and the
+            // post-#734 fork shape (InPlaceContinuation flag, active != origin):
+            // both represent the same physical-vessel divergence problem
+            // where the live anchor is unreliable and the v7 RELATIVE
+            // absolute-shadow shortcut is the right substitute.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return null;
-            }
 
             // Resolve active Re-Fly PID via the same composed-trees walk used
             // elsewhere in this file (#611) so PendingTree placements during

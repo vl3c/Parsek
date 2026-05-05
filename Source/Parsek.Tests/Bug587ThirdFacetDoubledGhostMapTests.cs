@@ -135,6 +135,9 @@ namespace Parsek.Tests
 
         private static ReFlySessionMarker InPlaceMarker(string activeAndOriginRecId)
         {
+            // Tests pre-date the #734 fork model (active != origin); they
+            // pass the same id for both fields and rely on the
+            // InPlaceContinuation flag to opt into the in-place gates.
             return new ReFlySessionMarker
             {
                 SessionId = "sess_587_third_facet_test",
@@ -142,6 +145,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = activeAndOriginRecId,
                 OriginChildRecordingId = activeAndOriginRecId,
                 InvokedUT = 159.5,
+                InPlaceContinuation = true,
             };
         }
 
@@ -1315,6 +1319,70 @@ namespace Parsek.Tests
 
             Assert.False(suppressed);
             Assert.Equal("not-suppressed-not-relative-frame", reason);
+        }
+
+        // ============================================================
+        // Issue #734: fork-mode markers are still in-place continuations
+        // (player flies the same physical vessel as origin); they must
+        // trigger the same suppression as the legacy active==origin shape.
+        // ============================================================
+
+        [Fact]
+        public void Suppresses_WhenForkModeInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid()
+        {
+            // Same user-facing scenario as
+            // Suppresses_WhenInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid_VictimIsParent
+            // but with the post-#734 marker shape: distinct ids and
+            // InPlaceContinuation=true. The fork is attached to the tree
+            // (mirroring RewindInvoker.EnsureForkAttachedToTree) and
+            // inherits the booster's ParentBranchPointId so the parent-
+            // chain walk from fork reaches rec-capsule via the existing
+            // Undock BP. Without the fork-aware gate the suppression
+            // silently dropped and the parent-chain doubled ProtoVessel
+            // returned (P1 #1 from the Opus review of PR #751).
+            const uint boosterPid = 2676381515u;
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_734_fork_suppress",
+                TreeId = TreeId,
+                ActiveReFlyRecordingId = "rec-fork-of-booster",
+                OriginChildRecordingId = "rec-booster",
+                InvokedUT = 159.5,
+                InPlaceContinuation = true,
+            };
+            var committed = CommittedWith(
+                ("rec-capsule", "Kerbal X", 2708531065u),
+                ("rec-booster", "Kerbal X Probe", boosterPid),
+                ("rec-fork-of-booster", "Kerbal X Probe", boosterPid));
+            var trees = TreesWithDecouple(
+                parentId: "rec-capsule",
+                activeId: "rec-booster");
+            // AtomicMarkerWrite attaches the fork to the same tree the
+            // recorder will flush into and inherits origin's parent BP so
+            // the topology walk from fork still finds rec-capsule via the
+            // Undock branch point.
+            trees[0].Recordings["rec-fork-of-booster"] = new Recording
+            {
+                RecordingId = "rec-fork-of-booster",
+                TreeId = TreeId,
+                ParentBranchPointId = ParentBpId,
+                VesselPersistentId = boosterPid,
+                VesselName = "Kerbal X Probe",
+            };
+
+            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
+                marker,
+                resolutionBranch: "relative",
+                resolutionAnchorPid: boosterPid,
+                victimRecordingId: "rec-capsule",
+                committedRecordings: committed,
+                committedTrees: trees,
+                out string reason);
+
+            Assert.True(suppressed,
+                "Fork-mode in-place markers must reach the suppression " +
+                "branch the same way legacy in-place markers do (reason="
+                + reason + ")");
         }
     }
 }

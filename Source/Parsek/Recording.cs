@@ -123,8 +123,6 @@ namespace Parsek
         [NonSerialized] internal List<TrackSection> PreReFlyAnchorTrackSections;
         [NonSerialized] private string cachedPreReFlyAnchorRecordingSessionId;
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
-        [NonSerialized] internal string PreReFlyOriginalSessionId;
-        [NonSerialized] internal Recording PreReFlyOriginalRecording;
 
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
@@ -592,11 +590,6 @@ namespace Parsek
 
         internal static Recording DeepClone(Recording source)
         {
-            return DeepClone(source, preservePreReFlySnapshots: true);
-        }
-
-        private static Recording DeepClone(Recording source, bool preservePreReFlySnapshots)
-        {
             if (source == null) return null;
 
             var clone = new Recording();
@@ -688,43 +681,59 @@ namespace Parsek
             clone.SpawnSuppressedByRewindReason = source.SpawnSuppressedByRewindReason;
             clone.SpawnSuppressedByRewindUT = source.SpawnSuppressedByRewindUT;
 
-            if (preservePreReFlySnapshots)
-            {
-                // Preserve active Re-Fly snapshots across recording clones.
-                // The full-original snapshot is cloned without its own
-                // snapshots so capture/codec paths cannot recurse.
-                clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
-                clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
-                    ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
-                    : null;
-                clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
-                    ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
-                    : null;
-                clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
-                    ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
-                    : null;
-                clone.PreReFlyOriginalSessionId = source.PreReFlyOriginalSessionId;
-                clone.PreReFlyOriginalRecording = source.PreReFlyOriginalRecording != null
-                    ? DeepClone(source.PreReFlyOriginalRecording, preservePreReFlySnapshots: false)
-                    : null;
-            }
+            // Preserve the active Re-Fly anchor trajectory snapshot across
+            // recording clones. Repair / splice paths that DeepClone a
+            // recording (e.g. the active-tree refresh in ParsekScenario)
+            // would otherwise silently drop the snapshot, breaking the
+            // per-frame anchor for every other ghost in the active Re-Fly
+            // tree. The lists are cloned to keep the clone independent of
+            // the source. ApplyPersistenceArtifactsFrom intentionally does
+            // NOT copy these (they're [NonSerialized] live-session state),
+            // so the explicit copy here is the only way the snapshot
+            // survives a clone.
+            clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
+            clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
+                ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
+                : null;
+            clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
+                ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
+                : null;
+            clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
+                ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
+                : null;
 
             return clone;
         }
 
         internal void CapturePreReFlyAnchorTrajectory(string sessionId)
         {
+            CapturePreReFlyAnchorTrajectoryFrom(this, sessionId);
+        }
+
+        /// <summary>
+        /// Captures the pre-Re-Fly anchor trajectory snapshot from
+        /// <paramref name="source"/>'s position-history lists onto this
+        /// recording. Used by the in-place Re-Fly fork
+        /// (issue #734): the new active recording stores the origin's
+        /// frozen trajectory under its own session id so the resolver/
+        /// display alignment paths keyed by
+        /// <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        /// see the original trajectory data without reading the origin
+        /// recording directly.
+        /// </summary>
+        internal void CapturePreReFlyAnchorTrajectoryFrom(Recording source, string sessionId)
+        {
             cachedPreReFlyAnchorRecordingSessionId = null;
             cachedPreReFlyAnchorRecording = null;
             PreReFlyAnchorSessionId = sessionId;
-            PreReFlyAnchorPoints = Points != null
-                ? new List<TrajectoryPoint>(Points)
+            PreReFlyAnchorPoints = source != null && source.Points != null
+                ? new List<TrajectoryPoint>(source.Points)
                 : new List<TrajectoryPoint>();
-            PreReFlyAnchorOrbitSegments = OrbitSegments != null
-                ? new List<OrbitSegment>(OrbitSegments)
+            PreReFlyAnchorOrbitSegments = source != null && source.OrbitSegments != null
+                ? new List<OrbitSegment>(source.OrbitSegments)
                 : new List<OrbitSegment>();
-            PreReFlyAnchorTrackSections = TrackSections != null
-                ? DeepCopyTrackSections(TrackSections)
+            PreReFlyAnchorTrackSections = source != null && source.TrackSections != null
+                ? DeepCopyTrackSections(source.TrackSections)
                 : new List<TrackSection>();
         }
 
@@ -758,40 +767,9 @@ namespace Parsek
             cachedPreReFlyAnchorRecording = null;
         }
 
-        internal void CapturePreReFlyOriginalRecording(string sessionId)
-        {
-            PreReFlyOriginalSessionId = sessionId;
-            PreReFlyOriginalRecording = DeepClone(this, preservePreReFlySnapshots: false);
-        }
-
-        internal bool HasPreReFlyOriginalRecording(string sessionId)
-        {
-            if (string.IsNullOrEmpty(sessionId))
-                return false;
-            if (!string.Equals(PreReFlyOriginalSessionId, sessionId, StringComparison.Ordinal))
-                return false;
-            return PreReFlyOriginalRecording != null;
-        }
-
-        internal Recording BuildPreReFlyOriginalRecording(string sessionId)
-        {
-            if (!HasPreReFlyOriginalRecording(sessionId))
-                return null;
-            // Return a defensive copy; the captured original is the rollback
-            // template and discard/restore callers mutate the returned recording.
-            return DeepClone(PreReFlyOriginalRecording, preservePreReFlySnapshots: false);
-        }
-
-        internal void ClearPreReFlyOriginalRecording()
-        {
-            PreReFlyOriginalSessionId = null;
-            PreReFlyOriginalRecording = null;
-        }
-
         internal void ClearPreReFlySessionSnapshots()
         {
             ClearPreReFlyAnchorTrajectory();
-            ClearPreReFlyOriginalRecording();
         }
 
         /// <summary>
