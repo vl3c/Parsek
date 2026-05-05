@@ -504,5 +504,50 @@ namespace Parsek.Tests
                 "MyShip", 65.0, preview);
             Assert.Contains("<align=\"center\">MyShip - ", body);
         }
+
+        // ---------- ShouldUseLiveVesselForReFlyTarget (pid match) -------
+
+        [Fact]
+        public void ShouldUseLiveVessel_MatchingPids_ReturnsTrue()
+        {
+            // Re-Fly recording's pid matches the live active vessel's pid:
+            // the live-vessel terminal branch is safe to run.
+            Assert.True(ReFlyAutoSealPreviewer.ShouldUseLiveVesselForReFlyTarget(
+                candidatePid: 12345u, expectedPid: 12345u));
+        }
+
+        [Fact]
+        public void ShouldUseLiveVessel_DifferentPids_ReturnsFalse()
+        {
+            // Active vessel has been switched mid-Re-Fly; live-terminal
+            // reasons would describe an unrelated vessel.
+            Assert.False(ReFlyAutoSealPreviewer.ShouldUseLiveVesselForReFlyTarget(
+                candidatePid: 12345u, expectedPid: 67890u));
+        }
+
+        [Fact]
+        public void ShouldUseLiveVessel_ZeroCandidatePid_ReturnsFalse()
+        {
+            // pid==0 is the unset sentinel; do not accept as match.
+            Assert.False(ReFlyAutoSealPreviewer.ShouldUseLiveVesselForReFlyTarget(
+                candidatePid: 0u, expectedPid: 12345u));
+        }
+
+        [Fact]
+        public void ShouldUseLiveVessel_ZeroExpectedPid_ReturnsFalse()
+        {
+            // The Re-Fly recording's VesselPersistentId is unset (0).
+            // Defensive: skip rather than pretend any vessel matches a 0
+            // sentinel.
+            Assert.False(ReFlyAutoSealPreviewer.ShouldUseLiveVesselForReFlyTarget(
+                candidatePid: 12345u, expectedPid: 0u));
+        }
+
+        [Fact]
+        public void ShouldUseLiveVessel_BothZero_ReturnsFalse()
+        {
+            Assert.False(ReFlyAutoSealPreviewer.ShouldUseLiveVesselForReFlyTarget(
+                candidatePid: 0u, expectedPid: 0u));
+        }
     }
 }

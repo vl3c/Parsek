@@ -169,7 +169,22 @@ namespace Parsek
             // open under LockInput, so the situation could in theory flip
             // before the player clicks. Acceptable as a snapshot - the
             // production classifier re-classifies at finalize.
-            CollectLiveVesselReasons(liveActiveVessel, reasons);
+            //
+            // Re-Fly sessions can vessel-switch (background a recording,
+            // promote another vessel to active) while the marker still
+            // identifies the original slot, so FlightGlobals.ActiveVessel
+            // may be a different vessel than the one liveProvisional
+            // describes. Surfacing live-terminal reasons from an unrelated
+            // active vessel would mislead the player; the production
+            // classifier runs against the Re-Fly recording, not the live
+            // active vessel. Gate the live-vessel branch by persistent id:
+            // skip when the active vessel does not match the recording's
+            // VesselPersistentId.
+            Vessel reFlyVessel =
+                IsLiveVesselReFlyTarget(liveActiveVessel, liveProvisional)
+                    ? liveActiveVessel
+                    : null;
+            CollectLiveVesselReasons(reFlyVessel, reasons);
 
             SortReasonsByGroup(reasons);
 
@@ -221,6 +236,30 @@ namespace Parsek
                 AddIfMissing(reasons, ReFlyAutoSealReason.RecoveredScience);
             if (sawUnknownMethod)
                 AddIfMissing(reasons, ReFlyAutoSealReason.EarnedScience);
+        }
+
+        private static bool IsLiveVesselReFlyTarget(
+            Vessel candidate, Recording reFlyRec)
+        {
+            if (candidate == null) return false;
+            if (reFlyRec == null) return false;
+            return ShouldUseLiveVesselForReFlyTarget(
+                candidate.persistentId, reFlyRec.VesselPersistentId);
+        }
+
+        /// <summary>
+        /// Pure persistent-id comparison extracted for unit-testability.
+        /// The live-vessel terminal branch should run only when the
+        /// candidate vessel's pid matches the Re-Fly recording's pid AND
+        /// neither is the zero sentinel. Internal so tests can pin the
+        /// matching contract without faking a <see cref="Vessel"/>.
+        /// </summary>
+        internal static bool ShouldUseLiveVesselForReFlyTarget(
+            uint candidatePid, uint expectedPid)
+        {
+            if (candidatePid == 0) return false;
+            if (expectedPid == 0) return false;
+            return candidatePid == expectedPid;
         }
 
         private static ReFlyAutoSealReason? MapStructuralBranchPoint(
