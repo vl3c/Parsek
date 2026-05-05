@@ -210,8 +210,12 @@ Sequence:
    - `Vessel.Situations.DOCKED` -> `DockedWithAnother`.
    - `Vessel.Situations.LANDED` -> `Landed`.
    - `Vessel.Situations.SPLASHED` -> `SplashedDown`.
-   - `Vessel.Situations.ORBITING`: use
-     `RecordingTree.IsBoundOrbitAboveAtmosphere(orbit.eccentricity,
+   - `Vessel.Situations.ORBITING`: defensively null-check
+     `liveActiveVessel.orbit` AND `liveActiveVessel.orbit.referenceBody`.
+     If either is null (transient pre-launch / scene-switch frames -
+     mirror the production pattern at `RecordingTree.cs:863`), fall
+     back to no live-terminal reason (treat like FLYING). Otherwise
+     use `RecordingTree.IsBoundOrbitAboveAtmosphere(orbit.eccentricity,
      orbit.PeR, body.Radius, body.atmosphere, body.atmosphereDepth)`
      (already `internal static` at `RecordingTree.cs:827-852`,
      reachable from preview). True -> `StableOrbit`. False ->
@@ -443,7 +447,10 @@ dialog body wraps them in "for the following reason(s):" so the
 | Live vessel `situation == LANDED` | `[Landed]` | `"landed"` |
 | Live vessel `situation == SPLASHED` | `[SplashedDown]` | `"splashed down"` |
 | Live vessel `situation == ORBITING` && PeR > atmosphereDepth | `[StableOrbit]` | `"reached a stable orbit"` |
+| Live vessel `situation == ORBITING` && airless body (e.g. Mun) && PeR > body.Radius | `[StableOrbit]` | `"reached a stable orbit"` |
 | Live vessel `situation == ORBITING` && PeR <= atmosphereDepth (decaying) | `[SubOrbitalArc]` | `"reached a sub-orbital arc"` |
+| Live vessel `situation == ORBITING` && `vessel.orbit == null` (transient) | empty | `null` (treat like FLYING) |
+| Live vessel `situation == ORBITING` && `vessel.orbit.referenceBody == null` | empty | `null` (treat like FLYING) |
 | Live vessel `situation == SUB_ORBITAL` | `[SubOrbitalArc]` | `"reached a sub-orbital arc"` |
 | Live vessel `situation == FLYING` (no terminal yet) | empty | `null` (other paths may still apply) |
 | Live vessel `situation == PRELAUNCH` | empty | `null` |
