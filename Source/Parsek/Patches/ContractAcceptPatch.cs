@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Reflection;
 using HarmonyLib;
+using KSP.UI.Screens;
 
 namespace Parsek.Patches
 {
@@ -75,6 +76,115 @@ namespace Parsek.Patches
                 "");
 
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Stock Mission Control's button handler ignores Contract.Accept()'s return value,
+    /// so block before the stock UI clears and rebuilds the selected mission panel.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class MissionControlAcceptPatch
+    {
+        private static readonly FieldInfo SelectedMissionField =
+            typeof(MissionControl).GetField(
+                "selectedMission",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MissionSelectionContractField =
+            typeof(MissionControl.MissionSelection).GetField(
+                "contract",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static bool contractLookupWarned;
+
+        static MethodBase TargetMethod()
+        {
+            var method = ResolveTargetMethodForTesting();
+            if (method == null)
+                ParsekLog.Warn("ContractAcceptPatch",
+                    "MissionControl.OnClickAccept() not found - stock Mission Control accept pre-block will not apply. " +
+                    "Contracts.Contract.Accept() backup patch remains active.");
+
+            return method;
+        }
+
+        internal static MethodBase ResolveTargetMethodForTesting()
+        {
+            return typeof(MissionControl).GetMethod(
+                "OnClickAccept",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+        }
+
+        static bool Prefix(MissionControl __instance)
+        {
+            Contracts.Contract contract;
+            if (!TryGetSelectedContract(__instance, out contract))
+                return true;
+
+            string keyString = contract.ContractGuid.ToString();
+            string title = contract.Title ?? keyString;
+            return ContractAcceptPatch.ShouldAllowAccept(keyString, title);
+        }
+
+        private static bool TryGetSelectedContract(
+            MissionControl missionControl,
+            out Contracts.Contract contract)
+        {
+            contract = null;
+            if (missionControl == null)
+            {
+                ParsekLog.Verbose("ContractAcceptPatch",
+                    "MissionControl.OnClickAccept pre-block bypass - MissionControl instance was null");
+                return false;
+            }
+
+            if (SelectedMissionField == null || MissionSelectionContractField == null)
+            {
+                LogContractLookupWarning(
+                    "MissionControl.OnClickAccept pre-block cannot inspect selectedMission.contract; " +
+                    "stock UI pre-block disabled for this session");
+                return false;
+            }
+
+            try
+            {
+                var selectedMission = SelectedMissionField.GetValue(missionControl);
+                if (selectedMission == null)
+                {
+                    ParsekLog.Verbose("ContractAcceptPatch",
+                        "MissionControl.OnClickAccept pre-block bypass - no selected mission");
+                    return false;
+                }
+
+                contract = MissionSelectionContractField.GetValue(selectedMission) as Contracts.Contract;
+                if (contract == null)
+                {
+                    LogContractLookupWarning(
+                        "MissionControl.OnClickAccept pre-block found selected mission without a contract; " +
+                        "stock UI pre-block skipped");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogContractLookupWarning(
+                    "MissionControl.OnClickAccept pre-block contract lookup failed; stock UI pre-block skipped (" +
+                    ex.Message + ")");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void LogContractLookupWarning(string message)
+        {
+            if (contractLookupWarned)
+                return;
+
+            contractLookupWarned = true;
+            ParsekLog.Warn("ContractAcceptPatch", message);
         }
     }
 }

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using KSP.UI;
+using KSP.UI.Screens;
 using Parsek.Patches;
 using Xunit;
 
@@ -158,6 +160,25 @@ namespace Parsek.Tests
             Assert.True(kerbals.IsManaged("Reserved Only Kerman"));
             Assert.Contains(MilestoneStore.GetCommittedKerbalHireNames(), name => name == "Future Hire Kerman");
             Assert.DoesNotContain(MilestoneStore.GetCommittedKerbalHireNames(), name => name == "Reserved Only Kerman");
+        }
+
+        /// <summary>
+        /// Stock Astronaut Complex mutates its applicant/enlisted rows before KerbalRoster.HireApplicant(). Fails if the early stock-UI prefix can no longer find AstronautComplex.HireRecruit().
+        /// </summary>
+        [Fact]
+        public void AstronautComplexHireRecruitPatch_TargetsStockHireRecruitBeforeUiMutation()
+        {
+            var method = AstronautComplexHireRecruitPatch.ResolveTargetMethodForTesting();
+
+            Assert.NotNull(method);
+            Assert.Equal(typeof(AstronautComplex), method.DeclaringType);
+            Assert.Equal("HireRecruit", method.Name);
+
+            var parameters = method.GetParameters();
+            Assert.Equal(3, parameters.Length);
+            Assert.Equal(typeof(UIList), parameters[0].ParameterType);
+            Assert.Equal(typeof(UIList), parameters[1].ParameterType);
+            Assert.Equal(typeof(UIListItem), parameters[2].ParameterType);
         }
 
         private static Recording MakeRecording(

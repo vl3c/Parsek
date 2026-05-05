@@ -42,6 +42,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Stock committed-future overlay settings now refresh already-open R&D, Astronaut Complex, and Mission Control screens immediately; badges self-destruct when stock destroys or re-parents their row and no longer install their own click handler over stock rows.
+- Stock Mission Control and Astronaut Complex committed-action blocks now intercept the stock button handlers before those screens mutate their visible rows/panels, while keeping the lower-level contract/roster guards for modded callers.
 - An orphaned chain predecessor (same vessel pid, contiguous boundary, missing `ChainId`) is grafted back as the chain's `[0]` entry on load and re-saved, restoring the seamless ghost handoff so the next stage no longer respawns engine FX/audio at the chain boundary.
 - Unowned science subjects from stock transmission and vessel recovery now enter the ledger immediately, so Parsek no longer patches the science pool back down before those rewards are committed.
 - Re-Fly temp quicksaves now force the selected real vessel's `CTRLSTATE/mainThrottle`, `CTRLSTATE/wheelThrottle`, and persisted engine-module throttle fields to `0` before KSP loads it, so the player never spawns into a Re-Fly attempt with recorded throttle input already open.

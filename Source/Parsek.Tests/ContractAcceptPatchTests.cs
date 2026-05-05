@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KSP.UI.Screens;
 using Parsek.Patches;
 using Xunit;
 
@@ -156,6 +157,20 @@ namespace Parsek.Tests
             Assert.True(noHyphenAllowed);
             Assert.Contains(MilestoneStore.GetCommittedContractAcceptIds(), id => id == recorderShape);
             Assert.DoesNotContain(MilestoneStore.GetCommittedContractAcceptIds(), id => id == noHyphenShape);
+        }
+
+        /// <summary>
+        /// Stock Mission Control ignores Contract.Accept()'s return value after mutating its panel. Fails if the early stock-UI prefix can no longer find MissionControl.OnClickAccept().
+        /// </summary>
+        [Fact]
+        public void MissionControlAcceptPatch_TargetsStockOnClickAcceptBeforeUiMutation()
+        {
+            var method = MissionControlAcceptPatch.ResolveTargetMethodForTesting();
+
+            Assert.NotNull(method);
+            Assert.Equal(typeof(MissionControl), method.DeclaringType);
+            Assert.Equal("OnClickAccept", method.Name);
+            Assert.Empty(method.GetParameters());
         }
 
         private static GameStateEvent Event(
