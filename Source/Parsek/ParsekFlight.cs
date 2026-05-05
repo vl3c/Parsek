@@ -20989,372 +20989,87 @@ namespace Parsek
             out RelativeAnchorPose pose)
         {
             pose = default(RelativeAnchorPose);
-            IReadOnlyList<RecordingTree> searchTrees = null;
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            // The bypass exists because the player is actively flying the
-            // anchor vessel (origin's pid) during in-place Re-Fly, so the
-            // live anchor pose has diverged from the recording. Both legacy
-            // in-place and the post-#734 fork share the same physical
-            // vessel as origin and therefore need the bypass.
-            bool shouldCheckReFlyBypass =
-                !string.IsNullOrEmpty(victimRecordingId)
-                && ReFlySessionMarker.IsInPlaceContinuation(marker);
-            if (shouldCheckReFlyBypass)
+            if (anchorVesselId == 0u)
             {
-                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            }
-
-            bool bypassLiveAnchor = shouldCheckReFlyBypass
-                && ShouldBypassLiveRelativeAnchorForActiveReFly(
-                    anchorVesselId, victimRecordingId, marker, searchTrees);
-
-            RelativeAnchorPose livePose = default(RelativeAnchorPose);
-            bool liveAnchorAvailable = false;
-            if (!bypassLiveAnchor)
-            {
-                Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-                if (anchor != null)
-                {
-                    livePose.worldPos = anchor.GetWorldPos3D();
-                    livePose.worldRotation = anchor.transform.rotation;
-                    livePose.fromRecordedTrajectory = false;
-                    liveAnchorAvailable = IsFiniteVector3d(livePose.worldPos);
-                }
-            }
-
-            // Proximity fast-path: when the live anchor is loaded AND within
-            // physics range of the active vessel, trust the live pose and
-            // skip the (more expensive) recorded-anchor probe. This restores
-            // the pre-PR fast path for the common docking/rendezvous case —
-            // anchor is the station the player is approaching, live pose is
-            // by definition the right answer because the recording was made
-            // in the same world frame the player is currently in.
-            //
-            // The bug class this PR fixes (post-merge watch of a recording
-            // whose Relative anchor is now in stable orbit hundreds of km
-            // from the player) is, by construction, far from the active
-            // vessel — the orbital booster sits at ~818 km from the pad in
-            // the captured repro. So this fast-path keeps the docking case
-            // perf-equivalent to pre-PR while still letting the staleness
-            // check fire for the failure mode.
-            //
-            // Threshold (5 km) sits comfortably above KSP's ~2.5 km physics
-            // bubble (anchors loaded for physics are within that range) and
-            // well below the km-scale separations the bug exhibits. NaN /
-            // Infinity distances fall through to the slow path rather than
-            // tripping the fast-path; better to spend one extra probe than
-            // misclassify.
-            //
-            // Perf coverage analysis (review P2 from the Opus pass):
-            //  - Anchor loaded AND in physics range (≤5 km from active):
-            //    fast-path returns. O(1). This is the docking/rendezvous
-            //    common case.
-            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
-            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
-            //    of the active vessel, so this band is narrow and rare —
-            //    typically only happens for a few frames around physics-
-            //    range crossings, or with mods extending the load distance.
-            //  - Anchor unloaded (vessel exists but physics-asleep): live
-            //    pose unavailable, fast-path can't apply, we fall through
-            //    to recorded probe. THIS is the bug-class path and the
-            //    probe is exactly what's needed.
-            // Net: under default KSP load behaviour, the residual probe-
-            // every-frame cost only applies to the bug-class scenario the
-            // PR is closing. If a future playtest with extended-physics
-            // mods shows perf regression for the loaded-but-far-from-active
-            // band, a per-FixedUpdate cache keyed on (anchorPid,
-            // sectionStartUT) is the natural follow-up — left out here to
-            // keep the surface area small until measured to matter.
-            if (liveAnchorAvailable && !bypassLiveAnchor)
-            {
-                Vessel activeForFastPath = FlightGlobals.ActiveVessel;
-                if (activeForFastPath != null)
-                {
-                    Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
-                    if (IsLiveAnchorWithinActiveFastPath(
-                            liveAnchorAvailable,
-                            livePose.worldPos,
-                            IsFiniteVector3d(activeWorld),
-                            activeWorld,
-                            out _))
-                    {
-                        pose = livePose;
-                        GhostRenderTrace.EmitRelativeResolver(
-                            victimRecordingId,
-                            -1,
-                            Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                            targetUT,
-                            "loop-live-anchor",
-                            "live-fast-path",
-                            anchorVesselId,
-                            null,
-                            success: true,
-                            fromRecordedTrajectory: false,
-                            anchorPosition: pose.worldPos,
-                            anchorRotation: pose.worldRotation,
-                            localOffset: Vector3d.zero,
-                            outputPosition: pose.worldPos);
-                        return true;
-                    }
-                }
-            }
-
-            // Slow path: probe the recorded anchor pose so we can detect
-            // pose drift (live anchor far from active vessel — likely a
-            // post-merge / time-warp / cross-mission case). Pre-PR the
-            // early-exit at this point returned Live whenever
-            // liveAnchorAvailable && !bypass, skipping the recorded probe
-            // entirely; that made the post-merge watch-jump bug invisible
-            // because the Relative section's offset got decoded against the
-            // live anchor's CURRENT pose (hundreds of km from recording),
-            // tripping the watch zone cutoff. Keeping the recorded probe
-            // means we have the data to detect that drift and downgrade to
-            // the recorded path via IsStaleLiveAnchor below.
-            if (searchTrees == null)
-            {
-                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            }
-
-            bool recordedAnchorAvailable = TryResolveRecordedAnchorPoseWithCoverage(
-                anchorVesselId,
-                victimRecordingId,
-                targetUT,
-                searchTrees,
-                marker,
-                bypassLiveAnchor,
-                requireCoverage: true,
-                out RelativeAnchorPose recordedPose);
-
-            // Stale-anchor staleness gate: when we have BOTH a live and a
-            // recorded pose for the anchor at the playback UT, and they
-            // disagree by more than StaleRelativeAnchorRejectMeters, the
-            // live anchor's pose isn't what the recording captured (anchor
-            // has progressed past the recording's UT range, anchor was
-            // rewound, etc.). Prefer the recorded pose so the ghost renders
-            // at its recorded geometry instead of being decoded against an
-            // anchor that is now in a totally different physical location.
-            // This upgrades the active-Re-Fly bypass into a general "live
-            // anchor is unreliable" signal — same downstream path, broader
-            // applicability.
-            //
-            // Threshold rationale lives next to the constant; in short,
-            // 250 m is well above docking-approach noise (200 m
-            // DockingApproachMeters) and well below the km-scale drift the
-            // bug exhibits.
-            //
-            // Why this clause naturally no-ops during active Re-Fly:
-            // ShouldBypassLiveRelativeAnchorForActiveReFly already set
-            // bypassLiveAnchor=true above, which short-circuited the live
-            // probe (so liveAnchorAvailable=false). Both conditions
-            // conspire to skip this `if`. Don't add an explicit
-            // `bypassLiveAnchor` early-out here — leaving the predicate
-            // self-documenting via `liveAnchorAvailable` keeps the gate's
-            // semantics ("we have two poses to compare") readable.
-            if (liveAnchorAvailable
-                && recordedAnchorAvailable
-                && !bypassLiveAnchor
-                && RelativeAnchorResolution.IsStaleLiveAnchor(
-                    livePose.worldPos,
-                    recordedPose.worldPos,
-                    StaleRelativeAnchorRejectMeters,
-                    out double posDelta))
-            {
-                var ic = CultureInfo.InvariantCulture;
-                string staleKey = string.Concat(
-                    "stale-anchor|",
-                    anchorVesselId.ToString(ic),
-                    "|",
-                    victimRecordingId ?? "<no-victim>");
-                ParsekLog.VerboseRateLimited("Playback", staleKey,
-                    $"Stale relative anchor detected: anchorPid={anchorVesselId} " +
-                    $"victim={ShortRecordingId(victimRecordingId)} " +
-                    $"targetUT={targetUT.ToString("F2", ic)} " +
-                    $"liveWorld=({livePose.worldPos.x.ToString("F1", ic)}," +
-                    $"{livePose.worldPos.y.ToString("F1", ic)}," +
-                    $"{livePose.worldPos.z.ToString("F1", ic)}) " +
-                    $"recordedWorld=({recordedPose.worldPos.x.ToString("F1", ic)}," +
-                    $"{recordedPose.worldPos.y.ToString("F1", ic)}," +
-                    $"{recordedPose.worldPos.z.ToString("F1", ic)}) " +
-                    $"delta={posDelta.ToString("F0", ic)}m " +
-                    $"threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m " +
-                    "— preferring recorded anchor pose");
-                bypassLiveAnchor = true;
-            }
-
-            bool recordedFallbackAvailable = false;
-            RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
-            if (!recordedAnchorAvailable && bypassLiveAnchor)
-            {
-                recordedFallbackAvailable = TryResolveRecordedAnchorPoseWithCoverage(
-                    anchorVesselId,
+                GhostRenderTrace.EmitRelativeResolver(
                     victimRecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
                     targetUT,
-                    searchTrees,
-                    marker,
-                    bypassLiveAnchor,
-                    requireCoverage: false,
-                    out recordedFallbackPose);
+                    "loop-live-anchor",
+                    "missing-anchor-pid",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
+                return false;
             }
 
-            RelativeAnchorResolution.AnchorFrameSource source =
-                RelativeAnchorResolution.SelectAnchorFrameSource(
-                    liveAnchorAvailable,
-                    bypassLiveAnchor,
-                    recordedAnchorAvailable,
-                    recordedFallbackAvailable);
-            switch (source)
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null)
             {
-                case RelativeAnchorResolution.AnchorFrameSource.Live:
-                    pose = livePose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "live-selected",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: false,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos);
-                    return true;
-                case RelativeAnchorResolution.AnchorFrameSource.Recorded:
-                    pose = recordedPose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        bypassLiveAnchor ? "recorded-selected-bypass" : "recorded-selected-stale-or-unloaded",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: true,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos);
-                    return true;
-                case RelativeAnchorResolution.AnchorFrameSource.RecordedFallback:
-                    pose = recordedFallbackPose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "recorded-fallback-selected",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: true,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos);
-                    return true;
-                default:
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "no-anchor-source",
-                        anchorVesselId,
-                        null,
-                        success: false,
-                        fromRecordedTrajectory: false,
-                        anchorPosition: Vector3d.zero,
-                        anchorRotation: Quaternion.identity,
-                        localOffset: Vector3d.zero,
-                        outputPosition: Vector3d.zero);
-                    return false;
-            }
-        }
-
-        // Stale-anchor staleness threshold (metres). Live anchor world position
-        // at the playback UT differs from recorded anchor world position at
-        // the same UT by more than this → the resolver downgrades to the
-        // recorded pose.
-        //
-        // Why 250 m:
-        // - During *normal* in-physics-range playback the live anchor is
-        //   either the active vessel or a vessel within ~2.5 km being
-        //   physics-simulated alongside; sample-interp drift across the
-        //   recording's ~0.1-0.5 s sample interval is at most a few tens of
-        //   metres for atmospheric flight and centimetres for a Kepler-on-
-        //   rails anchor (deterministic). 250 m gives ~5x safety margin
-        //   above that noise floor.
-        // - The *bug class* (post-merge watch session, plain rewind, time-
-        //   warp etc.) puts the live anchor hundreds of metres to hundreds
-        //   of km from where the recording captured it — orders of magnitude
-        //   above 250 m. The captured repro at
-        //   logs/2026-04-27_0123_watch-jump-and-ghost-misalign sat at
-        //   818 km, comfortably across the threshold.
-        // - Sits above DockingApproachMeters (200 m) so legitimate close-
-        //   rendezvous ghosts whose anchor is a docking target the player
-        //   is actively flying near don't false-positive on
-        //   sample-interp noise.
-        // - The companion proximity fast-path at LiveAnchorProximityFastPathMeters
-        //   already short-circuits the staleness check entirely for anchors
-        //   in physics range of the active vessel, so this threshold only
-        //   gates the cases where probing recorded was already going to
-        //   happen.
-        internal const double StaleRelativeAnchorRejectMeters = 250.0;
-
-        // Proximity fast-path threshold (metres). When the live anchor is
-        // closer than this to the active vessel, the relative-anchor
-        // resolver trusts the live pose and skips the recorded probe (and
-        // the staleness check that follows). Picked at 5 km: above KSP's
-        // ~2.5 km physics bubble so any legitimately-loaded anchor falls
-        // inside the fast-path, well below the bug-class km-scale
-        // separations.
-        internal const double LiveAnchorProximityFastPathMeters = 5_000.0;
-
-        bool ShouldBypassLiveRelativeAnchorForActiveReFly(
-            uint anchorVesselId,
-            string victimRecordingId,
-            ReFlySessionMarker marker,
-            IReadOnlyList<RecordingTree> searchTrees)
-        {
-            if (string.IsNullOrEmpty(victimRecordingId))
-                return false;
-            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
-                return false;
-
-            if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
-                return false;
-            if (anchorVesselId != activeReFlyPid)
-                return false;
-
-            // Compute the parent-chain hint for telemetry only — the bypass
-            // applies to any victim recording whose section anchor is the
-            // active Re-Fly PID, regardless of topological relationship. See
-            // RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly's
-            // docstring (PR after the 2026-04-26 sibling-chain repro).
-            bool victimIsParentOfActiveReFly =
-                GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                GhostRenderTrace.EmitRelativeResolver(
                     victimRecordingId,
-                    marker.ActiveReFlyRecordingId,
-                    searchTrees,
-                    out _);
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-live-anchor",
+                    "anchor-not-loaded",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
+                return false;
+            }
 
-            return RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
-                anchorVesselId,
-                activeReFlyPid,
+            Vector3d anchorWorld = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(anchorWorld))
+            {
+                GhostRenderTrace.EmitRelativeResolver(
+                    victimRecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-live-anchor",
+                    "non-finite-live-anchor",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: anchorWorld,
+                    anchorRotation: anchor.transform.rotation,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
+                return false;
+            }
+
+            pose.worldPos = anchorWorld;
+            pose.worldRotation = anchor.transform.rotation;
+            pose.fromRecordedTrajectory = false;
+            GhostRenderTrace.EmitRelativeResolver(
                 victimRecordingId,
-                marker.ActiveReFlyRecordingId,
-                victimIsParentOfActiveReFly);
+                -1,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                targetUT,
+                "loop-live-anchor",
+                "live-selected",
+                anchorVesselId,
+                null,
+                success: true,
+                fromRecordedTrajectory: false,
+                anchorPosition: pose.worldPos,
+                anchorRotation: pose.worldRotation,
+                localOffset: Vector3d.zero,
+                outputPosition: pose.worldPos);
+            return true;
         }
 
         internal bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
@@ -21377,205 +21092,41 @@ namespace Parsek
             }
 
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            IReadOnlyList<RecordingTree> searchTrees = null;
-            bool activeReFlyBypass = false;
-            // Both legacy in-place (active == origin) and the post-#734 fork
-            // (InPlaceContinuation flag, active != origin) keep the player on
-            // the same physical vessel as origin, so the v7 RELATIVE absolute-
-            // shadow shortcut applies identically -- the live anchor pose has
-            // diverged from the recording.
-            if (ReFlySessionMarker.IsInPlaceContinuation(marker))
-            {
-                searchTrees =
-                    GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                        RecordingStore.CommittedTrees,
-                        RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-                activeReFlyBypass = ShouldBypassLiveRelativeAnchorForActiveReFly(
-                    anchorVesselId,
-                    trajectory.RecordingId,
-                    marker,
-                    searchTrees);
-            }
-
-            bool liveAnchorAvailable = false;
-            Vector3d liveAnchorWorld = Vector3d.zero;
-            bool liveAnchorWithinActiveFastPath = false;
-            double liveAnchorActiveDistance = double.NaN;
-            bool recordedAnchorAvailable = false;
-            Vector3d recordedAnchorWorld = Vector3d.zero;
-            if (!activeReFlyBypass)
-            {
-                Vessel liveAnchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-                if (liveAnchor != null)
-                {
-                    liveAnchorWorld = liveAnchor.GetWorldPos3D();
-                    liveAnchorAvailable = IsFiniteVector3d(liveAnchorWorld);
-                }
-
-                if (liveAnchorAvailable)
-                {
-                    Vessel activeForFastPath = FlightGlobals.ActiveVessel;
-                    if (activeForFastPath != null)
-                    {
-                        Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
-                        liveAnchorWithinActiveFastPath = IsLiveAnchorWithinActiveFastPath(
-                            liveAnchorAvailable,
-                            liveAnchorWorld,
-                            IsFiniteVector3d(activeWorld),
-                            activeWorld,
-                            out liveAnchorActiveDistance);
-                    }
-
-                    if (liveAnchorWithinActiveFastPath)
-                    {
-                        var ic = CultureInfo.InvariantCulture;
-                        ParsekLog.VerboseRateLimited(
-                            "Playback",
-                            string.Concat(
-                                "relative-absolute-shadow-live-fast-path|",
-                                trajectory.RecordingId, "|",
-                                anchorVesselId.ToString(ic), "|",
-                                section.startUT.ToString("R", ic)),
-                            $"RELATIVE absolute shadow skipped: reason=live-anchor-proximity-fast-path " +
-                            $"anchorPid={anchorVesselId} " +
-                            $"distFromActive={liveAnchorActiveDistance.ToString("F0", ic)}m " +
-                            $"threshold={LiveAnchorProximityFastPathMeters.ToString("F0", ic)}m",
-                            5.0);
-                    }
-                    else
-                    {
-                        if (searchTrees == null)
-                        {
-                            searchTrees =
-                                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                                    RecordingStore.CommittedTrees,
-                                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-                        }
-
-                        if (TryResolveRecordedAnchorPoseWithCoverage(
-                                anchorVesselId,
-                                trajectory.RecordingId,
-                                targetUT,
-                                searchTrees,
-                                marker,
-                                bypassLiveAnchorForActiveReFly: false,
-                                requireCoverage: true,
-                                out RelativeAnchorPose recordedPose))
-                        {
-                            recordedAnchorWorld = recordedPose.worldPos;
-                            recordedAnchorAvailable = IsFiniteVector3d(recordedAnchorWorld);
-                        }
-                    }
-                }
-            }
-
-            if (!ShouldUseAbsoluteShadowForRelativeSection(
-                    activeReFlyBypass,
-                    liveAnchorAvailable,
-                    liveAnchorWorld,
-                    liveAnchorWithinActiveFastPath,
-                    recordedAnchorAvailable,
-                    recordedAnchorWorld,
-                    out string shadowReason,
-                    out double staleDeltaMeters))
-            {
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
-            }
+
+            IReadOnlyList<RecordingTree> searchTrees =
+                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
+                    RecordingStore.CommittedTrees,
+                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+            if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
+                return false;
+            if (anchorVesselId != activeReFlyPid)
+                return false;
+            if (string.Equals(
+                    trajectory.RecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal))
+                return false;
 
             absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
                 trajectory,
                 section,
                 targetUT);
             string logKey = string.Concat(
-                shadowReason ?? "<none>", "|",
+                "active-refly-anchor|",
                 trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
                 "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
             if (loggedRelativeAbsoluteShadowStart.Add(logKey))
             {
-                var ic = CultureInfo.InvariantCulture;
-                string staleDetail = string.Equals(shadowReason, "stale-anchor", StringComparison.Ordinal)
-                    ? $" staleDelta={staleDeltaMeters.ToString("F0", ic)}m threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m"
-                    : string.Empty;
                 ParsekLog.Info("Playback",
                     $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
                     $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
                     $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
                     $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
-                    $"reason={shadowReason}{staleDetail}");
+                    "reason=active-refly-anchor");
             }
             return true;
-        }
-
-        internal static bool ShouldUseAbsoluteShadowForRelativeSection(
-            bool activeReFlyBypass,
-            bool liveAnchorAvailable,
-            Vector3d liveAnchorWorld,
-            bool liveAnchorWithinActiveFastPath,
-            bool recordedAnchorAvailable,
-            Vector3d recordedAnchorWorld,
-            out string reason,
-            out double staleDeltaMeters)
-        {
-            reason = null;
-            staleDeltaMeters = double.NaN;
-            if (activeReFlyBypass)
-            {
-                reason = "active-refly-parent-chain";
-                return true;
-            }
-
-            if (liveAnchorWithinActiveFastPath)
-                return false;
-
-            // #688 follow-up: when the live anchor vessel doesn't exist
-            // (typical of regular Watch playback where the recording's
-            // original anchor vessel is gone — recovered, unloaded, or
-            // never existed in the current playback session), the shadow
-            // is the only world-position truth available for the Relative
-            // section. Without this branch, the legacy live-anchor relative
-            // path logs `relative-anchor-unresolved` and leaves the focused
-            // ghost briefly mispositioned at stage-separation moments,
-            // where the recorded anchor (the just-decoupled booster) only
-            // ever existed during the original recording. Caller already
-            // gated on `section.absoluteFrames` being non-empty, so the
-            // shadow data is guaranteed available when this branch fires.
-            if (!liveAnchorAvailable)
-            {
-                reason = "no-live-anchor";
-                return true;
-            }
-
-            if (!recordedAnchorAvailable)
-                return false;
-
-            if (RelativeAnchorResolution.IsStaleLiveAnchor(
-                    liveAnchorWorld,
-                    recordedAnchorWorld,
-                    StaleRelativeAnchorRejectMeters,
-                    out staleDeltaMeters))
-            {
-                reason = "stale-anchor";
-                return true;
-            }
-
-            return false;
-        }
-
-        internal static bool IsLiveAnchorWithinActiveFastPath(
-            bool liveAnchorAvailable,
-            Vector3d liveAnchorWorld,
-            bool activeVesselAvailable,
-            Vector3d activeVesselWorld,
-            out double distanceMeters)
-        {
-            distanceMeters = double.NaN;
-            if (!liveAnchorAvailable || !activeVesselAvailable)
-                return false;
-
-            distanceMeters = (liveAnchorWorld - activeVesselWorld).magnitude;
-            return !double.IsNaN(distanceMeters)
-                && !double.IsInfinity(distanceMeters)
-                && distanceMeters < LiveAnchorProximityFastPathMeters;
         }
 
         // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
@@ -22539,9 +22090,8 @@ namespace Parsek
                         recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
                 {
                     // Thread recordingId/sectionIndex so the inner
-                    // InterpolateAndPosition can apply the Re-Fly tree anchor
-                    // offset on the loop absolute-shadow path. Mirrors the
-                    // same fix in InterpolateAndPositionRelative outer.
+                    // InterpolateAndPosition can emit recorded-coordinate
+                    // diagnostics for the loop absolute-shadow path.
                     InterpolateAndPosition(ghost, absoluteFrames, null,
                         ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                         allowActivation: allowActivation,

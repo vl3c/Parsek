@@ -5153,8 +5153,8 @@ namespace Parsek
         /// when no anchor is loaded. The delta lets a single appearance log
         /// line answer "is the anchor where the recording expected it to be"
         /// without needing to cross-reference prec.txt + flight scene state.
-        /// Active-Re-Fly target divergence and post-merge stale-anchor
-        /// drift both surface as a large |anchor-root| value here.
+        /// Active-Re-Fly target divergence and post-merge anchor drift both
+        /// surface as a large |anchor-root| value here.
         ///
         /// <para>
         /// Live anchor lookup goes through the host positioner
