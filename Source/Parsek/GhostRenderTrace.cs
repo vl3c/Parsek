@@ -49,7 +49,6 @@ namespace Parsek
             public int FrameCount;
             public int AbsoluteFrameCount;
             public int CheckpointCount;
-            public uint AnchorVesselId;
             public string AnchorRecordingId;
             public float BoundaryDiscontinuityMeters;
             public bool HasSection;
@@ -596,7 +595,6 @@ namespace Parsek
             context.FrameCount = section.frames?.Count ?? 0;
             context.AbsoluteFrameCount = section.absoluteFrames?.Count ?? 0;
             context.CheckpointCount = section.checkpoints?.Count ?? 0;
-            context.AnchorVesselId = section.anchorVesselId;
             context.AnchorRecordingId = section.anchorRecordingId;
             context.BoundaryDiscontinuityMeters = section.boundaryDiscontinuityMeters;
             return context;
@@ -613,7 +611,6 @@ namespace Parsek
                 + " frames=" + section.FrameCount.ToString(CultureInfo.InvariantCulture)
                 + " absFrames=" + section.AbsoluteFrameCount.ToString(CultureInfo.InvariantCulture)
                 + " checkpoints=" + section.CheckpointCount.ToString(CultureInfo.InvariantCulture)
-                + " anchorPid=" + section.AnchorVesselId.ToString(CultureInfo.InvariantCulture)
                 + " anchorRec=" + ShortId(section.AnchorRecordingId)
                 + " boundaryDM=" + section.BoundaryDiscontinuityMeters.ToString("F2", CultureInfo.InvariantCulture);
         }

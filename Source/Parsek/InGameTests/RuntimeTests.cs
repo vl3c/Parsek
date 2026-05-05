@@ -13706,12 +13706,6 @@ namespace Parsek.InGameTests
             public void ClearOrbitCache()
             {
             }
-
-            public bool TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
-            {
-                worldPosition = Vector3d.zero;
-                return false;
-            }
         }
 
         #endregion
@@ -14184,12 +14178,6 @@ namespace Parsek.InGameTests
             }
 
             public void ClearOrbitCache() { }
-
-            public bool TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
-            {
-                worldPosition = Vector3d.zero;
-                return false;
-            }
         }
 
         // ===================================================================

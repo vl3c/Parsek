@@ -15858,38 +15858,20 @@ namespace Parsek
         /// fixed. <c>ShouldAutoActivateGhost</c> is the canonical source for the
         /// value.
         ///
-        /// <para>
-        /// The host-scene activation gate
-        /// (<see cref="GhostPlaybackState.externalActivationDeferred"/>,
-        /// #688 follow-up) is also honoured here so positioner paths that
-        /// reactivate a previously-hidden ghost (e.g. zone re-entry after
-        /// distance-LOD hide) cannot bypass the gate and SetActive(true)
-        /// on a ghost whose Re-Fly anchor offset has not yet resolved.
-        /// The gate's value is set by the END of the previous frame's
-        /// <c>RefreshReFlyAnchorActivationGate</c> call, so the predicate
-        /// reads at most one-frame-stale gate state — acceptable because
-        /// the gate is monotone-like at session boundaries.
-        /// </para>
         /// </summary>
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             if (state == null) return true;
             if (state.deferVisibilityUntilPlaybackSync) return false;
-            if (state.externalActivationDeferred) return false;
             return true;
         }
 
         /// <summary>
         /// Diagnostic context appended to the watch-cutoff log line: ghost
-        /// world position + (when known from the active section under the
-        /// current game UT) the section's reference frame and live anchor
-        /// data. The 818 km cutoff trip in
-        /// `logs/2026-04-27_0123_watch-jump-and-ghost-misalign` was
-        /// indecipherable from KSP.log alone; this turns "the cutoff
-        /// fired" into "the cutoff fired because the section's anchor is
-        /// in stable orbit while the recording wanted the ghost in
-        /// atmosphere." Returns empty when there's no useful context to
-        /// append (state/ghost null) so the call site stays clean.
+        /// world position plus the active section under the current game UT.
+        /// Recorded Relative sections are identified by anchor recording ID;
+        /// non-loop playback must not enrich this diagnostic from live vessel
+        /// PID lookups.
         /// </summary>
         internal static string DescribeWatchCutoffContext(
             IPlaybackTrajectory rec, GhostPlaybackState state)
@@ -15935,32 +15917,13 @@ namespace Parsek
                 $"sectionUT=[{section.startUT.ToString("F1", ic)}," +
                 $"{section.endUT.ToString("F1", ic)}]";
 
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.anchorVesselId == 0u)
-            {
+            if (section.referenceFrame != ReferenceFrame.Relative)
                 return $"{ghostWorldStr} {sectionStr}";
-            }
 
-            string anchorStr;
-            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
-            if (anchor == null)
-            {
-                anchorStr = $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
-            }
-            else
-            {
-                Vector3d anchorWorld = anchor.GetWorldPos3D();
-                // Match DescribeAppearanceLiveAnchorContext's |anchor-root|
-                // label so KSP.log greps that look at one site work for the
-                // other (state.ghost.transform.position IS the ghost root).
-                Vector3d delta = ghostWorld - anchorWorld;
-                anchorStr =
-                    $"anchorPid={section.anchorVesselId} " +
-                    $"anchorWorld={FormatVector3d(anchorWorld)} " +
-                    $"|anchor-root|={delta.magnitude.ToString("F0", ic)}m";
-            }
-
-            return $"{ghostWorldStr} {sectionStr} {anchorStr}";
+            string anchorRec = string.IsNullOrWhiteSpace(section.anchorRecordingId)
+                ? "anchorRec=missing"
+                : $"anchorRec={section.anchorRecordingId.Trim()}";
+            return $"{ghostWorldStr} {sectionStr} {anchorRec}";
         }
 
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
@@ -15999,7 +15962,6 @@ namespace Parsek
             {
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = playbackIdx;
-                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -16039,7 +16001,6 @@ namespace Parsek
                     pointFrameSource: pointFrameSource);
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
-                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -16054,7 +16015,6 @@ namespace Parsek
                 pointFrameSource: "flat-points");
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
@@ -16105,7 +16065,6 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -16157,7 +16116,6 @@ namespace Parsek
                 positioned.velocity,
                 positioned.bodyName,
                 positioned.altitude));
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, positioned.ut);
         }
 
         bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
@@ -16452,11 +16410,6 @@ namespace Parsek
                 Vector3.zero,
                 positioned.body,
                 positioned.altitude));
-            // Surface positioning has no playback UT of its own — the
-            // landed/splashed ghost sits at a fixed surface point. Use the
-            // current planetary UT so the gate evaluates the offset at
-            // "now," matching what PositionGhostAtSurface did internally.
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, Planetarium.GetUniversalTime());
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -16499,7 +16452,6 @@ namespace Parsek
                     traj.RecordingId,
                     traj);
             }
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
@@ -16518,7 +16470,6 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
@@ -16531,18 +16482,6 @@ namespace Parsek
         void IGhostPositioner.ClearOrbitCache()
         {
             ClearOrbitPlaybackCaches();
-        }
-
-        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
-        {
-            worldPosition = Vector3d.zero;
-            if (anchorVesselId == 0u) return false;
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-            if (anchor == null) return false;
-            Vector3d candidate = anchor.GetWorldPos3D();
-            if (!IsFiniteVector3d(candidate)) return false;
-            worldPosition = candidate;
-            return true;
         }
 
         #endregion
@@ -17333,11 +17272,10 @@ namespace Parsek
                 ParsekLog.WarnRateLimited("Pipeline-CoBubble",
                     "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
                     string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2} legacyAnchorPid={3}",
+                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2}",
                         reason,
                         rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        section.anchorVesselId),
+                        ut.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);
                 if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
                     return true;
@@ -18806,705 +18744,6 @@ namespace Parsek
         private const bool NormalPlaybackSplinePositioningEnabled = false;
         private const bool NormalPlaybackPointHermiteEnabled = false;
 
-        internal struct ReFlyRecordedAnchorSampleDiagnostics
-        {
-            public int SectionIndex;
-            public ReferenceFrame SectionFrame;
-            public TrackSectionSource SectionSource;
-            public string FrameSource;
-            public double SectionStartUT;
-            public double SectionEndUT;
-            public int FrameCount;
-            public double BeforeUT;
-            public double AfterUT;
-            public float InterpolationT;
-            public bool ClampedToEndpoint;
-            public string BodyBeforeName;
-            public string BodyAfterName;
-            public Vector3 RecordedVelocity;
-        }
-
-        internal static bool IsRecordingInReFlyTreeMarker(
-            string recordingId, ReFlySessionMarker marker)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-            if (marker == null || string.IsNullOrEmpty(marker.TreeId))
-                return false;
-            string recTreeId = ResolveTreeIdForRecording(recordingId);
-            return !string.IsNullOrEmpty(recTreeId)
-                && string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal);
-        }
-
-        internal static bool ShouldRaiseExternalActivationGate(
-            bool ghostActive,
-            string recordingId,
-            ReFlySessionMarker marker,
-            bool hasResolvableAnchorData,
-            bool offsetApplied)
-        {
-            // Test-friendly entry point that resolves `inTree` from
-            // (recordingId, marker) and forwards to the production
-            // helper used by RefreshReFlyAnchorActivationGate.
-            return ShouldRaiseExternalActivationGateGivenInputs(
-                ghostActive,
-                inTree: IsRecordingInReFlyTreeMarker(recordingId, marker),
-                hasResolvableAnchorData,
-                offsetApplied);
-        }
-
-        /// <summary>
-        /// Updates <see cref="GhostPlaybackState.externalActivationDeferred"/>
-        /// for a freshly-positioned ghost. The display-alignment dependency
-        /// has been removed, so this compatibility shim always lowers the
-        /// gate until the remaining spawn-frame defer plumbing is deleted.
-        /// </summary>
-        internal void RefreshReFlyAnchorActivationGate(
-            string recordingId, GhostPlaybackState state, double currentUT)
-        {
-            if (state?.ghost == null)
-                return;
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            // Compute each input ONCE — the previous code re-derived
-            // `inTree` two more times (in ShouldRaiseExternalActivationGate
-            // and ResolveLowerReason), each one being an O(tree-count)
-            // committed-tree walk. Pass the result through.
-            bool ghostActive = state.ghost.activeSelf;
-            bool inTree = !ghostActive && IsRecordingInReFlyTreeMarker(recordingId, marker);
-            bool hasResolvableAnchorData = inTree
-                && HasResolvableReFlyAnchorData(marker, currentUT);
-            bool offsetApplied = hasResolvableAnchorData;
-            bool raise = ShouldRaiseExternalActivationGateGivenInputs(
-                ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
-
-            if (raise)
-            {
-                RaiseExternalActivationGate(state, recordingId, currentUT);
-            }
-            else
-            {
-                string reason = ResolveLowerReason(
-                    ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
-                LowerExternalActivationGate(state, recordingId, reason);
-            }
-        }
-
-        // Internal helper that takes the precomputed `inTree` flag, used by
-        // RefreshReFlyAnchorActivationGate to avoid the second tree walk
-        // through ShouldRaiseExternalActivationGate's IsRecordingInReFlyTreeMarker
-        // call. Public entry point ShouldRaiseExternalActivationGate (below)
-        // forwards to this helper.
-        private static bool ShouldRaiseExternalActivationGateGivenInputs(
-            bool ghostActive, bool inTree,
-            bool hasResolvableAnchorData, bool offsetApplied)
-        {
-            if (ghostActive) return false;
-            if (!inTree) return false;
-            if (!hasResolvableAnchorData) return false;
-            return !offsetApplied;
-        }
-
-        private static string ResolveLowerReason(
-            bool ghostActive, bool inTree,
-            bool hasResolvableAnchorData, bool offsetApplied)
-        {
-            if (ghostActive) return "ghost-active";
-            if (!inTree) return "out-of-tree";
-            if (!hasResolvableAnchorData) return "no-anchor-data";
-            if (offsetApplied) return "offset-resolved";
-            return "<unreachable>";
-        }
-
-        private static void LowerExternalActivationGate(
-            GhostPlaybackState state, string recordingId, string reason)
-        {
-            if (state == null) return;
-            bool wasRaised = state.externalActivationDeferred;
-            state.externalActivationDeferred = false;
-            if (wasRaised)
-            {
-                GhostRenderTrace.EmitPhase(
-                    recordingId,
-                    -1,
-                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
-                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
-                    "ReFlyActivationGate",
-                    "action=lower reason=" + (reason ?? "<none>"),
-                    important: false,
-                    force: true);
-                ParsekLog.Verbose("Playback",
-                    "Re-Fly anchor activation gate lowered: rec="
-                    + ShortRecordingId(recordingId)
-                    + " reason=" + (reason ?? "<none>"));
-            }
-        }
-
-        private static void RaiseExternalActivationGate(
-            GhostPlaybackState state, string recordingId, double currentUT)
-        {
-            if (state == null) return;
-            bool wasRaised = state.externalActivationDeferred;
-            state.externalActivationDeferred = true;
-            if (!wasRaised)
-            {
-                GhostRenderTrace.EmitPhase(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    currentUT,
-                    "ReFlyActivationGate",
-                    "action=raise reason=offset-not-resolvable",
-                    important: false,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-gate-raise|" + (recordingId ?? "<no-rec>"),
-                    "Re-Fly anchor activation gate raised: rec="
-                    + ShortRecordingId(recordingId)
-                    + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                    + " (offset not yet resolvable; ghost stays hidden until "
-                    + "the offset resolves or the active Re-Fly target's anchor data is gone)",
-                    5.0);
-            }
-        }
-
-        /// <summary>
-        /// Returns true when the active Re-Fly target has trajectory data
-        /// the recorded-coordinate activation path can sample at the current playback
-        /// UT. The predicate must agree with
-        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on THREE axes:
-        /// <list type="bullet">
-        ///   <item><description><b>Source selection.</b> When a captured
-        ///   pre-Re-Fly snapshot exists for the active session, the offset
-        ///   sampler uses the snapshot's <see cref="Recording.PreReFlyAnchorTrackSections"/>
-        ///   exclusively — it does NOT fall through to live track sections
-        ///   if the snapshot is unsampleable. The gate predicate must
-        ///   match: when a snapshot exists for the session, only the
-        ///   snapshot is consulted; when no snapshot exists, only the
-        ///   live recording's <see cref="Recording.TrackSections"/> are.
-        ///   Falling through to live in the snapshot-unsampleable case
-        ///   would land on the player's NEW flight data (post-trim
-        ///   extension), producing a circular self-anchored result.</description></item>
-        ///   <item><description><b>Chain extension.</b> When the active
-        ///   recording is part of a chain (optimizer-split halves, etc.),
-        ///   the primary list only covers up to the split UT. The sampler
-        ///   appends chain successors' track sections — they're untouched
-        ///   by Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
-        ///   trim. The predicate must consult the same combined list so a
-        ///   ghost spawning at decouple UT (which falls in the successor's
-        ///   range) sees true here and gets a real offset, instead of the
-        ///   sampler clamping to the split UT and producing a stale
-        ///   anchor 1-2 km off.</description></item>
-        ///   <item><description><b>Section-at-UT.</b> The sampler picks
-        ///   the section that covers <paramref name="currentUT"/> (or
-        ///   clamps to the nearest endpoint section), then accepts /
-        ///   rejects that single section. The gate predicate must
-        ///   evaluate sampleability against the SAME section the sampler
-        ///   would choose — a recording with an early sampleable Absolute
-        ///   section followed by a later OrbitalCheckpoint section
-        ///   reports false during the checkpoint window even though the
-        ///   list as a whole has sampleable data elsewhere.</description></item>
-        /// </list>
-        /// </summary>
-        internal static bool HasResolvableReFlyAnchorData(
-            ReFlySessionMarker marker, double currentUT)
-        {
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return false;
-            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
-            if (reFlyRec == null)
-                return false;
-            return HasSampleableTrackSectionAtUT(
-                SelectReFlyAnchorSampleSections(reFlyRec, marker), currentUT);
-        }
-
-        /// <summary>
-        /// Single source of truth for the active Re-Fly anchor sample sections.
-        /// When a captured pre-Re-Fly snapshot exists for the active session
-        /// the snapshot's track sections are returned; otherwise the live
-        /// recording's track sections are. Returns null when either input is
-        /// null.
-        ///
-        /// <para>When the active Re-Fly recording is part of a chain
-        /// (e.g. an optimizer-split atmospheric / exo pair), the primary
-        /// list (snapshot or live) only covers up to the split UT. Player
-        /// flight past that UT — for instance, watching a decouple that
-        /// happened in the original timeline AFTER the split — needs the
-        /// chain successors' track sections to keep the alignment capture
-        /// honest. Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
-        /// trim leaves chain successors untouched (only the active rec
-        /// gets trimmed past cutoff), so their <see cref="Recording.TrackSections"/>
-        /// still hold the original recorded path and are safe to read.
-        /// Successor sections are appended in <see cref="Recording.ChainIndex"/>
-        /// order; the appended list is fed to <see cref="TrySampleRecordedAbsoluteWorld"/>
-        /// which selects the section covering the current UT (or clamps
-        /// to the nearest endpoint section, same as the no-chain case).</para>
-        /// </summary>
-        private static List<TrackSection> SelectReFlyAnchorSampleSections(
-            Recording reFlyRec, ReFlySessionMarker marker)
-        {
-            if (reFlyRec == null || marker == null) return null;
-            // HasPreReFlyAnchorTrajectory short-circuits on a null/empty
-            // sessionId, so no extra string check is needed here.
-            List<TrackSection> primary = reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
-                ? reFlyRec.PreReFlyAnchorTrackSections
-                : reFlyRec.TrackSections;
-
-            // No chain → primary is the whole story. Returns the field-
-            // resident list directly (no allocation).
-            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
-                return primary;
-
-            return AppendReFlyAnchorChainSuccessorSections(primary, reFlyRec, marker);
-        }
-
-        /// <summary>
-        /// Walks the recording store for chain successors of the active
-        /// Re-Fly recording (same <see cref="Recording.ChainId"/>, strictly
-        /// greater <see cref="Recording.ChainIndex"/>, with non-empty
-        /// <see cref="Recording.TrackSections"/>) and appends their
-        /// sections to <paramref name="primary"/>. When no successors
-        /// exist, returns <paramref name="primary"/> unchanged so the
-        /// no-chain hot path stays allocation-free. Successors are scoped
-        /// to the active Re-Fly tree (<see cref="ReFlySessionMarker.TreeId"/>)
-        /// — chain IDs are tree-local and a global walk could collide.
-        /// The match predicate also requires
-        /// <see cref="Recording.ChainBranch"/> equality with the active
-        /// recording. <c>ChainBranch == 0</c> is the primary chain path
-        /// while <c>ChainBranch &gt; 0</c> is a parallel ghost-only
-        /// continuation (e.g. dock / undock branch-1 recordings); same
-        /// <c>ChainId</c> + different <c>ChainBranch</c> represent
-        /// independent vessel paths and must not be appended together,
-        /// otherwise the sampler would interleave a parallel vessel's
-        /// trajectory into the active branch's anchor list. The same
-        /// <c>(TreeId, ChainId, ChainBranch)</c> triplet is used by
-        /// <c>EffectiveState.EnqueueChainSiblings</c> to scope the merge
-        /// closure walk; this helper mirrors that contract.
-        /// Exposed as <c>internal</c> for unit testing of the
-        /// optimizer-split anchor scenario.
-        /// </summary>
-        internal static List<TrackSection> AppendReFlyAnchorChainSuccessorSections(
-            List<TrackSection> primary, Recording reFlyRec, ReFlySessionMarker marker)
-        {
-            if (reFlyRec == null || marker == null) return primary;
-            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
-                return primary;
-
-            List<Recording> successors = null;
-            string chainId = reFlyRec.ChainId;
-            int activeIdx = reFlyRec.ChainIndex;
-            int activeBranch = reFlyRec.ChainBranch;
-            string treeId = marker.TreeId;
-
-            // Scope the walk to the active Re-Fly tree. A null/empty
-            // marker.TreeId is a malformed marker; falling through to
-            // every committed tree could pull successors from an
-            // unrelated tree that happens to share a ChainId GUID.
-            RecordingTree activeTree = ResolveTreeById(treeId);
-            if (activeTree?.Recordings != null)
-            {
-                CollectChainSuccessors(activeTree, chainId, activeIdx, activeBranch, ref successors);
-            }
-            // The pending tree is the resume-time tree before the
-            // committed-trees publish, so include it if it shares the
-            // marker's TreeId. After publish, CommittedTrees holds the
-            // canonical tree and PendingTree is null — no double-count.
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending != null
-                    && pending.Recordings != null
-                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal)
-                    && !object.ReferenceEquals(pending, activeTree))
-                {
-                    CollectChainSuccessors(pending, chainId, activeIdx, activeBranch, ref successors);
-                }
-            }
-
-            if (successors == null || successors.Count == 0)
-                return primary;
-
-            // Sort by ChainIndex so the appended sections stay in UT
-            // order. TrackSection.startUT inside each recording is
-            // already monotonic, and chain segments are temporally
-            // contiguous (successor.startUT == predecessor.endUT for
-            // optimizer splits), so sorting by ChainIndex preserves the
-            // sorted-by-startUT contract that FindTrackSectionForUT
-            // relies on.
-            successors.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
-
-            int totalSections = primary?.Count ?? 0;
-            for (int i = 0; i < successors.Count; i++)
-                totalSections += successors[i].TrackSections.Count;
-
-            List<TrackSection> combined = new List<TrackSection>(totalSections);
-            if (primary != null) combined.AddRange(primary);
-            for (int i = 0; i < successors.Count; i++)
-                combined.AddRange(successors[i].TrackSections);
-
-            // One-line audit per active session per ~5s so the chain
-            // extension is visible in KSP.log without spamming. Key on
-            // sessionId + active recording so a session with multiple
-            // chain pairs (rare) still logs each.
-            ParsekLog.VerboseRateLimited(
-                "Playback",
-                "refly-anchor-chain-extend|"
-                    + (marker.SessionId ?? "<no-sess>")
-                    + "|" + (reFlyRec.RecordingId ?? "<no-rec>"),
-                "Re-Fly anchor chain extension active: rec="
-                    + ShortRecordingId(reFlyRec.RecordingId)
-                    + " chainId=" + ShortRecordingId(reFlyRec.ChainId)
-                    + " activeIdx=" + reFlyRec.ChainIndex.ToString(CultureInfo.InvariantCulture)
-                    + " activeBranch=" + reFlyRec.ChainBranch.ToString(CultureInfo.InvariantCulture)
-                    + " primarySecs=" + (primary?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
-                    + " appendedSuccessors=" + successors.Count.ToString(CultureInfo.InvariantCulture)
-                    + " totalSecs=" + combined.Count.ToString(CultureInfo.InvariantCulture),
-                5.0);
-
-            return combined;
-        }
-
-        private static void CollectChainSuccessors(
-            RecordingTree tree, string chainId, int activeIdx, int activeBranch,
-            ref List<Recording> successors)
-        {
-            if (tree?.Recordings == null) return;
-            foreach (KeyValuePair<string, Recording> pair in tree.Recordings)
-            {
-                Recording rec = pair.Value;
-                if (rec == null) continue;
-                if (rec.ChainIndex <= activeIdx) continue;
-                if (rec.ChainBranch != activeBranch) continue;
-                if (!string.Equals(rec.ChainId, chainId, StringComparison.Ordinal))
-                    continue;
-                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
-                    continue;
-                if (successors == null) successors = new List<Recording>(2);
-                successors.Add(rec);
-            }
-        }
-
-        private static RecordingTree ResolveTreeById(string treeId)
-        {
-            if (string.IsNullOrEmpty(treeId)) return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    if (tree != null
-                        && string.Equals(tree.Id, treeId, StringComparison.Ordinal))
-                    {
-                        return tree;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending != null
-                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
-                {
-                    return pending;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Mirrors <see cref="TrySampleRecordedAbsoluteWorld"/>'s
-        /// section-selection-then-acceptance rule: picks the section that
-        /// covers <paramref name="ut"/> (clamping to the nearest endpoint
-        /// section when <paramref name="ut"/> is outside any section,
-        /// matching the sampler's clamp behaviour), then returns true iff
-        /// that single section is sampleable (Absolute with non-empty
-        /// <see cref="TrackSection.frames"/>, or Relative with non-empty
-        /// <see cref="TrackSection.absoluteFrames"/> v7 shadow). A list
-        /// containing sampleable sections elsewhere does not satisfy the
-        /// predicate when the section selected for the current UT is
-        /// unsampleable.
-        /// </summary>
-        internal static bool HasSampleableTrackSectionAtUT(
-            List<TrackSection> sections, double ut)
-        {
-            if (sections == null || sections.Count == 0)
-                return false;
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
-            if (sectionIdx < 0)
-            {
-                // Mirror TrySampleRecordedAbsoluteWorld's clamp: UT
-                // outside any section falls back to the nearest endpoint.
-                sectionIdx = ut < sections[0].startUT ? 0 : sections.Count - 1;
-            }
-            TrackSection s = sections[sectionIdx];
-            if (s.referenceFrame == ReferenceFrame.Absolute
-                && s.frames != null && s.frames.Count > 0)
-                return true;
-            if (s.referenceFrame == ReferenceFrame.Relative
-                && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                return true;
-            return false;
-        }
-
-        private static bool TryResolveReFlyLiveAnchorWorld(
-            Vessel liveAnchor,
-            ReFlySessionMarker marker,
-            out Vector3d livePos,
-            out string source,
-            out uint partPersistentId,
-            out double vesselOffsetMeters)
-        {
-            livePos = Vector3d.zero;
-            source = null;
-            partPersistentId = 0u;
-            vesselOffsetMeters = double.NaN;
-            if (liveAnchor == null)
-                return false;
-
-            Vector3d vesselPos = liveAnchor.GetWorldPos3D();
-            bool haveFiniteVesselPos = IsFiniteVector3d(vesselPos);
-            uint selectedRootPartPid = marker != null
-                ? marker.SelectedRootPartPersistentId
-                : 0u;
-            if (selectedRootPartPid != 0u)
-            {
-                partPersistentId = selectedRootPartPid;
-                IList<Part> parts = liveAnchor.parts;
-                if (parts != null)
-                {
-                    for (int i = 0; i < parts.Count; i++)
-                    {
-                        Part part = parts[i];
-                        if (part == null || part.persistentId != selectedRootPartPid)
-                            continue;
-                        if (part.transform == null)
-                        {
-                            source = "vessel-world-root-part-no-transform";
-                            break;
-                        }
-
-                        Vector3d partPos = part.transform.position;
-                        if (!IsFiniteVector3d(partPos))
-                        {
-                            source = "vessel-world-root-part-non-finite";
-                            break;
-                        }
-
-                        livePos = partPos;
-                        source = "root-part";
-                        vesselOffsetMeters = haveFiniteVesselPos
-                            ? Vector3d.Distance(vesselPos, partPos)
-                            : double.NaN;
-                        return true;
-                    }
-                }
-
-                if (source == null)
-                    source = "vessel-world-root-part-missing";
-            }
-
-            if (!haveFiniteVesselPos)
-                return false;
-
-            livePos = vesselPos;
-            if (source == null)
-                source = "vessel-world";
-            vesselOffsetMeters = 0.0;
-            return true;
-        }
-
-        /// <summary>
-        /// Samples the recorded ABSOLUTE world position of <paramref name="rec"/>
-        /// at <paramref name="ut"/>, looking up the section at that UT and
-        /// reading from absolute frames (Absolute section: section.frames;
-        /// Relative section: section.absoluteFrames shadow). Returns false for
-        /// OrbitalCheckpoint sections or missing shadow data — callers fall
-        /// through.
-        /// </summary>
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            Recording rec, double ut, out Vector3d worldPos)
-        {
-            worldPos = Vector3d.zero;
-            if (rec == null) return false;
-            return TrySampleRecordedAbsoluteWorld(rec.TrackSections, ut, out worldPos);
-        }
-
-        /// <summary>
-        /// Allocation-free overload of
-        /// <see cref="TrySampleRecordedAbsoluteWorld(Recording, double, out Vector3d)"/>
-        /// that takes the section list directly. The per-frame Re-Fly
-        /// anchor offset path uses this so it doesn't have to materialize
-        /// a synthetic <see cref="Recording"/> wrapping the captured
-        /// pre-Re-Fly snapshot just to read its track sections.
-        /// </summary>
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            List<TrackSection> sections, double ut, out Vector3d worldPos)
-        {
-            return TrySampleRecordedAbsoluteWorld(
-                sections,
-                ut,
-                out worldPos,
-                out _);
-        }
-
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            List<TrackSection> sections,
-            double ut,
-            out Vector3d worldPos,
-            out ReFlyRecordedAnchorSampleDiagnostics diagnostics)
-        {
-            worldPos = Vector3d.zero;
-            diagnostics = default(ReFlyRecordedAnchorSampleDiagnostics);
-            if (sections == null || sections.Count == 0)
-                return false;
-
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
-            if (sectionIdx < 0)
-            {
-                // UT outside any section — try clamping to nearest endpoint
-                if (ut < sections[0].startUT)
-                    sectionIdx = 0;
-                else
-                    sectionIdx = sections.Count - 1;
-            }
-
-            TrackSection section = sections[sectionIdx];
-            List<TrajectoryPoint> frames;
-            if (section.referenceFrame == ReferenceFrame.Absolute
-                && section.frames != null && section.frames.Count > 0)
-            {
-                frames = section.frames;
-                diagnostics.FrameSource = "absolute-frames";
-            }
-            else if (section.referenceFrame == ReferenceFrame.Relative
-                && section.absoluteFrames != null && section.absoluteFrames.Count > 0)
-            {
-                frames = section.absoluteFrames;
-                diagnostics.FrameSource = "relative-absolute-shadow";
-            }
-            else
-            {
-                return false;
-            }
-
-            diagnostics.SectionIndex = sectionIdx;
-            diagnostics.SectionFrame = section.referenceFrame;
-            diagnostics.SectionSource = section.source;
-            diagnostics.SectionStartUT = section.startUT;
-            diagnostics.SectionEndUT = section.endUT;
-            diagnostics.FrameCount = frames.Count;
-
-            int cachedIdx = 0;
-            TrajectoryPoint before;
-            TrajectoryPoint after;
-            float t;
-            bool hasSegment = TrajectoryMath.InterpolatePoints(
-                frames, ref cachedIdx, ut, out before, out after, out t);
-
-            if (!hasSegment)
-            {
-                TrajectoryPoint clamp = (ut <= frames[0].ut)
-                    ? frames[0]
-                    : frames[frames.Count - 1];
-                diagnostics.BeforeUT = clamp.ut;
-                diagnostics.AfterUT = clamp.ut;
-                diagnostics.InterpolationT = 0f;
-                diagnostics.ClampedToEndpoint = true;
-                diagnostics.BodyBeforeName = clamp.bodyName;
-                diagnostics.BodyAfterName = clamp.bodyName;
-                diagnostics.RecordedVelocity = clamp.velocity;
-                CelestialBody bodyClamp = FlightGlobals.Bodies?.Find(b => b.name == clamp.bodyName);
-                if (bodyClamp == null)
-                    return false;
-                worldPos = bodyClamp.GetWorldSurfacePosition(
-                    clamp.latitude, clamp.longitude, clamp.altitude);
-                return IsFiniteVector3d(worldPos);
-            }
-
-            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
-            if (bodyBefore == null || bodyAfter == null)
-                return false;
-
-            diagnostics.BeforeUT = before.ut;
-            diagnostics.AfterUT = after.ut;
-            diagnostics.InterpolationT = t;
-            diagnostics.ClampedToEndpoint = false;
-            diagnostics.BodyBeforeName = before.bodyName;
-            diagnostics.BodyAfterName = after.bodyName;
-            diagnostics.RecordedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
-
-            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return IsFiniteVector3d(worldPos);
-        }
-
-        internal static string ResolveTreeIdForRecording(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    if (tree?.Recordings != null
-                        && tree.Recordings.ContainsKey(recordingId))
-                    {
-                        return tree.Id;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending?.Recordings != null
-                    && pending.Recordings.ContainsKey(recordingId))
-                {
-                    return pending.Id;
-                }
-            }
-            return null;
-        }
-
-        private static Recording FindRecordingByIdInTrees(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    Recording rec;
-                    if (tree?.Recordings != null
-                        && tree.Recordings.TryGetValue(recordingId, out rec)
-                        && rec != null)
-                    {
-                        return rec;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                Recording rec;
-                if (pending?.Recordings != null
-                    && pending.Recordings.TryGetValue(recordingId, out rec)
-                    && rec != null)
-                {
-                    return rec;
-                }
-            }
-            return null;
-        }
-
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
             Vector3d? cameraWorldPosition,
@@ -20935,7 +20174,7 @@ namespace Parsek
                     targetUT,
                     "recorded-relative-offset",
                     "anchor-pose-unresolved",
-                    target.Section.anchorVesselId,
+                    0u,
                     target.AnchorRecordingId,
                     success: false,
                     fromRecordedTrajectory: true,
@@ -20962,7 +20201,7 @@ namespace Parsek
                 targetUT,
                 "recorded-relative-offset",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
@@ -22160,7 +21399,7 @@ namespace Parsek
                 targetUT,
                 "recorded-relative-position",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
@@ -22354,7 +21593,7 @@ namespace Parsek
                 point.ut,
                 "recorded-relative-single",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
