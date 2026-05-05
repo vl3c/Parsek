@@ -3635,13 +3635,12 @@ namespace Parsek
         {
             if (newPid == 0u) return false;
             if (marker == null) return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Accept both legacy in-place (active == origin) and the
+            // post-#734 fork shape (InPlaceContinuation flag, active != origin).
+            // Both keep the player on the SAME physical vessel; the
+            // post-switch auto-record arming we want to suppress is the
+            // same in either case.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
             if (committedRecordings == null) return false;
             for (int i = 0; i < committedRecordings.Count; i++)
@@ -10390,6 +10389,20 @@ namespace Parsek
                 && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
                 ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
             var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // Issue #734 race fix: AtomicMarkerWrite usually attaches the
+            // in-place fork to the pending tree at marker-write time, but
+            // on async FLIGHT loads both AtomicMarkerWrite and this restore
+            // coroutine defer to onFlightReady; if this coroutine fires
+            // first (or AtomicMarkerWrite ran on a different tree handle),
+            // the fork lives in CommittedRecordings but is not yet in
+            // tree.Recordings. ResolveInPlaceContinuationTarget would then
+            // refuse the swap with reason="marker-recording-missing-from-tree"
+            // and the recorder's flush would warn / data-loss. Reconcile
+            // here from the committed list before the swap runs. The
+            // helper is idempotent so it is a no-op when the eager path
+            // already attached.
+            ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
             var markerSwap = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker,
                 tree.Id,
@@ -24027,15 +24040,14 @@ namespace Parsek
             pose = default(RelativeAnchorPose);
             IReadOnlyList<RecordingTree> searchTrees = null;
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // The bypass exists because the player is actively flying the
+            // anchor vessel (origin's pid) during in-place Re-Fly, so the
+            // live anchor pose has diverged from the recording. Both legacy
+            // in-place and the post-#734 fork share the same physical
+            // vessel as origin and therefore need the bypass.
             bool shouldCheckReFlyBypass =
-                marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && !string.IsNullOrEmpty(victimRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal);
+                !string.IsNullOrEmpty(victimRecordingId)
+                && ReFlySessionMarker.IsInPlaceContinuation(marker);
             if (shouldCheckReFlyBypass)
             {
                 searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -24369,16 +24381,9 @@ namespace Parsek
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> searchTrees)
         {
-            if (marker == null)
+            if (string.IsNullOrEmpty(victimRecordingId))
                 return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || string.IsNullOrEmpty(victimRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
 
             if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
@@ -24428,13 +24433,12 @@ namespace Parsek
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             IReadOnlyList<RecordingTree> searchTrees = null;
             bool activeReFlyBypass = false;
-            if (marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Both legacy in-place (active == origin) and the post-#734 fork
+            // (InPlaceContinuation flag, active != origin) keep the player on
+            // the same physical vessel as origin, so the v7 RELATIVE absolute-
+            // shadow shortcut applies identically -- the live anchor pose has
+            // diverged from the recording.
+            if (ReFlySessionMarker.IsInPlaceContinuation(marker))
             {
                 searchTrees =
                     GhostMapPresence.ComposeSearchTreesForReFlySuppression(
@@ -25060,6 +25064,125 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Issue #734 race fix: ensures the in-place Re-Fly fork is present
+        /// in <paramref name="tree"/>'s <c>Recordings</c> dictionary before
+        /// the restore coroutine runs <see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>.
+        /// AtomicMarkerWrite eagerly attaches the fork to the pending tree,
+        /// but on async FLIGHT loads the restore coroutine and
+        /// AtomicMarkerWrite both fire on <c>onFlightReady</c> — if the
+        /// coroutine wins the race, AtomicMarkerWrite finds no pending tree
+        /// and the fork only lives in <see cref="RecordingStore.CommittedRecordings"/>.
+        /// This helper looks the fork up by id from the committed list and
+        /// attaches it to the tree so the swap can fire and the recorder
+        /// has a destination dict entry to flush into. Internal static so
+        /// xUnit can pin every branch without a live coroutine.
+        /// </summary>
+        internal static bool ReconcileInPlaceForkIntoTreeIfNeeded(
+            RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.Recordings == null || marker == null)
+                return false;
+            // Only the post-#734 fork shape needs reconciliation.
+            // AtomicMarkerWrite is the only writer of the
+            // InPlaceContinuation flag and always pairs it with a fresh
+            // provisional recording.
+            if (!marker.InPlaceContinuation)
+                return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (!string.IsNullOrEmpty(marker.TreeId)
+                && !string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Locate the fork in the committed list. Allowlisted raw read
+            // per [ERS-exempt - Phase 6] file-level note in RewindInvoker.
+            // The committed-list object is the canonical one: AtomicMarkerWrite
+            // wrote it via AddProvisional, the recorder flushes through
+            // tree.ActiveRecordingId -> tree.Recordings[id], and
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list. The same instance must live in BOTH places or
+            // commit/discard can pull a stale shadow object.
+            Recording committedFork = null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId,
+                            marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        committedFork = rec;
+                        break;
+                    }
+                }
+            }
+            if (committedFork == null)
+            {
+                // Normal F5/F9 mid-Re-Fly: LoadRecordingTrees skips
+                // isActive nodes and TryRestoreActiveTreeNode populates
+                // PendingTree.Recordings only (no AddCommittedInternal),
+                // so the fork is intentionally absent from the committed
+                // list while present in the tree's Recordings dict. The
+                // recorder will flush correctly via the tree path; only
+                // the genuine "missing from BOTH" state is data-loss.
+                bool inTree = tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
+                if (inTree)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"absent from committed list but present in tree.Recordings " +
+                        $"(normal F5/F9 mid-Re-Fly hydration; recorder flush will work). " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"missing from BOTH committed list AND tree.Recordings — " +
+                        $"recorder flush will warn and stop. " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
+                return false;
+            }
+
+            // Critical: when an F5/F9 mid-session deserialised tree has
+            // an in-place fork entry, that entry is a *new* Recording
+            // instance, but the committed list still holds the pre-load
+            // fork object. Recorder flush appends to the tree's instance,
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list -- so without convergence the merge sees a
+            // stale shadow with no recorded data and CommitTree can even
+            // re-add a duplicate same-id row by reference. Compare the two
+            // and overwrite the tree slot with the committed instance when
+            // they diverge. EnsureForkAttachedToTree's own no-op short-
+            // circuit fires when they already match.
+            if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId,
+                    out Recording treeFork)
+                && ReferenceEquals(treeFork, committedFork))
+            {
+                return false;
+            }
+
+            // Always rebuild the background map after attach. The earlier
+            // optimisation (skipBackgroundMapRebuild: true) assumed
+            // RestoreActiveTreeFromPending's markerSwap branch would
+            // rebuild immediately afterwards, but that branch only fires
+            // when `ShouldSwap=true`. On the cold-start mid-Re-Fly path
+            // the saved tree's ActiveRecordingId is already the fork id
+            // (`already-pointing-at-marker`), so the swap is a no-op,
+            // the rebuild never runs, and the freshly-attached fork's
+            // pid lingers as a stale background entry. The double-rebuild
+            // when ShouldSwap IS true is cheap.
+            return RewindInvoker.EnsureForkAttachedToTree(
+                tree, committedFork, "RestoreActiveTreeFromPending:reconcile");
+        }
+
         internal static bool ShouldUsePreReFlyAnchorTrajectory(
             Recording candidate,
             uint anchorVesselId,
@@ -25073,13 +25196,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(candidate.RecordingId)
                 || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
                 return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
+            // Accept both the post-#734 fork shape (InPlaceContinuation flag,
+            // snapshot lives on the fork) and the pre-fork legacy in-place
+            // pattern (active == origin, snapshot lives on origin).
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
-            }
             if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
                 return false;
             if (!string.IsNullOrEmpty(victimRecordingId)

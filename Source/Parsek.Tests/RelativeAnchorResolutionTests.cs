@@ -1006,6 +1006,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 ActiveReFlyRecordingId = "booster",
                 OriginChildRecordingId = "booster",
+                InPlaceContinuation = true,
             };
             var rec = new Recording
             {

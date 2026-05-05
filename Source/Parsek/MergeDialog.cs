@@ -12,7 +12,6 @@ namespace Parsek
         private const string MergeLockId = "ParsekMergeDialog";
         // SplitAtSection writes back-to-back UT bounds; 50ms covers float
         // rounding and one-frame skew without bridging a real inter-recording gap.
-        private const double InPlaceChainContinuityToleranceSeconds = 0.05;
 
         internal enum ReFlyMergeCommitResult
         {
@@ -295,9 +294,21 @@ namespace Parsek
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(liveTree);
-                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
-                          "This cannot be undone.</align>";
+
+                // Auto-seal preview (situation sampled at dialog spawn
+                // only - while the dialog sits open under LockInput, KSP
+                // physics still runs and the active vessel situation
+                // could in theory flip; the production classifier
+                // re-classifies at finalize, so a transient flicker only
+                // affects the dialog wording, not the seal verdict).
+                var preview = ReFlyAutoSealPreviewer.Preview(
+                    reFlyRec, marker, FlightGlobals.ActiveVessel);
+                message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
+
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
+                    $"reasons=[{string.Join(",", preview.Reasons)}] " +
+                    $"sess={marker?.SessionId ?? "<no-id>"}");
             }
             else
             {
@@ -469,6 +480,45 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
+
+        /// <summary>
+        /// Composes the pre-transition Re-Fly merge dialog body. Pure
+        /// helper for unit-testability - the callable
+        /// <see cref="ShowTreeDialog"/> 4-arg overload spawns a
+        /// <see cref="PopupDialog"/> which requires Unity runtime, but
+        /// the body string itself is data-driven and worth pinning in
+        /// xUnit. Callers pass a precomputed
+        /// <see cref="ReFlyAutoSealPreviewResult"/>; this method only
+        /// formats it.
+        /// </summary>
+        internal static string BuildReFlyDialogBody(
+            string vesselLabel,
+            double reFlyDuration,
+            ReFlyAutoSealPreviewResult preview)
+        {
+            string headline = $"<align=\"center\">{vesselLabel} - " +
+                              $"{FormatDuration(reFlyDuration)}</align>\n\n";
+            // The "If not discarded" prefix reminds the player that
+            // Discard remains an option: discarding throws this attempt
+            // away and leaves the slot re-flyable for a future retry.
+            // Merge commits the attempt permanently (and seals the
+            // slot, when the auto-seal preview fires).
+            if (!preview.WillAutoSeal)
+            {
+                return headline +
+                    "<align=\"left\">If not discarded, this Re-Fly attempt " +
+                    "will be committed permanently to the timeline. This " +
+                    "cannot be undone.</align>";
+            }
+
+            string reasons = preview.FormatHumanReadable();
+            return headline +
+                "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
+                $"will be merged AND auto-sealed</b> for the following " +
+                $"reason(s): {reasons}. The slot will become permanent and " +
+                "you will not be able to Re-Fly this line of flight again. " +
+                "This cannot be undone.</align>";
+        }
 
         private static string FormatClearReason(string reason)
             => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
@@ -660,6 +710,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes the active Re-Fly attempt's recordings, branch-point
+        /// topology (session-authored branch points + dangling parent/child
+        /// id refs), sidecar files, transient marker fields, and any stale
+        /// <c>tree.ActiveRecordingId</c> from in-memory and on-disk storage.
+        /// Shared between Discard call sites - the post-transition merge
+        /// dialog (<see cref="TryDiscardActiveReFlyAttempt"/>) and the
+        /// Esc/Revert dialog (<see cref="RevertInterceptor.DiscardReFlyHandler"/>)
+        /// - so both paths converge on the same attempt-id collection,
+        /// pruning, and topology cleanup. Pre-PR-#734 the Revert path only
+        /// removed the fork from <see cref="RecordingStore.CommittedRecordings"/>,
+        /// leaving the committed-tree fork dictionary entry, attempt-authored
+        /// debris children created by <c>CreateBreakupChildRecording</c>,
+        /// session-authored branch points, dangling parent/child id refs,
+        /// and stale <c>ActiveRecordingId</c> behind for OnSave to serialise
+        /// as committed mission history.
+        /// Caller is responsible for clearing the marker / scenario journal
+        /// and any flow-specific cleanup; this helper handles only the
+        /// recording/topology side.
+        /// </summary>
+        internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology(
+            ReFlySessionMarker marker, string callSite)
+        {
+            var summary = new AttemptDiscardSummary();
+            if (marker == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneActiveReFlyAttemptOwnedTopology: null marker " +
+                    $"callSite={callSite ?? "<none>"} - nothing to prune");
+                return summary;
+            }
+
+            var tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            if (tree == null)
+            {
+                // Degenerate case: marker points at a tree id that no
+                // longer lives in PendingTree, CommittedTrees, or the
+                // live activeTree. Fall back to the legacy single-id fork
+                // removal so the flat committed list is at least cleaned.
+                // Topology pruning is impossible without a tree handle -
+                // future Re-Fly on this id would have to discover the
+                // missing context another way.
+                if (!string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                {
+                    var single = new HashSet<string>(System.StringComparer.Ordinal)
+                    {
+                        marker.ActiveReFlyRecordingId,
+                    };
+                    summary.AttemptIds = single;
+                    summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
+                }
+                ParsekLog.Warn("MergeDialog",
+                    $"PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found " +
+                    $"for treeId={marker.TreeId ?? "<none>"} callSite={callSite ?? "<none>"} " +
+                    $"sess={marker.SessionId ?? "<none>"} - falling back to single-id removal " +
+                    $"(lost descendant + topology cleanup; removedCommitted={summary.RemovedCommitted})");
+                return summary;
+            }
+
+            summary.AttemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            summary.RemovedCommitted = RemoveCommittedAttemptRecordings(summary.AttemptIds);
+            summary.PurgedEvents = GameStateStore.PurgeEventsForRecordings(
+                summary.AttemptIds,
+                $"{callSite ?? "PruneActiveReFlyAttemptOwnedTopology"} sess={marker.SessionId ?? "<no-id>"}");
+            summary.DeletedFiles = DeleteAttemptRecordingFiles(tree, summary.AttemptIds);
+            summary.PrunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
+                summary.AttemptIds, marker);
+            summary.TransientCleared = ClearReFlyAttemptTransientFields(
+                tree, marker, summary.AttemptIds);
+
+            ParsekLog.Info("MergeDialog",
+                $"PruneActiveReFlyAttemptOwnedTopology callSite={callSite ?? "<none>"} " +
+                $"sess={marker.SessionId ?? "<none>"} " +
+                $"tree={tree.Id ?? "<none>"} " +
+                $"attemptIds={summary.AttemptIds.Count} " +
+                $"removedCommitted={summary.RemovedCommitted} " +
+                $"purgedEvents={summary.PurgedEvents} " +
+                $"deletedFiles={summary.DeletedFiles} " +
+                $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
+                $"transientCleared={summary.TransientCleared}");
+
+            return summary;
+        }
+
+        /// <summary>
+        /// Per-call counters from <see cref="PruneActiveReFlyAttemptOwnedTopology"/>.
+        /// Callers use the counts in their own end-of-flow summary log lines
+        /// and tests assert on them directly.
+        /// </summary>
+        internal struct AttemptDiscardSummary
+        {
+            internal HashSet<string> AttemptIds;
+            internal int RemovedCommitted;
+            internal int PurgedEvents;
+            internal int DeletedFiles;
+            internal int PrunedCommittedTreeEntries;
+            internal int TransientCleared;
+        }
+
+        /// <summary>
         /// Re-Fly-specific Discard branch for the scene-exit merge dialog.
         /// A Re-Fly pending tree often reuses the original committed tree id;
         /// the ordinary tree-discard path would route through
@@ -708,16 +857,11 @@ namespace Parsek
             int purgedEvents = GameStateStore.PurgeEventsForRecordings(
                 attemptIds,
                 $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}");
-            purgedEvents += PurgeInPlaceAttemptEvents(scenario, marker);
             int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
+            int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
+                attemptIds, marker);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
-            bool inPlaceOriginalRestored =
-                RestoreInPlaceOriginalRecordingFromSnapshot(
-                    tree, marker, updateCommittedStore: !committedTreeDetached);
-            bool inPlaceTrimmed = committedTreeDetached
-                && !inPlaceOriginalRestored
-                && TrimInPlaceAttemptBackToOriginRewindPoint(tree, scenario, marker);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
             int discardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
             bool restoredCommittedTree = committedTreeDetached
@@ -746,8 +890,8 @@ namespace Parsek
                 $"active={marker.ActiveReFlyRecordingId ?? "<none>"}, " +
                 $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
-                $"transientCleared={transientCleared}, inPlaceTrimmed={inPlaceTrimmed}, " +
-                $"inPlaceOriginalRestored={inPlaceOriginalRestored}, " +
+                $"prunedCommittedTreeEntries={prunedCommittedTreeEntries}, " +
+                $"transientCleared={transientCleared}, " +
                 $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
                 $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
@@ -786,7 +930,81 @@ namespace Parsek
                 AddAttemptIdIfSafe(ids, rec.RecordingId, marker, tree);
             }
 
+            // Catch attempt-authored child recordings linked to session-authored
+            // branch points. Production helpers like ParsekFlight.CreateBreakupChildRecording
+            // do NOT propagate the marker's SessionId / RewindPointId /
+            // SupersedeTargetId onto the new child Recording - they only
+            // append the new id to bp.ChildRecordingIds. As a result the
+            // marker-tag scan above misses them, so without this descendant
+            // walk Discard would leave abandoned debris/children in
+            // tree.Recordings (and on next save in CommittedRecordings) for
+            // OnSave to serialise as committed mission history. The walk is
+            // a single linear pass because chained breakups (child A spawns
+            // its own breakup BP_B with grand-child B) produce ANOTHER
+            // session-authored branch point, which the same loop visits.
+            AddSessionBranchPointDescendantAttemptIds(ids, tree, marker);
+
             return ids;
+        }
+
+        private static void AddSessionBranchPointDescendantAttemptIds(
+            HashSet<string> ids, RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (ids == null || tree == null || tree.BranchPoints == null
+                || marker == null)
+            {
+                return;
+            }
+
+            // A null PreSessionBranchPointIds baseline means the marker was
+            // written by code that does not snapshot branch-point ids - we
+            // cannot tell session-authored from pre-session BPs, so skip
+            // (mirrors PruneSessionCreatedBranchPoints' null-baseline skip).
+            if (marker.PreSessionBranchPointIds == null)
+                return;
+
+            var preSessionBpIds = new HashSet<string>(
+                marker.PreSessionBranchPointIds,
+                System.StringComparer.Ordinal);
+
+            int adopted = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id))
+                    continue;
+                if (preSessionBpIds.Contains(bp.Id))
+                    continue;
+                if (bp.ChildRecordingIds == null)
+                    continue;
+
+                for (int j = 0; j < bp.ChildRecordingIds.Count; j++)
+                {
+                    string childId = bp.ChildRecordingIds[j];
+                    if (string.IsNullOrEmpty(childId))
+                        continue;
+                    if (ids.Contains(childId))
+                        continue;
+                    // Defence in depth: the protected origin/supersede-target
+                    // ids should never appear as a session-authored BP child
+                    // in production (origin pre-existed the attempt; supersede
+                    // targets are pre-existing too), but skip them anyway.
+                    if (IsProtectedReFlyRecordingId(childId, marker))
+                        continue;
+
+                    ids.Add(childId);
+                    adopted++;
+                }
+            }
+
+            if (adopted > 0)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"AddSessionBranchPointDescendantAttemptIds: " +
+                    $"adopted {adopted} attempt-authored child recording(s) " +
+                    $"linked to session-authored branch points " +
+                    $"(tree={tree.Id ?? "<none>"}, sess={marker.SessionId ?? "<none>"})");
+            }
         }
 
         private static bool IsReFlyAttemptOwnedRecording(
@@ -843,6 +1061,25 @@ namespace Parsek
 
             if (CommittedTreeContainsRecording(dialogTree?.Id, recordingId))
             {
+                // AtomicMarkerWrite attaches the in-place fork to whichever
+                // tree owns origin's tree id (pending OR committed). When no
+                // pending tree exists at marker-write time, the fork is
+                // attached to the committed tree as a NotCommitted recording.
+                // That fork is the active Re-Fly attempt itself, not committed
+                // mission history, so the guard must let it through; the
+                // tree-pruning step in TryDiscardActiveReFlyAttempt removes
+                // the entry from the committed tree's Recordings dictionary
+                // so OnSave does not serialise the fork as history.
+                if (IsMarkerOwnedNotCommittedFork(recordingId, marker))
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"TryDiscardActiveReFlyAttempt: rec={recordingId} is the marker-owned " +
+                        $"NotCommitted Re-Fly fork attached to committed tree " +
+                        $"{dialogTree?.Id ?? "<none>"}; including in attempt discard");
+                    ids.Add(recordingId);
+                    return;
+                }
+
                 ParsekLog.Warn("MergeDialog",
                     $"TryDiscardActiveReFlyAttempt: rec={recordingId} exists in committed tree " +
                     $"{dialogTree?.Id ?? "<none>"} - excluding from attempt discard to protect mission history");
@@ -850,6 +1087,37 @@ namespace Parsek
             }
 
             ids.Add(recordingId);
+        }
+
+        private static bool IsMarkerOwnedNotCommittedFork(
+            string recordingId, ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(recordingId) || marker == null)
+                return false;
+            var rec = LookupCommittedRecordingById(recordingId);
+            if (rec == null || rec.MergeState != MergeState.NotCommitted)
+                return false;
+            return IsReFlyAttemptOwnedRecording(rec, marker);
+        }
+
+        private static Recording LookupCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+                return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec != null
+                    && string.Equals(rec.RecordingId, recordingId,
+                        System.StringComparison.Ordinal))
+                {
+                    return rec;
+                }
+            }
+            return null;
         }
 
         private static bool IsProtectedReFlyRecordingId(
@@ -939,6 +1207,171 @@ namespace Parsek
             return deleted;
         }
 
+        /// <summary>
+        /// Removes attempt-owned recording entries AND attempt-authored
+        /// topology (branch points, branch-point parent/child id references,
+        /// recording parent/child branch-point ids) from any committed tree
+        /// the in-place attempt mutated. Required for the committed-tree-attach
+        /// shape where <see cref="RewindInvoker.AtomicMarkerWrite"/> attached the
+        /// in-place fork to a committed tree because no pending tree existed.
+        /// Without this, the fork dictionary entry, any session-authored branch
+        /// points (e.g. an in-flight stage separation that ran before the
+        /// merge dialog), and dangling parent/child id refs would survive
+        /// discard and OnSave would serialise them as committed mission history.
+        /// The pending-tree case is naturally handled by
+        /// <see cref="RecordingStore.PopPendingTree"/> later in the discard flow.
+        /// </summary>
+        private static int PruneAttemptRecordingsFromCommittedTrees(
+            HashSet<string> attemptIds, ReFlySessionMarker marker)
+        {
+            if (attemptIds == null || attemptIds.Count == 0)
+                return 0;
+
+            int prunedRecordings = 0;
+            int totalScrubbedBranchPointRefs = 0;
+            int totalRemovedSessionBranchPoints = 0;
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees == null)
+                return 0;
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                var committedTree = committedTrees[i];
+                if (committedTree == null || committedTree.Recordings == null)
+                    continue;
+
+                int prunedHere = 0;
+                foreach (var attemptId in attemptIds)
+                {
+                    if (string.IsNullOrEmpty(attemptId))
+                        continue;
+                    if (committedTree.Recordings.Remove(attemptId))
+                        prunedHere++;
+                }
+
+                // Repair stale ActiveRecordingId. RestoreActiveTreeFromPending's
+                // markerSwap branch sets `tree.ActiveRecordingId = marker.ActiveReFlyRecordingId`
+                // (the fork id) when the marker takes over an active tree.
+                // The fork was just removed from `committedTree.Recordings`,
+                // so leaving ActiveRecordingId pointing at the deleted id
+                // would round-trip through OnSave and any consumer reading
+                // `tree.ActiveRecordingId ?? tree.RootRecordingId` raw
+                // (e.g. ParsekFlight's recorder-rebind seed) would target a
+                // missing recording on the next session. Mirrors the equivalent
+                // repair `RestoreSanitizedPendingTreeIfDetached` already does
+                // for the detached-pending path.
+                if (prunedHere > 0
+                    && !string.IsNullOrEmpty(committedTree.ActiveRecordingId)
+                    && !committedTree.Recordings.ContainsKey(committedTree.ActiveRecordingId))
+                {
+                    string oldActive = committedTree.ActiveRecordingId;
+                    committedTree.ActiveRecordingId =
+                        marker != null
+                        && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                        && committedTree.Recordings.ContainsKey(marker.OriginChildRecordingId)
+                            ? marker.OriginChildRecordingId
+                            : null;
+                    ParsekLog.Info("MergeDialog",
+                        $"PruneAttemptRecordingsFromCommittedTrees: reset stale " +
+                        $"tree.ActiveRecordingId from '{oldActive}' to " +
+                        $"'{committedTree.ActiveRecordingId ?? "<null>"}' on tree={committedTree.Id ?? "<none>"} " +
+                        $"(prior id was an attempt recording removed by this prune)");
+                }
+
+                // Session-authored branch points (e.g. an in-flight stage
+                // separation booked during the abandoned attempt) must be
+                // dropped too. Done BEFORE the topology scrub so the scrub
+                // only walks BPs that will survive Discard - any work on a
+                // about-to-be-removed BP is wasted. PreSessionBranchPointIds
+                // is captured against marker.TreeId only, so applying it to
+                // a different committed tree would erroneously delete that
+                // tree's unrelated branch points - gate on tree id match.
+                int removedSessionBps = 0;
+                if (marker != null
+                    && !string.IsNullOrEmpty(marker.TreeId)
+                    && string.Equals(committedTree.Id, marker.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    removedSessionBps = PruneSessionCreatedBranchPoints(
+                        committedTree, marker);
+                }
+
+                // Branch-point ParentRecordingIds / ChildRecordingIds on
+                // surviving BPs may reference now-removed attempt recordings;
+                // scrub them so serialised topology never points at deleted
+                // ids. Mirrors RemoveAttemptRecordingsFromTree for the
+                // detached-pending path.
+                int scrubbedRefs = ScrubAttemptIdsFromBranchPointTopology(
+                    committedTree, attemptIds);
+
+                if (prunedHere > 0 || scrubbedRefs > 0 || removedSessionBps > 0)
+                {
+                    // The fork's pid lived in the recorder's active slot AND
+                    // in the tree's background map. After pruning, the map
+                    // must be rebuilt so the abandoned pid does not survive
+                    // as a stale background entry.
+                    committedTree.RebuildBackgroundMap();
+                    ParsekLog.Info("MergeDialog",
+                        $"PruneAttemptRecordingsFromCommittedTrees: " +
+                        $"tree={committedTree.Id ?? "<none>"} " +
+                        $"prunedRecordings={prunedHere} " +
+                        $"scrubbedBranchPointRefs={scrubbedRefs} " +
+                        $"removedSessionBranchPoints={removedSessionBps}");
+                }
+
+                prunedRecordings += prunedHere;
+                totalScrubbedBranchPointRefs += scrubbedRefs;
+                totalRemovedSessionBranchPoints += removedSessionBps;
+            }
+
+            if (totalScrubbedBranchPointRefs > 0
+                || totalRemovedSessionBranchPoints > 0)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneAttemptRecordingsFromCommittedTrees totals: " +
+                    $"prunedRecordings={prunedRecordings} " +
+                    $"scrubbedBranchPointRefs={totalScrubbedBranchPointRefs} " +
+                    $"removedSessionBranchPoints={totalRemovedSessionBranchPoints}");
+            }
+
+            return prunedRecordings;
+        }
+
+        private static int ScrubAttemptIdsFromBranchPointTopology(
+            RecordingTree tree, HashSet<string> attemptIds)
+        {
+            if (tree == null || tree.BranchPoints == null
+                || attemptIds == null || attemptIds.Count == 0)
+                return 0;
+
+            int scrubbed = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                scrubbed += CountAndRemoveAttemptIds(bp.ParentRecordingIds, attemptIds);
+                scrubbed += CountAndRemoveAttemptIds(bp.ChildRecordingIds, attemptIds);
+            }
+            return scrubbed;
+        }
+
+        private static int CountAndRemoveAttemptIds(
+            List<string> recordingIds, HashSet<string> attemptIds)
+        {
+            if (recordingIds == null || attemptIds == null || attemptIds.Count == 0)
+                return 0;
+            int removed = 0;
+            for (int i = recordingIds.Count - 1; i >= 0; i--)
+            {
+                if (attemptIds.Contains(recordingIds[i]))
+                {
+                    recordingIds.RemoveAt(i);
+                    removed++;
+                }
+            }
+            return removed;
+        }
+
         private static int ClearReFlyAttemptTransientFields(
             RecordingTree tree,
             ReFlySessionMarker marker,
@@ -992,232 +1425,6 @@ namespace Parsek
                 rec.SupersedeTargetId = null;
             }
             return cleared;
-        }
-
-        private static bool RestoreInPlaceOriginalRecordingFromSnapshot(
-            RecordingTree tree,
-            ReFlySessionMarker marker,
-            bool updateCommittedStore)
-        {
-            if (tree == null || tree.Recordings == null || marker == null)
-                return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || !string.Equals(marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            if (!tree.Recordings.TryGetValue(
-                    marker.OriginChildRecordingId, out Recording origin)
-                || origin == null)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"RestoreInPlaceOriginalRecordingFromSnapshot: origin rec={marker.OriginChildRecordingId ?? "<none>"} " +
-                    $"missing from tree={tree.Id ?? "<none>"}");
-                return false;
-            }
-
-            Recording restored = origin.BuildPreReFlyOriginalRecording(marker.SessionId);
-            if (restored == null)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"RestoreInPlaceOriginalRecordingFromSnapshot: no original snapshot for " +
-                    $"rec={origin.RecordingId ?? "<none>"} sess={marker.SessionId ?? "<none>"}");
-                return false;
-            }
-
-            restored.RecordingId = marker.OriginChildRecordingId;
-            restored.TreeId = !string.IsNullOrEmpty(tree.Id) ? tree.Id : restored.TreeId;
-            restored.CreatingSessionId = null;
-            restored.ProvisionalForRpId = null;
-            restored.SupersedeTargetId = null;
-            restored.ClearPreReFlySessionSnapshots();
-            restored.MarkFilesDirty();
-
-            tree.Recordings[marker.OriginChildRecordingId] = restored;
-            int prunedSessionBranchPoints = 0;
-            int committedTreeReplacements = 0;
-            int committedTreePrunedBranchPoints = 0;
-            bool committedCopyAdded = false;
-            if (updateCommittedStore)
-            {
-                prunedSessionBranchPoints += PruneSessionCreatedBranchPoints(tree, marker);
-                tree.RebuildBackgroundMap();
-                committedTreeReplacements = ReplaceCommittedTreeRecordingById(
-                    tree.Id, marker.OriginChildRecordingId, restored);
-                committedTreePrunedBranchPoints = PruneSessionCreatedBranchPointsInCommittedTrees(
-                    tree.Id, tree, marker);
-            }
-            int removedCommittedCopies = RemoveCommittedRecordingsById(marker.OriginChildRecordingId);
-            if (updateCommittedStore)
-            {
-                RecordingStore.AddCommittedInternal(restored);
-                committedCopyAdded = true;
-            }
-
-            ParsekLog.Info("MergeDialog",
-                $"RestoreInPlaceOriginalRecordingFromSnapshot: rec={restored.RecordingId ?? "<none>"} " +
-                $"sess={marker.SessionId ?? "<none>"} " +
-                $"points={(restored.Points?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"trackSections={(restored.TrackSections?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"removedCommittedCopies={removedCommittedCopies.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"updateCommittedStore={updateCommittedStore} " +
-                $"committedTreeReplacements={committedTreeReplacements.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"committedCopyAdded={committedCopyAdded} " +
-                $"prunedSessionBranchPoints={prunedSessionBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"committedTreePrunedBranchPoints={committedTreePrunedBranchPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"dirtyQueuedForScenarioSave={restored.FilesDirty} " +
-                $"explicitStartUT={restored.ExplicitStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"explicitEndUT={restored.ExplicitEndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
-            return true;
-        }
-
-        private static int ReplaceCommittedTreeRecordingById(
-            string treeId,
-            string recordingId,
-            Recording restored)
-        {
-            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(recordingId)
-                || restored == null)
-            {
-                return 0;
-            }
-
-            var committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees == null || committedTrees.Count == 0)
-                return 0;
-
-            int replaced = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                RecordingTree committedTree = committedTrees[i];
-                if (committedTree == null || committedTree.Recordings == null)
-                    continue;
-                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
-                    continue;
-                if (!committedTree.Recordings.ContainsKey(recordingId))
-                    continue;
-
-                committedTree.Recordings[recordingId] = restored;
-                committedTree.RebuildBackgroundMap();
-                replaced++;
-            }
-
-            return replaced;
-        }
-
-        private static int PruneSessionCreatedBranchPointsInCommittedTrees(
-            string treeId,
-            RecordingTree dialogTree,
-            ReFlySessionMarker marker)
-        {
-            if (string.IsNullOrEmpty(treeId))
-                return 0;
-
-            var committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees == null || committedTrees.Count == 0)
-                return 0;
-
-            int pruned = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                RecordingTree committedTree = committedTrees[i];
-                if (committedTree == null || object.ReferenceEquals(committedTree, dialogTree))
-                    continue;
-                if (!string.Equals(committedTree.Id, treeId, System.StringComparison.Ordinal))
-                    continue;
-
-                int prunedFromTree = PruneSessionCreatedBranchPoints(committedTree, marker);
-                if (prunedFromTree > 0)
-                    committedTree.RebuildBackgroundMap();
-                pruned += prunedFromTree;
-            }
-
-            return pruned;
-        }
-
-        private static int RemoveCommittedRecordingsById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return 0;
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0)
-                return 0;
-
-            var matches = new List<Recording>();
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null)
-                    continue;
-                if (string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
-                    matches.Add(rec);
-            }
-
-            int removed = 0;
-            for (int i = 0; i < matches.Count; i++)
-            {
-                if (RecordingStore.RemoveCommittedInternal(matches[i]))
-                    removed++;
-            }
-
-            return removed;
-        }
-
-        private static bool TrimInPlaceAttemptBackToOriginRewindPoint(
-            RecordingTree tree,
-            ParsekScenario scenario,
-            ReFlySessionMarker marker)
-        {
-            if (tree == null || tree.Recordings == null || marker == null)
-                return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || !string.Equals(marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            if (!tree.Recordings.TryGetValue(
-                    marker.OriginChildRecordingId, out Recording origin)
-                || origin == null)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"TrimInPlaceAttemptBackToOriginRewindPoint: origin rec={marker.OriginChildRecordingId ?? "<none>"} " +
-                    $"missing from tree={tree.Id ?? "<none>"}");
-                return false;
-            }
-
-            RewindPoint rp = FindRewindPointForMarker(scenario, marker);
-            if (rp == null || double.IsNaN(rp.UT) || double.IsInfinity(rp.UT))
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"TrimInPlaceAttemptBackToOriginRewindPoint: origin RP " +
-                    $"rp={marker.RewindPointId ?? "<none>"} missing or invalid - leaving in-place recording untrimmed");
-                return false;
-            }
-
-            bool trimmed = ParsekScenario.TrimRecordingPastUT(origin, rp.UT);
-            if (origin.TerminalStateValue.HasValue
-                || origin.TerminalPosition.HasValue
-                || origin.EndpointPhase != RecordingEndpointPhase.Unknown)
-            {
-                origin.TerminalStateValue = null;
-                origin.TerminalPosition = null;
-                origin.EndpointPhase = RecordingEndpointPhase.Unknown;
-                origin.EndpointBodyName = null;
-                origin.TerrainHeightAtEnd = double.NaN;
-                origin.MarkFilesDirty();
-                trimmed = true;
-            }
-
-            ParsekLog.Info("MergeDialog",
-                $"TrimInPlaceAttemptBackToOriginRewindPoint: rec={origin.RecordingId ?? "<none>"} " +
-                $"rp={rp.RewindPointId ?? "<none>"} cutoffUT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"trimmed={trimmed}");
-            return trimmed;
         }
 
         private static bool RestoreSanitizedPendingTreeIfDetached(
@@ -1409,34 +1616,6 @@ namespace Parsek
             foreach (var kvp in tree.Recordings)
                 return kvp.Key;
             return null;
-        }
-
-        private static int PurgeInPlaceAttemptEvents(
-            ParsekScenario scenario, ReFlySessionMarker marker)
-        {
-            if (marker == null)
-                return 0;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || !string.Equals(marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
-            {
-                return 0;
-            }
-
-            RewindPoint rp = FindRewindPointForMarker(scenario, marker);
-            if (rp == null || double.IsNaN(rp.UT) || double.IsInfinity(rp.UT))
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"PurgeInPlaceAttemptEvents: origin RP rp={marker.RewindPointId ?? "<none>"} " +
-                    $"missing or invalid for rec={marker.OriginChildRecordingId ?? "<none>"} - " +
-                    "leaving origin-tagged events untouched");
-                return 0;
-            }
-
-            return GameStateStore.PurgeEventsForRecordingAfterUT(
-                marker.OriginChildRecordingId,
-                rp.UT,
-                $"MergeDialog in-place Re-Fly discard sess={marker.SessionId ?? "<no-id>"}");
         }
 
         private static bool CommittedTreeExists(string treeId)
@@ -1698,339 +1877,6 @@ namespace Parsek
                 return ReFlyMergeCommitResult.Interrupted;
             }
 
-            // In-place continuation guard: if the Limbo-restore path kept
-            // the origin recording alive across an RP-quicksave reload and
-            // the re-fly continued writing into that SAME recording,
-            // `RewindInvoker.AtomicMarkerWrite` already detected the case
-            // and pointed `marker.ActiveReFlyRecordingId` directly at the
-            // origin id (no placeholder created). At merge time
-            // `provisional.RecordingId == marker.OriginChildRecordingId`
-            // — there is no separate "retired attempt" to supersede.
-            // Writing a supersede relation with old==new would create a
-            // 1-node cycle that poisons EffectiveRecordingId (WARN
-            // `cycle detected` every lookup) and keeps the recording
-            // permanently visible to ERS. Skip the journaled merge entirely
-            // and do only the finalization the orchestrator would have
-            // done around AppendRelations: flip MergeState, clear transient
-            // fields, bump versions, durable save. We deliberately skip
-            // tombstones in this v1 path — any prior kerbal-death actions
-            // credited during the original Destroyed run-through were
-            // already finalized in that earlier session, and the same
-            // recording's subsequent continuation doesn't retroactively
-            // un-do them. If the player needs a deeper unwind they can
-            // re-rewind from the RP.
-            if (provisional != null
-                && !string.IsNullOrEmpty(provisional.RecordingId)
-                && string.Equals(provisional.RecordingId,
-                    marker.OriginChildRecordingId, System.StringComparison.Ordinal))
-            {
-                ParsekLog.Info("MergeDialog",
-                    $"TryCommitReFlySupersede: in-place continuation detected " +
-                    $"(provisional == origin == {provisional.RecordingId}); skipping " +
-                    $"journaled supersede merge but still appending supersede rows for " +
-                    $"sibling/parent recordings in the closure. " +
-                    $"Tombstones from the prior Destroyed run are left as-is in v1.");
-                try
-                {
-                    // Bug fix (in-place-supersede): the subtree closure also
-                    // contains chain siblings and parent recordings beyond
-                    // the origin itself. The pre-fix path skipped
-                    // AppendRelations entirely, so a destroyed-final-state
-                    // sibling (e.g. the prior "Kerbal X Probe" Destroyed
-                    // chain segment) stayed visible after merge — its
-                    // EffectiveState.IsVisible returned true with no
-                    // supersede row pointing at it. Call AppendRelations so
-                    // every non-self entry in the closure gets a supersede
-                    // row pointing at the in-place provisional. The
-                    // newly-restored old==new self-skip inside
-                    // AppendRelations guards the trivial origin-self entry,
-                    // and the existing RelationExists duplicate guard makes
-                    // the call safe to re-run on resume.
-                    //
-                    // Optimizer-split chain-tip resolve (review follow-up):
-                    // MergeCommit ran RecordingStore.RunOptimizationPass()
-                    // BEFORE we get here. If the in-place continuation
-                    // crossed an environment boundary (atmo↔exo), the
-                    // optimizer split the head into HEAD + TIP, MOVING
-                    // VesselSnapshot + TerminalStateValue from HEAD to TIP
-                    // (RecordingOptimizer.SplitAtSection lines 513-514 and
-                    // 536-537). HEAD now has TerminalStateValue == null,
-                    // which fails ValidateSupersedeTarget's `null TerminalState`
-                    // clause inside AppendRelations: throws in DEBUG, returns
-                    // an empty subtree in RELEASE. Either way the sibling
-                    // supersede rows the in-place fix needs are NOT written.
-                    //
-                    // Resolve the chain tip via the existing helper used by
-                    // EffectiveState.IsUnfinishedFlight for the same reason
-                    // (it walks ChainId+ChainBranch+TreeId to the recording
-                    // with the largest ChainIndex). Pass the resolved tip to
-                    // AppendRelations: validation passes against the tip's
-                    // terminal state, the row's `new` side becomes the
-                    // tip's id, and the closure entries for HEAD and TIP
-                    // are both filtered by the `old==new`-aware
-                    // self-skip-by-id check below (we explicitly add HEAD
-                    // to the skip set so HEAD is not redirected to TIP via
-                    // ERS even if newRecordingId != HEAD.id). For
-                    // non-split chains ResolveChainTerminalRecording
-                    // returns the input unchanged, preserving the prior
-                    // behaviour for un-split in-place merges.
-                    if (scenario.RecordingSupersedes == null)
-                        scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
-                    List<Recording> contiguousInPlaceChain =
-                        ResolveContiguousInPlaceChainMembers(provisional);
-                    Recording contiguousTip = contiguousInPlaceChain.Count > 0
-                        ? contiguousInPlaceChain[contiguousInPlaceChain.Count - 1]
-                        : provisional;
-                    Recording supersedeTargetRec =
-                        EffectiveState.ResolveChainTerminalRecording(provisional);
-                    Recording sessionOwnedTip = ResolveSessionOwnedChainTerminalRecording(
-                        provisional, marker.SessionId);
-                    int sessionOwnedSize = CountSessionOwnedChainMembers(
-                        provisional, marker.SessionId);
-                    bool sessionOwnedResolved = IsDifferentRecording(
-                        sessionOwnedTip, provisional);
-                    if (sessionOwnedResolved)
-                    {
-                        supersedeTargetRec = sessionOwnedTip;
-                    }
-                    else if (IsDifferentRecording(contiguousTip, provisional))
-                    {
-                        supersedeTargetRec = contiguousTip;
-                        ParsekLog.Info("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation resolved " +
-                            $"chain tip from contiguous split bounds: head={provisional.RecordingId} " +
-                            $"-> tip={contiguousTip.RecordingId} " +
-                            $"chainId={contiguousTip.ChainId ?? "<none>"} " +
-                            $"chainIndex={contiguousTip.ChainIndex} " +
-                            $"members=[{FormatRecordingIds(contiguousInPlaceChain)}] " +
-                            $"tolerance={InPlaceChainContinuityToleranceSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s " +
-                            "(session metadata missing or only present on the head)");
-                    }
-                    supersedeTargetRec = EnsureInPlaceSupersedeTargetHasTerminalState(
-                        supersedeTargetRec, marker.SessionId);
-                    bool resolvedToDifferentTip = supersedeTargetRec != null
-                        && !object.ReferenceEquals(supersedeTargetRec, provisional)
-                        && !string.Equals(supersedeTargetRec.RecordingId,
-                            provisional.RecordingId, System.StringComparison.Ordinal);
-                    if (resolvedToDifferentTip)
-                    {
-                        ParsekLog.Info("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation resolved " +
-                            $"chain tip for supersede target: head={provisional.RecordingId} " +
-                            $"-> tip={supersedeTargetRec.RecordingId} " +
-                            $"chainId={supersedeTargetRec.ChainId ?? "<none>"} " +
-                            $"chainIndex={supersedeTargetRec.ChainIndex} " +
-                            $"tipTerminal={supersedeTargetRec.TerminalStateValue?.ToString() ?? "null"} " +
-                            $"(post-RunOptimizationPass split moved terminal payload to tip; " +
-                            $"validating + row-targeting the tip so AppendRelations does not " +
-                            $"refuse the head's null-terminal invariant)");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation resolver audit " +
-                            $"head={provisional.RecordingId} " +
-                            $"sessionOwnedResolved={sessionOwnedResolved} " +
-                            $"sessionOwnedSize={sessionOwnedSize} " +
-                            $"sessionOwnedTip={(sessionOwnedTip != null ? sessionOwnedTip.RecordingId : "<null>")} " +
-                            $"contiguousResolved={IsDifferentRecording(contiguousTip, provisional)} " +
-                            $"contiguousSize={contiguousInPlaceChain.Count} " +
-                            $"contiguousTip={(contiguousTip != null ? contiguousTip.RecordingId : "<null>")}");
-                        ParsekLog.Verbose("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation supersede target " +
-                            $"unchanged from head={provisional.RecordingId} (no chain split, " +
-                            $"or head already carries terminal)");
-                    }
-
-                    // Chain-skip set: protect only the in-place continuation
-                    // segments created by this Re-Fly session. A same
-                    // TreeId+ChainId+ChainBranch match alone is too broad:
-                    // original optimizer tails from the pre-Re-Fly flight can
-                    // share that identity and still need supersede rows to the
-                    // new chain tip. The in-place origin is tagged at
-                    // AtomicMarkerWrite; optimizer-created split children normally
-                    // copy CreatingSessionId. Quickload/restore can lose those
-                    // transient tags before merge finalization, so also protect
-                    // the contiguous post-optimizer chain discovered from UT
-                    // bounds. Older stale tails with the same chain identity are
-                    // non-contiguous and still receive supersede rows.
-                    var chainSkipSet = new HashSet<string>(System.StringComparer.Ordinal);
-                    chainSkipSet.Add(provisional.RecordingId);
-                    if (supersedeTargetRec != null
-                        && !string.IsNullOrEmpty(supersedeTargetRec.RecordingId))
-                    {
-                        chainSkipSet.Add(supersedeTargetRec.RecordingId);
-                    }
-                    for (int i = 0; i < contiguousInPlaceChain.Count; i++)
-                    {
-                        var member = contiguousInPlaceChain[i];
-                        if (member != null && !string.IsNullOrEmpty(member.RecordingId))
-                            chainSkipSet.Add(member.RecordingId);
-                    }
-                    if (!string.IsNullOrEmpty(provisional.ChainId)
-                        && !string.IsNullOrEmpty(provisional.TreeId))
-                    {
-                        var committedSource = RecordingStore.CommittedRecordings;
-                        if (committedSource != null)
-                        {
-                            for (int i = 0; i < committedSource.Count; i++)
-                            {
-                                var cand = committedSource[i];
-                                if (cand == null) continue;
-                                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
-                                if (!string.Equals(
-                                        cand.CreatingSessionId,
-                                        marker.SessionId,
-                                        System.StringComparison.Ordinal))
-                                {
-                                    continue;
-                                }
-                                // Match EnqueueChainSiblings' chain predicate
-                                // after proving this candidate belongs to the
-                                // current Re-Fly session.
-                                if (!string.Equals(cand.TreeId,
-                                    provisional.TreeId, System.StringComparison.Ordinal))
-                                    continue;
-                                if (!string.Equals(cand.ChainId,
-                                    provisional.ChainId, System.StringComparison.Ordinal))
-                                    continue;
-                                if (cand.ChainBranch != provisional.ChainBranch) continue;
-                                chainSkipSet.Add(cand.RecordingId);
-                            }
-                        }
-                    }
-                    // Verbose audit line so the chain-skip-set decision is
-                    // reconstructable from KSP.log alone.
-                    var ic = System.Globalization.CultureInfo.InvariantCulture;
-                    string chainSkipMembers = string.Join(",", chainSkipSet);
-                    ParsekLog.Verbose("MergeDialog",
-                        $"TryCommitReFlySupersede: chain-skip-set: " +
-                        $"chainId={provisional.ChainId ?? "<none>"} " +
-                        $"chainBranch={provisional.ChainBranch.ToString(ic)} " +
-                        $"treeId={provisional.TreeId ?? "<none>"} " +
-                        $"members=[{chainSkipMembers}] " +
-                        $"head={provisional.RecordingId} " +
-                        $"tip={(supersedeTargetRec != null ? supersedeTargetRec.RecordingId : "<none>")} " +
-                        $"size={chainSkipSet.Count.ToString(ic)}");
-
-                    int relationsBefore = scenario.RecordingSupersedes.Count;
-                    SupersedeCommit.AppendRelations(
-                        marker, supersedeTargetRec, scenario,
-                        extraSelfSkipRecordingIds: chainSkipSet);
-                    int relationsAfter = scenario.RecordingSupersedes.Count;
-                    ParsekLog.Info("MergeDialog",
-                        $"TryCommitReFlySupersede: in-place continuation supersede append " +
-                        $"wrote {relationsAfter - relationsBefore} relation(s) " +
-                        $"(before={relationsBefore} after={relationsAfter}; self-link skipped " +
-                        $"by AppendRelations old==new guard; full chain " +
-                        $"({chainSkipSet.Count} member(s)) skipped via extra-self-skip set so " +
-                        $"no in-place chain segment is collapsed under another via supersede)");
-
-                    // FlipMergeStateAndClearTransient with preserveMarker=false
-                    // flips MergeState, clears SupersedeTargetId, bumps
-                    // SupersedeStateVersion, clears the ActiveReFlySessionMarker
-                    // (and bumps again), and logs the End reason=merged line.
-                    // That covers all the in-memory scenario mutations that a
-                    // normal RunMerge does around AppendRelations + tombstones.
-                    // Also clear CreatingSessionId / ProvisionalForRpId on every
-                    // protected continuation segment so split children no longer
-                    // look like session-scoped zombies to load-time sweep.
-                    var committedForTransientClear = RecordingStore.CommittedRecordings;
-                    if (committedForTransientClear != null)
-                    {
-                        for (int i = 0; i < committedForTransientClear.Count; i++)
-                        {
-                            var cand = committedForTransientClear[i];
-                            if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
-                                continue;
-                            if (!chainSkipSet.Contains(cand.RecordingId))
-                                continue;
-                            cand.CreatingSessionId = null;
-                            cand.ProvisionalForRpId = null;
-                        }
-                    }
-                    SupersedeCommit.FlipMergeStateAndClearTransient(
-                        marker, provisional, scenario, preserveMarker: false);
-
-                    // SupersedeCommit owns the safety decision. If it left the
-                    // recording CommittedProvisional, the slot is deliberately
-                    // still re-flyable (terminal failure, safe stashed stable
-                    // leaf, or safe non-focus orbit/suborbit leaf). If it closed
-                    // the slot, it already wrote Immutable and any needed seal.
-                    if (provisional.MergeState != MergeState.Immutable)
-                    {
-                        ParsekLog.Info("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation retained " +
-                            $"MergeState {provisional.MergeState} on {provisional.RecordingId} " +
-                            "(slot remains re-flyable)");
-                    }
-                    ClearStashedSlotForInPlaceCommit(provisional, scenario);
-
-                    // The in-place path bypasses MergeJournalOrchestrator.RunMerge,
-                    // so mirror its RP promotion step immediately before the
-                    // reaper. Do this after marker/state finalization succeeds:
-                    // the local marker still carries SessionId even though the
-                    // scenario marker was cleared above.
-                    ParsekLog.Info("MergeDialog",
-                        $"TryCommitReFlySupersede: in-place continuation tagging " +
-                        $"session-provisional RPs for reap after marker clear " +
-                        $"sess={marker.SessionId ?? "<no-id>"}");
-                    MergeJournalOrchestrator.TagRpsForReap(marker, scenario);
-
-                    // Reap any RP whose slots are now closed. Safety-closed
-                    // in-place outcomes are Immutable and eligible here; open
-                    // safe stable or terminal-failure outcomes remain for
-                    // another retry.
-                    int reapedCount;
-                    try
-                    {
-                        reapedCount = RewindPointReaper.ReapOrphanedRPs();
-                    }
-                    catch (System.Exception reapEx)
-                    {
-                        // Reap is best-effort: a failure here leaves the RP
-                        // around for LoadTimeSweep / next reap pass to
-                        // collect, so we log + continue rather than rolling
-                        // the merge back. The MergeState flip + marker
-                        // clear above are already durable in memory and
-                        // will be persisted by the SaveGame below.
-                        reapedCount = 0;
-                        ParsekLog.Warn("MergeDialog",
-                            $"TryCommitReFlySupersede: in-place continuation post-merge reap threw " +
-                            $"{reapEx.GetType().Name}: {reapEx.Message} — leaving RP for next sweep");
-                    }
-                    ParsekLog.Info("MergeDialog",
-                        $"TryCommitReFlySupersede: in-place continuation reaped " +
-                        $"{reapedCount} orphaned RP(s) post-merge");
-
-                    // Mirror the orchestrator's Durable Save #1 barrier so
-                    // the flipped MergeState + cleared marker + reaped RP
-                    // survive a quit/reload right after the merge dialog.
-                    if (HighLogic.CurrentGame != null
-                        && !string.IsNullOrEmpty(HighLogic.SaveFolder))
-                    {
-                        GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
-                        ParsekLog.Info("MergeDialog",
-                            "TryCommitReFlySupersede: in-place continuation persisted via persistent.sfs");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("MergeDialog",
-                            "TryCommitReFlySupersede: in-place continuation skipped durable save " +
-                            "(no HighLogic.CurrentGame / SaveFolder — test harness or pre-scene path)");
-                    }
-                    return ReFlyMergeCommitResult.Completed;
-                }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Error("MergeDialog",
-                        $"TryCommitReFlySupersede: in-place continuation finalization threw " +
-                        $"{ex.GetType().Name}: {ex.Message} — marker left in place for load-time sweep");
-                    ParsekLog.ScreenMessage(
-                        "Merge interrupted — will finish on next load", 3f);
-                    return ReFlyMergeCommitResult.Interrupted;
-                }
-            }
 
             ParsekLog.Info("MergeDialog",
                 $"TryCommitReFlySupersede: invoking MergeJournalOrchestrator for " +
@@ -2064,70 +1910,6 @@ namespace Parsek
             return ReFlyMergeCommitResult.Completed;
         }
 
-        private static void ClearStashedSlotForInPlaceCommit(
-            Recording provisional,
-            ParsekScenario scenario)
-        {
-            if (provisional == null || object.ReferenceEquals(null, scenario))
-                return;
-
-            if (provisional.MergeState != MergeState.Immutable)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"TryCommitReFlySupersede: in-place continuation kept stashed " +
-                    $"slot rec={provisional.RecordingId ?? "<no-id>"} " +
-                    $"mergeState={provisional.MergeState} (slot remains re-flyable)");
-                return;
-            }
-
-            RewindPoint rp;
-            int slotListIndex;
-            string rejectReason;
-            if (!UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
-                    provisional, out rp, out slotListIndex, out rejectReason))
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"TryCommitReFlySupersede: in-place continuation could not " +
-                    $"resolve stashed slot to clear rec={provisional.RecordingId ?? "<no-id>"} " +
-                    $"reason={rejectReason ?? "<none>"}");
-                return;
-            }
-
-            if (rp?.ChildSlots == null
-                || slotListIndex < 0
-                || slotListIndex >= rp.ChildSlots.Count)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"TryCommitReFlySupersede: in-place continuation could not " +
-                    $"clear stashed slot rec={provisional.RecordingId ?? "<no-id>"} " +
-                    $"rp={rp?.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
-                    $"reason=slot-index-invalid");
-                return;
-            }
-
-            var slot = rp.ChildSlots[slotListIndex];
-            if (slot == null)
-            {
-                ParsekLog.Verbose("MergeDialog",
-                    $"TryCommitReFlySupersede: in-place continuation could not " +
-                    $"clear stashed slot rec={provisional.RecordingId ?? "<no-id>"} " +
-                    $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex} " +
-                    $"reason=slot-null");
-                return;
-            }
-
-            if (!slot.Stashed)
-                return;
-
-            slot.Stashed = false;
-            slot.StashedRealTime = null;
-            scenario.BumpSupersedeStateVersion();
-            ParsekLog.Info("MergeDialog",
-                $"TryCommitReFlySupersede: in-place continuation cleared stashed " +
-                $"slot={slotListIndex} rec={provisional.RecordingId ?? "<no-id>"} " +
-                $"rp={rp.RewindPointId ?? "<no-rp>"} " +
-                "(merge is the player's commitment; no separate provisional exists)");
-        }
 
         // Raw committed-list scan by id. Kept local to the merge path so we
         // don't need another allowlist entry; the recording we're hunting for
@@ -2472,260 +2254,6 @@ namespace Parsek
             return decisions;
         }
 
-        internal static Recording ResolveSessionOwnedChainTerminalRecording(
-            Recording provisional,
-            string sessionId)
-        {
-            if (provisional == null || string.IsNullOrEmpty(sessionId))
-                return provisional;
-            if (string.IsNullOrEmpty(provisional.ChainId)
-                || string.IsNullOrEmpty(provisional.TreeId))
-            {
-                return provisional;
-            }
-
-            Recording best = null;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var cand = committed[i];
-                    if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
-                        continue;
-                    if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
-                        continue;
-                    if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
-                        continue;
-                    if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
-                        continue;
-                    if (cand.ChainBranch != provisional.ChainBranch)
-                        continue;
-                    if (best == null || cand.ChainIndex > best.ChainIndex)
-                        best = cand;
-                }
-            }
-
-            return best ?? provisional;
-        }
-
-        private static int CountSessionOwnedChainMembers(
-            Recording provisional,
-            string sessionId)
-        {
-            if (provisional == null || string.IsNullOrEmpty(sessionId))
-                return 0;
-            if (string.IsNullOrEmpty(provisional.ChainId)
-                || string.IsNullOrEmpty(provisional.TreeId))
-            {
-                return 0;
-            }
-
-            int count = 0;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null)
-                return 0;
-
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var cand = committed[i];
-                if (cand == null || string.IsNullOrEmpty(cand.RecordingId))
-                    continue;
-                if (!string.Equals(cand.CreatingSessionId, sessionId, System.StringComparison.Ordinal))
-                    continue;
-                if (!string.Equals(cand.TreeId, provisional.TreeId, System.StringComparison.Ordinal))
-                    continue;
-                if (!string.Equals(cand.ChainId, provisional.ChainId, System.StringComparison.Ordinal))
-                    continue;
-                if (cand.ChainBranch != provisional.ChainBranch)
-                    continue;
-                count++;
-            }
-
-            return count;
-        }
-
-        internal static List<Recording> ResolveContiguousInPlaceChainMembers(
-            Recording provisional)
-        {
-            var members = new List<Recording>();
-            if (provisional == null)
-                return members;
-
-            if (!string.IsNullOrEmpty(provisional.RecordingId))
-                members.Add(provisional);
-
-            if (string.IsNullOrEmpty(provisional.ChainId)
-                || string.IsNullOrEmpty(provisional.TreeId))
-            {
-                return members;
-            }
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0)
-                return members;
-
-            var visited = new HashSet<string>(System.StringComparer.Ordinal);
-            if (!string.IsNullOrEmpty(provisional.RecordingId))
-                visited.Add(provisional.RecordingId);
-
-            Recording current = provisional;
-            while (current != null)
-            {
-                Recording next = FindNextContiguousInPlaceChainMember(
-                    provisional, current, committed, visited);
-                if (next == null)
-                    break;
-
-                members.Add(next);
-                visited.Add(next.RecordingId);
-                current = next;
-            }
-
-            return members;
-        }
-
-        private static Recording FindNextContiguousInPlaceChainMember(
-            Recording head,
-            Recording current,
-            IReadOnlyList<Recording> committed,
-            HashSet<string> visited)
-        {
-            if (head == null || current == null || committed == null)
-                return null;
-            if (!TryGetRecordingBounds(current, out _, out double currentEndUT))
-                return null;
-
-            Recording best = null;
-            double bestDelta = double.MaxValue;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var candidate = committed[i];
-                if (candidate == null || string.IsNullOrEmpty(candidate.RecordingId))
-                    continue;
-                if (visited != null && visited.Contains(candidate.RecordingId))
-                    continue;
-                if (!MatchesInPlaceChain(head, candidate))
-                    continue;
-                if (candidate.ChainIndex <= current.ChainIndex)
-                    continue;
-                if (!TryGetRecordingBounds(candidate, out double candidateStartUT, out _))
-                    continue;
-
-                double delta = System.Math.Abs(candidateStartUT - currentEndUT);
-                if (delta > InPlaceChainContinuityToleranceSeconds)
-                    continue;
-
-                if (best == null
-                    || delta < bestDelta
-                    || (System.Math.Abs(delta - bestDelta) <= 1e-9
-                        && candidate.ChainIndex < best.ChainIndex))
-                {
-                    best = candidate;
-                    bestDelta = delta;
-                }
-            }
-
-            return best;
-        }
-
-        private static bool MatchesInPlaceChain(Recording head, Recording candidate)
-        {
-            if (head == null || candidate == null)
-                return false;
-            if (string.IsNullOrEmpty(head.TreeId) || string.IsNullOrEmpty(head.ChainId))
-                return false;
-            if (!string.Equals(candidate.TreeId, head.TreeId, System.StringComparison.Ordinal))
-                return false;
-            if (!string.Equals(candidate.ChainId, head.ChainId, System.StringComparison.Ordinal))
-                return false;
-            return candidate.ChainBranch == head.ChainBranch;
-        }
-
-        private static bool TryGetRecordingBounds(
-            Recording recording,
-            out double startUT,
-            out double endUT)
-        {
-            startUT = 0.0;
-            endUT = 0.0;
-            if (recording == null)
-                return false;
-
-            bool hasPayload =
-                (recording.Points != null && recording.Points.Count > 0)
-                || (recording.TrackSections != null && recording.TrackSections.Count > 0)
-                || (recording.OrbitSegments != null && recording.OrbitSegments.Count > 0)
-                || (!double.IsNaN(recording.ExplicitStartUT)
-                    && !double.IsNaN(recording.ExplicitEndUT));
-            if (!hasPayload)
-                return false;
-
-            startUT = recording.StartUT;
-            endUT = recording.EndUT;
-            return IsFinite(startUT) && IsFinite(endUT);
-        }
-
-        private static bool IsFinite(double value)
-        {
-            return !double.IsNaN(value) && !double.IsInfinity(value);
-        }
-
-        private static bool IsDifferentRecording(Recording candidate, Recording head)
-        {
-            if (candidate == null || head == null)
-                return false;
-            if (object.ReferenceEquals(candidate, head))
-                return false;
-            return !string.Equals(
-                candidate.RecordingId, head.RecordingId,
-                System.StringComparison.Ordinal);
-        }
-
-        private static string FormatRecordingIds(List<Recording> recordings)
-        {
-            if (recordings == null || recordings.Count == 0)
-                return string.Empty;
-
-            var ids = new List<string>();
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                    continue;
-                ids.Add(rec.RecordingId);
-            }
-
-            return string.Join(",", ids);
-        }
-
-        internal static Recording EnsureInPlaceSupersedeTargetHasTerminalState(
-            Recording supersedeTarget,
-            string sessionId)
-        {
-            if (supersedeTarget == null || supersedeTarget.TerminalStateValue.HasValue)
-                return supersedeTarget;
-
-            if (supersedeTarget.SceneExitSituation >= 0)
-            {
-                supersedeTarget.TerminalStateValue =
-                    RecordingTree.DetermineTerminalState(supersedeTarget.SceneExitSituation);
-                RecordingEndpointResolver.RefreshEndpointDecision(
-                    supersedeTarget,
-                    "MergeDialog.InPlaceSupersedeTargetSceneExitRepair");
-                ParsekLog.Warn("MergeDialog",
-                    $"TryCommitReFlySupersede: repaired null terminal on in-place supersede target " +
-                    $"id={supersedeTarget.RecordingId} from SceneExitSituation={supersedeTarget.SceneExitSituation} " +
-                    $"terminal={supersedeTarget.TerminalStateValue} sess={sessionId ?? "<none>"}");
-                return supersedeTarget;
-            }
-
-            ParsekLog.Warn("MergeDialog",
-                $"TryCommitReFlySupersede: in-place supersede target " +
-                $"id={supersedeTarget.RecordingId ?? "<null>"} still has null terminal and no " +
-                $"SceneExitSituation repair source (sess={sessionId ?? "<none>"})");
-            return supersedeTarget;
-        }
 
         private static void ApplyActiveReFlyParentChainDefaults(
             RecordingTree tree,
