@@ -6,7 +6,7 @@ namespace Parsek
 {
     internal sealed class OverlayBadge : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
-        private const string TexturePath = "Parsek/Textures/clock_overlay";
+        private const string TexturePath = "Squad/Alarms/Icons/default";
         private const float TooltipWidth = 320f;
         private const float TooltipHeight = 54f;
 

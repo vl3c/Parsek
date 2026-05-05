@@ -286,7 +286,7 @@ A single `StockUiOverlayController` singleton (a `KSPAddon(GameScenes.SPACECENTE
 - A small `OverlayBadge` MonoBehaviour shared by all three screens, parameterized by icon + tooltip text. The badge `Update()` null-checks its parent transform; if the parent is destroyed (stock-side re-layout), it self-destroys with one Verbose log.
 - A `RebuildAllVisible()` method called when `OnTimelineDataChanged` fires AND a tracked screen is currently open. If no tracked screen is open, the call is a no-op (one Verbose log).
 
-The badge prefab is built in code (no asset bundle). It uses `Texture2D` from `GameDatabase.Instance.GetTexture("Parsek/Textures/clock_overlay", false)` with a code-only fallback (a `Texture2D.whiteTexture` tinted via `GUI.color`) so the feature still works if the texture is missing during early dev.
+The badge prefab is built in code (no asset bundle). It uses KSP's stock alarm icon via `GameDatabase.Instance.GetTexture("Squad/Alarms/Icons/default", false)` with a code-only fallback (a `Texture2D.whiteTexture` tinted via `GUI.color`) so the feature still works if the stock texture lookup fails.
 
 ### 5.6 Settings
 
