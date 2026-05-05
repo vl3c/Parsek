@@ -831,7 +831,81 @@ namespace Parsek
                 AddAttemptIdIfSafe(ids, rec.RecordingId, marker, tree);
             }
 
+            // Catch attempt-authored child recordings linked to session-authored
+            // branch points. Production helpers like ParsekFlight.CreateBreakupChildRecording
+            // do NOT propagate the marker's SessionId / RewindPointId /
+            // SupersedeTargetId onto the new child Recording - they only
+            // append the new id to bp.ChildRecordingIds. As a result the
+            // marker-tag scan above misses them, so without this descendant
+            // walk Discard would leave abandoned debris/children in
+            // tree.Recordings (and on next save in CommittedRecordings) for
+            // OnSave to serialise as committed mission history. The walk is
+            // a single linear pass because chained breakups (child A spawns
+            // its own breakup BP_B with grand-child B) produce ANOTHER
+            // session-authored branch point, which the same loop visits.
+            AddSessionBranchPointDescendantAttemptIds(ids, tree, marker);
+
             return ids;
+        }
+
+        private static void AddSessionBranchPointDescendantAttemptIds(
+            HashSet<string> ids, RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (ids == null || tree == null || tree.BranchPoints == null
+                || marker == null)
+            {
+                return;
+            }
+
+            // A null PreSessionBranchPointIds baseline means the marker was
+            // written by code that does not snapshot branch-point ids - we
+            // cannot tell session-authored from pre-session BPs, so skip
+            // (mirrors PruneSessionCreatedBranchPoints' null-baseline skip).
+            if (marker.PreSessionBranchPointIds == null)
+                return;
+
+            var preSessionBpIds = new HashSet<string>(
+                marker.PreSessionBranchPointIds,
+                System.StringComparer.Ordinal);
+
+            int adopted = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id))
+                    continue;
+                if (preSessionBpIds.Contains(bp.Id))
+                    continue;
+                if (bp.ChildRecordingIds == null)
+                    continue;
+
+                for (int j = 0; j < bp.ChildRecordingIds.Count; j++)
+                {
+                    string childId = bp.ChildRecordingIds[j];
+                    if (string.IsNullOrEmpty(childId))
+                        continue;
+                    if (ids.Contains(childId))
+                        continue;
+                    // Defence in depth: the protected origin/supersede-target
+                    // ids should never appear as a session-authored BP child
+                    // in production (origin pre-existed the attempt; supersede
+                    // targets are pre-existing too), but skip them anyway.
+                    if (IsProtectedReFlyRecordingId(childId, marker))
+                        continue;
+
+                    ids.Add(childId);
+                    adopted++;
+                }
+            }
+
+            if (adopted > 0)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"AddSessionBranchPointDescendantAttemptIds: " +
+                    $"adopted {adopted} attempt-authored child recording(s) " +
+                    $"linked to session-authored branch points " +
+                    $"(tree={tree.Id ?? "<none>"}, sess={marker.SessionId ?? "<none>"})");
+            }
         }
 
         private static bool IsReFlyAttemptOwnedRecording(

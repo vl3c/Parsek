@@ -977,12 +977,19 @@ namespace Parsek.Tests
             };
 
             // Attempt-authored child recording: a debris fragment created
-            // off the session-authored BranchPoint. NotCommitted +
-            // session-tagged so IsReFlyAttemptOwnedRecording catches it.
+            // by the production helper ParsekFlight.CreateBreakupChildRecording
+            // off the session-authored BranchPoint. The production shape sets
+            // ONLY ParentBranchPointId + Generation - it does NOT propagate
+            // marker.SessionId / RewindPointId / SupersedeTargetId, so the
+            // marker-tag scan in CollectReFlyAttemptOwnedRecordingIds cannot
+            // see this recording. The session-BP-descendant walk is the only
+            // path that can reach it. The recording lives only in
+            // tree.Recordings (production: tree.AddOrReplaceRecording, no
+            // RecordingStore.AddProvisional), since the merge dialog now runs
+            // pre-transition before any OnSave fires that would also push the
+            // child into CommittedRecordings.
             var attemptDebris = MakeRecording(attemptDebrisId, treeId, 280.0, 360.0);
             attemptDebris.MergeState = MergeState.NotCommitted;
-            attemptDebris.CreatingSessionId = sessionId;
-            attemptDebris.SupersedeTargetId = preSessionDebrisId;
             attemptDebris.ParentBranchPointId = sessionAuthoredBpId;
 
             // Committed tree topology: origin + pre-session debris + fork +
@@ -997,7 +1004,9 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(origin);
             RecordingStore.AddCommittedInternal(preSessionDebris);
             RecordingStore.AddProvisional(fork);
-            RecordingStore.AddProvisional(attemptDebris);
+            // Intentionally do NOT AddProvisional(attemptDebris) - production
+            // breakup children are not in the flat committed list during the
+            // live session.
             Assert.False(RecordingStore.HasPendingTree);
 
             var rp = new RewindPoint
@@ -1045,8 +1054,10 @@ namespace Parsek.Tests
             Assert.Contains(originId, survivingPreSessionBp.ParentRecordingIds);
             Assert.Contains(preSessionDebrisId, survivingPreSessionBp.ChildRecordingIds);
 
-            // Fork + attempt debris: gone from CommittedRecordings AND from
-            // committedTree.Recordings.
+            // Fork: gone from CommittedRecordings AND committedTree.Recordings.
+            // attemptDebris was never in CommittedRecordings (production
+            // shape) but was in committedTree.Recordings - the dict-prune
+            // is the load-bearing assertion.
             Assert.DoesNotContain(RecordingStore.CommittedRecordings,
                 r => r.RecordingId == forkId);
             Assert.DoesNotContain(RecordingStore.CommittedRecordings,
@@ -1069,7 +1080,17 @@ namespace Parsek.Tests
             // Marker cleared.
             Assert.Null(scenario.ActiveReFlySessionMarker);
 
-            // Per-tree prune summary records all three counters.
+            // The session-BP-descendant walk reports adopting attemptDebris
+            // explicitly (the only path that can reach it given the
+            // production-shape un-tagged child).
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("AddSessionBranchPointDescendantAttemptIds")
+                && l.Contains("adopted 1"));
+
+            // Per-tree prune summary records all counters - prunedRecordings=2
+            // (fork + attempt debris), removedSessionBranchPoints=1
+            // (sessionAuthoredBp).
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("PruneAttemptRecordingsFromCommittedTrees")
