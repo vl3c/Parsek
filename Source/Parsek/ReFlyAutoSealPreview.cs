@@ -121,11 +121,15 @@ namespace Parsek
         /// Compute the auto-seal preview. Read-only: no Ledger / scenario /
         /// state-version mutation. Returns <see cref="ReFlyAutoSealPreviewResult.NoSeal"/>
         /// on null guards or TreeId mismatch.
+        ///
+        /// <para>The structural-mutation gate resolves its rewind-point
+        /// cutoff through <c>ParsekScenario.Instance</c> internally; no
+        /// scenario parameter is needed here. Tests set the singleton via
+        /// <c>ParsekScenario.SetInstanceForTesting</c>.</para>
         /// </summary>
         internal static ReFlyAutoSealPreviewResult Preview(
             Recording liveProvisional,
             ReFlySessionMarker marker,
-            ParsekScenario scenario,
             Vessel liveActiveVessel)
         {
             // Null guards mirror the production gate's early-returns at

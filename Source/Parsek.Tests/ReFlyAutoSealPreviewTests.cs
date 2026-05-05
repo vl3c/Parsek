@@ -127,7 +127,7 @@ namespace Parsek.Tests
         public void Preview_NullMarker_ReturnsNoSeal()
         {
             var rec = MakeRecording();
-            var result = ReFlyAutoSealPreviewer.Preview(rec, null, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, null, null);
             Assert.False(result.WillAutoSeal);
             Assert.Empty(result.Reasons);
             Assert.Null(result.FormatHumanReadable());
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         public void Preview_NullProvisional_ReturnsNoSeal()
         {
             var marker = MakeMarker();
-            var result = ReFlyAutoSealPreviewer.Preview(null, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(null, marker, null);
             Assert.False(result.WillAutoSeal);
         }
 
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             var rec = MakeRecording();
             var marker = MakeMarker();
             marker.TreeId = null;
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
             Assert.False(result.WillAutoSeal);
         }
 
@@ -157,7 +157,7 @@ namespace Parsek.Tests
             var rec = MakeRecording();
             rec.TreeId = null;
             var marker = MakeMarker();
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
             Assert.False(result.WillAutoSeal);
         }
 
@@ -166,7 +166,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording(treeId: "tree-A");
             var marker = MakeMarker(treeId: "tree-B");
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
             Assert.False(result.WillAutoSeal);
         }
 
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             MakeScenario(marker);
             Ledger.AddAction(MakeScienceEarning(
                 "rec-other-active", ScienceMethod.Transmitted));
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
             Assert.True(result.WillAutoSeal);
             Assert.Contains(ReFlyAutoSealReason.TransmittedScience, result.Reasons);
         }
@@ -199,7 +199,7 @@ namespace Parsek.Tests
             MakeScenario(marker);
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted));
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.True(result.WillAutoSeal);
             Assert.Equal(new[] { ReFlyAutoSealReason.TransmittedScience }, result.Reasons);
@@ -214,7 +214,7 @@ namespace Parsek.Tests
             MakeScenario(marker);
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Recovered));
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.True(result.WillAutoSeal);
             Assert.Equal(new[] { ReFlyAutoSealReason.RecoveredScience }, result.Reasons);
@@ -230,7 +230,7 @@ namespace Parsek.Tests
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted, subjectId: "subj-A"));
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted, subjectId: "subj-B"));
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.True(result.WillAutoSeal);
             Assert.Single(result.Reasons);
@@ -246,7 +246,7 @@ namespace Parsek.Tests
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Transmitted));
             Ledger.AddAction(MakeScienceEarning(rec.RecordingId, ScienceMethod.Recovered));
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.True(result.WillAutoSeal);
             Assert.Equal(new[]
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             // Tag science on a recording NOT in the lineage.
             Ledger.AddAction(MakeScienceEarning("rec-unrelated", ScienceMethod.Transmitted));
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.False(result.WillAutoSeal);
             Assert.Empty(result.Reasons);
@@ -291,7 +291,7 @@ namespace Parsek.Tests
                 ActionId = "act-funds",
             });
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.False(result.WillAutoSeal);
         }
@@ -303,7 +303,7 @@ namespace Parsek.Tests
             var marker = MakeMarker();
             MakeScenario(marker);
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.False(result.WillAutoSeal);
         }
@@ -330,7 +330,7 @@ namespace Parsek.Tests
             });
             int beforeCount = Ledger.Actions.Count;
 
-            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null, null);
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
             Assert.True(result.WillAutoSeal);
             Assert.Equal(beforeCount, Ledger.Actions.Count);

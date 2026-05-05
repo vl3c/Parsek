@@ -303,7 +303,7 @@ namespace Parsek
                 // re-classifies at finalize, so a transient flicker only
                 // affects the dialog wording, not the seal verdict).
                 var preview = ReFlyAutoSealPreviewer.Preview(
-                    reFlyRec, marker, reFlyScenario, FlightGlobals.ActiveVessel);
+                    reFlyRec, marker, FlightGlobals.ActiveVessel);
                 message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
