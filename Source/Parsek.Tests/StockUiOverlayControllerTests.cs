@@ -402,7 +402,7 @@ namespace Parsek.Tests
             Assert.Empty(filtered);
             Assert.Contains(logLines, line =>
                 line.Contains("[VERBOSE][StockUiOverlay]") &&
-                line.Contains("BuildApplicantMarks: suppressed already-live future hire name=Live Kerman"));
+                line.Contains("BuildApplicantMarks: suppressed already-live future hire count=1"));
         }
 
         /// <summary>

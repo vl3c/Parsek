@@ -204,6 +204,7 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
+                // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();

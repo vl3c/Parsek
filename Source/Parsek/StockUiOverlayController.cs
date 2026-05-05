@@ -47,7 +47,7 @@ namespace Parsek
     }
 
     [KSPAddon(KSPAddon.Startup.SpaceCentre, false)]
-    public sealed class StockUiOverlayController : MonoBehaviour
+    internal sealed class StockUiOverlayController : MonoBehaviour
     {
         private const string Tag = "StockUiOverlay";
         private const string TechOverlayName = "Parsek_TechOverlay";
@@ -142,11 +142,18 @@ namespace Parsek
 
         private string DescribeOpenScreens()
         {
-            var screens = new List<string>();
-            if (rdOpen) screens.Add("R&D");
-            if (astronautOpen) screens.Add("Astronaut");
-            if (missionOpen) screens.Add("MissionControl");
-            return string.Join(", ", screens.ToArray());
+            if (rdOpen)
+            {
+                if (astronautOpen)
+                    return missionOpen ? "R&D, Astronaut, MissionControl" : "R&D, Astronaut";
+
+                return missionOpen ? "R&D, MissionControl" : "R&D";
+            }
+
+            if (astronautOpen)
+                return missionOpen ? "Astronaut, MissionControl" : "Astronaut";
+
+            return missionOpen ? "MissionControl" : "";
         }
 
         private void OnRdTreeSpawn(RDController controller)
@@ -215,7 +222,8 @@ namespace Parsek
             StripOverlays(controller.transform, TechOverlayName);
             if (!ShouldApplyOverlays())
             {
-                ParsekLog.Info(Tag, "StockUiOverlay: feature disabled by ParsekSettings — no decorations applied");
+                ParsekLog.Info(Tag,
+                    "StockUiOverlay: feature disabled by ParsekSettings - R&D decorations skipped");
                 return;
             }
 
@@ -259,7 +267,8 @@ namespace Parsek
             StripOverlays(complex.transform, KerbalOverlayName);
             if (!ShouldApplyOverlays())
             {
-                ParsekLog.Info(Tag, "StockUiOverlay: feature disabled by ParsekSettings — no decorations applied");
+                ParsekLog.Info(Tag,
+                    "StockUiOverlay: feature disabled by ParsekSettings - Astronaut decorations skipped");
                 return;
             }
 
@@ -329,7 +338,8 @@ namespace Parsek
             StripOverlays(missionControl.transform, ContractOverlayName);
             if (!ShouldApplyOverlays())
             {
-                ParsekLog.Info(Tag, "StockUiOverlay: feature disabled by ParsekSettings — no decorations applied");
+                ParsekLog.Info(Tag,
+                    "StockUiOverlay: feature disabled by ParsekSettings - MissionControl decorations skipped");
                 return;
             }
 
@@ -553,8 +563,6 @@ namespace Parsek
                     && activeCrewOrTouristNames.Contains(kvp.Key))
                 {
                     suppressed++;
-                    ParsekLog.Verbose(Tag,
-                        $"BuildApplicantMarks: suppressed already-live future hire name={kvp.Key}");
                     continue;
                 }
 
@@ -562,7 +570,7 @@ namespace Parsek
             }
 
             if (suppressed > 0)
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, "applicant-suppressed-already-live-future-hires",
                     $"BuildApplicantMarks: suppressed already-live future hire count={suppressed}");
 
             return result;

@@ -111,11 +111,11 @@ namespace Parsek
 
         private void Update()
         {
-            if (watchedParent != null && transform.parent != null)
+            if (watchedParent != null && transform.parent == watchedParent)
                 return;
 
             ParsekLog.Verbose("StockUiOverlay",
-                $"StockUiOverlay: {screen} badge self-destruct, parent gone — name={itemName}");
+                $"StockUiOverlay: {screen} badge self-destruct, parent changed/gone - name={itemName}");
             Destroy(gameObject);
         }
 
