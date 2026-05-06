@@ -587,6 +587,71 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("prunedSpendings=1") && l.Contains("kept=1"));
         }
 
+        // ================================================================
+        // Reconcile — ContractAccept pruning
+        // ================================================================
+
+        [Fact]
+        public void Reconcile_ContractAcceptWithValidRecordingIdAfterMaxUt_Pruned()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = "rec_future",
+                ContractId = "contract-future",
+                AdvanceFunds = 5000f
+            });
+
+            var valid = new HashSet<string> { "rec_future" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned other")
+                && l.Contains("ContractAccept")
+                && l.Contains("maxUT=18000"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedOther=1"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractAcceptInRange_KeepsValidRecordingAndKscRows()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = "rec_current",
+                ContractId = "contract-recording",
+                AdvanceFunds = 2000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "contract-ksc",
+                AdvanceFunds = 1000f
+            });
+
+            var valid = new HashSet<string> { "rec_current" };
+            Ledger.Reconcile(valid, 150.0);
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.RecordingId == "rec_current"
+                && a.ContractId == "contract-recording");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.RecordingId == null
+                && a.ContractId == "contract-ksc");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("kept=2") && l.Contains("prunedOther=0"));
+        }
+
         [Fact]
         public void Reconcile_FundsInitial_AlwaysKept()
         {

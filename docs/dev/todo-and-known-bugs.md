@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 future ContractAccept load reconciliation
+
+- ~~A future `ContractAccept` ledger row tagged to a still-valid recording could survive an earlier load reconciliation because `ContractAccept` was handled as a generic "other" action and valid recording IDs bypassed `maxUT` pruning.~~ Review finding [P1]. The surviving row could later restore future active-contract state and let `FundsModule` re-credit `AdvanceFunds`.
+
+**Fix:** `Ledger.Reconcile` now applies `maxUT` pruning to `ContractAccept` before the recording-id validity check, while preserving in-range KSC-scope and recording-scoped accepts.
+
+**Coverage:** `LedgerTests.Reconcile_ContractAcceptWithValidRecordingIdAfterMaxUt_Pruned` and `LedgerTests.Reconcile_ContractAcceptInRange_KeepsValidRecordingAndKscRows`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 plain rewind kept stale Re-Fly marker
 
 - ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.

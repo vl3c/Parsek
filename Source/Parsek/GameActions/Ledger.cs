@@ -450,8 +450,8 @@ namespace Parsek
         ///   are removed (null-tagged earnings/spendings are career-level and survive the
         ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
         ///   purchases).
-        /// - Spending actions whose UT is strictly after maxUT are removed regardless of
-        ///   their RecordingId.
+        /// - Spending actions and contract accepts whose UT is strictly after maxUT are
+        ///   removed regardless of their RecordingId.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
@@ -540,7 +540,37 @@ namespace Parsek
                     continue;
                 }
 
-                // Other action types (e.g. ContractAccept, KerbalAssignment, etc.)
+                // ContractAccept consumes active contract slots and can credit advance funds.
+                // Even when tagged to a still-valid recording, a future accept must not
+                // survive an earlier load and later patch future contract/funds state.
+                if (action.Type == GameActionType.ContractAccept)
+                {
+                    if (action.UT > maxUT)
+                    {
+                        prunedOther++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned other: type={action.Type}, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
+                            $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"recordingId='{action.RecordingId ?? "(null)"}'");
+                    }
+                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
+                    {
+                        prunedOther++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned other: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+                    else
+                    {
+                        surviving.Add(action);
+                        kept++;
+                    }
+                    continue;
+                }
+
+                // Other action types (e.g. KerbalAssignment, etc.)
                 // that are neither earning nor spending: keep if recordingId is valid
                 // or if they have no recordingId and UT is within range
                 if (action.RecordingId != null)
