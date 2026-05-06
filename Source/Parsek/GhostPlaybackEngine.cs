@@ -4447,16 +4447,6 @@ namespace Parsek
             if (state?.ghost == null)
                 return false;
 
-            // Host-scene gate (#688 follow-up): keep the ghost hidden while
-            // the positioner reports an unresolved gating condition (e.g.
-            // active Re-Fly anchor offset not yet computable for this UT).
-            // The fresh-spawn deferVisibilityUntilPlaybackSync flag is left
-            // in place so the next frame the gate clears, the activation
-            // pipeline still treats this as the first sync and runs the
-            // deferred FX restore.
-            if (state.externalActivationDeferred)
-                return false;
-
             bool restoredDeferredState = state.deferVisibilityUntilPlaybackSync;
 
             if (!state.ghost.activeSelf)
@@ -4534,7 +4524,6 @@ namespace Parsek
             return traj != null
                 && state != null
                 && state.deferVisibilityUntilPlaybackSync
-                && !state.externalActivationDeferred
                 && state.appearanceCount == 0;
         }
 
@@ -5084,12 +5073,6 @@ namespace Parsek
 
             string activeSectionSummary = DescribeAppearanceActiveSection(traj, playbackUT);
             string recordingStartSummary = DescribeAppearanceRecordingStartPoint(traj, rootPos);
-            // Pass the host positioner so the helper can resolve the live
-            // anchor's world position without taking a recorder dependency
-            // inside this file (review P3 — keep the engine independent of
-            // FlightRecorder lookups).
-            string liveAnchorContextSummary = DescribeAppearanceLiveAnchorContext(
-                traj, playbackUT, rootPos, positioner);
 
             string rootPartWorldSummary = string.Empty;
             if (rootPartTransform != null)
@@ -5118,10 +5101,7 @@ namespace Parsek
                 $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
                 $"{recordingStartSummary} " +
                 $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
-                $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}" +
-                (string.IsNullOrEmpty(liveAnchorContextSummary)
-                    ? string.Empty
-                    : " " + liveAnchorContextSummary));
+                $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}");
         }
 
         internal static string DescribeAppearanceActiveSection(IPlaybackTrajectory traj, double playbackUT)
@@ -5137,65 +5117,12 @@ namespace Parsek
             string anchorSuffix = section.referenceFrame == ReferenceFrame.Relative
                 ? !string.IsNullOrEmpty(section.anchorRecordingId)
                     ? $" anchorRec={section.anchorRecordingId}"
-                    : $" anchorRec=missing legacyAnchorPid={section.anchorVesselId}"
+                    : " anchorRec=missing"
                 : string.Empty;
             return
                 $"activeFrame={section.referenceFrame} " +
                 $"sectionUT={section.startUT.ToString("F2", CultureInfo.InvariantCulture)}-" +
                 $"{section.endUT.ToString("F2", CultureInfo.InvariantCulture)}{anchorSuffix}";
-        }
-
-        /// <summary>
-        /// For Relative-frame sections active at <paramref name="playbackUT"/>:
-        /// reports the live anchor's current world position and the root-to-
-        /// anchor delta (magnitude in metres). Empty for Absolute /
-        /// OrbitalCheckpoint sections — they have no anchor concept — and
-        /// when no anchor is loaded. The delta lets a single appearance log
-        /// line answer "is the anchor where the recording expected it to be"
-        /// without needing to cross-reference prec.txt + flight scene state.
-        /// Active-Re-Fly target divergence and post-merge stale-anchor
-        /// drift both surface as a large |anchor-root| value here.
-        ///
-        /// <para>
-        /// Live anchor lookup goes through the host positioner
-        /// (<see cref="IGhostPositioner.TryGetLiveAnchorWorldPosition"/>)
-        /// rather than calling <c>FlightRecorder.FindVesselByPid</c>
-        /// directly — keeps this engine file recorder-independent per the
-        /// standalone-mod design intent in CLAUDE.md. <paramref name="positioner"/>
-        /// may be null in tests; the helper degrades to "anchor world
-        /// unresolvable" rather than throwing.
-        /// </para>
-        /// </summary>
-        internal static string DescribeAppearanceLiveAnchorContext(
-            IPlaybackTrajectory traj, double playbackUT, Vector3d rootPos,
-            IGhostPositioner positioner)
-        {
-            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
-                return string.Empty;
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
-            if (sectionIdx < 0 || sectionIdx >= traj.TrackSections.Count)
-                return string.Empty;
-            TrackSection section = traj.TrackSections[sectionIdx];
-            if (section.referenceFrame != ReferenceFrame.Relative)
-                return string.Empty;
-
-            if (!string.IsNullOrEmpty(section.anchorRecordingId))
-                return $"anchorRec={section.anchorRecordingId}";
-
-            if (section.anchorVesselId == 0u)
-                return string.Empty;
-
-            if (positioner == null
-                || !positioner.TryGetLiveAnchorWorldPosition(section.anchorVesselId, out Vector3d anchorWorld))
-            {
-                return $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
-            }
-
-            Vector3d delta = rootPos - anchorWorld;
-            return
-                $"anchorWorld={FormatVector3d(anchorWorld)} " +
-                $"anchor-root={FormatVector3d(delta)} " +
-                $"|anchor-root|={delta.magnitude.ToString("F1", CultureInfo.InvariantCulture)}m";
         }
 
         internal static string DescribeAppearanceRecordingStartPoint(
@@ -5206,7 +5133,6 @@ namespace Parsek
 
             TrajectoryPoint firstPoint = traj.Points[0];
             ReferenceFrame frame = ReferenceFrame.Absolute;
-            uint anchorVesselId = 0;
             string anchorRecordingId = null;
 
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
@@ -5216,7 +5142,6 @@ namespace Parsek
                 {
                     TrackSection section = traj.TrackSections[sectionIdx];
                     frame = section.referenceFrame;
-                    anchorVesselId = section.anchorVesselId;
                     anchorRecordingId = section.anchorRecordingId;
                 }
             }
@@ -5229,7 +5154,7 @@ namespace Parsek
                     $"frame=Relative offset={FormatVector3d(offset)} " +
                     (!string.IsNullOrEmpty(anchorRecordingId)
                         ? $"anchorRec={anchorRecordingId}"
-                        : $"anchorRec=missing legacyAnchorPid={anchorVesselId}");
+                        : "anchorRec=missing");
             }
 
             string rawSummary =

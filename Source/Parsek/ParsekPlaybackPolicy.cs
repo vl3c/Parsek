@@ -1201,7 +1201,7 @@ namespace Parsek
                             {
                                 ParsekLog.Verbose("Policy", string.Format(CultureInfo.InvariantCulture,
                                     "CheckPendingMapVessels: kept pending entry for #{0} \"{1}\" — " +
-                                    "active-Re-Fly suppression in effect, will retry next tick",
+                                    "map ghost creation requested retryLater, will retry next tick",
                                     idx, traj.VesselName ?? "(null)"));
                                 continue;
                             }

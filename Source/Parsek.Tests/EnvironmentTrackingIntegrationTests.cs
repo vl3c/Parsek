@@ -251,9 +251,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RestoreTrackSectionAfterFalseAlarm_StaleAnchorDowngrade_DoesNotSeedRelativeOffsetAsAbsoluteBoundary()
+        public void RestoreTrackSectionAfterFalseAlarm_ResumeAnchorDowngrade_DoesNotSeedRelativeOffsetAsAbsoluteBoundary()
         {
-            // PR #613 review P1: when stale-anchor validation downgrades a
+            // PR #613 review P1: when resume-anchor validation downgrades a
             // RELATIVE resume to ABSOLUTE, the boundary point harvested from
             // the prior section's `frames` is anchor-local Cartesian metres
             // (not body-fixed lat/lon/alt). Seeding it into the new ABSOLUTE

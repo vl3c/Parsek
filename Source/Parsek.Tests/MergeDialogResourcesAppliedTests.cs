@@ -725,7 +725,7 @@ namespace Parsek.Tests
             fork.TerminalStateValue = TerminalState.Destroyed;
             // Mirror what AtomicMarkerWrite does: copy origin's frozen
             // trajectory under the fork's own pre-Re-Fly anchor snapshot so
-            // the resolver / display alignment paths keyed by
+            // the resolver paths keyed by
             // ActiveReFlyRecordingId still see the original frozen trajectory.
             fork.CapturePreReFlyAnchorTrajectoryFrom(origin, sessionId);
 
