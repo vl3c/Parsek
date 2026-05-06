@@ -454,6 +454,10 @@ namespace Parsek.Tests
                 replacement, now: 90.0));
             Assert.True(RecordingsTableUI.ShouldShowGroupLegacyRewindButton(
                 replacement, now: 200.0));
+            Assert.Equal(-1, RecordingsTableUI.FindAggregateForwardRecordingIndex(
+                new[] { 0, 1 },
+                new List<Recording> { replacement, sibling },
+                now: 110.0));
 
             // Other branch rows still inherit the root launch save but are not the
             // effective replacement for that root, so they stay suppressed.
@@ -465,6 +469,28 @@ namespace Parsek.Tests
                 new List<Recording> { replacement, sibling },
                 now: 200.0);
             Assert.Equal(0, aggregateRewind);
+
+            var earlierTree = BuildTree("tree_refly_earlier", "root_earlier", "parsek_rw_earlier",
+                ("rec_refly_earlier", "Kerbal Earlier"));
+            var earlierRoot = earlierTree.Recordings["root_earlier"];
+            earlierRoot.Points.Add(new TrajectoryPoint { ut = 80.0 });
+            earlierRoot.Points.Add(new TrajectoryPoint { ut = 100.0 });
+
+            var earlierReplacement = earlierTree.Recordings["rec_refly_earlier"];
+            earlierReplacement.Points.Add(new TrajectoryPoint { ut = 130.0 });
+            earlierReplacement.Points.Add(new TrajectoryPoint { ut = 170.0 });
+            earlierReplacement.ParentBranchPointId = "bp_earlier";
+            RecordingStore.AddCommittedTreeForTesting(earlierTree);
+
+            supersedes.Add(Rel("root_earlier", "rec_refly_earlier"));
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            int aggregateByLaunchStart = RecordingsTableUI.FindAggregateLegacyRewindRecordingIndex(
+                new[] { 0, 1 },
+                new List<Recording> { replacement, earlierReplacement },
+                now: 200.0);
+            Assert.Equal(1, aggregateByLaunchStart);
         }
 
         [Fact]

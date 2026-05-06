@@ -4078,7 +4078,7 @@ namespace Parsek
             if (mainIdx < 0 || committed == null || mainIdx >= committed.Count)
                 return -1;
             var main = committed[mainIdx];
-            return main != null && now < main.StartUT ? mainIdx : -1;
+            return main != null && ShouldShowForwardButton(main, now) ? mainIdx : -1;
         }
 
         /// <summary>
@@ -4098,9 +4098,12 @@ namespace Parsek
                 var rec = committed[idx];
                 if (rec == null) continue;
                 if (!ShouldShowGroupLegacyRewindButton(rec, now)) continue;
-                if (rec.StartUT < bestUT || (rec.StartUT == bestUT && (bestIdx < 0 || idx < bestIdx)))
+                Recording owner;
+                double launchStartUT;
+                if (!TryResolveLaunchRewindSurface(rec, out owner, out launchStartUT)) continue;
+                if (launchStartUT < bestUT || (launchStartUT == bestUT && (bestIdx < 0 || idx < bestIdx)))
                 {
-                    bestUT = rec.StartUT;
+                    bestUT = launchStartUT;
                     bestIdx = idx;
                 }
             }
