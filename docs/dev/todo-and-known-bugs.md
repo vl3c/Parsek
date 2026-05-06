@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 late contract completions beating deadlines
+
+- ~~A recorded/recovered `ContractComplete` after the accepted `DeadlineUT` could suppress deadline failure and still pay completion rewards.~~ `ContractsModule.PrePass` removed the tracked accept for any completion, even when the completion UT was after the accepted deadline, so no synthetic deadline fail was injected. During the walk, `CheckDeadlines` removed the active contract before the late completion, but `ProcessComplete` still treated the first completion as effective because it only checked once-ever credit state.
+
+**Fix:** `PrePass` now treats only completions before the accepted deadline as deadline-resolving; late completions leave the accept tracked so the synthetic `ContractFail` is injected. `ContractsModule` also records contract IDs expired by deadline checks during the walk and marks later completions for those IDs ineffective, preserving the deadline penalty and skipping completion funds/science/reputation rewards. Explicit fail/cancel resolution behavior is unchanged.
+
+**Coverage:** `ContractsModuleTests.CompletedAfterDeadline_NotEffectiveAndNotCredited`, `PrePass_InjectsFailWhenCompletionAfterDeadline`, `PrePass_ExplicitFailOrCancelAfterDeadline_NoSyntheticDuplicate`, plus `RecalculationEngineTests.Recalculate_ContractCompleteBeforeDeadline_PaysRewards`, `Recalculate_ContractCompleteAfterDeadline_FailsDeadlineAndSkipsRewards`, and `Recalculate_ExplicitFailOrCancelAfterDeadline_StillAppliesOnlyExplicitPenalty`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 plain rewind kept stale Re-Fly marker
 
 - ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.

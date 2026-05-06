@@ -544,6 +544,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CompletedAfterDeadline_NotEffectiveAndNotCredited()
+        {
+            module.SetMaxSlots(3);
+
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+
+            var complete = MakeComplete("c1", ut: 600);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Equal(3, module.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=false") && l.Contains("deadline expired"));
+        }
+
+        [Fact]
         public void DeadlineExpired_CheckDeadlinesReturnsExpiredIds()
         {
             // Verify CheckDeadlines returns the expired contract IDs.
@@ -654,6 +677,53 @@ namespace Parsek.Tests
 
             // No injection — list unchanged
             Assert.Equal(3, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
+        public void PrePass_InjectsFailWhenCompletionAfterDeadline()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeComplete("c1", ut: 600)
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            var injected = actions[2];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(500f, (float)injected.UT);
+            Assert.Equal(8000f, injected.FundsPenalty);
+            Assert.Equal(3f, injected.RepPenalty);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("synthetic ContractFail") && l.Contains("c1"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void PrePass_ExplicitFailOrCancelAfterDeadline_NoSyntheticDuplicate(GameActionType type)
+        {
+            var explicitResolution = type == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 600, fundsPenalty: 300f)
+                : MakeCancel("c1", ut: 600, fundsPenalty: 300f);
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                explicitResolution
+            };
+            actions[0].FundsPenalty = 8000f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(2, actions.Count);
             Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
         }
 

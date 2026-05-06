@@ -30,6 +30,12 @@ namespace Parsek
         private readonly HashSet<string> creditedContracts = new HashSet<string>();
 
         /// <summary>
+        /// Contract IDs whose accepted deadline expired during the current walk.
+        /// Late completions for these contracts are ineffective and do not earn rewards.
+        /// </summary>
+        private readonly HashSet<string> deadlineExpiredContracts = new HashSet<string>();
+
+        /// <summary>
         /// Mission Control slot limit. Determined by building level.
         /// Default 2 for level 1 (KSP stock).
         /// </summary>
@@ -44,20 +50,23 @@ namespace Parsek
         {
             int prevActive = activeContracts.Count;
             int prevCredited = creditedContracts.Count;
+            int prevExpired = deadlineExpiredContracts.Count;
 
             activeContracts.Clear();
             creditedContracts.Clear();
+            deadlineExpiredContracts.Clear();
 
             ParsekLog.Verbose(Tag,
-                $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts");
+                $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
+                $"{prevExpired} deadline-expired contracts");
         }
 
         /// <inheritdoc/>
         /// <remarks>
         /// Scans for ContractAccept actions with deadlines that expire before the
-        /// walk's effective "now" without a resolution (Complete/Fail/Cancel). Injects
-        /// synthetic ContractFail actions at the deadline UT so the recalculation walk
-        /// applies failure penalties (funds + reputation).
+        /// walk's effective "now" without an on-time completion or explicit fail/cancel
+        /// resolution. Injects synthetic ContractFail actions at the deadline UT so
+        /// the recalculation walk applies failure penalties (funds + reputation).
         ///
         /// The "now" threshold is <paramref name="walkNowUT"/> when supplied — e.g. the
         /// rewind cutoff UT, so deadlines that expired between the last pre-cutoff
@@ -86,6 +95,17 @@ namespace Parsek
                         break;
 
                     case GameActionType.ContractComplete:
+                        if (action.ContractId != null)
+                        {
+                            GameAction accept;
+                            if (tracked.TryGetValue(action.ContractId, out accept)
+                                && action.UT < accept.DeadlineUT)
+                            {
+                                tracked.Remove(action.ContractId);
+                            }
+                        }
+                        break;
+
                     case GameActionType.ContractFail:
                     case GameActionType.ContractCancel:
                         if (action.ContractId != null)
@@ -205,6 +225,15 @@ namespace Parsek
                     $"Complete: contractId='{id}' effective=false (already credited), " +
                     $"rewards zeroed");
             }
+            else if (deadlineExpiredContracts.Contains(id))
+            {
+                // Deadline failure already resolved this contract; rewards zeroed.
+                action.Effective = false;
+
+                ParsekLog.Info(Tag,
+                    $"Complete: contractId='{id}' effective=false (deadline expired), " +
+                    $"rewards zeroed");
+            }
             else
             {
                 // First completion — credit awarded
@@ -252,6 +281,7 @@ namespace Parsek
                 {
                     string id = expired[i];
                     activeContracts.Remove(id);
+                    deadlineExpiredContracts.Add(id);
 
                     ParsekLog.Info(Tag,
                         $"DeadlineExpired: contractId='{id}' deadline passed at currentUT={currentUT}, " +
