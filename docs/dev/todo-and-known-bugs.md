@@ -57,6 +57,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)
+
+- During the retained Re-Fly session `logs/2026-05-06_2351_refly-phase-d-rewind-button-debris`, one intermediate save emitted `[Parsek][WARN][Scenario] OnSave: writing 0 RECORDING_TREE nodes but disk has 8 stranded sidecar recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.` at KSP.log line 11510. This happened immediately after the tree was finalized, stashed as pending, and the merge dialog was deferred to the post-report scene transition: `Stashed pending tree 'Kerbal X' (8 recordings, state=Finalized)`, `ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition`, then `OnSave: saving 0 committed tree(s)`.
+
+**Why this is not a proven bug:** The same session later committed the pending tree successfully. The final save wrote one `RECORDING_TREE` with 10 recordings, `activeRecordingId = rec_0fd46...`, one `RECORDING_SUPERSEDES` relation `e1ea034b... -> rec_0fd46...`, and the merge path logged `Quicksave: Refreshed quicksave.sfs after merge dialog Tree Merge (tree has 10 recording IDs)`. So this warning did not prove data loss in the retained session; it may be a transient false-positive while a finalized pending tree is intentionally parked outside the committed-tree list.
+
+**Caution for later:** If this warning repeats outside the narrow "finalized pending tree stashed, merge dialog not yet answered" window, or if it is followed by missing recordings after scene load, treat it as a state-management bug. The likely area is `ParsekScenario.OnSave`'s stranded-sidecar detector not distinguishing pending finalized trees from genuinely missing committed trees, or a save path that should serialize/stage pending tree metadata before the dialog completes. Keep the existing warning, but consider adding context fields (`pendingTreeId`, `pendingState`, committed count, sidecar count) so future logs make the distinction obvious.
+
+**Status:** WATCH / NOT PROVEN 2026-05-07.
+
+---
+
 ## Done - v0.9.2 Rewind-to-Launch hidden after sealing all Re-Fly slots
 
 - ~~After both Re-Fly slots under a rewind point were manually sealed, the visible replacement mission row no longer exposed Rewind-to-Launch.~~ Source: `logs/2026-05-06_2351_refly-phase-d-rewind-button-debris`: the original root recording `e1ea034b...` still owned `rewindSave = parsek_rw_0b01b6`, but it was hidden by the supersede relation `e1ea034b... -> rec_0fd46f70...`. The visible replacement row `rec_0fd46f70...` inherited that launch save through the tree root, but the row-level owner gate suppressed it because `RecordingStore.GetRewindRecording` returned the hidden original owner.
