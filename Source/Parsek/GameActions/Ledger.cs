@@ -543,6 +543,9 @@ namespace Parsek
                 // ContractAccept consumes active contract slots and can credit advance funds.
                 // Even when tagged to a still-valid recording, a future accept must not
                 // survive an earlier load and later patch future contract/funds state.
+                // Paired complete/fail/cancel rows cannot become in-range orphans here:
+                // stock emits them at or after accept UT, so timeline pruning removes
+                // matching future outcomes with the future accept.
                 if (action.Type == GameActionType.ContractAccept)
                 {
                     if (action.UT > maxUT)
