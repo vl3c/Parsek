@@ -8214,6 +8214,8 @@ namespace Parsek
             // Detect warp exit: was warping, now at 1x — recalculate ledger
             if (wasWarpActive && !isWarpNow)
             {
+                // Snapshot the handler-fire UT. Exact alignment with KSP's internal
+                // warp boundary is out of scope for this cutoff seam.
                 double warpEndUT = Planetarium.GetUniversalTime();
                 RecalculateLedgerAfterWarpExit(warpEndUT);
 

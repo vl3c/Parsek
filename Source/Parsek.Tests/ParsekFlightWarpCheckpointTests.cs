@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -7,22 +8,36 @@ namespace Parsek.Tests
         [Fact]
         public void RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly()
         {
+            var logLines = new List<string>();
             double capturedCutoff = double.NaN;
             int cutoffCalls = 0;
             int fullTimelineCalls = 0;
 
-            ParsekFlight.RecalculateLedgerAfterWarpExit(
-                1234.5,
-                cutoff =>
-                {
-                    capturedCutoff = cutoff;
-                    cutoffCalls++;
-                },
-                () => fullTimelineCalls++);
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ParsekFlight.RecalculateLedgerAfterWarpExit(
+                    1234.5,
+                    cutoff =>
+                    {
+                        capturedCutoff = cutoff;
+                        cutoffCalls++;
+                    },
+                    () => fullTimelineCalls++);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
 
             Assert.Equal(1, cutoffCalls);
             Assert.Equal(1234.5, capturedCutoff);
             Assert.Equal(0, fullTimelineCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][LedgerOrchestrator]")
+                && l.Contains("Warp exit detected")
+                && l.Contains("cutoffUT=1234.5"));
         }
 
         [Fact]

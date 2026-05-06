@@ -31,6 +31,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly`, plus the existing time-jump/cutoff suites.
 
+**Follow-up TODO:** keep the ghost-spawn-after-patch race separate from this cutoff fix. If a deferred/terminal ghost spawn materializes in the same post-warp window after the warp-exit ledger patch, validate that any spawn-side ledger effects either participate in the cutoff recompute or trigger their own immediate recompute instead of leaving KSP state stale until the next unrelated trigger. This needs KSP runtime evidence before changing the cutoff seam.
+
 **Status:** CLOSED 2026-05-06.
 
 ---
