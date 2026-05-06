@@ -1176,6 +1176,7 @@ namespace Parsek
             // by CommitRecordingDirect).
             int addedFromTree = 0;
             int replacedFromTree = 0;
+            int preservedRewindSaves = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
@@ -1184,6 +1185,25 @@ namespace Parsek
                 {
                     if (!ReferenceEquals(committedRecordings[existingIndex], rec))
                     {
+                        // Preserve runtime fields the existing instance owns
+                        // when the incoming pending-tree instance doesn't
+                        // carry them. RewindSaveFileName is set once at
+                        // launch by FlightRecorder.CaptureRewindSave and
+                        // anchors the Rewind-to-Launch button on the launch
+                        // row; the pending-tree path during a Re-Fly merge
+                        // does not propagate it, so without this copy the
+                        // topology-update commit replaces the launch save
+                        // reference with null, ShouldShowLegacyRewindButton
+                        // falls through to the no-owner branch, and the
+                        // launch row's Rewind button silently disappears.
+                        var existing = committedRecordings[existingIndex];
+                        if (existing != null
+                            && string.IsNullOrEmpty(rec.RewindSaveFileName)
+                            && !string.IsNullOrEmpty(existing.RewindSaveFileName))
+                        {
+                            rec.RewindSaveFileName = existing.RewindSaveFileName;
+                            preservedRewindSaves++;
+                        }
                         committedRecordings[existingIndex] = rec;
                         replacedFromTree++;
                     }
@@ -1223,7 +1243,8 @@ namespace Parsek
             if (updatedCommittedTree)
                 ParsekLog.Verbose("RecordingStore",
                     $"CommitTree: replaced committed tree index={replaceCommittedTreeIndex} " +
-                    $"addedRecordings={addedFromTree} replacedRecordings={replacedFromTree}");
+                    $"addedRecordings={addedFromTree} replacedRecordings={replacedFromTree} " +
+                    $"preservedRewindSaves={preservedRewindSaves}");
             foreach (var rec in tree.Recordings.Values)
                 ParsekLog.Verbose("RecordingStore", $"CommitTree: child {rec.DebugName}");
 

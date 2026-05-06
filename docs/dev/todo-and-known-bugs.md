@@ -36,6 +36,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 launch-row Rewind button cleared by topology-update commit
+
+- ~~After a Re-Fly merged into the timeline, the launch row's Rewind-to-Launch button disappeared. The launch row resolved its owner via `RecordingStore.GetRewindRecording`, which expects the launch recording to carry `RewindSaveFileName`. The topology-update commit path in `RecordingStore.FinalizeTreeCommit` (PR #762) replaced existing committed `Recording` instances with the pending tree's instances, and the pending-tree instance constructed during the Re-Fly session does not carry `RewindSaveFileName`. After replacement, `committedRecordings[i].RewindSaveFileName` was null, `GetRewindRecording` returned no owner, and `ShouldShowLegacyRewindButton` hid the button.~~ Source: `logs/2026-05-06_2217_rewind-button-after-merge` — `replacedRecordings=8` after Re-Fly #1 merge, `replacedRecordings=9` after Re-Fly #2 merge; the launch-row button stopped logging transitions because it stopped rendering.
+
+**Fix:** `FinalizeTreeCommit`'s replace branch now copies `RewindSaveFileName` from the existing committed recording onto the incoming pending-tree instance when the incoming one is empty, then performs the replacement. A `preservedRewindSaves` counter joins the existing replace-path summary log so the preservation is observable.
+
+**Coverage:** `TreeCommitTests.CommitPendingTree_SameTreeIdReplacement_PreservesRewindSaveFileName` asserts that after a topology-update commit, the launch row's `RewindSaveFileName` survives, `GetRewindRecording` returns the launch row as its own owner, and `GetRewindSaveFileName` reads the original launch save filename.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 second Re-Fly of unsealed slot + rollback BP scrub
 
 - ~~When a slot was Re-flown once with a crashed terminal (MergeState.CommittedProvisional, slot stays open), the next Re-Fly of the same slot landed in a broken state: the in-place block was skipped because `priorTip != OriginChildRecordingId`, the placeholder branch ran, the live vessel stayed as the original full assembly instead of the slot's vessel, `RestoreActiveTreeFromPending`'s marker-swap path was gated on `inPlaceContinuation` and never armed the recorder, and the AppendRelations invariant later threw on `empty Points`.~~ Source: `logs/2026-05-06_2156_refly-probe-booster-broken` — Re-Fly #4 (sess_6442) of slot=1 produced no `Recording started:` log and the merge dialog asked to commit a 0-second recording.

@@ -914,6 +914,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitPendingTree_SameTreeIdReplacement_PreservesRewindSaveFileName()
+        {
+            // Production regression: post Re-Fly merge the launch-row Rewind
+            // button vanished because the topology-update replace path in
+            // FinalizeTreeCommit overwrote the existing committed Recording
+            // (which owned the launch save filename) with a pending-tree
+            // instance whose RewindSaveFileName was null. ShouldShowLegacyRewindButton
+            // then fell through to the "no-owner" branch and the button
+            // disappeared from the launch row.
+            var original = MakeTreeWithBranch("refly_tree");
+            original.TreeName = "Kerbal X";
+            // The launch save lives on the root recording.
+            original.Recordings["root"].RewindSaveFileName = "parsek_rw_launch_001";
+            RecordingStore.CommitTree(original);
+
+            // Replacement pending tree (e.g. Re-Fly merge): same recording ids,
+            // but the new instances DON'T carry RewindSaveFileName because the
+            // pending-tree construction path doesn't propagate it.
+            var replacement = MakeTreeWithBranch("refly_tree");
+            replacement.TreeName = "Kerbal X";
+            // Topology-changing addition so ShouldReplaceCommittedTree returns true.
+            replacement.Recordings["rec_refly"] = MakeRecording(
+                "rec_refly",
+                "refly_tree",
+                "Re-Fly Vessel",
+                4000,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot(),
+                parentBranchPointId: "bp1");
+            replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
+            replacement.ActiveRecordingId = "rec_refly";
+            // Critically: replacement's "root" instance has no rewind save.
+            Assert.Null(replacement.Recordings["root"].RewindSaveFileName);
+
+            RecordingStore.StashPendingTree(replacement);
+            RecordingStore.CommitPendingTree();
+
+            var rootCommitted = RecordingStore.CommittedRecordings
+                .Single(r => r.RecordingId == "root");
+            Assert.Equal("parsek_rw_launch_001", rootCommitted.RewindSaveFileName);
+            // GetRewindRecording / GetRewindSaveFileName resolve through the
+            // root, so the launch row's Rewind-to-Launch button continues to
+            // work after the topology-update commit.
+            var owner = RecordingStore.GetRewindRecording(rootCommitted);
+            Assert.Same(rootCommitted, owner);
+            Assert.Equal("parsek_rw_launch_001", RecordingStore.GetRewindSaveFileName(rootCommitted));
+        }
+
+        [Fact]
         public void CommitPendingTree_SameTreeIdReplacement_PreservesAutoGroupName()
         {
             // Production regression: each Re-Fly merge invoked CommitTree's
