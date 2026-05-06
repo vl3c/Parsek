@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Contract completions recorded after their accepted deadline now leave the deadline failure intact. Recalculation injects/applies the deadline fail penalty and marks the late completion ineffective, so completion funds, science, and reputation rewards are not paid.
+- Contract completions recorded at or after their accepted deadline now leave the deadline failure intact. Recalculation injects/applies the deadline fail penalty and marks the late completion ineffective, so completion funds, science, and reputation rewards are not paid.
 - Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - Rewind and time-jump cutoff recalculations now rebuild crew reservations from the full committed timeline while keeping funds/science/tech at the cutoff UT, so crew from unrecovered future recordings no longer reappear in the VAB/SPH crew picker after rewinding.
 - Timeline now shows Fly/Seal for every STASH-eligible recording, including active-parent breakup slots, so the Re-Fly filter matches the Recordings table.

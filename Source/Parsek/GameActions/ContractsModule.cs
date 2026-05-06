@@ -41,6 +41,26 @@ namespace Parsek
         /// </summary>
         private int maxSlots = 2;
 
+        /// <summary>
+        /// Returns true only when an action UT is strictly before the accepted
+        /// contract deadline. The deadline boundary is non-inclusive: a
+        /// ContractComplete with UT == DeadlineUT is late and must not earn
+        /// completion rewards.
+        /// </summary>
+        internal static bool IsBeforeContractDeadline(double actionUT, float deadlineUT)
+        {
+            return !float.IsNaN(deadlineUT) && actionUT < deadlineUT;
+        }
+
+        /// <summary>
+        /// Returns true once the current UT reaches or passes a real deadline.
+        /// NaN deadlines are open-ended and never expire.
+        /// </summary>
+        internal static bool HasContractDeadlineElapsed(double currentUT, float deadlineUT)
+        {
+            return !float.IsNaN(deadlineUT) && !IsBeforeContractDeadline(currentUT, deadlineUT);
+        }
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -99,7 +119,7 @@ namespace Parsek
                         {
                             GameAction accept;
                             if (tracked.TryGetValue(action.ContractId, out accept)
-                                && action.UT < accept.DeadlineUT)
+                                && IsBeforeContractDeadline(action.UT, accept.DeadlineUT))
                             {
                                 tracked.Remove(action.ContractId);
                             }
@@ -108,6 +128,8 @@ namespace Parsek
 
                     case GameActionType.ContractFail:
                     case GameActionType.ContractCancel:
+                        // Explicit resolution already applies its own penalty; after
+                        // deadline it must not receive an additional synthetic fail.
                         if (action.ContractId != null)
                             tracked.Remove(action.ContractId);
                         break;
@@ -129,7 +151,7 @@ namespace Parsek
             foreach (var kvp in tracked)
             {
                 var accept = kvp.Value;
-                if (accept.DeadlineUT <= nowUT)
+                if (HasContractDeadlineElapsed(nowUT, accept.DeadlineUT))
                 {
                     var syntheticFail = new GameAction
                     {
@@ -267,7 +289,7 @@ namespace Parsek
             foreach (var kvp in activeContracts)
             {
                 float deadline = kvp.Value.DeadlineUT;
-                if (!float.IsNaN(deadline) && deadline <= currentUT)
+                if (HasContractDeadlineElapsed(currentUT, deadline))
                 {
                     if (expired == null)
                         expired = new List<string>();

@@ -464,6 +464,19 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
+        public void DeadlineHelpers_TreatExactDeadlineAsElapsed()
+        {
+            Assert.True(ContractsModule.IsBeforeContractDeadline(499.999, 500f));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.0, 500f));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.001, 500f));
+
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(499.999, 500f));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.0, 500f));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.001, 500f));
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(500.0, float.NaN));
+        }
+
+        [Fact]
         public void DeadlineExpired_FreesSlot()
         {
             // Contract accepted at UT=100 with deadline at UT=500.
@@ -541,6 +554,29 @@ namespace Parsek.Tests
 
             Assert.Equal(0, module.GetActiveContractCount());
             Assert.DoesNotContain(logLines, l => l.Contains("DeadlineExpired"));
+        }
+
+        [Fact]
+        public void CompletedAtDeadline_NotEffectiveAndNotCredited()
+        {
+            module.SetMaxSlots(3);
+
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+
+            var complete = MakeComplete("c1", ut: 500);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Equal(3, module.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=false") && l.Contains("deadline expired"));
         }
 
         [Fact]
@@ -687,6 +723,32 @@ namespace Parsek.Tests
             {
                 MakeAccept("c1", ut: 100, deadlineUT: 500f),
                 MakeComplete("c1", ut: 600)
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            var injected = actions[2];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(500f, (float)injected.UT);
+            Assert.Equal(8000f, injected.FundsPenalty);
+            Assert.Equal(3f, injected.RepPenalty);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("synthetic ContractFail") && l.Contains("c1"));
+        }
+
+        [Fact]
+        public void PrePass_InjectsFailWhenCompletionAtDeadline()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeComplete("c1", ut: 500)
             };
             actions[0].FundsPenalty = 8000f;
             actions[0].RepPenalty = 3f;

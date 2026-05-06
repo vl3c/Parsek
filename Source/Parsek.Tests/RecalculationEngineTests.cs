@@ -638,6 +638,46 @@ namespace Parsek.Tests
                 l.Contains("deadline expired"));
         }
 
+        [Fact]
+        public void Recalculate_ContractCompleteAtDeadline_FailsDeadlineAndSkipsRewards()
+        {
+            var contracts = new ContractsModule();
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(500.0, "c-boundary", funds: 1000f, rep: 10f, sci: 5f);
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-boundary",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f, repPenalty: 4f),
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9600.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.Equal(0f, complete.EffectiveRep);
+            Assert.True(reputation.GetRunningRep() < 0f);
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-boundary"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("deadline expired"));
+        }
+
         [Theory]
         [InlineData(GameActionType.ContractFail)]
         [InlineData(GameActionType.ContractCancel)]
