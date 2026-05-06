@@ -1,6 +1,6 @@
 # Design: Recording Finalization Reliability
 
-*Shipped design contract for sealing active and background recordings when the live KSP vessel ends before Parsek can run the normal scene-exit finalizer. The recording-finalization cache feature has landed and is treated as reliable baseline behavior, not a proposal.*
+*Shipped design contract for sealing active and background recordings when the live KSP vessel ends before Parsek can run the normal scene-exit finalizer. The recording-finalization cache feature has landed and is treated as baseline behavior, with the known limitation below.*
 
 *Related docs: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md), [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md), [`dev/done/plans/incomplete-ballistic-extrapolation.md`](dev/done/plans/incomplete-ballistic-extrapolation.md), [`dev/done/plans/recording-finalization-reliability.md`](dev/done/plans/recording-finalization-reliability.md), [`dev/manual-testing/test-recording-finalization-cache.md`](dev/manual-testing/test-recording-finalization-cache.md).*
 
@@ -23,6 +23,10 @@ The landed implementation includes:
 - Scene-exit, crash, background destroy, unload/missing-vessel, debris TTL, and out-of-bubble cache consumers.
 - Maneuver-node-safe finalization: UI maneuver nodes are detected and stock node-contaminated tails are discarded in favor of current-state propagation.
 - Headless xUnit coverage and `RecordingFinalization` in-game runtime canaries, with the remaining gameplay checklist kept in the manual-testing doc.
+
+Known limitation:
+
+- `docs/dev/todo-and-known-bugs.md` item 639 tracks a patched-conic atmospheric-tail cache refresh that can flip from `Destroyed` to `Orbiting` from a far-future segment. The active-recorder destruction override no longer depends on that cache, but diagnostics and any path without that authoritative override still need the follow-up fix.
 
 ## Problem
 
@@ -49,7 +53,7 @@ The historical reliability gaps now resolve as follows:
 | Scene exit, live vessel exists | Fresh scene-exit finalizer appends predicted/extrapolated segments and terminal state. | Fresh live finalization wins over any cache. |
 | Scene exit, vessel missing | Tree finalization resolves the active/background cache and applies it before inference. | Missing runtime objects no longer imply weak last-sample finalization when a cache exists. |
 | Active crash before scene exit | `OnVesselWillDestroy` forces a cache refresh; post-destruction finalization consumes the cache after crash coalescing. | Destroyed active recordings keep a cache-extended endpoint instead of relying only on the final sampled point. |
-| Background vessel destroyed | Background destroy consumers apply the cache, trim to the actual deletion/destruction UT when needed, and persist the sidecar. | Background destroyed recordings get durable terminal state and synthetic tail metadata. |
+| Background vessel destroyed | `OnBackgroundVesselWillDestroy` refreshes/flushes and keeps the cache; `ParsekFlight.DeferredDestructionCheck` applies it only after true destruction is confirmed, then persists the sidecar. | Background destroyed recordings get durable terminal state and synthetic tail metadata without treating false unload/docking signals as terminal. |
 | Debris TTL or out-of-bubble end | Background TTL/missing-vessel paths refresh/apply cache before removing the recording from `BackgroundMap`. | KSP deletion endpoints are preserved and capped to stock deletion UT. |
 | Focus switch / backgrounding | Focus switch transfers cache ownership from `FlightRecorder` to `BackgroundRecorder`; it does not finalize by itself. | A later unload/destroy path still has the last focused projected ending. |
 | UI maneuver node present | `PatchedConicSnapshot` reports `EncounteredManeuverNode`; the finalizer discards stock node-contaminated tails and falls back to current-state propagation. | Planned UI burns remain hypothetical and cannot truncate or redirect finalization. |
@@ -202,7 +206,7 @@ internal sealed class RecordingFinalizationCache
 Ownership:
 
 - `FlightRecorder` owns one cache for the focused recording it is currently sampling.
-- `BackgroundRecorder` owns a cache per `BackgroundMap` entry or per loaded/on-rails state. The cache is keyed by recording id and vessel PID so it survives active -> background and background -> active promotion.
+- `BackgroundRecorder` owns a cache per `BackgroundMap` entry or per loaded/on-rails state. The cache is keyed by recording id and vessel PID so active -> background transfer preserves the last focused cache; background -> active promotion starts a fresh active cache from the live vessel.
 - `VesselPersistentId = 0` means unknown legacy/test identity. Cache application still requires `RecordingId` to match, and when both sides have a nonzero vessel PID, those PIDs must match too.
 - The cache payload is copied into the target `Recording` only when a consumer finalizes that recording.
 
@@ -275,7 +279,7 @@ The implementation consumes cache at these seams:
 - scene exit for active and background recordings when the live finalizer declines or the vessel is missing
 - manual commit or revert commit when a leaf/background vessel is already missing but has a usable cache
 - active vessel destruction after crash coalescing decides the recording/tree should finalize
-- background `OnBackgroundVesselWillDestroy`
+- confirmed background destruction through `ParsekFlight.DeferredDestructionCheck` after `OnBackgroundVesselWillDestroy` has refreshed/flushed and kept the cache
 - debris TTL, out-of-bubble, and missing-vessel termination in `BackgroundRecorder.CheckDebrisTTL`
 - vessel-unloaded paths that remove or strand a background recording
 - any stop/abandon path that removes a recording from `BackgroundMap` or ends a live recorder without a fresh vessel
@@ -332,7 +336,7 @@ Use subsystem tags that make the finalization decision reconstructable from `KSP
 - `[FinalizerCache]` for refresh, cache status, cache application, cache rejection, and ownership transfer.
 - `[Extrapolator]` for ballistic/conic propagation, terminal reason, limits, and failures.
 - `[PatchedSnapshot]` for node-free stock chain capture and maneuver-node exclusion decisions.
-- `[BgRecorder]` for background consume paths: destroy, unload, TTL, out-of-bubble, and persistence.
+- `[BgRecorder]` for background cache application and persistence paths, including confirmed destruction, unload, TTL, and out-of-bubble.
 - `[Flight]` for tree-level finalization decisions and crash-coalescer timing.
 
 Required log events:
@@ -353,25 +357,27 @@ Per-frame refresh checks must use rate-limited logs or aggregate summaries.
 
 The feature landed with headless unit/integration/log-assertion coverage plus in-game runtime canaries. Future behavior changes should keep that coverage shape and follow the project testing rule.
 
-### Unit Tests
+### Headless Coverage Behaviors
 
-- `FinalizationCache_AppliesTailAfterLastRealSample` - fails if cached segments overwrite or duplicate authored trajectory history.
-- `FinalizationCache_RejectsTerminalBeforeLastSample` - fails if stale cache can shorten a recording.
-- `FinalizationCache_TransfersActiveToBackground` - fails if focus switching loses the cache for the old active recording.
-- `FinalizationCache_StaleAppliesOnlyWhenNoLiveRefresh` - fails if stale cache silently wins over fresh live state.
-- `FinalizationCache_InAtmosphereDeleteForcesDestroyed` - fails if stock atmospheric deletion can commit as `Orbiting`.
-- `FinalizationCache_StableOrbitDoesNotRefreshEveryCadence` - fails if stable coast creates avoidable refresh churn.
-- `PatchedSnapshot_IgnoresUiManeuverNodes` - fails if a planned node truncates finalization or becomes terminal data.
-- `BackgroundCache_OnRailsOrbitingClassifiesOrbiting` - fails if stable background orbiters become destroyed/unfinished.
-- `BackgroundCache_SuborbitalAtmosphericClassifiesDestroyed` - fails if falling boosters end as null/orbiting.
-- `CacheApply_MarksFilesDirtyWhenSidecarAlreadyFlushed` - fails if background finalization data is lost across scene load.
+The unit and integration suites cover:
+
+- cached tails append after the last real sample without overwriting or duplicating authored trajectory history
+- stale caches cannot shorten a recording by moving the terminal UT before the last real sample
+- active -> background transfer preserves the old focused recording cache
+- stale caches apply only when the consumer explicitly allows stale fallback and no live refresh is possible
+- stock atmospheric deletion forces `Destroyed` rather than `Orbiting`
+- stable coast avoids unnecessary refresh churn
+- planned UI maneuver nodes cannot truncate finalization or become terminal data
+- stable background/on-rails orbiters classify as `Orbiting`
+- falling atmospheric/suborbital background vessels classify as destroyed or degraded instead of null/orbiting
+- cache application marks sidecar data dirty/persistent when background finalization has already flushed files
 
 ### Integration Tests
 
 - Scene-exit finalization falls back to cache when `FlightGlobals` probe declines.
 - Manual commit after a background vessel unloads applies cache instead of a generic missing-vessel fallback.
 - Active crash path consumes cache after crash coalescer completion.
-- Background `OnBackgroundVesselWillDestroy` consumes cache and persists the updated sidecar.
+- Confirmed background destruction applies cache in `DeferredDestructionCheck` after `OnBackgroundVesselWillDestroy` refreshes/flushes and keeps the cache.
 - Debris TTL out-of-bubble path consumes cache before removing `BackgroundMap`.
 - Focus switch active -> background -> unload keeps one recording id and one cache.
 
@@ -383,13 +389,15 @@ The feature landed with headless unit/integration/log-assertion coverage plus in
 - Maneuver-node exclusion logs the node-free strategy used.
 - Background consume paths log aggregate counts instead of one noisy line per frame.
 
-### In-Game Runtime Tests
+### Runtime Canaries And Manual Checks
 
-- Booster separation in atmosphere: stage a controllable booster, fly away, let it unload/delete, commit, verify the booster recording has `Destroyed`, terminal UT beyond the last live sample, and a predicted tail.
-- Mun orbiter sibling: undock lander/orbiter, land the active lander, commit, verify the orbiter finalizes as `Orbiting`.
-- Scene exit mid-burn: exit during thrust, return to playback, verify ghost continues instead of freezing at the last sampled point.
-- Planned maneuver node ignored: create a maneuver node, do not burn, finalize, verify the committed tail follows real coast and does not stop at the node.
-- Focused crash: crash a focused vessel, commit through the destruction dialog path, verify the recording has a destroyed terminal and cache-extended endpoint.
+The `RecordingFinalization` in-game category currently has synthetic FLIGHT canaries for:
+
+- destroyed background cache trimming to stock deletion UT
+- stable background cache applying `Orbiting` to a missing vessel
+- non-scene active crash finalization consuming active cache before the destroyed fallback
+
+The gameplay checklist in [`dev/manual-testing/test-recording-finalization-cache.md`](dev/manual-testing/test-recording-finalization-cache.md) covers atmospheric booster unload/delete, stable background orbiters, scene exit mid-burn, planned maneuver-node ignoring, focused crash, log sweeps, and cadence calibration.
 
 ## Code Layout
 
