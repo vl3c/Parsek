@@ -1540,8 +1540,9 @@ namespace Parsek
             SeedInitialResourceBalances();
 
             // Prime contract and strategy slot limits from the last known facility
-            // state. The first walk keeps the constructor defaults (2 contracts /
-            // 1 strategy), which match unupgraded buildings.
+            // state for reporting/availability between walks. The authoritative
+            // refresh for just-walked facility state happens after Recalculate;
+            // in-walk slot checks still use the pre-walk ceiling.
             UpdateSlotLimitsFromFacilities();
 
             // End-state population safety net: catch recordings with unpopulated end states
