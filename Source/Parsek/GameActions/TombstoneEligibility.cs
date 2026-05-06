@@ -38,7 +38,8 @@ namespace Parsek
         /// <see cref="GameAction.RecordingId"/> is in the superseded subtree.
         /// Null-scoped actions and ledger seed rows are preserved. Rollout build
         /// cost rows stay preserved because Re-Fly reuses the already-paid launch
-        /// rather than issuing a second stock rollout charge.
+        /// rather than issuing a second stock rollout charge. Future action types
+        /// default to preserved until their merge semantics are reviewed.
         /// </summary>
         public static bool IsSupersedeTombstoneEligible(GameAction action)
         {
@@ -52,11 +53,32 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     return false;
 
+                case GameActionType.ScienceEarning:
+                case GameActionType.ScienceSpending:
+                case GameActionType.FundsEarning:
+                case GameActionType.MilestoneAchievement:
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalHire:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityDestruction:
+                case GameActionType.FacilityRepair:
+                case GameActionType.StrategyActivate:
+                case GameActionType.StrategyDeactivate:
+                    return true;
+
                 case GameActionType.FundsSpending:
                     return action.FundsSpendingSource != FundsSpendingSource.VesselBuild;
 
                 default:
-                    return true;
+                    return false;
             }
         }
 

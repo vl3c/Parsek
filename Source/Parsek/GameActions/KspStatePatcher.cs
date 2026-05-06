@@ -1375,11 +1375,13 @@ namespace Parsek
                 $"KSP has {currentCount.ToString(IC)} current contracts");
 
             // #404: Filtered remove — only touch Active contracts whose id is NOT in the
-            // ledger's active set. Offered/Declined/Cancelled/Failed/Completed entries MUST
-            // stay untouched; the old code unconditionally cleared currentContracts and
-            // ContractsFinished, which wiped the Mission Control Offered bucket and any
-            // game history. ContractsFinished is append-only game state — Parsek must NOT
-            // mutate it. Filtering is delegated to PartitionContractsForPatch for testability.
+            // ledger's active set. That includes active KSP contracts whose ContractAccept
+            // row was removed from ELS by a Re-Fly tombstone. Offered/Declined/Cancelled/
+            // Failed/Completed entries MUST stay untouched; the old code unconditionally
+            // cleared currentContracts and ContractsFinished, which wiped the Mission
+            // Control Offered bucket and any game history. ContractsFinished is append-only
+            // game state — Parsek must NOT mutate it. Filtering is delegated to
+            // PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
             var entries = new List<ContractFilterEntry>();
             if (currentContracts != null)

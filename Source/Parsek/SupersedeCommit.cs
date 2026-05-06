@@ -1594,8 +1594,8 @@ namespace Parsek
         /// <see cref="ParsekScenario.TombstoneStateVersion"/> so the ELS cache
         /// invalidates on the next <see cref="EffectiveState.ComputeELS"/>
         /// call, then asks <see cref="CrewReservationManager.RecomputeAfterTombstones"/>
-        /// to re-derive the reservation dictionary — death-tombstoned kerbals
-        /// return to active (§7.16).
+        /// to re-derive the reservation dictionary from the broad post-merge
+        /// ELS rather than retaining old-subtree crew assignments (§7.16).
         /// </para>
         /// </summary>
         internal static void CommitTombstones(
@@ -1620,8 +1620,8 @@ namespace Parsek
 
             string originId = marker != null ? (marker.OriginChildRecordingId ?? "<no-origin>") : "<no-marker>";
 
-            // No subtree → nothing to retire. Still log the advisory line so
-            // the operational trace shows merge-time narrow-scope reinforcement.
+            // No subtree means nothing to retire, but still bump the tombstone
+            // state version so cache invalidation is unconditional at merge time.
             if (subtreeIds == null || subtreeIds.Count == 0)
             {
                 ParsekLog.Info(LedgerSwapTag,
@@ -1759,7 +1759,7 @@ namespace Parsek
             scenario.BumpTombstoneStateVersion();
 
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
-            // kerbals whose death was just tombstoned return to active.
+            // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
         }
 
@@ -1800,17 +1800,14 @@ namespace Parsek
                     tech++;
                     break;
                 case GameActionType.ScienceEarning:
-                case GameActionType.ScienceInitial:
                     science++;
                     break;
                 case GameActionType.FundsEarning:
                 case GameActionType.FundsSpending:
-                case GameActionType.FundsInitial:
                     funds++;
                     break;
                 case GameActionType.ReputationEarning:
                 case GameActionType.ReputationPenalty:
-                case GameActionType.ReputationInitial:
                     reputation++;
                     break;
                 case GameActionType.KerbalAssignment:

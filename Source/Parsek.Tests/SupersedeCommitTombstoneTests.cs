@@ -242,6 +242,20 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction KerbalRescue(string recordingId, double ut,
+            string kerbalName = "Rescuee")
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.KerbalRescue,
+                RecordingId = recordingId,
+                KerbalName = kerbalName,
+                KerbalRole = "Pilot",
+                UT = ut,
+            };
+        }
+
         // ---------- Positive path ------------------------------------------
 
         [Fact]
@@ -423,6 +437,36 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(scenario.LedgerTombstones,
                 t => t.ActionId == nullDeath.ActionId);
+        }
+
+        [Fact]
+        public void CommitTombstones_KerbalRescueInOldBranch_RemovedFromELS()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var oldBranchRescue = KerbalRescue("rec_inside", 100.0, "Rescuee Kerman");
+            var outsideRescue = KerbalRescue("rec_outside", 200.0, "Outside Kerman");
+            Ledger.AddAction(oldBranchRescue);
+            Ledger.AddAction(outsideRescue);
+
+            var elsBefore = EffectiveState.ComputeELS();
+            Assert.Contains(elsBefore, a => a.ActionId == oldBranchRescue.ActionId);
+            Assert.Contains(elsBefore, a => a.ActionId == outsideRescue.ActionId);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Contains(scenario.LedgerTombstones,
+                t => t.ActionId == oldBranchRescue.ActionId);
+
+            var elsAfter = EffectiveState.ComputeELS();
+            Assert.DoesNotContain(elsAfter, a => a.ActionId == oldBranchRescue.ActionId);
+            Assert.Contains(elsAfter, a => a.ActionId == outsideRescue.ActionId);
+
+            // Headless xUnit can prove ELS retirement. Live CrewRoster cleanup for
+            // a stock-rescued kerbal must be covered by runtime/KSP validation.
         }
 
         // ---------- Idempotence --------------------------------------------

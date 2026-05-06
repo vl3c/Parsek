@@ -169,6 +169,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecomputeAfterTombstones_DifferentRetryCrew_ReleasesOldCrewKeepsRetryCrew()
+        {
+            var original = MakeRecording("rec_original", "tree_1", new[] { "Jeb" });
+            var retry = MakeRecording("rec_retry", "tree_1", new[] { "Val" });
+            RecordingStore.AddRecordingWithTreeForTesting(original);
+            RecordingStore.AddRecordingWithTreeForTesting(retry);
+
+            var oldAssignment = KerbalAssignmentAction(
+                "rec_original", "Jeb", KerbalEndState.Aboard, 100.0);
+            var retryAssignment = KerbalAssignmentAction(
+                "rec_retry", "Val", KerbalEndState.Aboard, 120.0);
+            Ledger.AddAction(oldAssignment);
+            Ledger.AddAction(retryAssignment);
+
+            var kerbals = new KerbalsModule();
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+
+            InstallScenarioWithTombstones();
+            CrewReservationManager.RecomputeAfterTombstones();
+            Assert.True(kerbals.Reservations.ContainsKey("Jeb"),
+                "Before tombstones: original crew is still reserved from the old branch");
+            Assert.True(kerbals.Reservations.ContainsKey("Val"),
+                "Before tombstones: retry crew is reserved from the retry branch");
+
+            InstallScenarioWithTombstones(new LedgerTombstone
+            {
+                TombstoneId = "tomb_old_crew",
+                ActionId = oldAssignment.ActionId,
+                RetiringRecordingId = "rec_retry",
+                UT = 150.0,
+                CreatedRealTime = DateTime.UtcNow.ToString("o"),
+            });
+
+            CrewReservationManager.RecomputeAfterTombstones();
+
+            Assert.False(kerbals.Reservations.ContainsKey("Jeb"),
+                "After broad tombstones: original crew assignment leaves ELS");
+            Assert.True(kerbals.Reservations.ContainsKey("Val"),
+                "After broad tombstones: retry crew assignment remains reserved");
+        }
+
+        [Fact]
         public void RecomputeAfterTombstones_LogsCount()
         {
             var rec = MakeRecording("rec_1", "tree_1", new[] { "Jeb" });

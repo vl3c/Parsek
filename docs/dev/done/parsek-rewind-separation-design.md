@@ -1,5 +1,11 @@
 # Parsek - Rewind-to-Separation Design
 
+> Historical note (v0.9.2): this archived v0.9 design describes the original
+> narrow supersede tombstone scope. Current merge tombstoning is broader:
+> reviewed non-seed, recording-scoped career actions from the superseded subtree
+> are retired from ELS, while null-scoped rows, seed rows, rollout build costs,
+> and unknown future action types are preserved until reviewed.
+
 *Design specification for Rewind Points on multi-controllable split events (staging, undocking, EVA) and the Unfinished Flights group that lets the player go back to a past split and control a sibling vessel they did not originally fly. Enables "fly the booster back" gameplay: launch AB, stage, fly B to orbit, merge, then rewind to the staging moment and fly A down as a self-landing booster.*
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with mid-mission rewind points.*

@@ -433,5 +433,12 @@ namespace Parsek.Tests
                     FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 }));
         }
+
+        [Fact]
+        public void SupersedeTombstoneEligibility_UnknownFutureType_PreservedUntilReviewed()
+        {
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = (GameActionType)999, RecordingId = "rec_1" }));
+        }
     }
 }
