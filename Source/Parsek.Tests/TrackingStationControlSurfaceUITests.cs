@@ -116,6 +116,136 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatAtmosphericMarkerStockActionLockLine_IncludesDisabledButtonsAndClearError()
+        {
+            string line = ParsekTrackingStation.FormatAtmosphericMarkerStockActionLockLine(
+                clearedSelection: true,
+                hadPreviousSelection: true,
+                flyDisabled: true,
+                deleteDisabled: false,
+                recoverDisabled: true,
+                clearError: "selectedVessel field not found",
+                source: "atmospheric marker");
+
+            Assert.Contains("clearedSelection=True", line);
+            Assert.Contains("hadPreviousSelection=True", line);
+            Assert.Contains("flyDisabled=True", line);
+            Assert.Contains("deleteDisabled=False", line);
+            Assert.Contains("recoverDisabled=True", line);
+            Assert.Contains("clearError=selectedVessel field not found", line);
+            Assert.Contains("source=atmospheric marker", line);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_RelativeSectionUsesAbsoluteShadowFrames()
+        {
+            var shadowFrames = new List<TrajectoryPoint>
+            {
+                Point(100.0, 1.0, 2.0, 1000.0),
+                Point(110.0, 1.5, 2.5, 1200.0)
+            };
+            var rec = new Recording
+            {
+                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            Point(100.0, 500.0, 600.0, 700.0),
+                            Point(110.0, 510.0, 610.0, 710.0)
+                        },
+                        absoluteFrames = shadowFrames
+                    }
+                }
+            };
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                105.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.True(selected);
+            Assert.Same(shadowFrames, frames);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_RelativeSectionWithoutAbsoluteShadowFailsClosed()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    Point(100.0, 1.0, 2.0, 1000.0),
+                    Point(110.0, 1.5, 2.5, 1200.0)
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            Point(100.0, 500.0, 600.0, 700.0),
+                            Point(110.0, 510.0, 610.0, 710.0)
+                        }
+                    }
+                }
+            };
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                105.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.False(selected);
+            Assert.Null(frames);
+            Assert.Equal("relative-without-absolute-shadow", reason);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_OrbitalCheckpointFailsClosed()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    Point(100.0, 1.0, 2.0, 1000.0),
+                    Point(110.0, 1.5, 2.5, 1200.0)
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        checkpoints = new List<OrbitSegment>()
+                    }
+                }
+            };
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                105.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.False(selected);
+            Assert.Null(frames);
+            Assert.Equal("checkpoint-section", reason);
+        }
+
+        [Fact]
         public void TryApplyGhostVisibilitySetting_UpdatesLiveSettingsWhenPresent()
         {
             var settings = new ParsekSettings { showGhostsInTrackingStation = true };
@@ -209,6 +339,22 @@ namespace Parsek.Tests
                     // cares about Tracking Station window wiring.
                 }
             }
+        }
+
+        private static TrajectoryPoint Point(
+            double ut,
+            double latitude,
+            double longitude,
+            double altitude)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = "Kerbin",
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude
+            };
         }
     }
 }

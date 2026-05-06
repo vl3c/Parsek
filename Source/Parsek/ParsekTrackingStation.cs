@@ -345,28 +345,25 @@ namespace Parsek
                     continue;
                 }
 
-                // Interpolate trajectory position at current UT
                 if (!atmosCachedIndices.ContainsKey(i))
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
-                TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                if (!TryResolveRecordingWorldPosition(
+                        rec,
+                        currentUT,
+                        ref cached,
+                        out Vector3d worldPos,
+                        out _,
+                        out TrajectoryPoint sampledPoint,
+                        out string resolveReason))
+                {
+                    if (resolveReason == "body-missing")
+                        summary.MissingBody++;
+                    else
+                        summary.BracketMiss++;
+                    continue;
+                }
                 atmosCachedIndices[i] = cached;
-
-                if (!pt.HasValue)
-                {
-                    summary.BracketMiss++;
-                    continue;
-                }
-
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
-                if (body == null)
-                {
-                    summary.MissingBody++;
-                    continue;
-                }
-
-                Vector3d worldPos = body.GetWorldSurfacePosition(
-                    pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
 
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
@@ -384,7 +381,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                        $"lat={pt.Value.latitude:F2} lon={pt.Value.longitude:F2} alt={pt.Value.altitude:F0}");
+                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0}");
             }
 
             LogAtmosphericMarkerSummary(summary);
@@ -675,6 +672,7 @@ namespace Parsek
                 recordingIndex,
                 recording,
                 "atmospheric marker");
+            LockStockActionsForAtmosphericGhostSelection("atmospheric marker");
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
@@ -686,6 +684,68 @@ namespace Parsek
                     context.ScreenPosition.x,
                     context.ScreenPosition.y));
             return true;
+        }
+
+        private static void LockStockActionsForAtmosphericGhostSelection(string source)
+        {
+            SpaceTracking tracking = FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "Atmospheric marker ghost selection could not lock stock actions: SpaceTracking instance not found");
+                return;
+            }
+
+            bool cleared = GhostTrackingStationSelection.TryClearSelectedVessel(
+                tracking,
+                out object previousSelection,
+                out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn(Tag,
+                    "Atmospheric marker ghost selection failed to clear stock selection: " + clearError);
+
+            bool flyDisabled = DisableStockButton(tracking.FlyButton);
+            bool deleteDisabled = DisableStockButton(tracking.DeleteButton);
+            bool recoverDisabled = DisableStockButton(tracking.RecoverButton);
+            ParsekLog.Info(Tag,
+                FormatAtmosphericMarkerStockActionLockLine(
+                    cleared,
+                    previousSelection != null,
+                    flyDisabled,
+                    deleteDisabled,
+                    recoverDisabled,
+                    clearError,
+                    source));
+        }
+
+        private static bool DisableStockButton(UnityEngine.UI.Button button)
+        {
+            if (button == null)
+                return false;
+
+            button.interactable = false;
+            return true;
+        }
+
+        internal static string FormatAtmosphericMarkerStockActionLockLine(
+            bool clearedSelection,
+            bool hadPreviousSelection,
+            bool flyDisabled,
+            bool deleteDisabled,
+            bool recoverDisabled,
+            string clearError,
+            string source)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Atmospheric marker ghost selection locked stock actions: clearedSelection={0} hadPreviousSelection={1} flyDisabled={2} deleteDisabled={3} recoverDisabled={4} clearError={5} source={6}",
+                clearedSelection,
+                hadPreviousSelection,
+                flyDisabled,
+                deleteDisabled,
+                recoverDisabled,
+                string.IsNullOrEmpty(clearError) ? "(none)" : clearError,
+                source ?? "(unknown)");
         }
 
         private void UpdateSelectedGhostPopup()
@@ -827,6 +887,7 @@ namespace Parsek
                 selection,
                 currentUT,
                 ref cached,
+                out _,
                 out _,
                 out _,
                 out _);
@@ -990,6 +1051,7 @@ namespace Parsek
                     ref cached,
                     out Vector3d worldPos,
                     out CelestialBody body,
+                    out _,
                     out string reason))
             {
                 ParsekLog.Warn(Tag,
@@ -1058,6 +1120,7 @@ namespace Parsek
                     ref cached,
                     out Vector3d worldPos,
                     out _,
+                    out _,
                     out string reason))
             {
                 atmosphericFocusCachedIndex = cached;
@@ -1081,10 +1144,12 @@ namespace Parsek
             ref int cachedIndex,
             out Vector3d worldPos,
             out CelestialBody body,
+            out TrajectoryPoint sampledPoint,
             out string reason)
         {
             worldPos = default(Vector3d);
             body = null;
+            sampledPoint = default(TrajectoryPoint);
             reason = null;
 
             if (!GhostTrackingStationSelection.TryResolveRecording(
@@ -1102,19 +1167,22 @@ namespace Parsek
                 ref cachedIndex,
                 out worldPos,
                 out body,
+                out sampledPoint,
                 out reason);
         }
 
-        private static bool TryResolveRecordingWorldPosition(
+        internal static bool TryResolveRecordingWorldPosition(
             Recording recording,
             double currentUT,
             ref int cachedIndex,
             out Vector3d worldPos,
             out CelestialBody body,
+            out TrajectoryPoint sampledPoint,
             out string reason)
         {
             worldPos = default(Vector3d);
             body = null;
+            sampledPoint = default(TrajectoryPoint);
             reason = null;
 
             if (recording == null)
@@ -1122,22 +1190,25 @@ namespace Parsek
                 reason = "recording-null";
                 return false;
             }
-            if (recording.Points == null || recording.Points.Count == 0)
+            if (!TrySelectTrackingStationFocusFrames(
+                    recording,
+                    currentUT,
+                    out List<TrajectoryPoint> frames,
+                    out reason))
             {
-                reason = "no-points";
                 return false;
             }
 
             double sampleUT = currentUT;
-            double firstUT = recording.Points[0].ut;
-            double lastUT = recording.Points[recording.Points.Count - 1].ut;
+            double firstUT = frames[0].ut;
+            double lastUT = frames[frames.Count - 1].ut;
             if (sampleUT < firstUT)
                 sampleUT = firstUT;
             else if (sampleUT > lastUT)
                 sampleUT = lastUT;
 
             TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
-                recording.Points,
+                frames,
                 sampleUT,
                 ref cachedIndex);
             if (!pt.HasValue)
@@ -1146,6 +1217,7 @@ namespace Parsek
                 return false;
             }
 
+            sampledPoint = pt.Value;
             body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
             if (body == null)
             {
@@ -1157,6 +1229,63 @@ namespace Parsek
                 pt.Value.latitude,
                 pt.Value.longitude,
                 pt.Value.altitude);
+            return true;
+        }
+
+        internal static bool TrySelectTrackingStationFocusFrames(
+            Recording recording,
+            double sampleUT,
+            out List<TrajectoryPoint> frames,
+            out string reason)
+        {
+            frames = null;
+            reason = null;
+            if (recording == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(
+                recording.TrackSections,
+                sampleUT);
+            if (sectionIdx >= 0
+                && recording.TrackSections != null
+                && sectionIdx < recording.TrackSections.Count)
+            {
+                TrackSection section = recording.TrackSections[sectionIdx];
+                if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                {
+                    reason = "checkpoint-section";
+                    return false;
+                }
+
+                if (section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                    {
+                        reason = "relative-without-absolute-shadow";
+                        return false;
+                    }
+
+                    frames = section.absoluteFrames;
+                    return true;
+                }
+
+                if (section.frames != null && section.frames.Count > 0)
+                {
+                    frames = section.frames;
+                    return true;
+                }
+            }
+
+            if (recording.Points == null || recording.Points.Count == 0)
+            {
+                reason = "no-points";
+                return false;
+            }
+
+            frames = recording.Points;
             return true;
         }
 
@@ -1231,6 +1360,29 @@ namespace Parsek
 
             if (currentUT < recording.EndUT)
             {
+                var endpointMaterialize =
+                    GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(recording);
+                if (!endpointMaterialize.needsSpawn)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Materialize fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
+                            recording.RecordingId ?? "(none)",
+                            currentUT,
+                            recording.EndUT,
+                            endpointMaterialize.reason ?? "(none)"));
+                    ParsekLog.ScreenMessage(
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Cannot materialize \"{0}\": {1}",
+                            recording.VesselName ?? "ghost",
+                            endpointMaterialize.reason ?? "endpoint blocked"),
+                        4f);
+                    GhostTrackingStationSelection.ClearSelectedGhost("materialize endpoint ineligible");
+                    return;
+                }
+
                 double jumpDelta = recording.EndUT - currentUT;
                 ParsekLog.Info(Tag,
                     string.Format(

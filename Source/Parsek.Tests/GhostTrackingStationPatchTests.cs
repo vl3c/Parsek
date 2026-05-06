@@ -364,7 +364,8 @@ namespace Parsek.Tests
                 hasRecording: true,
                 materializeEligible: false,
                 materializeReason: GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
-                alreadyMaterialized: false);
+                alreadyMaterialized: false,
+                materializeFastForwardEligible: true);
 
             TrackingStationGhostActionState[] states =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
@@ -373,6 +374,28 @@ namespace Parsek.Tests
 
             Assert.True(materialize.Enabled);
             Assert.Contains("Fast-forward", materialize.Reason);
+        }
+
+        [Fact]
+        public void BuildActionStates_BeforeRecordingEndWithoutEndpointEligibility_DisablesMaterialize()
+        {
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: true,
+                canFocus: true,
+                canSetTarget: true,
+                recordingIndex: 1,
+                hasRecording: true,
+                materializeEligible: false,
+                materializeReason: GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                alreadyMaterialized: false);
+
+            TrackingStationGhostActionState[] states =
+                TrackingStationGhostActionPresentation.BuildActionStates(context);
+
+            TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(materialize.Enabled);
+            Assert.Contains("endpoint is not eligible", materialize.Reason);
         }
 
         [Fact]
@@ -461,6 +484,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildActionContext_BeforeRecordingEnd_EnablesMaterializeFastForwardWhenEndpointEligible()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-before-end", pid: 556);
+            RecordingStore.AddCommittedInternal(rec);
+            var selection = new TrackingStationGhostSelectionInfo(
+                9003u,
+                "Ghost: Before End",
+                0,
+                rec.RecordingId,
+                rec.StartUT,
+                rec.EndUT,
+                rec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: rec.EndUT - 10,
+                    chains: new Dictionary<uint, GhostChain>());
+            TrackingStationGhostActionState materialize = FindState(
+                TrackingStationGhostActionPresentation.BuildActionStates(context),
+                TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(context.MaterializeEligible);
+            Assert.True(context.MaterializeFastForwardEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                context.MaterializeReason);
+            Assert.True(materialize.Enabled);
+            Assert.Contains("Fast-forward", materialize.Reason);
+        }
+
+        [Fact]
         public void BuildActionContext_SupersededRelation_DisablesMaterialize()
         {
             var oldRec = MakeEligibleTrackingStationRecording(id: "rec-action-old", pid: 606);
@@ -506,6 +567,100 @@ namespace Parsek.Tests
             Assert.Equal(
                 GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
                 context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_BeforeRecordingEndSupersededRelation_DisablesMaterializeFastForward()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-before-old", pid: 616);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-before-new", pid: 717);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_before_endpoint",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+            var selection = new TrackingStationGhostSelectionInfo(
+                9004u,
+                "Ghost: Before Superseded",
+                0,
+                oldRec.RecordingId,
+                oldRec.StartUT,
+                oldRec.EndUT,
+                oldRec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: oldRec.EndUT - 10,
+                    chains: new Dictionary<uint, GhostChain>());
+            TrackingStationGhostActionState materialize = FindState(
+                TrackingStationGhostActionPresentation.BuildActionStates(context),
+                TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(context.MaterializeEligible);
+            Assert.False(context.MaterializeFastForwardEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                context.MaterializeReason);
+            Assert.False(materialize.Enabled);
+            Assert.Contains(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                materialize.Reason);
+        }
+
+        [Fact]
+        public void EvaluateMaterializeAtEndpoint_NoVesselSnapshot_ReturnsBlockedReason()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-no-snapshot", pid: 818);
+            rec.VesselSnapshot = null;
+
+            var result = GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(rec);
+
+            Assert.False(result.needsSpawn);
+            Assert.Equal("no vessel snapshot", result.reason);
+        }
+
+        [Fact]
+        public void EvaluateMaterializeAtEndpoint_SupersededRelation_ReturnsSupersededReason()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-endpoint-old", pid: 819);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-endpoint-new", pid: 820);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_endpoint",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+
+            var result = GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(oldRec);
+
+            Assert.False(result.needsSpawn);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                result.reason);
         }
 
         [Fact]

@@ -59,7 +59,8 @@ namespace Parsek.Patches
             bool hasRecording,
             bool materializeEligible,
             string materializeReason,
-            bool alreadyMaterialized)
+            bool alreadyMaterialized,
+            bool materializeFastForwardEligible = false)
         {
             HasGhostVessel = hasGhostVessel;
             CanFocus = canFocus;
@@ -69,6 +70,7 @@ namespace Parsek.Patches
             MaterializeEligible = materializeEligible;
             MaterializeReason = materializeReason;
             AlreadyMaterialized = alreadyMaterialized;
+            MaterializeFastForwardEligible = materializeFastForwardEligible;
         }
 
         internal bool HasGhostVessel { get; }
@@ -79,6 +81,7 @@ namespace Parsek.Patches
         internal bool MaterializeEligible { get; }
         internal string MaterializeReason { get; }
         internal bool AlreadyMaterialized { get; }
+        internal bool MaterializeFastForwardEligible { get; }
     }
 
     internal static class TrackingStationGhostActionPresentation
@@ -94,7 +97,7 @@ namespace Parsek.Patches
             bool hasRecording = context.RecordingIndex >= 0 && context.HasRecording;
             bool canMaterialize = hasRecording
                 && (context.MaterializeEligible
-                    || IsMaterializeFastForwardReason(context.MaterializeReason))
+                    || context.MaterializeFastForwardEligible)
                 && !context.AlreadyMaterialized;
 
             return new[]
@@ -117,9 +120,6 @@ namespace Parsek.Patches
             };
         }
 
-        internal static bool IsMaterializeFastForwardReason(string reason)
-            => reason == GhostMapPresence.TrackingStationSpawnSkipBeforeEnd;
-
         private static string DescribeMaterializeReason(
             TrackingStationGhostActionContext context,
             bool hasRecording)
@@ -130,11 +130,13 @@ namespace Parsek.Patches
                 return "The owning recording is already materialized.";
             if (context.MaterializeEligible)
                 return "Spawn the recorded vessel at its resolved Tracking Station endpoint.";
+            if (context.MaterializeFastForwardEligible)
+                return "Fast-forward to the endpoint and materialize.";
 
             switch (context.MaterializeReason)
             {
                 case GhostMapPresence.TrackingStationSpawnSkipBeforeEnd:
-                    return "Fast-forward to the endpoint and materialize.";
+                    return "Recording endpoint is not eligible to materialize.";
                 case GhostMapPresence.TrackingStationSpawnSkipRewindPending:
                     return "Waiting for the pending rewind UT adjustment.";
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
@@ -704,6 +706,16 @@ namespace Parsek.Patches
             var materialize = hasRecording
                 ? GhostMapPresence.ShouldSpawnAtTrackingStationEnd(rec, currentUT, chains)
                 : (needsSpawn: false, reason: "no-recording");
+            bool materializeFastForwardEligible = false;
+            if (hasRecording
+                && !alreadyMaterialized
+                && materialize.reason == GhostMapPresence.TrackingStationSpawnSkipBeforeEnd)
+            {
+                var endpointMaterialize = EvaluateMaterializeAtEndpoint(rec);
+                materializeFastForwardEligible = endpointMaterialize.needsSpawn;
+                if (!materializeFastForwardEligible)
+                    materialize = endpointMaterialize;
+            }
 
             return new TrackingStationGhostActionContext(
                 hasGhostVessel,
@@ -713,7 +725,25 @@ namespace Parsek.Patches
                 hasRecording,
                 materialize.needsSpawn,
                 materialize.reason,
-                alreadyMaterialized);
+                alreadyMaterialized,
+                materializeFastForwardEligible);
+        }
+
+        internal static (bool needsSpawn, string reason) EvaluateMaterializeAtEndpoint(Recording rec)
+        {
+            if (rec == null)
+                return (false, "null");
+            if (double.IsNaN(rec.EndUT) || double.IsInfinity(rec.EndUT))
+                return (false, "invalid-end-ut");
+
+            Dictionary<uint, GhostChain> endpointChains =
+                GhostChainWalker.ComputeAllGhostChains(
+                    RecordingStore.CommittedTrees,
+                    rec.EndUT);
+            return GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                rec,
+                rec.EndUT,
+                endpointChains);
         }
 
         internal static void SetSelectedGhostForTesting(TrackingStationGhostSelectionInfo selection)
