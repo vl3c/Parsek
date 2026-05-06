@@ -8215,9 +8215,7 @@ namespace Parsek
             if (wasWarpActive && !isWarpNow)
             {
                 double warpEndUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("LedgerOrchestrator",
-                    "Warp exit detected — recalculating ledger");
-                LedgerOrchestrator.RecalculateAndPatch();
+                RecalculateLedgerAfterWarpExit(warpEndUT);
 
                 // Log whether any facility actions were crossed during this warp session
                 if (LedgerOrchestrator.IsInitialized &&
@@ -8277,6 +8275,30 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(double warpEndUT)
+        {
+            RecalculateLedgerAfterWarpExit(
+                warpEndUT,
+                LedgerOrchestrator.RecalculateAndPatchForTimeJump,
+                () => LedgerOrchestrator.RecalculateAndPatch());
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(
+            double warpEndUT,
+            Action<double> recalculateAndPatchForTimeJump,
+            Action recalculateAndPatchFullTimeline)
+        {
+            if (recalculateAndPatchForTimeJump == null)
+                throw new ArgumentNullException(nameof(recalculateAndPatchForTimeJump));
+            if (recalculateAndPatchFullTimeline == null)
+                throw new ArgumentNullException(nameof(recalculateAndPatchFullTimeline));
+
+            ParsekLog.Info("LedgerOrchestrator",
+                "Warp exit detected - recalculating ledger cutoffUT="
+                + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+            recalculateAndPatchForTimeJump(warpEndUT);
         }
 
         internal static bool ShouldSkipDuplicateWarpCheckpointEvent(

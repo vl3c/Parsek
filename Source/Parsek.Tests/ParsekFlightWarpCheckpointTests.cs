@@ -5,6 +5,27 @@ namespace Parsek.Tests
     public class ParsekFlightWarpCheckpointTests
     {
         [Fact]
+        public void RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly()
+        {
+            double capturedCutoff = double.NaN;
+            int cutoffCalls = 0;
+            int fullTimelineCalls = 0;
+
+            ParsekFlight.RecalculateLedgerAfterWarpExit(
+                1234.5,
+                cutoff =>
+                {
+                    capturedCutoff = cutoff;
+                    cutoffCalls++;
+                },
+                () => fullTimelineCalls++);
+
+            Assert.Equal(1, cutoffCalls);
+            Assert.Equal(1234.5, capturedCutoff);
+            Assert.Equal(0, fullTimelineCalls);
+        }
+
+        [Fact]
         public void ShouldSkipDuplicateWarpCheckpointEvent_FirstEvent_ReturnsFalse()
         {
             Assert.False(ParsekFlight.ShouldSkipDuplicateWarpCheckpointEvent(

@@ -23,6 +23,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 warp-exit ledger cutoff
+
+- ~~Normal KSP time-warp exit captured `warpEndUT` but called `LedgerOrchestrator.RecalculateAndPatch()` with no cutoff, so it could walk and patch future actions beyond the UT where the player exited warp.~~ Review finding [P1].
+
+**Fix:** warp exit now calls `LedgerOrchestrator.RecalculateAndPatchForTimeJump(warpEndUT)` through a small testable seam, preserving the warp target as the ledger cutoff.
+
+**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly`, plus the existing time-jump/cutoff suites.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Active - v0.9.1 PR708 post-merge Phase D continuation
 
 - After PR #708 merges, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` rather than adding more stabilization into the PR708 branch. PR708's merge scope is Phases A-C plus playtest hardening: v11 `TrackSection.anchorRecordingId`, recorder-side recording-id anchor selection, non-loop Relative playback through `RelativeAnchorResolver`, frozen/body-fixed Re-Fly display alignment, Watch activation/tail/LOD stabilization, and the follow-up fixes documented in `docs/dev/plans/pr708-playtest-followup-plan.md`. Final PR708 validation evidence is `logs/2026-05-03_2007_pr708-final-watch-good`: KSP log validation passed, no Parsek errors or exception signatures were found, Watch activation gates hid the bad Probe/debris primer frames, renderer LOD hysteresis stopped the 2300m flicker, the final save contains the expected `RECORDING_TREE`, and focused/broad non-live xUnit passed (`239/239`, `10670/10670`).
