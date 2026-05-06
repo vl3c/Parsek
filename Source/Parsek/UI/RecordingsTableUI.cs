@@ -2081,9 +2081,10 @@ namespace Parsek
             // affordance. Rewind scans descendants because a parent folder is
             // an escalation surface for any child launch rewind.
             bool isRecording = parentUI.InFlightMode && flight.IsRecording;
-            if (mainIdx >= 0 && now < committed[mainIdx].StartUT)
+            int forwardIdx = FindAggregateForwardRecordingIndex(descendants, committed, now);
+            if (forwardIdx >= 0)
             {
-                var mainRec = committed[mainIdx];
+                var mainRec = committed[forwardIdx];
 
                 string ffReason;
                 bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
@@ -2091,7 +2092,7 @@ namespace Parsek
                 string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
                 if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
                 {
-                    ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{mainIdx} \"{mainRec.VesselName}\"");
+                    ParsekLog.Info("UI", $"Group '{groupName}' Forward button: #{forwardIdx} \"{mainRec.VesselName}\"");
                     ShowFastForwardConfirmation(mainRec);
                 }
                 GUI.enabled = true;
