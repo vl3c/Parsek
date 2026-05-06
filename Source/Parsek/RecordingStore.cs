@@ -1999,6 +1999,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes every committed recording tagged with the given Re-Fly session,
+        /// including optimizer-created split tails that inherited the session tag
+        /// via <see cref="RunOptimizationSplitPass"/>. Matches on
+        /// <see cref="Recording.CreatingSessionId"/> first, with
+        /// <see cref="Recording.ProvisionalForRpId"/> as an additional belt for
+        /// recordings authored before <c>CreatingSessionId</c> was wired through.
+        /// Removes in descending-index order so the chain-degrade pass in
+        /// <see cref="RemoveRecordingAt"/> only sees siblings that are also about
+        /// to be deleted; the chain id on the remaining ones is nulled out as a
+        /// transient effect, then those entries are themselves removed in the
+        /// next iteration.
+        /// </summary>
+        internal static int RemoveSessionProvisionalRecordings(
+            string sessionId, string rewindPointId)
+        {
+            if (string.IsNullOrEmpty(sessionId) && string.IsNullOrEmpty(rewindPointId))
+                return 0;
+
+            var matches = new List<int>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                bool sessionMatch =
+                    !string.IsNullOrEmpty(sessionId)
+                    && string.Equals(rec.CreatingSessionId, sessionId, StringComparison.Ordinal);
+                bool rpMatch =
+                    !string.IsNullOrEmpty(rewindPointId)
+                    && string.Equals(rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal);
+                if (sessionMatch || rpMatch)
+                    matches.Add(i);
+            }
+
+            if (matches.Count == 0)
+                return 0;
+
+            for (int m = matches.Count - 1; m >= 0; m--)
+            {
+                int idx = matches[m];
+                if (idx < 0 || idx >= committedRecordings.Count) continue;
+                var rec = committedRecordings[idx];
+                if (rec == null) continue;
+                ParsekLog.Verbose("RecordingStore",
+                    $"RemoveSessionProvisionalRecordings: removing rec='{rec.VesselName ?? "<no-name>"}' " +
+                    $"id={rec.RecordingId ?? "<no-id>"} chainId={rec.ChainId ?? "<none>"} " +
+                    $"sessionMatch={(string.Equals(rec.CreatingSessionId, sessionId, StringComparison.Ordinal) ? "yes" : "no")} " +
+                    $"rpMatch={(string.Equals(rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal) ? "yes" : "no")}");
+                CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                RemoveRecordingAt(idx);
+            }
+
+            return matches.Count;
+        }
+
+        /// <summary>
         /// Deletes a recording from the committed list, cleans up sidecar files, and
         /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
         /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
@@ -2185,8 +2240,20 @@ namespace Parsek
             // Uses CanAutoSplitIgnoringGhostTriggers — ghosting triggers don't block
             // optimizer splits because both halves inherit the GhostVisualSnapshot and
             // part events are correctly partitioned by SplitAtSection.
+            //
+            // Re-Fly defer: while a Re-Fly session marker is live, the active
+            // provisional recording is the supersede target the merge orchestrator
+            // is about to write rows for. Splitting it here would null out
+            // TerminalStateValue on the head (RecordingOptimizer.cs:897) and trip
+            // SupersedeCommit.ValidateSupersedeTarget's "null TerminalState"
+            // invariant. Skip just that recording id this pass — other recordings
+            // in the same tree still split normally — and let the next
+            // optimization pass after the marker clears do the split.
             int splitCount = 0;
             const int maxSplitsPerPass = 50;
+            string deferredActiveReFlyId =
+                ParsekScenario.Instance?.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
+            int deferredCandidatesObservedTotal = 0;
             bool splitChanged = true;
             while (splitChanged && splitCount < maxSplitsPerPass)
             {
@@ -2194,7 +2261,42 @@ namespace Parsek
                 var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
                 if (splitCandidates.Count == 0) break;
 
-                var (recIdx, secIdx) = splitCandidates[0];
+                int chosen = -1;
+                int deferredCandidatesThisIter = 0;
+                if (string.IsNullOrEmpty(deferredActiveReFlyId))
+                {
+                    chosen = 0;
+                }
+                else
+                {
+                    for (int c = 0; c < splitCandidates.Count; c++)
+                    {
+                        int candIdx = splitCandidates[c].Item1;
+                        if (candIdx < 0 || candIdx >= recordings.Count)
+                            continue;
+                        var candRec = recordings[candIdx];
+                        if (candRec != null
+                            && string.Equals(
+                                candRec.RecordingId,
+                                deferredActiveReFlyId,
+                                StringComparison.Ordinal))
+                        {
+                            deferredCandidatesThisIter++;
+                            continue;
+                        }
+                        chosen = c;
+                        break;
+                    }
+                }
+
+                if (chosen < 0)
+                {
+                    deferredCandidatesObservedTotal += deferredCandidatesThisIter;
+                    break;
+                }
+                deferredCandidatesObservedTotal += deferredCandidatesThisIter;
+
+                var (recIdx, secIdx) = splitCandidates[chosen];
                 var original = recordings[recIdx];
 
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
@@ -2322,6 +2424,14 @@ namespace Parsek
                     $"Optimization pass: hit split cap ({maxSplitsPerPass}), some candidates may remain");
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
+
+            if (deferredCandidatesObservedTotal > 0
+                && !string.IsNullOrEmpty(deferredActiveReFlyId))
+            {
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization pass: deferred split for active Re-Fly recording " +
+                    $"id={deferredActiveReFlyId} candidatesObserved={deferredCandidatesObservedTotal}");
+            }
 
             return splitCount;
         }

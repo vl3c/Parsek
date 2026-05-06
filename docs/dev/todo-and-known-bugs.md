@@ -24,6 +24,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly merge × optimizer split null TerminalState
+
+- ~~`MergeDialog.MergeCommit` calls `RecordingStore.CommitPendingTree` -> `MarkTreeAsApplied` -> `RunOptimizationPass` BEFORE `TryCommitReFlySupersede`. When the active Re-Fly attempt landed across an environment boundary (e.g. atmospheric -> surface, atmo -> exo) the optimizer's split pass ran on the active provisional, and `RecordingOptimizer.SplitAtSection` deliberately moves `TerminalStateValue` from the head to the new chain-tail half. `TryCommitReFlySupersede` then looked the provisional up by `marker.ActiveReFlyRecordingId`, found the now-non-terminal head, and `SupersedeCommit.ValidateSupersedeTarget` rejected it with `null TerminalState` -> `MergeJournalOrchestrator.RunMerge` threw, the journal stayed at `phase=Begin`, and on next load `RunFinisher` rolled back. Rollback only removed the named provisional id, so the optimizer-created split tail (which inherited `CreatingSessionId` via `RunOptimizationSplitPass`) survived as a degraded-to-standalone orphan in the recordings table and the auto-seal preview that fired before the merge button never executed.~~ Source: `logs/2026-05-06_2035_refly-grouping-seal-issue` — `[Supersede] AppendRelations invariant violation: provisional=rec_4eb2... reason=null TerminalState`, plus `Optimizer SplitAtSection: split rec_4eb2... at UT=361.9` immediately preceding it.
+
+**Fix:** `RecordingStore.RunOptimizationSplitPass` now reads `ParsekScenario.Instance?.ActiveReFlySessionMarker?.ActiveReFlyRecordingId` and skips that recording id when picking from each pass's split candidate list (siblings with splittable boundaries still split this pass — the deferral is per-id, not pass-wide). A one-line Info summary logs the deferred id and observed candidate count after the loop. `MergeJournalOrchestrator.RollBack` now calls a new `RecordingStore.RemoveSessionProvisionalRecordings(sessionId, rewindPointId)` helper that sweeps every committed recording matching `CreatingSessionId == marker.SessionId` OR `ProvisionalForRpId == marker.RewindPointId`, in descending-index order so the chain-degrade pass in `RemoveRecordingAt` only sees siblings that are also about to be removed; the legacy by-id removal is kept as a fallback for pre-tagging-fix saves.
+
+**Coverage:** `ReFlyMergeOptimizerSplitTests.SplitPass_ActiveReFlyMarker_DefersSplitForActiveProvisionalOnly`, `_NoActiveMarker_SplitsRecordingThatWouldHaveBeenDeferred`, `_MarkerActiveButDifferentRecordingId_DoesNotDefer`, `RemoveSessionProvisionalRecordings_RemovesAllSessionTaggedRecordings`, `_FallsBackToProvisionalForRpId`, `_NoMatchesIsNoOp`, `_BothNullArgs_NoOp`, `RunOptimizationPass_LeavesProvisionalEligibleForAppendRelations`. `MergeJournalOrchestratorTests.CrashAtBegin_Finisher_RemovesAllSessionTaggedFragments` pins the rollback orchestration with a head + faux optimizer-created tail tagged with the same session id.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 in-place Re-Fly fork (issue #734)
 
 - ~~In-place Re-Fly continuations rebound the recorder to the committed origin `Recording` after the rewind quickload, so the active attempt mutated origin's `Points`, `TrackSections`, sidecar `.prec`, and terminal state in flight. Discard then needed PR #733's `PRE_REFLY_ORIGINAL` rollback snapshot to reconstruct the original trajectory because the live data had already been overwritten. The deeper architectural fix is to fork the attempt into a separate provisional `Recording` so origin is never mutated.~~ Source: GitHub issue #734 follow-up to PR #733.
