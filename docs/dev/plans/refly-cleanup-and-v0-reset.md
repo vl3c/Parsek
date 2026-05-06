@@ -1,7 +1,7 @@
 # Re-Fly Phase D wrap-up + recording format v0 reset
 
 Date: 2026-05-05
-Status: plan v5.5, approved for Branch A implementation.
+Status: plan v5.6, Branch A delivered; Branch B/C not started.
 Supersedes (in scope): the deferred [refly-postmerge-relative-to-absolute.md](refly-postmerge-relative-to-absolute.md) — recording-id chain replaces the post-merge promotion motivation.
 Related: [ghost-anchor-recording-chain-plan.md](ghost-anchor-recording-chain-plan.md), [pr708-playtest-followup-plan.md](pr708-playtest-followup-plan.md).
 
@@ -21,8 +21,16 @@ This plan wraps up the Re-Fly Phase D enumeration on top of PR #708 / PR #751, t
 - v5.3 fixes from implementation-start review — plan branch merged current `origin/main` at `551746e1`, so the v5.2 6-ahead/27-behind note became stale; D.4's grep gate was split so Branch A bans live-PID use only in non-loop Relative playback/render/map/KSC helper bodies, while Branch B owns the eventual source-wide `section.anchorVesselId` removal after the field is deleted. Active-tree schema-refusal now also calls out `ClearPendingQuickloadResumeContext()`, and BranchPoint cleanup uses the actual plural `ParentRecordingIds` / `ChildRecordingIds` fields.
 - v5.4 fixes from Branch A approval review — D.0 confirmation boxes are signed explicitly, including Watch **Option A**; Branch A's non-loop live-PID guard no longer claims to run v0 watch/Re-Fly fixtures before Branch B creates them; the Branch A base note no longer hardcodes an ahead-count that goes stale after fetch/merge churn.
 - v5.5 follow-up — removed the remaining D.4/final-acceptance wording that still required v0 watch/Re-Fly scenario coverage before Branch B. Branch A owns the audit script plus guard reset/count semantics; Branch B owns regenerated v0 scenario playback coverage.
+- v5.6 post-Branch-A review — recorded the delivered Branch A commit mapping, corrected the implemented `NonLoopLivePidGuard` API/test surface, replaced stale D.1.5 uncertainty recipes with the actual triage result, and documented the deliberate camera pre-cull reapply deviation. Branch B/C reset content remains future work.
 
 ---
+
+## Branch status after PR #755
+
+- **Branch A (`refly-phase-d`) delivered:** D.1-D.7 landed in PR #755 across ten commits on top of `origin/main`: `bfca3c30`, `397b8af1`, `00a04236`, `daf997ba`, `9c2d78bc`, `a0e1e87b`, `ca2c4d19`, `d1f253b2`, `f9c49a62`, and `65f42b46`. The commit cadence was coarser than the original "one commit per phase" preference: D.1.5 was absorbed into D.1, and D.4/D.5/D.7 landed together with follow-up review/documentation commits.
+- **Branch A validation:** clean build, broad non-injection xUnit (`10699/10699`), `scripts/grep-audit-non-loop-live-pid.ps1`, `scripts/grep-audit-ers-els.ps1`, and a final GPT-5.5 xhigh clean review. Full `InjectAllRecordings` and in-game smoke remain manual/runtime checks because the local KSP instance held `KSP.log`.
+- **Branch B not started:** recording format v0 reset still owns `TrackSection.anchorVesselId` field deletion, `RecordingSchemaGeneration`, legacy-reader refusal, fixture regeneration, and v0 scenario playback coverage.
+- **Branch C not started:** `absoluteFrames` shadow removal stays gated on Branch B plus one playtest cycle.
 
 ## 1. D.0 product-behaviour confirmation
 
@@ -60,7 +68,7 @@ D.0 is satisfied for Branch A: all three confirmations are signed, including Wat
 
 ## 2. Phase D enumeration (deletion arc)
 
-Each phase is one commit with its own observability check. Lines below are pointers; D.1 explicitly requires fresh source discovery and a zero-hit grep gate, not a frozen line table.
+Branch A has landed. The phase notes below are retained as the implementation rationale and delivered/verified targets; Branch B/C sections remain future work.
 
 ### D.1 — Per-tree Re-Fly anchor lock
 
@@ -92,27 +100,24 @@ Expect line drift between this snapshot and Branch A's actual edit pass; re-grep
 
 The frozen display alignment came with a layered set of stabilization hooks that were introduced *because of* the per-frame live offset (see [pr708-playtest-followup-plan.md:204-218](pr708-playtest-followup-plan.md)). Once D.1 deletes the alignment, each hook is one of: (a) dead code to remove, (b) still-load-bearing for normal Watch and renamed accordingly, (c) potentially harmful and must be deleted alongside D.1. Triage every hook as part of the D.1 commit (or as an immediately-following D.1.5 commit) so we don't ship Branch A with dead state.
 
-**Verified verdicts (2026-05-05 investigation pass):** the 9 hooks below were grepped against pre-#751 `main`. Three came back **uncertain** (no canonical string found, requires close-reading at implementation time); the remaining six have evidence-backed verdicts. Do not treat the table as a deletion script — re-investigate each "uncertain" case with a code-reading pass before deletion.
+**Delivered D.1.5 triage (Branch A):** the old uncertainty rows are resolved by implementation. Greps in `refly-phase-d` return zero hits for `refly-display-offset-active`, `refly-display-offset-linearized`, `reFlyTrendHit`, `ReFlyPointTrendMaxCorrectionMeters`, `reFlyGhostPartPinHit`, `live-root-relative`, and `ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters`.
 
-| Hook | Reference site(s) | Reality at investigation pass | Likely fate after D.1 |
-|---|---|---|---|
-| Co-bubble suppression (`coBubbleReason=refly-display-offset-active`) | `ParsekFlight.cs:17413-17430` | **Uncertain** — `coBubbleReason` set at `:17430` ("primary-standalone-failed"); no `refly-display-offset-active` string literal found in grep. May have been renamed or absorbed into a different gate. | **Investigation recipe:** at D.1.5 implementation, grep `coBubbleReason` and `coBubbleHit` across `ParsekFlight.cs`. For each call site, read 20 lines surrounding to find the conditional. If any conditional gates on `entry.hasReFlyTreeOffset` or the equivalent post-D.1 surrogate, that conditional is the suppression — delete it. If no conditional ties to display-offset state, drop this row from the triage. |
-| Anchor-correction epsilon suppression (`anchorCorrectionReason=refly-display-offset-active`) | `ParsekFlight.cs:17396, 17494-17495, 22817` | **Uncertain** — output point exists at `:17494`; no `refly-display-offset-active` string literal found in grep. | **Investigation recipe:** grep `anchorCorrectionReason`, `anchorEps`, `anchor-eps` in `ParsekFlight.cs`. Check `:17494` and `:22817` for `entry.hasReFlyTreeOffset`-style conditionals; same fate as co-bubble suppression. |
-| Hermite gating (`hermiteReason=refly-display-offset-linearized`, `normal-playback-linearized`) | `ParsekFlight.cs:17333, 17346, 17480` | **Active-Re-Fly-only** based on visible code structure (resolver runs, log line emits the reason). | Collapse `refly-display-offset-linearized` into the unified `normal-playback-linearized` reason; the Re-Fly-specific branch goes. |
-| Spline gating (`splineReason=*`) | `ParsekFlight.cs:17273, 17315, 17484`; `RenderSessionState.cs:982-1431` | **Watch + Re-Fly** — spline computation runs for both; reason strings are diagnostics. | Spline computation stays; collapse to single `normal-playback-linearized` reason; the Re-Fly-specific reason goes. |
-| Render-interp duplicate-UT smoother (`phase=RenderInterp`) | **Not found** | **Symbol missing** — no `RenderInterp` string in grep across `Source/Parsek/`. May live in `RenderSessionState.cs` or comments only, or may have been renamed. | **Investigation recipe:** grep `phase=`, `physics-tick`, `duplicate-UT`, `render-frame`, `interpolate.*physics` in `Source/Parsek/Rendering/`. If a smoother helper exists under a different name, classify per its gate. If genuinely absent, drop this row. |
-| Recorded-path trend gate (`reFlyTrendHit`, `ReFlyPointTrendMaxCorrectionMeters`) | `ParsekFlight.cs:17487-17492, 17729, 20129` | **Uncertain** — defined as Re-Fly-specific but no visible gate routing it away from Watch. | **Investigation recipe:** read `ParsekFlight.cs:17729` (where the trend gate is invoked) and the constant declaration at `:20129`. Check whether `ApplyReFlyPointTrend` (or equivalent caller) gates on `entry.hasReFlyTreeOffset` or runs unconditionally. If conditional, delete with D.1; if unconditional but logs a Re-Fly-only reason string, rename and un-gate (broadly useful recorded-path noise filter). Defer until after D.0.1 confirmation. |
-| Selected-root-part pin (`reFlyGhostPartPinHit`) | `ParsekFlight.cs:17448-17504, 19075-19077, 19599-19601, 20054-20056, 22873-22875` | **Active-Re-Fly-only** — all references in display-offset-capture-guarded paths. | Delete — pin only seeded the alignment that D.1 removes. |
-| Live-root-relative interpolation frame (`interpolationFrame=live-root-relative`) | `ParsekFlight.cs:1738-1872, 2181-2183` | **Active-Re-Fly-only** — gated on `entry.hasReFlyTreeOffset` at `:1742`; max distance constant `ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters = 50` at `:1872`. | Delete — recorded coordinates have no near-live-root special case. |
-| Camera pre-cull reapply (`Ghost camera pre-cull reapply` / `skipped non-Re-Fly`) | `ParsekFlight.cs:2268, 2294` | **Watch + Re-Fly** — separate paths: `:2268` reapply for Re-Fly ghosts, `:2294` skip-log for non-Re-Fly. | Camera pre-cull stays for Watch; delete the Re-Fly reapply branch and the non-Re-Fly skip-log along with it (no behaviour difference once Re-Fly entries no longer carry an offset). |
+| Hook | Branch A result |
+|---|---|
+| Co-bubble suppression / anchor-correction epsilon suppression | No display-offset-specific gate survived; the historical `refly-display-offset-active` strings are gone. |
+| Hermite / spline Re-Fly-specific reason strings | Re-Fly display-offset reasons are gone; retained interpolation paths are normal playback machinery. |
+| Render-interp duplicate-UT smoother | No `RenderInterp` / display-offset-specific smoother exists in Branch A. |
+| Recorded-path trend gate | `reFlyTrendHit` and `ReFlyPointTrendMaxCorrectionMeters` are gone. |
+| Selected-root-part pin | `reFlyGhostPartPinHit` and `ReFlyDisplayAlignment` are gone. |
+| Live-root-relative interpolation frame | `live-root-relative` and `ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters` are gone. |
+| Camera pre-cull reapply | **Deliberate deviation from the original recommendation:** the generic `TraceGhostPositionReapply` / `LogSkippedNonReFlyCameraPreCull` scaffolding stays as camera-pre-cull observability and transform synchronization. The Re-Fly display-alignment machinery it used to support is gone, so this is no longer a live-offset path. |
 
-CI gate addition: a `[Conditional("DEBUG")]` counter named `NonLoopRelativeLivePidLookupAttempted`. **Concrete layout (P1 from v3 review):**
+Branch A guard implementation:
 
-- **Location:** static field `int NonLoopRelativeLivePidLookupAttempted` on a new internal static class `Source/Parsek/Rendering/NonLoopLivePidGuard.cs` (companion to the resolver).
-- **Increment sites:** every code path that would have called `FindVesselByPid` from a non-loop Relative context wraps the call in `[Conditional("DEBUG")] NonLoopLivePidGuard.RecordAttempt(callerName)` immediately before the (conditional-compiled-out) live-PID lookup. After D.1-D.7 the increment sites should be unreachable; the counter is the safety net.
-- **Reset:** `NonLoopLivePidGuard.ResetForTesting()` called in test fixtures' `Dispose` per the existing `[Collection("Sequential")]` pattern.
-- **Branch A assertion:** `GrepAuditNonLoopLivePidTests` (or a sibling guard-focused test class) pins the audit script and the guard's reset/count semantics. Branch A does **not** require v0 watch/Re-Fly scenario fixtures; those land after the format reset.
-- **Branch B scenario assertion:** once Branch B regenerates the v0 fixtures, add the scenario-level watch/Re-Fly coverage that asserts `NonLoopLivePidGuard.NonLoopRelativeLivePidLookupAttempted == 0` after playback completes.
+- **Location/API:** `Source/Parsek/Rendering/NonLoopLivePidGuard.cs` contains private static `lookupAttempts`, `[Conditional("DEBUG")] NonLoopRelativeLivePidLookupAttempted(string context)`, `LivePidLookupAttemptsForTesting`, and `ResetForTesting()`.
+- **Increment site:** Branch A deletes the non-loop live-PID lookup paths outright. The sole remaining guard call is the defensive `LateUpdate.Relative` fence that records an attempt if a non-loop entry somehow still carries a non-zero `anchorVesselId`.
+- **Branch A assertion:** `Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs` combines the grep-audit wrapper with reset/count coverage for the guard.
+- **Branch B scenario assertion:** once Branch B regenerates v0 fixtures, add scenario-level watch/Re-Fly playback coverage that asserts `NonLoopLivePidGuard.LivePidLookupAttemptsForTesting == 0` after playback completes.
 - **CI integration:** Branch A runs through the standard `dotnet test` acceptance gate plus `scripts/grep-audit-non-loop-live-pid.ps1`; Branch B adds the v0 scenario-level fixture gate.
 
 In addition, D.4's structural CI grep (P1 from v3 review pass) preserves the upstream plan's named-helper allowlist contract:
@@ -177,7 +182,7 @@ D.4 is therefore not "introduce the contract" but **"finish the cutover by delet
 
 **Acceptance bullet to preserve from PR #708 stabilization:** same-chain successor continuation for Relative anchor resolution (per `pr708-playtest-followup-plan.md` section 4.1, already implemented and live). The helper split must not regress the "first chronological covering segment wins" behaviour.
 
-After D.4, `FindVesselByPid` calls survive only inside named loop helpers (`LoopAnchorVesselId`-rooted) and out-of-scope subsystems. Branch A's CI gate is the scoped `scripts/grep-audit-non-loop-live-pid.ps1` test plus assertions that `NonLoopLivePidGuard` resets/counts correctly. Branch B adds the v0 watch/Re-Fly scenario playback suite and pins `NonLoopRelativeLivePidLookupAttempted == 0` there after those fixtures exist.
+After D.4, `FindVesselByPid` calls survive only inside named loop helpers (`LoopAnchorVesselId`-rooted) and out-of-scope subsystems. Branch A's CI gate is the scoped `scripts/grep-audit-non-loop-live-pid.ps1` test plus assertions that `NonLoopLivePidGuard` resets/counts correctly. Branch B adds the v0 watch/Re-Fly scenario playback suite and pins `NonLoopLivePidGuard.LivePidLookupAttemptsForTesting == 0` there after those fixtures exist.
 
 ### D.5 — Spawn-frame defer
 
@@ -247,7 +252,7 @@ Structural CI gate: no non-loop Map/KSC Relative helper uses `section.anchorVess
 - All `[PlaybackTrace]` lines during re-fly show ghost positions independent of live vessel motion.
 - A divergent re-fly with extreme player path keeps ghosts at original recorded positions.
 - Branch A: `scripts/grep-audit-non-loop-live-pid.ps1` and `NonLoopLivePidGuard` reset/count tests pass.
-- Branch B: regenerated v0 watch/Re-Fly scenarios pin `NonLoopRelativeLivePidLookupAttempted == 0` after playback.
+- Branch B: regenerated v0 watch/Re-Fly scenarios pin `NonLoopLivePidGuard.LivePidLookupAttemptsForTesting == 0` after playback.
 - `dotnet test` green, no `[ERROR]` in `KSP.log` during the regression scenarios.
 - One in-game smoke per phase (separation watch, divergent re-fly, map view, KSC ghost view).
 
@@ -578,11 +583,11 @@ Three branches, smallest blast radius first:
 
 ### Branch A — `refly-phase-d` (the Re-Fly wrap)
 
-- One commit per D.1, D.1.5, D.2, D.3, D.4, D.5, D.6, D.7.
-- Acceptance per phase from section 2 above.
+- Branch A is delivered in PR #755. Original preference was one commit per phase, but implementation landed as broader deletion commits plus review/documentation follow-ups; use the "Branch status after PR #755" block for the authoritative commit mapping.
+- Acceptance per phase from section 2 above is satisfied for code/grep/xUnit gates; runtime smoke and full `InjectAllRecordings` remain manual checks.
 - Phase E "legacy cutoff for Relative sections" rolls into D.4 / D.6 / D.7 organically: pre-v11 Relative sections without `anchorRecordingId` already fail closed there.
 - Land before the format reset so the chain resolver is the only path before we delete the older-format reader.
-- **Base note (updated v5.4 after merging current main):** PR #751 was merged at `f530c9ad` on 2026-05-05; PR #721 (game-state UI overlays) and follow-ups merged after that. The plan worktree merged current `origin/main` at `551746e1` and was ahead-only relative to `origin/main` at the last verification. Do not rely on a hardcoded ahead count; re-check with `git rev-list --count origin/main..HEAD`, `git rev-list --count --no-merges origin/main..HEAD`, and `git rev-list --count HEAD..origin/main` before giving rebase guidance. Branch A should start from current `origin/main` or from a fresh worktree created after this merge, then re-run the greps below before editing. Concrete `Source/Parsek/` conflict surface from PR #751 alone (verified via `git --no-pager show --stat f530c9ad`):
+- **Base note (updated v5.6 after Branch A delivery):** PR #751 was merged at `f530c9ad` on 2026-05-05; PR #721 (game-state UI overlays) and follow-ups merged after that. The plan worktree merged current `origin/main` at `551746e1`, and Branch A was implemented on `refly-phase-d` after that merge. Do not rely on a hardcoded ahead count; re-check with `git rev-list --count origin/main..HEAD`, `git rev-list --count --no-merges origin/main..HEAD`, and `git rev-list --count HEAD..origin/main` before giving rebase guidance. Branch B should start from current `origin/main` or from a fresh worktree after Branch A merges, then re-run the greps below before editing. Concrete `Source/Parsek/` conflict surface from PR #751 alone (verified via `git --no-pager show --stat f530c9ad`):
   - **`Source/Parsek/ParsekFlight.cs` (+195 lines)** — most consequential. Branch A's entire deletion arc lives in this file. D.1 hit counts (27/8/58/13) and 8 LateUpdate sites listed in v3 will drift; **re-grep mandatory at rebase**.
   - **`Source/Parsek/RewindInvoker.cs` (+378 lines)** — large churn. D.5's spawn-frame defer touch points may shift.
   - **`Source/Parsek/MergeDialog.cs`** — D.4's helper-split scope likely shrinks because in-place machinery moved. Re-confirm at rebase.
