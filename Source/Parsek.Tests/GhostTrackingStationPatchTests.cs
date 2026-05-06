@@ -334,16 +334,10 @@ namespace Parsek.Tests
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
             TrackingStationGhostActionState focus = FindState(states, TrackingStationGhostActionKind.Focus);
-            TrackingStationGhostActionState target = FindState(states, TrackingStationGhostActionKind.SetTarget);
-            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
             Assert.True(focus.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
-            Assert.True(target.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, target.Safety);
-            Assert.True(recording.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, recording.Safety);
             Assert.True(materialize.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
 
@@ -354,11 +348,13 @@ namespace Parsek.Tests
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Fly);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Delete);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Recover);
-            Assert.Equal(4, states.Length);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.SetTarget);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.ShowRecording);
+            Assert.Equal(2, states.Length);
         }
 
         [Fact]
-        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsReason()
+        public void BuildActionStates_BeforeRecordingEnd_EnablesMaterializeViaFastForward()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -375,12 +371,12 @@ namespace Parsek.Tests
 
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
-            Assert.False(materialize.Enabled);
-            Assert.Contains("endpoint", materialize.Reason);
+            Assert.True(materialize.Enabled);
+            Assert.Contains("Fast-forward", materialize.Reason);
         }
 
         [Fact]
-        public void BuildActionStates_ChainGhostWithoutRecording_DisablesRecordingAndMaterialize()
+        public void BuildActionStates_ChainGhostWithoutRecording_DisablesMaterialize()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -395,13 +391,30 @@ namespace Parsek.Tests
             TrackingStationGhostActionState[] states =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
-            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
-            Assert.False(recording.Enabled);
-            Assert.Contains("no direct committed recording", recording.Reason);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.ShowRecording);
             Assert.False(materialize.Enabled);
             Assert.Contains("No committed recording", materialize.Reason);
+        }
+
+        [Fact]
+        public void SelectRecordingMarker_StoresSelectionWithoutGhostPid()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-marker", pid: 123);
+
+            GhostTrackingStationSelection.SelectRecordingMarker(4, rec, "test marker");
+
+            Assert.True(GhostTrackingStationSelection.HasSelectedGhost);
+            TrackingStationGhostSelectionInfo selection = GhostTrackingStationSelection.SelectedGhost;
+            Assert.Equal(0u, selection.GhostPid);
+            Assert.Equal(4, selection.RecordingIndex);
+            Assert.Equal("rec-marker", selection.RecordingId);
+            Assert.True(selection.HasRecording);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Selected Tracking Station ghost marker")
+                && line.Contains("rec-marker"));
         }
 
         [Fact]

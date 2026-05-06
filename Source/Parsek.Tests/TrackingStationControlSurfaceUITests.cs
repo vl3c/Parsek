@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Security;
+using Parsek.Patches;
 using UnityEngine;
 using Xunit;
 
@@ -68,6 +69,50 @@ namespace Parsek.Tests
             Assert.Equal(
                 "Suppressed: 2 | Materialized: 1",
                 ParsekTrackingStation.FormatControlSurfaceLifecycleLine(state));
+        }
+
+        [Fact]
+        public void BuildGhostPopupText_UsesNativeMenuStatusLabels()
+        {
+            var selection = new TrackingStationGhostSelectionInfo(
+                42u,
+                "Mun Return",
+                1,
+                "rec-popup",
+                100.0,
+                200.0,
+                TerminalState.Landed,
+                false,
+                0u,
+                hasRecording: true);
+
+            string text = ParsekTrackingStation.BuildGhostPopupText(selection, currentUT: 250.0);
+
+            Assert.Contains("Ghost: Mun Return", text);
+            Assert.Contains("Recording: endpoint reached", text);
+            Assert.Contains("End state: Landed", text);
+            Assert.DoesNotContain("Terminal", text);
+        }
+
+        [Fact]
+        public void BuildGhostPopupText_BeforeEndpoint_ShowsTimeToEndpoint()
+        {
+            var selection = new TrackingStationGhostSelectionInfo(
+                0u,
+                "Plane Ghost",
+                2,
+                "rec-atmo",
+                10.0,
+                25.5,
+                TerminalState.Destroyed,
+                false,
+                0u,
+                hasRecording: true);
+
+            string text = ParsekTrackingStation.BuildGhostPopupText(selection, currentUT: 20.0);
+
+            Assert.Contains("Recording: T-5.5s to endpoint", text);
+            Assert.Contains("End state: Destroyed", text);
         }
 
         [Fact]

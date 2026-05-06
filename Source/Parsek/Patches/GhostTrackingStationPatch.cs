@@ -84,17 +84,17 @@ namespace Parsek.Patches
     internal static class TrackingStationGhostActionPresentation
     {
         // Stock Fly / Delete / Recover are intentionally absent from the
-        // action panel: they are blocked on ghost ProtoVessels by the
-        // GhostTracking{Fly,Delete,Recover} patches and only ever rendered as
-        // permanently-disabled buttons here. Removing them tightens the panel
-        // to the four real actions and lets the Materialize button claim its
-        // own row at full width.
+        // ghost popup: they remain disabled by the GhostTracking{Fly,Delete,
+        // Recover} patches until materialization selects the real vessel.
+        // Tracking Station also omits Set As Target and the old details button;
+        // the popup text carries the status line instead.
         internal static TrackingStationGhostActionState[] BuildActionStates(
             TrackingStationGhostActionContext context)
         {
             bool hasRecording = context.RecordingIndex >= 0 && context.HasRecording;
             bool canMaterialize = hasRecording
-                && context.MaterializeEligible
+                && (context.MaterializeEligible
+                    || IsMaterializeFastForwardReason(context.MaterializeReason))
                 && !context.AlreadyMaterialized;
 
             return new[]
@@ -103,28 +103,10 @@ namespace Parsek.Patches
                     TrackingStationGhostActionKind.Focus,
                     "Focus",
                     TrackingStationGhostActionSafety.SafeOnGhost,
-                    context.HasGhostVessel && context.CanFocus,
-                    context.HasGhostVessel && context.CanFocus
+                    context.CanFocus,
+                    context.CanFocus
                         ? "Center the Tracking Station camera on this ghost."
-                        : "Tracking Station camera or ghost map object is not ready."),
-
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.SetTarget,
-                    "Target",
-                    TrackingStationGhostActionSafety.SafeOnGhost,
-                    context.HasGhostVessel && context.CanSetTarget,
-                    context.HasGhostVessel && context.CanSetTarget
-                        ? "Set this ghost as the navigation target."
-                        : "Targeting is not available in the current Tracking Station state."),
-
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.ShowRecording,
-                    "Recording",
-                    TrackingStationGhostActionSafety.SafeOnGhost,
-                    hasRecording,
-                    hasRecording
-                        ? "Open the owning recording details."
-                        : "This chain ghost has no direct committed recording row."),
+                        : "Tracking Station camera or ghost focus target is not ready."),
 
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.Materialize,
@@ -134,6 +116,9 @@ namespace Parsek.Patches
                     DescribeMaterializeReason(context, hasRecording))
             };
         }
+
+        internal static bool IsMaterializeFastForwardReason(string reason)
+            => reason == GhostMapPresence.TrackingStationSpawnSkipBeforeEnd;
 
         private static string DescribeMaterializeReason(
             TrackingStationGhostActionContext context,
@@ -149,7 +134,7 @@ namespace Parsek.Patches
             switch (context.MaterializeReason)
             {
                 case GhostMapPresence.TrackingStationSpawnSkipBeforeEnd:
-                    return "Recording has not reached its endpoint yet.";
+                    return "Fast-forward to the endpoint and materialize.";
                 case GhostMapPresence.TrackingStationSpawnSkipRewindPending:
                     return "Waiting for the pending rewind UT adjustment.";
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
@@ -658,6 +643,36 @@ namespace Parsek.Patches
                     source ?? "(unknown)"));
         }
 
+        internal static void SelectRecordingMarker(
+            int recordingIndex,
+            Recording rec,
+            string source)
+        {
+            if (rec == null)
+                return;
+
+            selectedGhost = new TrackingStationGhostSelectionInfo(
+                0u,
+                rec.VesselName,
+                recordingIndex,
+                rec.RecordingId,
+                rec.StartUT,
+                rec.EndUT,
+                rec.TerminalStateValue,
+                rec.VesselSpawned,
+                rec.SpawnedVesselPersistentId,
+                hasRecording: true);
+            hasSelectedGhost = true;
+
+            ParsekLog.Info("GhostMap",
+                string.Format(ic,
+                    "Selected Tracking Station ghost marker '{0}' recIndex={1} recId={2} source={3}",
+                    selectedGhost.VesselName,
+                    selectedGhost.RecordingIndex,
+                    selectedGhost.RecordingId ?? "(none)",
+                    source ?? "(unknown)"));
+        }
+
         internal static void ClearSelectedGhost(string reason)
         {
             if (!hasSelectedGhost)
@@ -728,15 +743,23 @@ namespace Parsek.Patches
             return GhostMapPresence.GetCommittedRecordingByRawIndex(recordingIndex);
         }
 
-        private static bool TryResolveRecording(
+        internal static bool TryResolveRecording(
             TrackingStationGhostSelectionInfo selection,
             out Recording recording,
             out int recordingIndex)
         {
-            return GhostMapPresence.TryGetCommittedRecordingById(
-                selection.RecordingId,
-                out recordingIndex,
-                out recording);
+            if (!string.IsNullOrEmpty(selection.RecordingId)
+                && GhostMapPresence.TryGetCommittedRecordingById(
+                    selection.RecordingId,
+                    out recordingIndex,
+                    out recording))
+            {
+                return true;
+            }
+
+            recordingIndex = selection.RecordingIndex;
+            recording = GhostMapPresence.GetCommittedRecordingByRawIndex(recordingIndex);
+            return recording != null;
         }
 
         internal static bool TryClearSelectedVessel(object trackingInstance, out object previousSelection, out string error)
