@@ -1783,8 +1783,15 @@ namespace Parsek
         private static void RebuildCommittedScienceFromSurvivingLedger(
             IReadOnlyList<GameAction> actions)
         {
-            var pairs = BuildCommittedScienceSubjectCredits(actions);
+            int scienceActionCount;
+            var pairs = BuildCommittedScienceSubjectCredits(actions, out scienceActionCount);
             GameStateStore.RebuildCommittedScienceSubjects(pairs);
+
+            int actionCount = actions == null ? 0 : actions.Count;
+            ParsekLog.Verbose(Tag,
+                "RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects " +
+                $"from surviving ledger (subjects={pairs.Count}, scienceActions={scienceActionCount}, " +
+                $"actions={actionCount})");
         }
 
         private struct CommittedScienceCreditState
@@ -1794,8 +1801,10 @@ namespace Parsek
         }
 
         internal static List<KeyValuePair<string, float>> BuildCommittedScienceSubjectCredits(
-            IReadOnlyList<GameAction> actions)
+            IReadOnlyList<GameAction> actions,
+            out int scienceActionCount)
         {
+            scienceActionCount = 0;
             var pairs = new List<KeyValuePair<string, float>>();
             if (actions == null || actions.Count == 0)
                 return pairs;
@@ -1813,6 +1822,7 @@ namespace Parsek
                 }
 
                 scienceActions.Add(action);
+                scienceActionCount++;
             }
 
             if (scienceActions.Count == 0)
@@ -1837,6 +1847,10 @@ namespace Parsek
                     };
                 }
 
+                // Monotonic max-value assumption: a KSP science subject's cap should
+                // stay stable or only increase across surviving ledger rows. Keep the
+                // largest observed cap so older/migration rows with smaller caps cannot
+                // reduce headroom that was available to later committed science.
                 if (action.SubjectMaxValue > state.MaxValue)
                     state.MaxValue = action.SubjectMaxValue;
 
