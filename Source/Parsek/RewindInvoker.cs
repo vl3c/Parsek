@@ -662,6 +662,23 @@ namespace Parsek
                 // would risk taking the player's actively-re-flown vessel).
                 StripPreExistingDebrisForInPlaceContinuation(stripResult);
 
+                // Bug: KSP's StageManager stack ends up unresponsive after a
+                // ProtoVessel.Load when the underlying quicksave was captured
+                // mid-decoupling-tick (the case for any Parsek breakup-RP).
+                // The saved `vessel.currentStage` ends up referencing a stage
+                // slot whose decoupler is gone from the post-decouple part
+                // list, so the next [Space] press fires a no-op stage and the
+                // auto-advance logic only runs on launchpad initial load.
+                // KSPCommunityFixes has no fix for this and stock has none
+                // either. Calling Vessel.ResumeStaging() — the same KSP API
+                // that ProtoVessel.Load itself invokes during initial load —
+                // forces the StageManager to re-discover the stack from the
+                // current part hierarchy. Idempotent + harmless when the
+                // stack was already correct, so we run it on every Re-Fly
+                // load (in-place AND placeholder paths). See open-bug entry
+                // "capsule upper-stage staging unresponsive after Re-Fly load".
+                ForceStageManagerRebuildAfterReFlyLoad(stripResult, sessionId);
+
                 // Diagnostic hint: a pre-existing quicksave vessel whose name
                 // matches a recording in the re-fly tree produces two
                 // identical-looking objects in the scene (real orbital relic +
@@ -842,14 +859,37 @@ namespace Parsek
                 priorTip,
                 selected.OriginChildRecordingId,
                 StringComparison.Ordinal);
+            // For a slot that has already been Re-flown but did not auto-seal
+            // (e.g. crashed terminal => MergeState.CommittedProvisional), the
+            // supersede chain has extended past origin to a prior Re-Fly's
+            // recording. Inheriting from origin would lose the latest vessel
+            // snapshot and identity that the previous Re-Fly's commit stamped
+            // (and would also leave RestoreActiveTreeFromPending's marker-swap
+            // path inactive — observed in 2026-05-06_2156 where the recorder
+            // never armed and the live vessel stayed as the original full
+            // rocket instead of the slot's probe). When priorTip resolves to a
+            // valid committed recording with a matching vessel pid, fork from
+            // it instead so the in-place path inherits the up-to-date state.
+            Recording chainTipRec = originIsPriorTip
+                ? originChild
+                : FindRecordingById(priorTip);
+            Recording inheritFrom = chainTipRec ?? originChild;
             // originChild was looked up via FindRecordingById which scans
             // CommittedRecordings, so a non-null originChild is by construction
             // a committed recording. The previous redundant
             // `IsCommittedRecording(originChild)` clause has been dropped.
+            //
+            // The third clause guards a degenerate case: priorTip references a
+            // recording that is no longer in the committed list (orphan
+            // supersede). With chainTipRec=null, inheritFrom falls back to
+            // origin, but origin is no longer authoritative for the slot's
+            // current state. In that case we keep the placeholder branch
+            // (inPlaceContinuation=false) so the marker still routes through
+            // the priorTip-aware supersede commit path.
             bool inPlaceContinuation =
-                originChild != null
-                && originChild.VesselPersistentId == stripResult.SelectedPid
-                && originIsPriorTip;
+                inheritFrom != null
+                && inheritFrom.VesselPersistentId == stripResult.SelectedPid
+                && (originIsPriorTip || chainTipRec != null);
 
             Recording provisional = null;
             string activeReFlyRecordingId = null;
@@ -881,45 +921,61 @@ namespace Parsek
                 {
                     // Issue #734: the in-place attempt is forked into a
                     // separate provisional Recording instead of mutating the
-                    // origin object. The fork inherits the origin's vessel
-                    // identity (so the recorder's per-vessel tracking continues
-                    // unchanged), generation depth, and a defensive copy of
-                    // origin's vessel/ghost snapshots so any code path that
+                    // origin object. The fork inherits the inheritance source's
+                    // vessel identity (so the recorder's per-vessel tracking
+                    // continues unchanged), generation depth, and a defensive
+                    // copy of its vessel/ghost snapshots so any code path that
                     // queries the active Re-Fly recording's snapshot before
                     // the recorder has refreshed it (ghost build, antenna
                     // registration) still sees a valid
-                    // payload. The fork freezes origin's trajectory under
-                    // the fork's own pre-Re-Fly anchor snapshot so the
-                    // resolver paths keyed by
-                    // ActiveReFlyRecordingId still see the original
-                    // trajectory data. Origin is left untouched: no live
-                    // mutation, no session tagging, no rollback snapshot
-                    // needed for Discard. Chain identity (ChainId/Index/
-                    // Branch) is intentionally NOT copied so the supersede
-                    // table is the only authority on chain-tip resolution,
-                    // matching the non-in-place placeholder pattern.
-                    provisional.VesselPersistentId = originChild.VesselPersistentId;
-                    provisional.VesselName = originChild.VesselName;
-                    provisional.IsDebris = originChild.IsDebris;
-                    provisional.Generation = originChild.Generation;
-                    provisional.SegmentPhase = originChild.SegmentPhase;
-                    provisional.SegmentBodyName = originChild.SegmentBodyName;
-                    provisional.StartBodyName = originChild.StartBodyName;
-                    provisional.StartBiome = originChild.StartBiome;
-                    provisional.StartSituation = originChild.StartSituation;
-                    provisional.LaunchSiteName = originChild.LaunchSiteName;
-                    provisional.VesselSnapshot = originChild.VesselSnapshot != null
-                        ? originChild.VesselSnapshot.CreateCopy()
+                    // payload. The fork freezes the inheritance source's
+                    // trajectory under the fork's own pre-Re-Fly anchor
+                    // snapshot so resolver paths keyed by
+                    // ActiveReFlyRecordingId still see the prior trajectory
+                    // data. The inheritance source is left
+                    // untouched: no live mutation, no session tagging, no
+                    // rollback snapshot needed for Discard. Chain identity
+                    // (ChainId/Index/Branch) is intentionally NOT copied so
+                    // the supersede table is the only authority on chain-tip
+                    // resolution, matching the non-in-place placeholder
+                    // pattern.
+                    //
+                    // When the slot has prior CommittedProvisional Re-Fly
+                    // recordings (priorTip != origin), the inheritance source
+                    // is the chain tip's recording rather than origin so the
+                    // new fork picks up the latest committed snapshot/identity
+                    // — without that, the second-Re-Fly-of-an-unsealed-slot
+                    // path falls through to the placeholder branch, the
+                    // recorder never arms (RestoreActiveTreeFromPending's
+                    // marker-swap is gated on inPlaceContinuation), and the
+                    // live vessel stays as the original full assembly.
+                    provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
+                    provisional.VesselName = inheritFrom.VesselName;
+                    provisional.IsDebris = inheritFrom.IsDebris;
+                    provisional.Generation = inheritFrom.Generation;
+                    provisional.SegmentPhase = inheritFrom.SegmentPhase;
+                    provisional.SegmentBodyName = inheritFrom.SegmentBodyName;
+                    provisional.StartBodyName = inheritFrom.StartBodyName;
+                    provisional.StartBiome = inheritFrom.StartBiome;
+                    provisional.StartSituation = inheritFrom.StartSituation;
+                    provisional.LaunchSiteName = inheritFrom.LaunchSiteName;
+                    provisional.VesselSnapshot = inheritFrom.VesselSnapshot != null
+                        ? inheritFrom.VesselSnapshot.CreateCopy()
                         : null;
-                    provisional.GhostVisualSnapshot = originChild.GhostVisualSnapshot != null
-                        ? originChild.GhostVisualSnapshot.CreateCopy()
+                    provisional.GhostVisualSnapshot = inheritFrom.GhostVisualSnapshot != null
+                        ? inheritFrom.GhostVisualSnapshot.CreateCopy()
                         : null;
-                    provisional.CapturePreReFlyAnchorTrajectoryFrom(originChild, sessionId);
-                    pendingTreeForFork = FindTreeForReFlyFork(originChild.TreeId);
+                    provisional.CapturePreReFlyAnchorTrajectoryFrom(inheritFrom, sessionId);
+                    pendingTreeForFork = FindTreeForReFlyFork(inheritFrom.TreeId);
+                    bool inheritedFromChainTip = !object.ReferenceEquals(inheritFrom, originChild)
+                        && inheritFrom != null;
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation forked — fork " +
-                        $"{provisional.RecordingId} supersedes origin {originChild.RecordingId} " +
-                        $"(origin not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
+                        $"{provisional.RecordingId} supersedes priorTip {priorTip ?? "<none>"} " +
+                        $"(origin={selected.OriginChildRecordingId ?? "<none>"} " +
+                        $"inheritedFrom={(inheritedFromChainTip ? "chain-tip" : "origin")} " +
+                        $"sourceRec={inheritFrom.RecordingId ?? "<no-id>"}; " +
+                        $"source not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
                         $"vesselSnapshot={(provisional.VesselSnapshot != null ? "copied" : "<none>")}; " +
                         $"ghostSnapshot={(provisional.GhostVisualSnapshot != null ? "copied" : "<none>")}; " +
                         $"generation={provisional.Generation}; " +
@@ -1707,6 +1763,68 @@ namespace Parsek
         /// </description></item>
         /// </list>
         /// </remarks>
+        /// <summary>
+        /// Workaround for a stock-KSP bug where loading a vessel from a
+        /// quicksave captured DURING a decoupling event leaves the
+        /// <c>StageManager</c> stack in a state where the next <c>[Space]</c>
+        /// press fires a no-op. <c>ProtoVessel.Load</c> already calls
+        /// <see cref="Vessel.ResumeStaging"/> on initial load, but the
+        /// `currentStage` value saved to disk references a slot whose
+        /// decoupler is already gone from the post-decouple part list, so
+        /// the rebuilt stack ends up empty for the player's "next" stage.
+        /// Calling <c>ResumeStaging</c> again here re-runs the discovery
+        /// against the now-stable post-load part hierarchy and is
+        /// idempotent when the stack was already correct.
+        ///
+        /// <para>Observed in <c>logs/2026-05-06_2308_staging-broken-after-first-flight</c>:
+        /// the upper-stage Re-Fly recorded 18.4 s of flight with zero engine
+        /// or decoupler events because every <c>[Space]</c> press hit a no-op
+        /// stage. KSPCommunityFixes has no fix for this; web search returned
+        /// no upstream report. Tracked as the open todo entry "capsule
+        /// upper-stage staging unresponsive after Re-Fly load".</para>
+        /// </summary>
+        private static void ForceStageManagerRebuildAfterReFlyLoad(
+            PostLoadStripResult stripResult, string sessionId)
+        {
+            Vessel vessel = null;
+            try
+            {
+                vessel = stripResult.SelectedVessel ?? FlightGlobals.ActiveVessel;
+            }
+            catch
+            {
+                vessel = null;
+            }
+            if (vessel == null)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"ForceStageManagerRebuildAfterReFlyLoad: no live vessel — skipping " +
+                    $"sess={sessionId ?? "<no-id>"}");
+                return;
+            }
+
+            try
+            {
+                int priorStage = vessel.currentStage;
+                vessel.ResumeStaging();
+                ParsekLog.Info(InvokeTag,
+                    $"ForceStageManagerRebuildAfterReFlyLoad: vessel.ResumeStaging() invoked " +
+                    $"vesselPid={vessel.persistentId} priorCurrentStage={priorStage} " +
+                    $"postCurrentStage={vessel.currentStage} sess={sessionId ?? "<no-id>"} " +
+                    "(workaround for stock KSP staging-after-mid-decouple-quicksave bug)");
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: ResumeStaging is the workaround, not the
+                // primary mechanism. If KSP throws here we still want the
+                // Re-Fly to proceed; the player can re-stage manually.
+                ParsekLog.Warn(InvokeTag,
+                    $"ForceStageManagerRebuildAfterReFlyLoad: vessel.ResumeStaging() threw " +
+                    $"{ex.GetType().Name}: {ex.Message} — continuing without rebuild " +
+                    $"sess={sessionId ?? "<no-id>"}");
+            }
+        }
+
         internal static void WarnOnLeftAloneNameCollisions(PostLoadStripResult stripResult)
         {
             if (stripResult.LeftAlonePidNames == null || stripResult.LeftAlonePidNames.Count == 0)

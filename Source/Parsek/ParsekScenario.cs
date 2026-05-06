@@ -94,6 +94,11 @@ namespace Parsek
             s_instance = null;
         }
 
+        internal static void SetCachedAutoMergeForTesting(bool value)
+        {
+            cachedAutoMerge = value;
+        }
+
         /// <summary>
         /// Installs a test fixture as <see cref="Instance"/>. Unit tests that
         /// exercise <see cref="EffectiveState"/> use this to inject a scenario
