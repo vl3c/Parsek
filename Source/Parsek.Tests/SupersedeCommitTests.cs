@@ -328,6 +328,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlipMergeState_RestoresPlaybackEnabledFromFalse()
+        {
+            // RewindInvoker.BuildProvisionalRecording creates Re-Fly provisionals
+            // with PlaybackEnabled=false so the in-flight session does not also
+            // play the attempt back as a ghost. After merge, the recording is
+            // committed timeline data and must replay normally — otherwise
+            // sibling-slot Re-Fly sessions later see the prior attempt's ghost
+            // skipped with reason=playback-disabled.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            provisional.PlaybackEnabled = false;
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            SupersedeCommit.CommitSupersede(
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.True(provisional.PlaybackEnabled,
+                "PlaybackEnabled must flip to true at merge so the prior attempt's ghost replays normally.");
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE][Supersede]")
+                && l.Contains("FlipMergeStateAndClearTransient: restored PlaybackEnabled=true"));
+        }
+
+        [Fact]
+        public void FlipMergeState_LeavesPlaybackEnabledTrueAlone()
+        {
+            // Belt-and-braces: a Re-Fly provisional that already has
+            // PlaybackEnabled=true (synthetic test setup or a future call site
+            // that doesn't suppress) must not log the restore line.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            provisional.PlaybackEnabled = true;
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            SupersedeCommit.CommitSupersede(
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.True(provisional.PlaybackEnabled);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("FlipMergeStateAndClearTransient: restored PlaybackEnabled=true"));
+        }
+
+        [Fact]
         public void CrashedTerminal_ProducesCommittedProvisional()
         {
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");

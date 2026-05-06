@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 using Xunit;
 
@@ -910,6 +911,168 @@ namespace Parsek.Tests
             Assert.Equal("rec_refly", treeNodes[0].GetValue("activeRecordingId"));
             Assert.Contains(treeNodes[0].GetNodes("RECORDING"),
                 node => node.GetValue("recordingId") == "rec_refly");
+        }
+
+        [Fact]
+        public void CommitPendingTree_SameTreeIdReplacement_PreservesRewindSaveFileName()
+        {
+            // Production regression: post Re-Fly merge the launch-row Rewind
+            // button vanished because the topology-update replace path in
+            // FinalizeTreeCommit overwrote the existing committed Recording
+            // (which owned the launch save filename) with a pending-tree
+            // instance whose RewindSaveFileName was null. ShouldShowLegacyRewindButton
+            // then fell through to the "no-owner" branch and the button
+            // disappeared from the launch row.
+            var original = MakeTreeWithBranch("refly_tree");
+            original.TreeName = "Kerbal X";
+            // The launch save lives on the root recording.
+            original.Recordings["root"].RewindSaveFileName = "parsek_rw_launch_001";
+            RecordingStore.CommitTree(original);
+
+            // Replacement pending tree (e.g. Re-Fly merge): same recording ids,
+            // but the new instances DON'T carry RewindSaveFileName because the
+            // pending-tree construction path doesn't propagate it.
+            var replacement = MakeTreeWithBranch("refly_tree");
+            replacement.TreeName = "Kerbal X";
+            // Topology-changing addition so ShouldReplaceCommittedTree returns true.
+            replacement.Recordings["rec_refly"] = MakeRecording(
+                "rec_refly",
+                "refly_tree",
+                "Re-Fly Vessel",
+                4000,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot(),
+                parentBranchPointId: "bp1");
+            replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
+            replacement.ActiveRecordingId = "rec_refly";
+            // Critically: replacement's "root" instance has no rewind save.
+            Assert.Null(replacement.Recordings["root"].RewindSaveFileName);
+
+            RecordingStore.StashPendingTree(replacement);
+            RecordingStore.CommitPendingTree();
+
+            var rootCommitted = RecordingStore.CommittedRecordings
+                .Single(r => r.RecordingId == "root");
+            Assert.Equal("parsek_rw_launch_001", rootCommitted.RewindSaveFileName);
+            // GetRewindRecording / GetRewindSaveFileName resolve through the
+            // root, so the launch row's Rewind-to-Launch button continues to
+            // work after the topology-update commit.
+            var owner = RecordingStore.GetRewindRecording(rootCommitted);
+            Assert.Same(rootCommitted, owner);
+            Assert.Equal("parsek_rw_launch_001", RecordingStore.GetRewindSaveFileName(rootCommitted));
+        }
+
+        [Fact]
+        public void CommitPendingTree_SameTreeIdReplacement_PreservesSpawnStateCluster()
+        {
+            // Reviewer-flagged P2 scope-expansion: the topology-update replace
+            // path was only preserving RewindSaveFileName. The full #264 spawn
+            // state cluster (VesselSpawned, SpawnedVesselPersistentId,
+            // TerminalSpawnSupersededByRecordingId, SpawnAttempts,
+            // CollisionBlockCount, SpawnAbandoned, WalkbackExhausted,
+            // DuplicateBlockerRecovered, SpawnDeathCount), the rewind-reserved
+            // resource ledger, the playback resource cursor
+            // (LastAppliedResourceIndex), and the suppression metadata
+            // (SpawnSuppressedByRewind*) must also survive.
+            var original = MakeTreeWithBranch("refly_tree");
+            original.TreeName = "Kerbal X";
+            // Stamp the live committed instance with non-default runtime fields.
+            var existingRoot = original.Recordings["root"];
+            existingRoot.RewindSaveFileName = "parsek_rw_launch_xyz";
+            existingRoot.RewindReservedFunds = 12345.0;
+            existingRoot.LastAppliedResourceIndex = 7;
+            existingRoot.VesselSpawned = true;
+            existingRoot.SpawnedVesselPersistentId = 999u;
+            existingRoot.TerminalSpawnSupersededByRecordingId = "later_rec";
+            existingRoot.MaxDistanceFromLaunch = 1500.0;
+            existingRoot.SpawnAttempts = 2;
+            existingRoot.SpawnDeathCount = 1;
+            existingRoot.WalkbackExhausted = true;
+            existingRoot.SpawnSuppressedByRewind = true;
+            existingRoot.SpawnSuppressedByRewindReason = "test-reason";
+            existingRoot.SceneExitSituation = 4;
+            RecordingStore.CommitTree(original);
+
+            // Replacement pending tree: brand-new instance for "root" with
+            // every runtime field at default.
+            var replacement = MakeTreeWithBranch("refly_tree");
+            replacement.TreeName = "Kerbal X";
+            replacement.Recordings["rec_refly"] = MakeRecording(
+                "rec_refly",
+                "refly_tree",
+                "Re-Fly Vessel",
+                4000,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot(),
+                parentBranchPointId: "bp1");
+            replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
+            replacement.ActiveRecordingId = "rec_refly";
+
+            RecordingStore.StashPendingTree(replacement);
+            RecordingStore.CommitPendingTree();
+
+            var rootCommitted = RecordingStore.CommittedRecordings
+                .Single(r => r.RecordingId == "root");
+            // Every preserved field comes through to the replacement instance.
+            Assert.Equal("parsek_rw_launch_xyz", rootCommitted.RewindSaveFileName);
+            Assert.Equal(12345.0, rootCommitted.RewindReservedFunds);
+            Assert.Equal(7, rootCommitted.LastAppliedResourceIndex);
+            Assert.True(rootCommitted.VesselSpawned);
+            Assert.Equal(999u, rootCommitted.SpawnedVesselPersistentId);
+            Assert.Equal("later_rec", rootCommitted.TerminalSpawnSupersededByRecordingId);
+            Assert.Equal(1500.0, rootCommitted.MaxDistanceFromLaunch);
+            Assert.Equal(2, rootCommitted.SpawnAttempts);
+            Assert.Equal(1, rootCommitted.SpawnDeathCount);
+            Assert.True(rootCommitted.WalkbackExhausted);
+            Assert.True(rootCommitted.SpawnSuppressedByRewind);
+            Assert.Equal("test-reason", rootCommitted.SpawnSuppressedByRewindReason);
+            Assert.Equal(4, rootCommitted.SceneExitSituation);
+        }
+
+        [Fact]
+        public void CommitPendingTree_SameTreeIdReplacement_PreservesAutoGroupName()
+        {
+            // Production regression: each Re-Fly merge invoked CommitTree's
+            // replace path on a fresh pending tree whose AutoGenerated*GroupName
+            // fields were null, so AutoGroupTreeRecordings re-routed through
+            // GenerateUniqueGroupName, found "Kerbal X" still tagged on
+            // first-commit recordings, and bumped to "Kerbal X (2)" / "(3)" /...
+            // Each Re-Fly therefore landed in a distinct table group instead
+            // of consolidating into the original mission's group.
+            var original = MakeTreeWithBranch("refly_tree");
+            original.TreeName = "Kerbal X";
+            RecordingStore.CommitTree(original);
+
+            string firstCommitGroup = RecordingStore.CommittedTrees[0].AutoGeneratedRootGroupName;
+            Assert.Equal("Kerbal X", firstCommitGroup);
+
+            var replacement = MakeTreeWithBranch("refly_tree");
+            replacement.TreeName = "Kerbal X";
+            replacement.Recordings["rec_refly"] = MakeRecording(
+                "rec_refly",
+                "refly_tree",
+                "Re-Fly Vessel",
+                4000,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot(),
+                parentBranchPointId: "bp1");
+            replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
+            replacement.ActiveRecordingId = "rec_refly";
+
+            RecordingStore.StashPendingTree(replacement);
+            RecordingStore.CommitPendingTree();
+
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Equal("Kerbal X",
+                RecordingStore.CommittedTrees[0].AutoGeneratedRootGroupName);
+            // Spot-check: the new Re-Fly recording joined the existing "Kerbal X"
+            // group, not "Kerbal X (2)".
+            var reflyRec = RecordingStore.CommittedRecordings
+                .Single(r => r.RecordingId == "rec_refly");
+            Assert.Contains("Kerbal X", reflyRec.RecordingGroups);
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r.RecordingGroups != null
+                    && r.RecordingGroups.Any(g => g.StartsWith("Kerbal X (")));
         }
 
         [Fact]

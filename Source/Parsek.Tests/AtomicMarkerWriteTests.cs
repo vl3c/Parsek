@@ -1086,6 +1086,87 @@ namespace Parsek.Tests
                 && l.Contains("inPlaceContinuation=False"));
         }
 
+        [Fact]
+        public void AtomicMarkerWrite_PriorTipInCommittedList_InheritsFromChainTipAndForks()
+        {
+            // 2026-05-06_2156 production scenario: a slot already Re-flown once
+            // with terminal=Crashed lands at MergeState.CommittedProvisional,
+            // so the slot stays open. A second Re-Fly of the same slot must
+            // fork from the previous Re-Fly's recording (the supersede chain
+            // tip), not from origin — otherwise the in-place block falls
+            // through to the placeholder branch, RestoreActiveTreeFromPending
+            // never runs (its marker-swap path is gated on inPlaceContinuation),
+            // the recorder never arms, and the live vessel stays as the
+            // original full assembly instead of the slot's vessel.
+            const uint kSlotPid = 9090u;
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+            scenario.RecordingSupersedes.Add(Rel(slot.OriginChildRecordingId, "rec_chain_tip"));
+
+            var origin = new Recording
+            {
+                RecordingId = slot.OriginChildRecordingId,
+                VesselName = "OriginVessel",
+                TreeId = "tree_chain",
+                MergeState = MergeState.Immutable,
+                VesselPersistentId = kSlotPid,
+            };
+            var chainTip = new Recording
+            {
+                RecordingId = "rec_chain_tip",
+                VesselName = "PriorReFlyVessel",
+                TreeId = "tree_chain",
+                MergeState = MergeState.CommittedProvisional,
+                VesselPersistentId = kSlotPid,
+                Generation = 5,
+                SegmentPhase = "atmo",
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_chain");
+            RecordingStore.AddRecordingWithTreeForTesting(chainTip, "tree_chain");
+
+            RewindInvoker.AtomicMarkerWrite(
+                rp, slot, MakeStripResult(selectedPid: kSlotPid), "sess_chain_tip_fork");
+
+            var marker = scenario.ActiveReFlySessionMarker;
+            Assert.NotNull(marker);
+            // Marker fields anchor the slot identity (origin) and the chain tip
+            // for supersede commit; only the inheritance source switches.
+            Assert.Equal(slot.OriginChildRecordingId, marker.OriginChildRecordingId);
+            Assert.Equal("rec_chain_tip", marker.SupersedeTargetId);
+            Assert.True(marker.InPlaceContinuation,
+                "Second Re-Fly with priorTip in the committed list must take the in-place branch.");
+
+            Recording fork = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                var candidate = RecordingStore.CommittedRecordings[i];
+                if (candidate != null && candidate.RecordingId == marker.ActiveReFlyRecordingId)
+                {
+                    fork = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(fork);
+            // Inheritance switched from origin to the chain tip.
+            Assert.Equal("PriorReFlyVessel", fork.VesselName);
+            Assert.Equal(kSlotPid, fork.VesselPersistentId);
+            Assert.Equal(5, fork.Generation);
+            Assert.Equal("atmo", fork.SegmentPhase);
+            // Origin is left untouched in the fork model.
+            Assert.Equal("OriginVessel", origin.VesselName);
+            Assert.Equal(MergeState.Immutable, origin.MergeState);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("AtomicMarkerWrite: in-place continuation forked")
+                && l.Contains("inheritedFrom=chain-tip")
+                && l.Contains("sourceRec=rec_chain_tip"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Started sess=sess_chain_tip_fork")
+                && l.Contains("inPlaceContinuation=True"));
+        }
+
         /// <summary>
         /// Issue #734: in the fork model, an exception during marker write
         /// must remove the freshly-added fork from the committed list and

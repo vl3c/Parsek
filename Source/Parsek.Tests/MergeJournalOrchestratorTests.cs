@@ -435,6 +435,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CrashAtBegin_Finisher_RemovesAllSessionTaggedFragments()
+        {
+            // Reproduces the post-failure orphan: optimizer split during
+            // FinalizeTreeRecordings creates a new chain-tail Recording that
+            // inherits CreatingSessionId via RunOptimizationSplitPass; when
+            // AppendRelations then trips and the journal rolls back, both the
+            // head and the optimizer-created tail must go away — otherwise the
+            // tail survives degraded-to-standalone in the recordings table.
+            var (scenario, provisional) = MakeStandardFixture();
+            var marker = scenario.ActiveReFlySessionMarker;
+            provisional.CreatingSessionId = marker.SessionId;
+            provisional.ChainId = "chain_session";
+            provisional.ChainIndex = 0;
+
+            // Faux optimizer-created split tail tagged with the same session id.
+            var splitTail = new Recording
+            {
+                RecordingId = "rec_split_tail",
+                VesselName = "rec_split_tail",
+                TreeId = provisional.TreeId,
+                MergeState = MergeState.NotCommitted,
+                CreatingSessionId = marker.SessionId,
+                ChainId = "chain_session",
+                ChainIndex = 1,
+            };
+            splitTail.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(splitTail, provisional.TreeId);
+
+            var ex = TryRunWithFault(MergeJournalOrchestrator.Phase.Begin,
+                marker, provisional);
+            Assert.NotNull(ex);
+
+            MergeJournalOrchestrator.RunFinisher();
+
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r != null && r.RecordingId == "rec_provisional");
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r != null && r.RecordingId == "rec_split_tail");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]")
+                && l.Contains("removed 2 session-provisional recording(s)")
+                && l.Contains("sess_merge_1"));
+        }
+
+        [Fact]
         public void CrashAtSupersede_Finisher_RollsBack_SessionRestored()
         {
             var (scenario, provisional) = MakeStandardFixture();
