@@ -223,8 +223,8 @@ Refresh every 5 seconds while a recording has a live vessel reference, plus forc
 - go-on-rails or go-off-rails
 - vessel situation change
 - staging, undock, EVA, joint break, and part death
-- time-warp rate change
-- scene-exit finalization entry, before any fallback consumes stale data
+- time-warp rails/checkpoint boundaries
+- scene-exit/background-commit finalization entry, where fresh live finalization or background force-refresh runs before any fallback consumes stale data
 
 Refresh early-outs when the vessel state digest has not meaningfully changed. A stable coasting vacuum orbit does not need a new cache every 5 seconds if the orbit, body, situation, throttle state, and terminal result are unchanged.
 
@@ -351,7 +351,7 @@ Per-frame refresh checks must use rate-limited logs or aggregate summaries.
 
 ## Coverage Contract
 
-The feature landed with headless unit/integration/log-assertion coverage plus in-game runtime canaries. Future changes to this area must keep this coverage shape and add tests in the same commit as any behavior change.
+The feature landed with headless unit/integration/log-assertion coverage plus in-game runtime canaries. Future behavior changes should keep that coverage shape and follow the project testing rule.
 
 ### Unit Tests
 
@@ -391,7 +391,7 @@ The feature landed with headless unit/integration/log-assertion coverage plus in
 - Planned maneuver node ignored: create a maneuver node, do not burn, finalize, verify the committed tail follows real coast and does not stop at the node.
 - Focused crash: crash a focused vessel, commit through the destruction dialog path, verify the recording has a destroyed terminal and cache-extended endpoint.
 
-## Implementation Notes
+## Code Layout
 
 The completed phase plan is archived in [`dev/done/plans/recording-finalization-reliability.md`](dev/done/plans/recording-finalization-reliability.md). The landed code is split across these responsibilities:
 
