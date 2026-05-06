@@ -1601,12 +1601,12 @@ namespace Parsek
                     authoritativeRepeatableRecordState);
             }
 
-            // #391: rebuild committedScienceSubjects from the walk's authoritative
-            // per-subject credits. This prunes stale entries left behind when a
-            // recording was deleted (the old dictionary was only ever appended to,
-            // never pruned). Without this, TryRecoverBrokenLedgerOnLoad would
-            // synthesize ghost ScienceEarning actions for the stale subjects.
-            RebuildCommittedScienceFromWalk();
+            // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
+            // the full surviving ledger, not from the current-UT ScienceModule. Cutoff
+            // walks intentionally leave the live module at the rewind/jump target, but
+            // the persisted cache is a load-recovery source and must retain future
+            // committed science rows that still survive in the ledger.
+            RebuildCommittedScienceFromSurvivingLedger(actions);
 
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,
@@ -1775,24 +1775,92 @@ namespace Parsek
         /// <summary>
         /// Rebuilds the committed science subjects dictionary via
         /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
-        /// from the <see cref="ScienceModule"/> walk state. After a recalculation
-        /// walk, the module has authoritative per-subject credited totals — these
-        /// are the source of truth because they derive purely from surviving ledger
-        /// actions. Replaces the stale append-only dictionary.
+        /// from the full surviving ledger action set. This is intentionally separate
+        /// from the live <see cref="ScienceModule"/> state: cutoff walks keep that
+        /// module at the current UT for KSP patching, while this persisted cache is
+        /// used as a future load-recovery source of truth.
         /// </summary>
-        private static void RebuildCommittedScienceFromWalk()
+        private static void RebuildCommittedScienceFromSurvivingLedger(
+            IReadOnlyList<GameAction> actions)
         {
-            if (scienceModule == null) return;
+            var pairs = BuildCommittedScienceSubjectCredits(actions);
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
+        }
 
-            var walkSubjects = scienceModule.GetAllSubjects();
-            var pairs = new List<KeyValuePair<string, float>>(walkSubjects.Count);
-            foreach (var kvp in walkSubjects)
+        private struct CommittedScienceCreditState
+        {
+            public double CreditedTotal;
+            public double MaxValue;
+        }
+
+        internal static List<KeyValuePair<string, float>> BuildCommittedScienceSubjectCredits(
+            IReadOnlyList<GameAction> actions)
+        {
+            var pairs = new List<KeyValuePair<string, float>>();
+            if (actions == null || actions.Count == 0)
+                return pairs;
+
+            var scienceActions = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
             {
-                if (kvp.Value.CreditedTotal > 0.0)
-                    pairs.Add(new KeyValuePair<string, float>(kvp.Key, (float)kvp.Value.CreditedTotal));
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    continue;
+                }
+
+                scienceActions.Add(action);
             }
 
-            GameStateStore.RebuildCommittedScienceSubjects(pairs);
+            if (scienceActions.Count == 0)
+                return pairs;
+
+            var sorted = RecalculationEngine.SortActions(scienceActions);
+            var credits = new Dictionary<string, CommittedScienceCreditState>(
+                StringComparer.Ordinal);
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var action = sorted[i];
+                string subjectId = action.SubjectId;
+
+                CommittedScienceCreditState state;
+                if (!credits.TryGetValue(subjectId, out state))
+                {
+                    state = new CommittedScienceCreditState
+                    {
+                        CreditedTotal = 0.0,
+                        MaxValue = action.SubjectMaxValue
+                    };
+                }
+
+                if (action.SubjectMaxValue > state.MaxValue)
+                    state.MaxValue = action.SubjectMaxValue;
+
+                double headroom = state.MaxValue - state.CreditedTotal;
+                if (headroom < 0.0)
+                    headroom = 0.0;
+
+                double effectiveScience = Math.Min((double)action.ScienceAwarded, headroom);
+                if (effectiveScience < 0.0)
+                    effectiveScience = 0.0;
+
+                state.CreditedTotal += effectiveScience;
+                credits[subjectId] = state;
+            }
+
+            foreach (var kvp in credits)
+            {
+                if (kvp.Value.CreditedTotal > 0.0)
+                    pairs.Add(new KeyValuePair<string, float>(
+                        kvp.Key,
+                        (float)kvp.Value.CreditedTotal));
+            }
+
+            return pairs;
         }
 
         /// <summary>

@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 cutoff science cache recovery
+
+- ~~A rewind or time-jump cutoff recalculation could rewrite `GameStateStore.committedScienceSubjects` to only the past slice.~~ The visible `ScienceModule` state was correctly filtered to the cutoff UT, but `LedgerOrchestrator.RecalculateAndPatchCore` then rebuilt the persisted committed-science cache from that filtered module. A later load migration treats the persisted cache as recovery source of truth, so future surviving `ScienceEarning` rows could be lost from broken-ledger recovery after rewinding.
+
+**Fix:** committed-science cache rebuild now derives per-subject credits from the full Effective Ledger Set while leaving the live `ScienceModule` and KSP patch path at the cutoff UT. Full walks still rebuild from the surviving ledger, so subjects whose ledger rows were deleted are pruned.
+
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly` and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 plain rewind kept stale Re-Fly marker
 
 - ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.
