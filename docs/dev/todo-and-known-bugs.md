@@ -36,6 +36,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 topology-update commit field preservation + rollback session/priorTip routing
+
+- ~~The first round of the topology-update commit fix (PR #763 commit `8b4fbf31`) only preserved `RewindSaveFileName` across the same-id replace path. The `committedRecordings[i] = rec` swap silently dropped every other runtime / spawn-state field the live committed instance carried that the pending-tree instance defaulted to. Fields at risk: the #264 spawn-state cluster (`VesselSpawned`, `SpawnedVesselPersistentId`, `TerminalSpawnSupersededByRecordingId`, `SpawnAttempts`, `CollisionBlockCount`, `SpawnAbandoned`, `WalkbackExhausted`, `DuplicateBlockerRecovered`, `SpawnDeathCount`), the rewind-reserved resource ledger (`RewindReservedFunds/Science/Rep`), `LastAppliedResourceIndex`, the terminal-spawn safety state, the #573/#589 plain-Rewind suppression metadata, `SceneExitSituation`, `MaxDistanceFromLaunch`, `DistanceFromLaunch`, `VesselDestroyed`, `VesselSituation`.~~ Source: PR #763 reviewer P2.
+- ~~`RemoveSessionProvisionalRecordings` matched on `sessionMatch || rpMatch`. After a successful Re-Fly merge, the committed durable attempt still carries `ProvisionalForRpId`, so a later rollback for the same rewind point with a different session id would delete the prior durable attempt as collateral damage.~~ Source: PR #763 reviewer P1.
+- ~~The rollback tree-dict cleanup passed `marker.OriginChildRecordingId` as the fallback for restoring `tree.ActiveRecordingId`. For repeated Re-Fly sessions on the same slot, the pre-session active tip is `marker.SupersedeTargetId` (the supersede chain tip), not origin. Resetting to origin after a failed second-Re-Fly rollback would silently undo the prior Re-Fly's commit.~~ Source: PR #763 reviewer P2.
+
+**Fix (field preservation):** `RecordingStore.FinalizeTreeCommit` now calls a new `PreserveLiveRuntimeFieldsOnReplace(existing, rec, ...)` helper that copies non-default values from the existing instance onto the incoming pending-tree instance before swapping into `committedRecordings[i]`. Each field copies only when the incoming value is still at its default (null/empty/0/-1/NaN/false), so legitimate updates from the merge still win. The summary log now reports both `preservedRewindSaves=N` and `preservedRuntimeFields=M`.
+
+**Fix (session/RP match):** `RemoveSessionProvisionalRecordings` strictly matches on `CreatingSessionId` when `sessionId` is provided; the `ProvisionalForRpId` fallback only fires when `sessionId` is null/empty (legacy save sweep). The verbose per-recording log line now reports `matchedBy=session|rp` so the path is observable.
+
+**Fix (priorTip fallback):** `MergeJournalOrchestrator.RollBack` passes `marker.SupersedeTargetId ?? marker.OriginChildRecordingId` as the fallback active-recording id. `PruneTaggedRecordingsFromCommittedTrees` also now resets a stale `tree.RootRecordingId` (Warn-logged because rollback removing the root is unusual), and the BP-endpoint scrub logs the dropped BP ids for observability.
+
+**Coverage:** `TreeCommitTests.CommitPendingTree_SameTreeIdReplacement_PreservesSpawnStateCluster` pins thirteen runtime fields surviving the replace path. `ReFlyMergeOptimizerSplitTests.RemoveSessionProvisionalRecordings_SessionMatchOnly_DoesNotDeletePriorDurableAttempt` and `_NoSessionId_FallsBackToRpMatch` pin the new match policy. `_ResetsStaleRootRecordingId` pins the priorTip-preferred Root reset.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 launch-row Rewind button cleared by topology-update commit
 
 - ~~After a Re-Fly merged into the timeline, the launch row's Rewind-to-Launch button disappeared. The launch row resolved its owner via `RecordingStore.GetRewindRecording`, which expects the launch recording to carry `RewindSaveFileName`. The topology-update commit path in `RecordingStore.FinalizeTreeCommit` (PR #762) replaced existing committed `Recording` instances with the pending tree's instances, and the pending-tree instance constructed during the Re-Fly session does not carry `RewindSaveFileName`. After replacement, `committedRecordings[i].RewindSaveFileName` was null, `GetRewindRecording` returned no owner, and `ShouldShowLegacyRewindButton` hid the button.~~ Source: `logs/2026-05-06_2217_rewind-button-after-merge` — `replacedRecordings=8` after Re-Fly #1 merge, `replacedRecordings=9` after Re-Fly #2 merge; the launch-row button stopped logging transitions because it stopped rendering.

@@ -286,7 +286,7 @@ namespace Parsek.Tests
             int removed = RecordingStore.RemoveSessionProvisionalRecordings(
                 "sess_target",
                 rewindPointId: null,
-                fallbackOriginChildRecordingId: "unrelated_id");
+                fallbackActiveRecordingId: "unrelated_id");
 
             Assert.Equal(1, removed);
             Assert.DoesNotContain(tree.Recordings, kvp => kvp.Key == "head_id");
@@ -346,7 +346,7 @@ namespace Parsek.Tests
             int removed = RecordingStore.RemoveSessionProvisionalRecordings(
                 "sess_target",
                 rewindPointId: null,
-                fallbackOriginChildRecordingId: "sibling_id");
+                fallbackActiveRecordingId: "sibling_id");
 
             Assert.Equal(1, removed);
             Assert.DoesNotContain("head_id", tree.Recordings.Keys);
@@ -383,11 +383,102 @@ namespace Parsek.Tests
             int removed = RecordingStore.RemoveSessionProvisionalRecordings(
                 "sess_target",
                 rewindPointId: null,
-                fallbackOriginChildRecordingId: "fallback_does_not_exist");
+                fallbackActiveRecordingId: "fallback_does_not_exist");
 
             Assert.Equal(1, removed);
             Assert.Empty(tree.Recordings);
             Assert.Null(tree.ActiveRecordingId);
+        }
+
+        [Fact]
+        public void RemoveSessionProvisionalRecordings_SessionMatchOnly_DoesNotDeletePriorDurableAttempt()
+        {
+            // Reviewer P1: a successful Re-Fly merge leaves ProvisionalForRpId on
+            // the committed durable recording. A later rollback for the SAME
+            // rewind point but a DIFFERENT session must not delete that prior
+            // durable attempt — sweep on session id, not OR with rp.
+            var prior = MakeAtmoSurfaceRecording("prior_durable",
+                startUT: 200, midUT: 250, endUT: 300);
+            prior.CreatingSessionId = "sess_old";
+            prior.ProvisionalForRpId = "rp_shared";
+
+            var current = MakeAtmoSurfaceRecording("current_attempt",
+                startUT: 400, midUT: 450, endUT: 500);
+            current.CreatingSessionId = "sess_new";
+            current.ProvisionalForRpId = "rp_shared";
+
+            RecordingStore.AddRecordingWithTreeForTesting(prior);
+            RecordingStore.AddRecordingWithTreeForTesting(current);
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_new", rewindPointId: "rp_shared");
+
+            Assert.Equal(1, removed);
+            Assert.Single(RecordingStore.CommittedRecordings,
+                r => r.RecordingId == "prior_durable");
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r.RecordingId == "current_attempt");
+        }
+
+        [Fact]
+        public void RemoveSessionProvisionalRecordings_NoSessionId_FallsBackToRpMatch()
+        {
+            // Legacy path: if the caller has no sessionId at all (pre-tagging
+            // saves), the rp fallback fires.
+            var rec = MakeAtmoSurfaceRecording("legacy_rec", 200, 250, 300);
+            rec.ProvisionalForRpId = "rp_legacy";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                sessionId: null, rewindPointId: "rp_legacy");
+
+            Assert.Equal(1, removed);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+        }
+
+        [Fact]
+        public void PruneTaggedRecordingsFromCommittedTrees_ResetsStaleRootRecordingId()
+        {
+            // Reviewer-flagged P2: ActiveRecordingId reset already worked, but
+            // RootRecordingId was not nulled when the rollback removed the prior
+            // root. The fallback (priorTip from the marker) is preferred when it
+            // survives in tree.Recordings.
+            var rootRec = MakeAtmoSurfaceRecording("the_root",
+                startUT: 100, midUT: 150, endUT: 200);
+            rootRec.CreatingSessionId = "sess_target";
+            rootRec.TreeId = "tree_X";
+
+            var fallbackRec = MakeAtmoSurfaceRecording("fallback_rec",
+                startUT: 50, midUT: 75, endUT: 100);
+            fallbackRec.TreeId = "tree_X";
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_X",
+                TreeName = "Test Tree",
+                RootRecordingId = "the_root",
+                ActiveRecordingId = "the_root",
+                Recordings =
+                {
+                    ["the_root"] = rootRec,
+                    ["fallback_rec"] = fallbackRec,
+                },
+            };
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(rootRec, "tree_X");
+            RecordingStore.AddRecordingWithTreeForTesting(fallbackRec, "tree_X");
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_target",
+                rewindPointId: null,
+                fallbackActiveRecordingId: "fallback_rec");
+
+            Assert.Equal(1, removed);
+            Assert.Equal("fallback_rec", tree.ActiveRecordingId);
+            Assert.Equal("fallback_rec", tree.RootRecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][RecordingStore]")
+                && l.Contains("reset stale tree.RootRecordingId"));
         }
 
         [Fact]

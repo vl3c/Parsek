@@ -346,10 +346,19 @@ namespace Parsek
             // removed the named id we'd leave the optimizer-created tail
             // orphaned in the committed list.
             string rewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
-            string fallbackOrigin =
-                scenario.ActiveReFlySessionMarker?.OriginChildRecordingId;
+            // Prefer the supersede chain tip (the recording that was active
+            // before this session began) over the slot's original origin.
+            // For a slot already Re-flown once (CommittedProvisional, slot
+            // stays open), the supersede chain has extended past origin to
+            // a prior Re-Fly's recording; resetting tree.ActiveRecordingId
+            // to origin after rollback would undo the prior session's
+            // commit. Origin is the legacy fallback for slots that have
+            // never been Re-flown (priorTip == origin).
+            string fallback =
+                scenario.ActiveReFlySessionMarker?.SupersedeTargetId
+                ?? scenario.ActiveReFlySessionMarker?.OriginChildRecordingId;
             int removedProvisional = RecordingStore.RemoveSessionProvisionalRecordings(
-                sessionId, rewindPointId, fallbackOrigin);
+                sessionId, rewindPointId, fallback);
             string provisionalId =
                 scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
             if (removedProvisional > 0)

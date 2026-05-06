@@ -1177,6 +1177,7 @@ namespace Parsek
             int addedFromTree = 0;
             int replacedFromTree = 0;
             int preservedRewindSaves = 0;
+            int preservedRuntimeFields = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
@@ -1185,25 +1186,13 @@ namespace Parsek
                 {
                     if (!ReferenceEquals(committedRecordings[existingIndex], rec))
                     {
-                        // Preserve runtime fields the existing instance owns
-                        // when the incoming pending-tree instance doesn't
-                        // carry them. RewindSaveFileName is set once at
-                        // launch by FlightRecorder.CaptureRewindSave and
-                        // anchors the Rewind-to-Launch button on the launch
-                        // row; the pending-tree path during a Re-Fly merge
-                        // does not propagate it, so without this copy the
-                        // topology-update commit replaces the launch save
-                        // reference with null, ShouldShowLegacyRewindButton
-                        // falls through to the no-owner branch, and the
-                        // launch row's Rewind button silently disappears.
                         var existing = committedRecordings[existingIndex];
-                        if (existing != null
-                            && string.IsNullOrEmpty(rec.RewindSaveFileName)
-                            && !string.IsNullOrEmpty(existing.RewindSaveFileName))
-                        {
-                            rec.RewindSaveFileName = existing.RewindSaveFileName;
-                            preservedRewindSaves++;
-                        }
+                        bool savePreserved;
+                        int otherPreserved;
+                        PreserveLiveRuntimeFieldsOnReplace(
+                            existing, rec, out savePreserved, out otherPreserved);
+                        if (savePreserved) preservedRewindSaves++;
+                        preservedRuntimeFields += otherPreserved;
                         committedRecordings[existingIndex] = rec;
                         replacedFromTree++;
                     }
@@ -1244,7 +1233,8 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"CommitTree: replaced committed tree index={replaceCommittedTreeIndex} " +
                     $"addedRecordings={addedFromTree} replacedRecordings={replacedFromTree} " +
-                    $"preservedRewindSaves={preservedRewindSaves}");
+                    $"preservedRewindSaves={preservedRewindSaves} " +
+                    $"preservedRuntimeFields={preservedRuntimeFields}");
             foreach (var rec in tree.Recordings.Values)
                 ParsekLog.Verbose("RecordingStore", $"CommitTree: child {rec.DebugName}");
 
@@ -1285,6 +1275,210 @@ namespace Parsek
             }
 
             return -1;
+        }
+
+        /// <summary>
+        /// Topology-update commits replace <c>committedRecordings[i]</c> wholesale
+        /// with the pending tree's instance. The pending-tree path during a
+        /// Re-Fly merge does not propagate runtime / spawn-state fields the
+        /// live committed instance carries, so without this helper a merge
+        /// silently drops:
+        /// <list type="bullet">
+        ///   <item>The launch-row Rewind save filename + the rewind-reserved
+        ///         resource ledger (#573).</item>
+        ///   <item>Spawn-state cluster from #264 (`VesselSpawned`,
+        ///         `SpawnedVesselPersistentId`, `TerminalSpawnSupersededByRecordingId`,
+        ///         spawn attempt / collision / death / abandon / walkback /
+        ///         duplicate-blocker counters and flags).</item>
+        ///   <item>Terminal-spawn safety state (`TerminalSpawnSafety*`).</item>
+        ///   <item>Plain-Rewind-to-Launch suppression metadata
+        ///         (`SpawnSuppressedByRewind*`, #573 / #589).</item>
+        ///   <item>Diagnostic peaks: `MaxDistanceFromLaunch`,
+        ///         `LastAppliedResourceIndex`, `SceneExitSituation`,
+        ///         `VesselDestroyed`, `DistanceFromLaunch`, `VesselSituation`.</item>
+        /// </list>
+        /// Each field copies from <paramref name="existing"/> to
+        /// <paramref name="incoming"/> only when the incoming value is at its
+        /// default (null/empty/0/-1/NaN/false), so legitimate updates from the
+        /// pending tree (e.g. a spawn flag the merge produced) win over the
+        /// stale prior value.
+        /// </summary>
+        private static void PreserveLiveRuntimeFieldsOnReplace(
+            Recording existing, Recording incoming,
+            out bool savePreserved, out int otherPreserved)
+        {
+            savePreserved = false;
+            otherPreserved = 0;
+            if (existing == null || incoming == null) return;
+
+            // Launch save filename + reserved resource ledger.
+            if (string.IsNullOrEmpty(incoming.RewindSaveFileName)
+                && !string.IsNullOrEmpty(existing.RewindSaveFileName))
+            {
+                incoming.RewindSaveFileName = existing.RewindSaveFileName;
+                savePreserved = true;
+            }
+            if (incoming.RewindReservedFunds == 0
+                && existing.RewindReservedFunds != 0)
+            {
+                incoming.RewindReservedFunds = existing.RewindReservedFunds;
+                otherPreserved++;
+            }
+            if (incoming.RewindReservedScience == 0
+                && existing.RewindReservedScience != 0)
+            {
+                incoming.RewindReservedScience = existing.RewindReservedScience;
+                otherPreserved++;
+            }
+            if (incoming.RewindReservedRep == 0f
+                && existing.RewindReservedRep != 0f)
+            {
+                incoming.RewindReservedRep = existing.RewindReservedRep;
+                otherPreserved++;
+            }
+
+            // Playback resource cursor.
+            if (incoming.LastAppliedResourceIndex == -1
+                && existing.LastAppliedResourceIndex != -1)
+            {
+                incoming.LastAppliedResourceIndex = existing.LastAppliedResourceIndex;
+                otherPreserved++;
+            }
+
+            // Spawn-state cluster (#264).
+            if (!incoming.VesselSpawned && existing.VesselSpawned)
+            {
+                incoming.VesselSpawned = true;
+                otherPreserved++;
+            }
+            if (incoming.SpawnedVesselPersistentId == 0u
+                && existing.SpawnedVesselPersistentId != 0u)
+            {
+                incoming.SpawnedVesselPersistentId = existing.SpawnedVesselPersistentId;
+                otherPreserved++;
+            }
+            if (string.IsNullOrEmpty(incoming.TerminalSpawnSupersededByRecordingId)
+                && !string.IsNullOrEmpty(existing.TerminalSpawnSupersededByRecordingId))
+            {
+                incoming.TerminalSpawnSupersededByRecordingId =
+                    existing.TerminalSpawnSupersededByRecordingId;
+                otherPreserved++;
+            }
+            if (incoming.SpawnAttempts == 0 && existing.SpawnAttempts != 0)
+            {
+                incoming.SpawnAttempts = existing.SpawnAttempts;
+                otherPreserved++;
+            }
+            if (incoming.CollisionBlockCount == 0 && existing.CollisionBlockCount != 0)
+            {
+                incoming.CollisionBlockCount = existing.CollisionBlockCount;
+                otherPreserved++;
+            }
+            if (!incoming.SpawnAbandoned && existing.SpawnAbandoned)
+            {
+                incoming.SpawnAbandoned = true;
+                otherPreserved++;
+            }
+            if (!incoming.WalkbackExhausted && existing.WalkbackExhausted)
+            {
+                incoming.WalkbackExhausted = true;
+                otherPreserved++;
+            }
+            if (!incoming.DuplicateBlockerRecovered && existing.DuplicateBlockerRecovered)
+            {
+                incoming.DuplicateBlockerRecovered = true;
+                otherPreserved++;
+            }
+            if (incoming.SpawnDeathCount == 0 && existing.SpawnDeathCount != 0)
+            {
+                incoming.SpawnDeathCount = existing.SpawnDeathCount;
+                otherPreserved++;
+            }
+
+            // Terminal-spawn safety state.
+            if (!incoming.TerminalSpawnSafetyDeferred && existing.TerminalSpawnSafetyDeferred)
+            {
+                incoming.TerminalSpawnSafetyDeferred = true;
+                otherPreserved++;
+            }
+            if (!incoming.TerminalSpawnCannotSpawnSafely
+                && existing.TerminalSpawnCannotSpawnSafely)
+            {
+                incoming.TerminalSpawnCannotSpawnSafely = true;
+                otherPreserved++;
+            }
+            if (string.IsNullOrEmpty(incoming.TerminalSpawnSafetyReasonCode)
+                && !string.IsNullOrEmpty(existing.TerminalSpawnSafetyReasonCode))
+            {
+                incoming.TerminalSpawnSafetyReasonCode = existing.TerminalSpawnSafetyReasonCode;
+                otherPreserved++;
+            }
+            if (string.IsNullOrEmpty(incoming.TerminalSpawnSafetyReason)
+                && !string.IsNullOrEmpty(existing.TerminalSpawnSafetyReason))
+            {
+                incoming.TerminalSpawnSafetyReason = existing.TerminalSpawnSafetyReason;
+                otherPreserved++;
+            }
+            if (double.IsNaN(incoming.TerminalSpawnSafetyDecisionUT)
+                && !double.IsNaN(existing.TerminalSpawnSafetyDecisionUT))
+            {
+                incoming.TerminalSpawnSafetyDecisionUT = existing.TerminalSpawnSafetyDecisionUT;
+                otherPreserved++;
+            }
+            if (double.IsNaN(incoming.TerminalSpawnNextAttemptUT)
+                && !double.IsNaN(existing.TerminalSpawnNextAttemptUT))
+            {
+                incoming.TerminalSpawnNextAttemptUT = existing.TerminalSpawnNextAttemptUT;
+                otherPreserved++;
+            }
+
+            // Plain-Rewind-to-Launch suppression metadata (#573 / #589).
+            if (!incoming.SpawnSuppressedByRewind && existing.SpawnSuppressedByRewind)
+            {
+                incoming.SpawnSuppressedByRewind = true;
+                otherPreserved++;
+            }
+            if (string.IsNullOrEmpty(incoming.SpawnSuppressedByRewindReason)
+                && !string.IsNullOrEmpty(existing.SpawnSuppressedByRewindReason))
+            {
+                incoming.SpawnSuppressedByRewindReason = existing.SpawnSuppressedByRewindReason;
+                otherPreserved++;
+            }
+            if (double.IsNaN(incoming.SpawnSuppressedByRewindUT)
+                && !double.IsNaN(existing.SpawnSuppressedByRewindUT))
+            {
+                incoming.SpawnSuppressedByRewindUT = existing.SpawnSuppressedByRewindUT;
+                otherPreserved++;
+            }
+
+            // Diagnostic peaks / final-state metadata.
+            if (incoming.SceneExitSituation == -1 && existing.SceneExitSituation != -1)
+            {
+                incoming.SceneExitSituation = existing.SceneExitSituation;
+                otherPreserved++;
+            }
+            if (incoming.MaxDistanceFromLaunch == 0
+                && existing.MaxDistanceFromLaunch != 0)
+            {
+                incoming.MaxDistanceFromLaunch = existing.MaxDistanceFromLaunch;
+                otherPreserved++;
+            }
+            if (incoming.DistanceFromLaunch == 0 && existing.DistanceFromLaunch != 0)
+            {
+                incoming.DistanceFromLaunch = existing.DistanceFromLaunch;
+                otherPreserved++;
+            }
+            if (!incoming.VesselDestroyed && existing.VesselDestroyed)
+            {
+                incoming.VesselDestroyed = true;
+                otherPreserved++;
+            }
+            if (string.IsNullOrEmpty(incoming.VesselSituation)
+                && !string.IsNullOrEmpty(existing.VesselSituation))
+            {
+                incoming.VesselSituation = existing.VesselSituation;
+                otherPreserved++;
+            }
         }
 
         private static bool ShouldReplaceCommittedTree(
@@ -2036,44 +2230,57 @@ namespace Parsek
         /// <summary>
         /// Removes every committed recording tagged with the given Re-Fly session,
         /// including optimizer-created split tails that inherited the session tag
-        /// via <see cref="RunOptimizationSplitPass"/>. Matches on
-        /// <see cref="Recording.CreatingSessionId"/> first, with
-        /// <see cref="Recording.ProvisionalForRpId"/> as an additional belt for
-        /// recordings authored before <c>CreatingSessionId</c> was wired through.
-        /// Removes in descending-index order so the chain-degrade pass in
-        /// <see cref="RemoveRecordingAt"/> only sees siblings that are also about
-        /// to be deleted; the chain id on the remaining ones is nulled out as a
-        /// transient effect, then those entries are themselves removed in the
-        /// next iteration.
+        /// via <see cref="RunOptimizationSplitPass"/>. Removes in descending-index
+        /// order so the chain-degrade pass in <see cref="RemoveRecordingAt"/>
+        /// only sees siblings that are also about to be deleted; the chain id on
+        /// the remaining ones is nulled out as a transient effect, then those
+        /// entries are themselves removed in the next iteration.
+        ///
+        /// <para>Match policy: when <paramref name="sessionId"/> is provided
+        /// (the production case), match on <see cref="Recording.CreatingSessionId"/>
+        /// only. <see cref="Recording.ProvisionalForRpId"/> survives a successful
+        /// merge as durable metadata on the committed Re-Fly recording, so
+        /// matching on it after a different session's failed merge would
+        /// incorrectly delete a prior durable attempt that shares the same
+        /// rewind point. The RP fallback fires only when the caller has no
+        /// session id at all (legacy / pre-tagging save sweep).</para>
         ///
         /// <para>After flat-list removal, each <see cref="committedTrees"/> entry
         /// gets the matched ids stripped from its <c>Recordings</c> dictionary,
-        /// stale <c>ActiveRecordingId</c> values are reset to
-        /// <paramref name="fallbackOriginChildRecordingId"/> when present (or
-        /// nulled), and the tree's background map is rebuilt — otherwise
+        /// stale <c>ActiveRecordingId</c> / <c>RootRecordingId</c> are reset to
+        /// <paramref name="fallbackActiveRecordingId"/> when present (or nulled),
+        /// branch-point endpoint lists are scrubbed and empty BPs are dropped,
+        /// and the tree's background map is rebuilt — otherwise
         /// <c>SaveTreeRecordings</c> would still serialise the orphan into
         /// <c>RECORDING_TREE</c>, defeating the rollback.</para>
         /// </summary>
         internal static int RemoveSessionProvisionalRecordings(
             string sessionId, string rewindPointId,
-            string fallbackOriginChildRecordingId = null)
+            string fallbackActiveRecordingId = null)
         {
             if (string.IsNullOrEmpty(sessionId) && string.IsNullOrEmpty(rewindPointId))
                 return 0;
 
+            bool useSessionMatch = !string.IsNullOrEmpty(sessionId);
             var matches = new List<int>();
             var matchedIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var rec = committedRecordings[i];
                 if (rec == null) continue;
-                bool sessionMatch =
-                    !string.IsNullOrEmpty(sessionId)
-                    && string.Equals(rec.CreatingSessionId, sessionId, StringComparison.Ordinal);
-                bool rpMatch =
-                    !string.IsNullOrEmpty(rewindPointId)
-                    && string.Equals(rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal);
-                if (sessionMatch || rpMatch)
+                bool match;
+                if (useSessionMatch)
+                {
+                    match = string.Equals(
+                        rec.CreatingSessionId, sessionId, StringComparison.Ordinal);
+                }
+                else
+                {
+                    match = !string.IsNullOrEmpty(rewindPointId)
+                        && string.Equals(
+                            rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal);
+                }
+                if (match)
                 {
                     matches.Add(i);
                     if (!string.IsNullOrEmpty(rec.RecordingId))
@@ -2093,14 +2300,13 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"RemoveSessionProvisionalRecordings: removing rec='{rec.VesselName ?? "<no-name>"}' " +
                     $"id={rec.RecordingId ?? "<no-id>"} chainId={rec.ChainId ?? "<none>"} " +
-                    $"sessionMatch={(string.Equals(rec.CreatingSessionId, sessionId, StringComparison.Ordinal) ? "yes" : "no")} " +
-                    $"rpMatch={(string.Equals(rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal) ? "yes" : "no")}");
+                    $"matchedBy={(useSessionMatch ? "session" : "rp")}");
                 CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 RemoveRecordingAt(idx);
             }
 
             int prunedFromTrees = PruneTaggedRecordingsFromCommittedTrees(
-                matchedIds, fallbackOriginChildRecordingId);
+                matchedIds, fallbackActiveRecordingId);
             if (prunedFromTrees > 0)
             {
                 ParsekLog.Info("RecordingStore",
@@ -2116,25 +2322,28 @@ namespace Parsek
         /// Strips the given recording ids from every committed tree's
         /// <c>Recordings</c> dictionary, scrubs the same ids out of every
         /// surviving branch point's <c>ParentRecordingIds</c> /
-        /// <c>ChildRecordingIds</c> lists, clears surviving recordings'
-        /// <c>ParentBranchPointId</c> / <c>ChildBranchPointId</c> values that
-        /// pointed at branch points whose entire endpoint set was removed,
-        /// resets <c>ActiveRecordingId</c> when it pointed at one of the
-        /// removed ids (preferring <paramref name="fallbackOriginChildRecordingId"/>
-        /// when it survives, otherwise null), and rebuilds the affected tree's
-        /// background map. Returns the total number of dictionary entries
-        /// removed across all trees. Without this pass,
-        /// <c>SaveTreeRecordings</c> serialises branch points (independently
-        /// from Recordings) so a Recordings-only sweep still leaves dangling
-        /// topology edges to deleted Re-Fly fragments on disk.
+        /// <c>ChildRecordingIds</c> lists, drops branch points whose entire
+        /// parent OR child endpoint set went empty (a BP with zero parents OR
+        /// zero children can no longer connect anything), clears surviving
+        /// recordings' <c>ParentBranchPointId</c> / <c>ChildBranchPointId</c>
+        /// values that pointed at the dropped BPs, resets stale
+        /// <c>ActiveRecordingId</c> AND <c>RootRecordingId</c> to
+        /// <paramref name="fallbackActiveRecordingId"/> when present (or
+        /// nulled), and rebuilds the affected tree's background map. Returns
+        /// the total number of dictionary entries removed across all trees.
+        /// Without this pass, <c>SaveTreeRecordings</c> serialises branch
+        /// points (independently from Recordings) so a Recordings-only sweep
+        /// still leaves dangling topology edges to deleted Re-Fly fragments
+        /// on disk.
         /// </summary>
         private static int PruneTaggedRecordingsFromCommittedTrees(
-            HashSet<string> ids, string fallbackOriginChildRecordingId)
+            HashSet<string> ids, string fallbackActiveRecordingId)
         {
             if (ids == null || ids.Count == 0) return 0;
             int prunedTotal = 0;
             int scrubbedRefsTotal = 0;
             int clearedRecordingBpRefsTotal = 0;
+            int droppedBpsTotal = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
@@ -2149,26 +2358,40 @@ namespace Parsek
                 }
                 if (prunedHere == 0) continue;
 
+                bool useFallback =
+                    !string.IsNullOrEmpty(fallbackActiveRecordingId)
+                    && tree.Recordings.ContainsKey(fallbackActiveRecordingId);
                 if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
                     && !tree.Recordings.ContainsKey(tree.ActiveRecordingId))
                 {
                     string oldActive = tree.ActiveRecordingId;
-                    bool useFallback =
-                        !string.IsNullOrEmpty(fallbackOriginChildRecordingId)
-                        && tree.Recordings.ContainsKey(fallbackOriginChildRecordingId);
                     tree.ActiveRecordingId = useFallback
-                        ? fallbackOriginChildRecordingId
+                        ? fallbackActiveRecordingId
                         : null;
                     ParsekLog.Info("RecordingStore",
                         $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
                         $"tree.ActiveRecordingId from '{oldActive}' to " +
                         $"'{tree.ActiveRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"}");
                 }
+                if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                    && !tree.Recordings.ContainsKey(tree.RootRecordingId))
+                {
+                    string oldRoot = tree.RootRecordingId;
+                    tree.RootRecordingId = useFallback
+                        ? fallbackActiveRecordingId
+                        : null;
+                    ParsekLog.Warn("RecordingStore",
+                        $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
+                        $"tree.RootRecordingId from '{oldRoot}' to " +
+                        $"'{tree.RootRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"} " +
+                        "(rollback removed the prior root — verify the resulting tree is consistent)");
+                }
 
                 int scrubbedRefs = ScrubBranchPointEndpointsAndDropEmpty(tree, ids,
                     out HashSet<string> droppedBranchPointIds);
+                int droppedBpsHere = droppedBranchPointIds?.Count ?? 0;
                 int clearedRecordingBpRefs = 0;
-                if (droppedBranchPointIds != null && droppedBranchPointIds.Count > 0)
+                if (droppedBpsHere > 0)
                 {
                     foreach (var rec in tree.Recordings.Values)
                     {
@@ -2186,23 +2409,32 @@ namespace Parsek
                             clearedRecordingBpRefs++;
                         }
                     }
+                    ParsekLog.Verbose("RecordingStore",
+                        $"PruneTaggedRecordingsFromCommittedTrees: dropped " +
+                        $"{droppedBpsHere} branch point(s) with empty endpoint sets " +
+                        $"on tree={tree.Id ?? "<none>"} " +
+                        $"ids=[{string.Join(",", droppedBranchPointIds)}]");
                 }
 
                 tree.RebuildBackgroundMap();
                 prunedTotal += prunedHere;
                 scrubbedRefsTotal += scrubbedRefs;
                 clearedRecordingBpRefsTotal += clearedRecordingBpRefs;
+                droppedBpsTotal += droppedBpsHere;
                 ParsekLog.Verbose("RecordingStore",
                     $"PruneTaggedRecordingsFromCommittedTrees: tree={tree.Id ?? "<none>"} " +
                     $"prunedRecordings={prunedHere} scrubbedBranchPointRefs={scrubbedRefs} " +
+                    $"droppedBranchPoints={droppedBpsHere} " +
                     $"clearedRecordingBpRefs={clearedRecordingBpRefs}");
             }
-            if (prunedTotal > 0 || scrubbedRefsTotal > 0 || clearedRecordingBpRefsTotal > 0)
+            if (prunedTotal > 0 || scrubbedRefsTotal > 0
+                || clearedRecordingBpRefsTotal > 0 || droppedBpsTotal > 0)
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"PruneTaggedRecordingsFromCommittedTrees totals: " +
                     $"prunedRecordings={prunedTotal} " +
                     $"scrubbedBranchPointRefs={scrubbedRefsTotal} " +
+                    $"droppedBranchPoints={droppedBpsTotal} " +
                     $"clearedRecordingBpRefs={clearedRecordingBpRefsTotal}");
             }
             return prunedTotal;
@@ -2211,11 +2443,12 @@ namespace Parsek
         /// <summary>
         /// Walks <paramref name="tree"/>'s <c>BranchPoints</c> and removes any
         /// occurrences of <paramref name="ids"/> from each branch point's
-        /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> lists. Branch
-        /// points whose entire parent OR child endpoint set is now empty are
-        /// dropped from the tree (their ids are added to
+        /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> lists. A BP is
+        /// dropped from the tree when EITHER its parent or its child endpoint
+        /// set went empty, since a BP with zero endpoints on either side can
+        /// no longer connect anything; the dropped ids are surfaced via
         /// <paramref name="droppedBranchPointIds"/> so the caller can clear
-        /// surviving recordings' BP back-references). Returns the number of
+        /// surviving recordings' BP back-references. Returns the number of
         /// id occurrences scrubbed out of endpoint lists.
         /// </summary>
         private static int ScrubBranchPointEndpointsAndDropEmpty(
