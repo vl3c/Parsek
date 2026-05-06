@@ -232,6 +232,9 @@ namespace Parsek
             if (!tree.Recordings.TryGetValue(tree.RootRecordingId, out root))
                 return false;
 
+            // Finalized pending trees no longer have live vessel state here.
+            // Use the root terminal state as the conservative #88 autoMerge
+            // approval proxy; autoMerge-off and Re-Fly dialog paths ignore it.
             return root != null
                 && (root.TerminalStateValue == TerminalState.Landed
                     || root.TerminalStateValue == TerminalState.Splashed);

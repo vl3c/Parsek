@@ -11,11 +11,12 @@ namespace Parsek.Tests
     /// <list type="bullet">
     ///   <item>The pure <see cref="SceneExitInterceptor.ShouldShowDialogBeforeSceneChange"/> decision matrix.</item>
     ///   <item>The <see cref="SceneExitInterceptor.s_AllowNextLoadScene"/> + destination-match watchdog.</item>
+    ///   <item>The finalized-pending-tree <see cref="HighLogic_LoadScene_Patch.Prefix"/> branch via the dialog test seam.</item>
     ///   <item>The <see cref="SceneExitInterceptor.SafeWritePersistent"/> save-failure-on-MAINMENU hard-block contract via the test seam.</item>
     /// </list>
     ///
-    /// <para>The Harmony prefix itself, the <see cref="MergeDialog.ShowTreeDialog"/>
-    /// PopupDialog spawn, and the live-state wrapper
+    /// <para>The production <see cref="MergeDialog.ShowTreeDialog"/> PopupDialog
+    /// spawn and the live-active-tree wrapper
     /// <c>ShouldShowDialogBeforeSceneChangeLive</c> all touch
     /// <see cref="FlightGlobals"/> / <see cref="HighLogic"/> singletons
     /// that are unavailable in xUnit. Those layers are exercised via the
@@ -159,6 +160,40 @@ namespace Parsek.Tests
                 GameScenes.TRACKSTATION);
 
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void Prefix_NoActiveTree_FinalizedPending_InvokesShowDialogForTesting()
+        {
+            GameScenes priorScene = HighLogic.LoadedScene;
+            GameScenes? capturedScene = null;
+            SceneExitInterceptor.DialogVariant? capturedVariant = null;
+            SceneExitInterceptor.ShowDialogForTesting = (scene, variant) =>
+            {
+                capturedScene = scene;
+                capturedVariant = variant;
+            };
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_prefix", TerminalState.Destroyed),
+                PendingTreeState.Finalized);
+
+            try
+            {
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
+
+                bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(
+                    GameScenes.SPACECENTER);
+
+                Assert.False(allowStockLoad);
+                Assert.Equal(GameScenes.SPACECENTER, capturedScene);
+                Assert.Equal(
+                    SceneExitInterceptor.DialogVariant.RegularMerge,
+                    capturedVariant);
+            }
+            finally
+            {
+                HighLogic.LoadedScene = priorScene;
+            }
         }
 
         [Fact]
