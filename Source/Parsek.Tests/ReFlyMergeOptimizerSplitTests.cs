@@ -253,6 +253,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RemoveSessionProvisionalRecordings_AlsoPrunesFromCommittedTreeDictionary()
+        {
+            // Reviewer P1 followup: a flat-list-only sweep leaves the same
+            // ids in CommittedTrees[*].Recordings, so SaveTreeRecordings still
+            // serialises the orphan into the RECORDING_TREE node.
+            var head = MakeAtmoSurfaceRecording("head_id",
+                startUT: 200, midUT: 250, endUT: 300);
+            head.CreatingSessionId = "sess_target";
+            head.TreeId = "tree_X";
+
+            var unrelated = MakeAtmoSurfaceRecording("unrelated_id",
+                startUT: 500, midUT: 550, endUT: 600);
+            unrelated.TreeId = "tree_X";
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_X",
+                TreeName = "Test Tree",
+                RootRecordingId = "unrelated_id",
+                ActiveRecordingId = "head_id",
+                Recordings =
+                {
+                    ["head_id"] = head,
+                    ["unrelated_id"] = unrelated,
+                },
+            };
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_X");
+            RecordingStore.AddRecordingWithTreeForTesting(unrelated, "tree_X");
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_target",
+                rewindPointId: null,
+                fallbackOriginChildRecordingId: "unrelated_id");
+
+            Assert.Equal(1, removed);
+            Assert.DoesNotContain(tree.Recordings, kvp => kvp.Key == "head_id");
+            Assert.Contains(tree.Recordings, kvp => kvp.Key == "unrelated_id");
+            // ActiveRecordingId pointed at the removed id; reset to the
+            // origin-fallback when it survives in the dictionary.
+            Assert.Equal("unrelated_id", tree.ActiveRecordingId);
+        }
+
+        [Fact]
+        public void RemoveSessionProvisionalRecordings_TreeDictPruneNullsActiveWhenFallbackMissing()
+        {
+            var head = MakeAtmoSurfaceRecording("head_only",
+                startUT: 200, midUT: 250, endUT: 300);
+            head.CreatingSessionId = "sess_target";
+            head.TreeId = "tree_X";
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_X",
+                TreeName = "Test Tree",
+                ActiveRecordingId = "head_only",
+                Recordings =
+                {
+                    ["head_only"] = head,
+                },
+            };
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_X");
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_target",
+                rewindPointId: null,
+                fallbackOriginChildRecordingId: "fallback_does_not_exist");
+
+            Assert.Equal(1, removed);
+            Assert.Empty(tree.Recordings);
+            Assert.Null(tree.ActiveRecordingId);
+        }
+
+        [Fact]
         public void RemoveSessionProvisionalRecordings_BothNullArgs_NoOp()
         {
             var rec = MakeAtmoSurfaceRecording("untagged", 200, 250, 300);

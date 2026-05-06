@@ -308,12 +308,33 @@ namespace Parsek
                 ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: true);
 
             provisional.MergeState = classification.NewState;
+            // Re-Fly provisionals are created with PlaybackEnabled=false in
+            // RewindInvoker.BuildProvisionalRecording so the in-flight session
+            // does not also play the attempt back as a ghost. After merge, the
+            // attempt is committed timeline data and must replay normally —
+            // restore the default-on flag so the recording is visible during
+            // any future Re-Fly of a sibling slot. Without this flip the
+            // first Re-Fly's recording sits at PlaybackEnabled=false forever
+            // (ghost playback skip reason=playback-disabled), and the second
+            // Re-Fly of an adjacent vessel does not see it as a ghost.
+            bool restoredPlayback = false;
+            if (!provisional.PlaybackEnabled)
+            {
+                provisional.PlaybackEnabled = true;
+                restoredPlayback = true;
+            }
             ApplyAutoSealAfterSafetyClose(classification, provisional, scenario);
 
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
 
             scenario.BumpSupersedeStateVersion();
+            if (restoredPlayback)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"FlipMergeStateAndClearTransient: restored PlaybackEnabled=true on " +
+                    $"provisional={provisional.RecordingId ?? "<no-id>"} (was suppressed during recording)");
+            }
 
             ParsekLog.Info(Tag,
                 $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={classification.NewState} terminalKind={classification.Kind} " +

@@ -346,8 +346,10 @@ namespace Parsek
             // removed the named id we'd leave the optimizer-created tail
             // orphaned in the committed list.
             string rewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            string fallbackOrigin =
+                scenario.ActiveReFlySessionMarker?.OriginChildRecordingId;
             int removedProvisional = RecordingStore.RemoveSessionProvisionalRecordings(
-                sessionId, rewindPointId);
+                sessionId, rewindPointId, fallbackOrigin);
             string provisionalId =
                 scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
             if (removedProvisional > 0)
