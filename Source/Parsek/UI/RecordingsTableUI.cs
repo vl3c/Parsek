@@ -2891,41 +2891,37 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldShowForwardButton(Recording rec, double now)
         {
-            return rec != null && now < rec.StartUT;
+            if (rec == null) return false;
+
+            Recording launchOwner;
+            double launchStartUT;
+            if (TryResolveLaunchRewindSurface(rec, out launchOwner, out launchStartUT))
+                return now < launchStartUT;
+
+            return now < rec.StartUT;
         }
 
         /// <summary>
         /// Decides whether a row should render the legacy Rewind
-        /// (Rewind-to-launch) button. The legacy button only makes sense on the
-        /// recording that actually owns the quicksave: standalone recordings
-        /// (own <c>RewindSaveFileName</c>) and tree roots that captured the
-        /// save on behalf of their tree. Tree branches (debris, decouple
-        /// children, EVA splits) inherited the save through
-        /// <see cref="RecordingStore.GetRewindRecording"/> and would draw
-        /// duplicate buttons that all rewind to the same root launch — the
-        /// player sees four identical Rewind buttons after a normal merge and
-        /// reasonably concludes they're broken. Future rows take the Forward path
-        /// instead, and rows that ARE THEMSELVES an unfinished flight render
-        /// the Re-Fly-column button drawn separately by
-        /// <c>DrawUnfinishedFlightRewindButton</c>; the chain HEAD (the launch
-        /// row that owns the rewind quicksave) keeps its Rewind-to-launch even when
-        /// a sibling chain TIP is the unfinished flight, so the player can
-        /// always rewind a launch to the pad.
+        /// (Rewind-to-launch) button. The button belongs on the row that
+        /// represents the mission launch: usually the recording that owns the
+        /// quicksave, and after Re-Fly supersede, the visible effective
+        /// replacement for that hidden original owner. Other tree branches
+        /// (debris, decouple children, EVA splits) inherit the same launch save
+        /// through <see cref="RecordingStore.GetRewindRecording"/> but remain
+        /// suppressed so the table does not draw duplicate buttons that all
+        /// rewind to the same root launch. Future rows take the Forward path
+        /// instead, and rows that ARE THEMSELVES an unfinished flight render the
+        /// Re-Fly-column button drawn separately by
+        /// <c>DrawUnfinishedFlightRewindButton</c>; the chain HEAD (or its
+        /// effective Re-Fly replacement) keeps Rewind-to-launch even when a
+        /// sibling chain TIP is the unfinished flight, so the player can always
+        /// rewind a mission to the pad.
         /// </summary>
         internal static bool ShouldShowLegacyRewindButton(Recording rec, double now)
         {
             if (rec == null) return false;
-            // Future recording — the Forward path renders instead. Keep the legacy
-            // gate strictly past/active so a flipped clock can't double-render.
-            if (now < rec.StartUT) return false;
-            // Owner gate: only the recording that holds the rewind save
-            // (standalone or tree root) should expose the legacy button.
-            // Reference equality — GetRewindRecording returns the same instance
-            // when rec is the owner and the tree root recording instance
-            // otherwise.
-            var owner = RecordingStore.GetRewindRecording(rec);
-            if (owner == null) return false;
-            if (!ReferenceEquals(owner, rec)) return false;
+            if (!ShouldSurfaceLaunchRewindButton(rec, now)) return false;
             // Suppress only when THIS row is itself an unfinished flight: the
             // Rewind-to-Staging button (DrawUnfinishedFlightRewindButton) takes
             // over and offering rewind-to-launch alongside it would be a
@@ -2941,10 +2937,61 @@ namespace Parsek
 
         internal static bool ShouldShowGroupLegacyRewindButton(Recording rec, double now)
         {
+            return ShouldSurfaceLaunchRewindButton(rec, now);
+        }
+
+        private static bool ShouldSurfaceLaunchRewindButton(Recording rec, double now)
+        {
+            Recording owner;
+            double launchStartUT;
+            if (!TryResolveLaunchRewindSurface(rec, out owner, out launchStartUT))
+                return false;
+            return now >= launchStartUT;
+        }
+
+        private static bool TryResolveLaunchRewindSurface(
+            Recording rec,
+            out Recording owner,
+            out double launchStartUT)
+        {
+            owner = null;
+            launchStartUT = 0.0;
             if (rec == null) return false;
-            if (now < rec.StartUT) return false;
-            var owner = RecordingStore.GetRewindRecording(rec);
-            return owner != null && ReferenceEquals(owner, rec);
+
+            owner = RecordingStore.GetRewindRecording(rec);
+            if (owner == null) return false;
+            if (ReferenceEquals(owner, rec))
+            {
+                launchStartUT = rec.StartUT;
+                return true;
+            }
+
+            if (!IsEffectiveReplacementForLaunchRewindOwner(
+                    rec, owner, CurrentRecordingSupersedesForDisplay()))
+            {
+                owner = null;
+                return false;
+            }
+
+            launchStartUT = owner.StartUT;
+            return true;
+        }
+
+        internal static bool IsEffectiveReplacementForLaunchRewindOwner(
+            Recording rec,
+            Recording owner,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null || owner == null) return false;
+            if (string.IsNullOrEmpty(rec.RecordingId)
+                || string.IsNullOrEmpty(owner.RecordingId))
+                return false;
+            if (supersedes == null || supersedes.Count == 0)
+                return false;
+
+            string effectiveOwnerId =
+                EffectiveState.EffectiveRecordingId(owner.RecordingId, supersedes);
+            return string.Equals(effectiveOwnerId, rec.RecordingId, StringComparison.Ordinal);
         }
 
         /// <summary>

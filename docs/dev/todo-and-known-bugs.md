@@ -52,6 +52,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Rewind-to-Launch hidden after sealing all Re-Fly slots
+
+- ~~After both Re-Fly slots under a rewind point were manually sealed, the visible replacement mission row no longer exposed Rewind-to-Launch.~~ Source: `logs/2026-05-06_2351_refly-phase-d-rewind-button-debris`: the original root recording `e1ea034b...` still owned `rewindSave = parsek_rw_0b01b6`, but it was hidden by the supersede relation `e1ea034b... -> rec_0fd46f70...`. The visible replacement row `rec_0fd46f70...` inherited that launch save through the tree root, but the row-level owner gate suppressed it because `RecordingStore.GetRewindRecording` returned the hidden original owner.
+
+**Fix:** `RecordingsTableUI` now lets the visible effective supersede endpoint of the launch-save owner surface the same Rewind-to-Launch affordance. Other branch/debris rows that merely inherit the root save are still suppressed, and unfinished-flight rows still route their Re-Fly action through the Fly/Seal column.
+
+**Coverage:** `RewindTreeLookupTests.ShouldShowLegacyRewindButton_ReFlyReplacementOfHiddenRoot_ReturnsTrue`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 pending-tree scene-exit dialog and Re-Fly topology persistence
 
 - ~~After the first tree recording was finalized by vessel destruction, pressing stock Space Center / Tracking Station showed the Merge / Discard dialog in the destination scene instead of while still in Flight.~~ Source: `logs/2026-05-06_1938_merge-dialog-next-scene`. PR #750's `HighLogic.LoadScene` prefix handled live active trees, but this path had already run `ShowPostDestructionTreeMergeDialog`, stashed a `PendingTreeState.Finalized` tree, cleared `activeTree`, and logged `Deferred merge dialog fired - pre-transition intercept missed scene=SPACECENTER`.
