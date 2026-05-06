@@ -2974,6 +2974,10 @@ namespace Parsek
                 return false;
             }
 
+            // Effective Re-Fly replacements surface the hidden launch owner's
+            // rewind save. In normal play this row appears only after the
+            // launch UT has passed, so the Forward action branch is unreachable
+            // for replacements.
             launchStartUT = owner.StartUT;
             return true;
         }

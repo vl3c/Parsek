@@ -494,6 +494,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowLegacyRewindButton_ReFlySupersedeChainEndpointOnly_ReturnsTrue()
+        {
+            var tree = BuildTree("tree_refly_chain", "root_chain", "parsek_rw_chain",
+                ("rec_mid", "Kerbal Mid"),
+                ("rec_final", "Kerbal Final"));
+            var root = tree.Recordings["root_chain"];
+            root.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            root.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            root.MergeState = MergeState.CommittedProvisional;
+
+            var mid = tree.Recordings["rec_mid"];
+            mid.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            mid.Points.Add(new TrajectoryPoint { ut = 140.0 });
+            mid.MergeState = MergeState.CommittedProvisional;
+            mid.ParentBranchPointId = "bp_refly_mid";
+
+            var final = tree.Recordings["rec_final"];
+            final.Points.Add(new TrajectoryPoint { ut = 140.0 });
+            final.Points.Add(new TrajectoryPoint { ut = 160.0 });
+            final.MergeState = MergeState.CommittedProvisional;
+            final.ParentBranchPointId = "bp_refly_final";
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                Rel("root_chain", "rec_mid"),
+                Rel("rec_mid", "rec_final")
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>(),
+                RecordingSupersedes = supersedes,
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.False(RecordingsTableUI.IsEffectiveReplacementForLaunchRewindOwner(
+                mid, root, supersedes));
+            Assert.True(RecordingsTableUI.IsEffectiveReplacementForLaunchRewindOwner(
+                final, root, supersedes));
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                mid, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                final, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                final, now: 110.0));
+            Assert.False(RecordingsTableUI.ShouldShowForwardButton(
+                final, now: 110.0));
+        }
+
+        [Fact]
         public void ShouldShowLegacyRewindButton_ChainMemberOfUnfinishedFlight_ReturnsFalse()
         {
             // A chain member with a parentBranchPointId pointing at an active
