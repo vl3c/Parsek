@@ -11,6 +11,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 pending-tree scene-exit dialog and Re-Fly topology persistence
+
+- ~~After the first tree recording was finalized by vessel destruction, pressing stock Space Center / Tracking Station showed the Merge / Discard dialog in the destination scene instead of while still in Flight.~~ Source: `logs/2026-05-06_1938_merge-dialog-next-scene`. PR #750's `HighLogic.LoadScene` prefix handled live active trees, but this path had already run `ShowPostDestructionTreeMergeDialog`, stashed a `PendingTreeState.Finalized` tree, cleared `activeTree`, and logged `Deferred merge dialog fired - pre-transition intercept missed scene=SPACECENTER`.
+- ~~In the same retained session, Re-Fly replacement recordings were created and supersede relations were saved, but the committed `RECORDING_TREE` stayed at the stale pre-Re-Fly topology.~~ This is best classified as a #751 regression, exposed through older #401 `ReconciliationBundle` behavior rather than Phase D rendering or PR #750. `ReconciliationBundle.Capture` took the old 8-recording committed tree, `TryRestoreActiveTreeNode` intentionally removed that committed tree while stashing the active tree, then `ReconciliationBundle.Restore` put the old committed copy back. #751's in-place fork model then attached `rec_187...` / `rec_f88...` to the pending/active tree, but the stale committed copy remained. The final merge logged `Tree 'a92a6e9...' already committed - skipping duplicate` while the pending tree had advanced to 10 recordings, so the save wrote 10 flat committed recordings but serialized the tree with only the original 8; the replacement IDs appeared only under `RECORDING_SUPERSEDES`.
+
+**Fix:** `SceneExitInterceptor` now checks finalized pending trees when there is no live active tree, using the same pre-transition dialog policy and labels as the live active-tree path while leaving Limbo/resume stashes alone. `RecordingStore.CommitTree` now keeps same-ID exact duplicates, equivalent copies, and poorer/stale copies as duplicate no-ops; only a validated superset/topology update, such as a #751 fork-updated tree, updates the committed tree slot and syncs `CommittedRecordings` by `RecordingId` so the richer pending/active Re-Fly topology replaces any stale #401 bundle-restored committed copy.
+
+**Coverage:** `SceneExitInterceptorTests.Decision_PendingFinalizedTree_AutoMergeOff_ReturnsRegularMerge`, `SceneExitInterceptorTests.Decision_PendingFinalizedTree_ReFlyActive_ReturnsReFlyAttempt`, `SceneExitInterceptorTests.Decision_PendingNotFinalized_ReturnsNone`, `SceneExitInterceptorTests.LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsRegularMerge`, `SceneExitInterceptorTests.LivePendingTreeDecision_LimboPendingTree_ReturnsNone`, `SceneExitInterceptorTests.Prefix_NoActiveTree_FinalizedPending_InvokesShowDialogForTesting`, `TreeCommitTests.CommitTree_DuplicateTreeIdEquivalentCopy_Skipped`, `TreeCommitTests.CommitTree_DuplicateTreeIdPoorerCopy_DoesNotReplaceCommittedTree`, and `TreeCommitTests.CommitPendingTree_SameTreeIdDifferentTopology_ReplacesCommittedTreeAndSavesReplacement`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 in-place Re-Fly fork (issue #734)
 
 - ~~In-place Re-Fly continuations rebound the recorder to the committed origin `Recording` after the rewind quickload, so the active attempt mutated origin's `Points`, `TrackSections`, sidecar `.prec`, and terminal state in flight. Discard then needed PR #733's `PRE_REFLY_ORIGINAL` rollback snapshot to reconstruct the original trajectory because the live data had already been overwritten. The deeper architectural fix is to fork the attempt into a separate provisional `Recording` so origin is never mutated.~~ Source: GitHub issue #734 follow-up to PR #733.

@@ -832,6 +832,87 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTree_DuplicateTreeIdEquivalentCopy_Skipped()
+        {
+            var original = MakeSimpleTree("dup_tree_copy");
+            RecordingStore.CommitTree(original);
+
+            var equivalentCopy = MakeSimpleTree("dup_tree_copy");
+            equivalentCopy.TreeName = "Equivalent Copy With Different Name";
+            RecordingStore.CommitTree(equivalentCopy);
+
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Same(original, RecordingStore.CommittedTrees[0]);
+        }
+
+        [Fact]
+        public void CommitTree_DuplicateTreeIdPoorerCopy_DoesNotReplaceCommittedTree()
+        {
+            var richer = MakeTreeWithBranch("dup_tree_poorer");
+            RecordingStore.CommitTree(richer);
+
+            var staleCopy = MakeSimpleTree("dup_tree_poorer");
+            RecordingStore.CommitTree(staleCopy);
+
+            Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Same(richer, RecordingStore.CommittedTrees[0]);
+            Assert.Equal(3, RecordingStore.CommittedTrees[0].Recordings.Count);
+            Assert.Contains("child1", RecordingStore.CommittedTrees[0].Recordings.Keys);
+            Assert.Contains("child2", RecordingStore.CommittedTrees[0].Recordings.Keys);
+        }
+
+        [Fact]
+        public void CommitPendingTree_SameTreeIdDifferentTopology_ReplacesCommittedTreeAndSavesReplacement()
+        {
+            var original = MakeSimpleTree("refly_tree");
+            RecordingStore.CommitTree(original);
+
+            var replacement = MakeSimpleTree("refly_tree");
+            replacement.TreeName = "Updated Re-Fly Tree";
+            replacement.ActiveRecordingId = "rec_refly";
+            replacement.Recordings["root"].VesselName = "Root Vessel Updated";
+            replacement.Recordings["root"].ChildBranchPointId = "bp_refly";
+            replacement.Recordings["rec_refly"] = MakeRecording(
+                "rec_refly",
+                "refly_tree",
+                "Re-Fly Vessel",
+                2000,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot(),
+                parentBranchPointId: "bp_refly");
+            replacement.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_refly",
+                UT = 17100.0,
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "rec_refly" }
+            });
+
+            RecordingStore.StashPendingTree(replacement);
+            RecordingStore.CommitPendingTree();
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Same(replacement, RecordingStore.CommittedTrees[0]);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => r.RecordingId == "rec_refly");
+
+            var scenarioNode = new ConfigNode("SCENARIO");
+            ParsekScenario.SaveTreeRecordings(scenarioNode);
+
+            var treeNodes = scenarioNode.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+            Assert.Equal("Updated Re-Fly Tree", treeNodes[0].GetValue("treeName"));
+            Assert.Equal("rec_refly", treeNodes[0].GetValue("activeRecordingId"));
+            Assert.Contains(treeNodes[0].GetNodes("RECORDING"),
+                node => node.GetValue("recordingId") == "rec_refly");
+        }
+
+        [Fact]
         public void StashPendingTree_Stashes()
         {
             var tree = MakeSimpleTree();

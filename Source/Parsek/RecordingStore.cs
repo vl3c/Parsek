@@ -679,15 +679,35 @@ namespace Parsek
         {
             if (tree == null) return;
 
-            // Duplicate guard: skip if tree with same ID already committed
+            int replaceCommittedTreeIndex = -1;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 if (committedTrees[i].Id == tree.Id)
                 {
-                    Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
-                    GameStateRecorder.PendingScienceSubjects.Clear();
-                    ClearRewindReplayTargetScope();
-                    return;
+                    if (ReferenceEquals(committedTrees[i], tree))
+                    {
+                        Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
+                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        ClearRewindReplayTargetScope();
+                        return;
+                    }
+
+                    if (!ShouldReplaceCommittedTree(committedTrees[i], tree, out var replaceReason))
+                    {
+                        Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
+                        ParsekLog.Verbose("RecordingStore",
+                            $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
+                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        ClearRewindReplayTargetScope();
+                        return;
+                    }
+
+                    replaceCommittedTreeIndex = i;
+                    ParsekLog.Warn("RecordingStore",
+                        $"Tree '{tree.Id}' already committed with a different topology; " +
+                        $"updating committed tree (oldRecordings={committedTrees[i].Recordings.Count}, " +
+                        $"newRecordings={tree.Recordings.Count}, reason={replaceReason})");
+                    break;
                 }
             }
 
@@ -697,7 +717,7 @@ namespace Parsek
             AutoGroupTreeRecordings(tree);
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
-            FinalizeTreeCommit(tree);
+            FinalizeTreeCommit(tree, replaceCommittedTreeIndex);
             ClearRewindReplayTargetScope();
         }
 
@@ -1135,20 +1155,31 @@ namespace Parsek
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
         /// captures baseline, and creates a milestone.
         /// </summary>
-        private static void FinalizeTreeCommit(RecordingTree tree)
+        private static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
         {
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
             // by CommitRecordingDirect).
             int addedFromTree = 0;
+            int replacedFromTree = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
-                if (committedRecordings.Contains(rec)) continue;
+                int existingIndex = FindCommittedRecordingIndex(rec);
+                if (existingIndex >= 0)
+                {
+                    if (!ReferenceEquals(committedRecordings[existingIndex], rec))
+                    {
+                        committedRecordings[existingIndex] = rec;
+                        replacedFromTree++;
+                    }
+                    continue;
+                }
+
                 committedRecordings.Add(rec);
                 addedFromTree++;
             }
-            if (addedFromTree > 0)
+            if (addedFromTree > 0 || replacedFromTree > 0)
                 BumpStateVersion();
 
             // Flush to disk immediately to close the crash window.
@@ -1160,10 +1191,25 @@ namespace Parsek
             // that never went through RecordingTree.Load)
             tree.RebuildBackgroundMap();
 
-            committedTrees.Add(tree);
+            bool updatedCommittedTree = replaceCommittedTreeIndex >= 0
+                && replaceCommittedTreeIndex < committedTrees.Count;
+            if (updatedCommittedTree)
+            {
+                committedTrees[replaceCommittedTreeIndex] = tree;
+                BumpStateVersion();
+            }
+            else
+            {
+                committedTrees.Add(tree);
+            }
 
-            Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
+            string commitVerb = updatedCommittedTree ? "Updated committed tree" : "Committed tree";
+            Log($"[Parsek] {commitVerb} '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+            if (updatedCommittedTree)
+                ParsekLog.Verbose("RecordingStore",
+                    $"CommitTree: replaced committed tree index={replaceCommittedTreeIndex} " +
+                    $"addedRecordings={addedFromTree} replacedRecordings={replacedFromTree}");
             foreach (var rec in tree.Recordings.Values)
                 ParsekLog.Verbose("RecordingStore", $"CommitTree: child {rec.DebugName}");
 
@@ -1178,6 +1224,249 @@ namespace Parsek
                 if (recEnd > endUT) endUT = recEnd;
             }
             MilestoneStore.CreateMilestone(tree.Id, endUT);
+        }
+
+        private static int FindCommittedRecordingIndex(Recording rec)
+        {
+            if (rec == null) return -1;
+
+            if (!string.IsNullOrEmpty(rec.RecordingId))
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    var existing = committedRecordings[i];
+                    if (existing != null &&
+                        string.Equals(existing.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    {
+                        return i;
+                    }
+                }
+            }
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (ReferenceEquals(committedRecordings[i], rec))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static bool ShouldReplaceCommittedTree(
+            RecordingTree existing,
+            RecordingTree incoming,
+            out string reason)
+        {
+            reason = "no-topology-change";
+            if (existing == null || incoming == null)
+                return false;
+
+            int existingRecordingCount = existing.Recordings?.Count ?? 0;
+            int incomingRecordingCount = incoming.Recordings?.Count ?? 0;
+            int existingBranchCount = existing.BranchPoints?.Count ?? 0;
+            int incomingBranchCount = incoming.BranchPoints?.Count ?? 0;
+            if (incomingRecordingCount < existingRecordingCount ||
+                incomingBranchCount < existingBranchCount)
+            {
+                reason =
+                    $"incoming-not-richer oldRecordings={existingRecordingCount} " +
+                    $"newRecordings={incomingRecordingCount} oldBranchPoints={existingBranchCount} " +
+                    $"newBranchPoints={incomingBranchCount}";
+                return false;
+            }
+
+            int missingRecordingIds = CountMissingRecordingIds(existing, incoming);
+            int missingBranchPointIds = CountMissingBranchPointIds(existing, incoming);
+            if (missingRecordingIds > 0 || missingBranchPointIds > 0)
+            {
+                reason =
+                    $"incoming-missing-existing-ids missingRecordingIds={missingRecordingIds} " +
+                    $"missingBranchPointIds={missingBranchPointIds}";
+                return false;
+            }
+
+            int newRecordingIds = CountNewRecordingIds(existing, incoming);
+            int newBranchPointIds = CountNewBranchPointIds(existing, incoming);
+            bool rootChanged = !string.Equals(
+                existing.RootRecordingId,
+                incoming.RootRecordingId,
+                StringComparison.Ordinal);
+            bool activeChanged = !string.Equals(
+                existing.ActiveRecordingId,
+                incoming.ActiveRecordingId,
+                StringComparison.Ordinal);
+            bool recordingTopologyChanged = HasRecordingTopologyDifference(existing, incoming);
+            bool branchTopologyChanged = HasBranchPointTopologyDifference(existing, incoming);
+
+            bool replace =
+                newRecordingIds > 0 ||
+                newBranchPointIds > 0 ||
+                rootChanged ||
+                activeChanged ||
+                recordingTopologyChanged ||
+                branchTopologyChanged;
+
+            reason =
+                $"newRecordingIds={newRecordingIds} newBranchPointIds={newBranchPointIds} " +
+                $"rootChanged={rootChanged} activeChanged={activeChanged} " +
+                $"recordingTopologyChanged={recordingTopologyChanged} " +
+                $"branchTopologyChanged={branchTopologyChanged}";
+            return replace;
+        }
+
+        private static int CountNewRecordingIds(RecordingTree existing, RecordingTree incoming)
+        {
+            if (existing?.Recordings == null || incoming?.Recordings == null)
+                return 0;
+
+            int count = 0;
+            foreach (var id in incoming.Recordings.Keys)
+            {
+                if (!existing.Recordings.ContainsKey(id))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int CountMissingRecordingIds(RecordingTree existing, RecordingTree incoming)
+        {
+            if (existing?.Recordings == null || incoming?.Recordings == null)
+                return 0;
+
+            int count = 0;
+            foreach (var id in existing.Recordings.Keys)
+            {
+                if (!incoming.Recordings.ContainsKey(id))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int CountNewBranchPointIds(RecordingTree existing, RecordingTree incoming)
+        {
+            if (existing?.BranchPoints == null || incoming?.BranchPoints == null)
+                return 0;
+
+            var existingIds = new HashSet<string>(
+                existing.BranchPoints
+                    .Where(bp => bp != null && !string.IsNullOrEmpty(bp.Id))
+                    .Select(bp => bp.Id),
+                StringComparer.Ordinal);
+
+            int count = 0;
+            foreach (var bp in incoming.BranchPoints)
+            {
+                if (bp != null &&
+                    !string.IsNullOrEmpty(bp.Id) &&
+                    !existingIds.Contains(bp.Id))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int CountMissingBranchPointIds(RecordingTree existing, RecordingTree incoming)
+        {
+            if (existing?.BranchPoints == null || incoming?.BranchPoints == null)
+                return 0;
+
+            var incomingIds = new HashSet<string>(
+                incoming.BranchPoints
+                    .Where(bp => bp != null && !string.IsNullOrEmpty(bp.Id))
+                    .Select(bp => bp.Id),
+                StringComparer.Ordinal);
+
+            int count = 0;
+            foreach (var bp in existing.BranchPoints)
+            {
+                if (bp != null &&
+                    !string.IsNullOrEmpty(bp.Id) &&
+                    !incomingIds.Contains(bp.Id))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static bool HasRecordingTopologyDifference(
+            RecordingTree existing,
+            RecordingTree incoming)
+        {
+            if (existing?.Recordings == null || incoming?.Recordings == null)
+                return false;
+
+            foreach (var kvp in incoming.Recordings)
+            {
+                Recording incomingRec = kvp.Value;
+                if (incomingRec == null ||
+                    !existing.Recordings.TryGetValue(kvp.Key, out var existingRec) ||
+                    existingRec == null)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(
+                        existingRec.ParentBranchPointId,
+                        incomingRec.ParentBranchPointId,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        existingRec.ChildBranchPointId,
+                        incomingRec.ChildBranchPointId,
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasBranchPointTopologyDifference(
+            RecordingTree existing,
+            RecordingTree incoming)
+        {
+            if (existing?.BranchPoints == null || incoming?.BranchPoints == null)
+                return false;
+
+            var existingById = existing.BranchPoints
+                .Where(bp => bp != null && !string.IsNullOrEmpty(bp.Id))
+                .GroupBy(bp => bp.Id, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+            foreach (var incomingBp in incoming.BranchPoints)
+            {
+                if (incomingBp == null ||
+                    string.IsNullOrEmpty(incomingBp.Id) ||
+                    !existingById.TryGetValue(incomingBp.Id, out var existingBp))
+                {
+                    continue;
+                }
+
+                if (!SameStringSet(existingBp.ParentRecordingIds, incomingBp.ParentRecordingIds) ||
+                    !SameStringSet(existingBp.ChildRecordingIds, incomingBp.ChildRecordingIds))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool SameStringSet(List<string> left, List<string> right)
+        {
+            if (left == null || left.Count == 0)
+                return right == null || right.Count == 0;
+            if (right == null || left.Count != right.Count)
+                return false;
+
+            var set = new HashSet<string>(left, StringComparer.Ordinal);
+            return set.SetEquals(right);
         }
 
         /// <summary>
