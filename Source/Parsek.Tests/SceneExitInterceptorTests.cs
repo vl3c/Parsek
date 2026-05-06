@@ -41,6 +41,7 @@ namespace Parsek.Tests
 
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
             SceneExitInterceptor.ResetTestOverrides();
         }
 
@@ -52,9 +53,31 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
         }
 
         // ---------- Decision helper matrix ------------------------------
+
+        private static RecordingTree MakePendingTree(
+            string treeId,
+            TerminalState terminalState)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Pending Tree",
+                RootRecordingId = "root",
+                ActiveRecordingId = "root"
+            };
+            tree.Recordings["root"] = new Recording
+            {
+                RecordingId = "root",
+                TreeId = treeId,
+                VesselName = "Pending Root",
+                TerminalStateValue = terminalState
+            };
+            return tree;
+        }
 
         [Fact]
         public void Decision_NoActiveTree_ReturnsNone()
@@ -65,6 +88,76 @@ namespace Parsek.Tests
                 reFlyActive: false,
                 isAutoMerge: false,
                 activeVesselLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void Decision_PendingFinalizedTree_AutoMergeOff_ReturnsRegularMerge()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.SPACECENTER,
+                hasFinalizedPendingTree: true,
+                reFlyActive: false,
+                isAutoMerge: false,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+        }
+
+        [Fact]
+        public void Decision_PendingFinalizedTree_ReFlyActive_ReturnsReFlyAttempt()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.TRACKSTATION,
+                hasFinalizedPendingTree: true,
+                reFlyActive: true,
+                isAutoMerge: true,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
+        }
+
+        [Fact]
+        public void Decision_PendingNotFinalized_ReturnsNone()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.SPACECENTER,
+                hasFinalizedPendingTree: false,
+                reFlyActive: false,
+                isAutoMerge: false,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsRegularMerge()
+        {
+            ParsekScenario.SetCachedAutoMergeForTesting(true);
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_landed", TerminalState.Landed),
+                PendingTreeState.Finalized);
+
+            var v = SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(
+                GameScenes.SPACECENTER);
+
+            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+        }
+
+        [Fact]
+        public void LivePendingTreeDecision_LimboPendingTree_ReturnsNone()
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_pending_limbo"
+                }
+            });
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_limbo", TerminalState.Destroyed),
+                PendingTreeState.Limbo);
+
+            var v = SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(
+                GameScenes.TRACKSTATION);
+
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 

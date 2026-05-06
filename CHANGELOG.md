@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Finalized pending trees created by post-destruction flight-results exits now use the pre-transition merge/discard dialog before leaving Flight. This closes the gap where PR #750 handled live active-tree exits, but a destroyed vessel had already stashed the tree and cleared `activeTree`, so the dialog appeared after Space Center / Tracking Station loaded.
+- Re-Fly pending tree commits with an existing tree ID now update the committed tree topology only when the incoming tree is a validated superset/topology update. This fixes the #751 in-place fork model being exposed to a stale #401 reconciliation-bundle committed-tree restore while keeping exact, equivalent, and poorer same-ID duplicates as no-ops: replacement Re-Fly recording IDs are kept in `CommittedTrees` and serialize into `RECORDING_TREE`, not only `RECORDING_SUPERSEDES`.
 - Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - Rewind and time-jump cutoff recalculations now rebuild crew reservations from the full committed timeline while keeping funds/science/tech at the cutoff UT, so crew from unrecovered future recordings no longer reappear in the VAB/SPH crew picker after rewinding.
 - Timeline now shows Fly/Seal for every STASH-eligible recording, including active-parent breakup slots, so the Re-Fly filter matches the Recordings table.
