@@ -297,6 +297,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RemoveSessionProvisionalRecordings_ScrubsBranchPointEndpointRefs()
+        {
+            // Reviewer P1 followup: even after pruning the matched ids from
+            // tree.Recordings, BranchPoints still serialize independently from
+            // the Recordings dict, so RecordingTree.Save would persist
+            // dangling parent/child id refs to the deleted Re-Fly fragments
+            // unless we also scrub the branch-point endpoint lists. Test
+            // shape: a session-tagged head plus its parent BP whose
+            // ChildRecordingIds points at the head.
+            var head = MakeAtmoSurfaceRecording("head_id",
+                startUT: 200, midUT: 250, endUT: 300);
+            head.CreatingSessionId = "sess_target";
+            head.TreeId = "tree_X";
+            head.ParentBranchPointId = "bp_session";
+
+            var sibling = MakeAtmoSurfaceRecording("sibling_id",
+                startUT: 50, midUT: 100, endUT: 150);
+            sibling.TreeId = "tree_X";
+            sibling.ChildBranchPointId = "bp_session";
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_session",
+                UT = 200.0,
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { "sibling_id" },
+                ChildRecordingIds = new List<string> { "head_id" },
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_X",
+                TreeName = "Test Tree",
+                RootRecordingId = "sibling_id",
+                ActiveRecordingId = "head_id",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings =
+                {
+                    ["sibling_id"] = sibling,
+                    ["head_id"] = head,
+                },
+            };
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(sibling, "tree_X");
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_X");
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_target",
+                rewindPointId: null,
+                fallbackOriginChildRecordingId: "sibling_id");
+
+            Assert.Equal(1, removed);
+            Assert.DoesNotContain("head_id", tree.Recordings.Keys);
+            // The branch point's child list is now empty after the scrub, so
+            // the BP is dropped from the tree (otherwise SaveTreeRecordings
+            // would persist a BP with a missing endpoint).
+            Assert.Empty(tree.BranchPoints);
+            // Surviving sibling's ChildBranchPointId pointed at the dropped
+            // BP — it must be cleared so OnLoad doesn't reject the topology.
+            Assert.Null(sibling.ChildBranchPointId);
+        }
+
+        [Fact]
         public void RemoveSessionProvisionalRecordings_TreeDictPruneNullsActiveWhenFallbackMissing()
         {
             var head = MakeAtmoSurfaceRecording("head_only",

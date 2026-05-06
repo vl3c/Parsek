@@ -842,14 +842,37 @@ namespace Parsek
                 priorTip,
                 selected.OriginChildRecordingId,
                 StringComparison.Ordinal);
+            // For a slot that has already been Re-flown but did not auto-seal
+            // (e.g. crashed terminal => MergeState.CommittedProvisional), the
+            // supersede chain has extended past origin to a prior Re-Fly's
+            // recording. Inheriting from origin would lose the latest vessel
+            // snapshot and identity that the previous Re-Fly's commit stamped
+            // (and would also leave RestoreActiveTreeFromPending's marker-swap
+            // path inactive — observed in 2026-05-06_2156 where the recorder
+            // never armed and the live vessel stayed as the original full
+            // rocket instead of the slot's probe). When priorTip resolves to a
+            // valid committed recording with a matching vessel pid, fork from
+            // it instead so the in-place path inherits the up-to-date state.
+            Recording chainTipRec = originIsPriorTip
+                ? originChild
+                : FindRecordingById(priorTip);
+            Recording inheritFrom = chainTipRec ?? originChild;
             // originChild was looked up via FindRecordingById which scans
             // CommittedRecordings, so a non-null originChild is by construction
             // a committed recording. The previous redundant
             // `IsCommittedRecording(originChild)` clause has been dropped.
+            //
+            // The third clause guards a degenerate case: priorTip references a
+            // recording that is no longer in the committed list (orphan
+            // supersede). With chainTipRec=null, inheritFrom falls back to
+            // origin, but origin is no longer authoritative for the slot's
+            // current state. In that case we keep the placeholder branch
+            // (inPlaceContinuation=false) so the marker still routes through
+            // the priorTip-aware supersede commit path.
             bool inPlaceContinuation =
-                originChild != null
-                && originChild.VesselPersistentId == stripResult.SelectedPid
-                && originIsPriorTip;
+                inheritFrom != null
+                && inheritFrom.VesselPersistentId == stripResult.SelectedPid
+                && (originIsPriorTip || chainTipRec != null);
 
             Recording provisional = null;
             string activeReFlyRecordingId = null;
@@ -881,45 +904,61 @@ namespace Parsek
                 {
                     // Issue #734: the in-place attempt is forked into a
                     // separate provisional Recording instead of mutating the
-                    // origin object. The fork inherits the origin's vessel
-                    // identity (so the recorder's per-vessel tracking continues
-                    // unchanged), generation depth, and a defensive copy of
-                    // origin's vessel/ghost snapshots so any code path that
+                    // origin object. The fork inherits the inheritance source's
+                    // vessel identity (so the recorder's per-vessel tracking
+                    // continues unchanged), generation depth, and a defensive
+                    // copy of its vessel/ghost snapshots so any code path that
                     // queries the active Re-Fly recording's snapshot before
                     // the recorder has refreshed it (display alignment,
                     // ghost build, antenna registration) still sees a valid
-                    // payload. The fork freezes origin's trajectory under
-                    // the fork's own pre-Re-Fly anchor snapshot so the
-                    // resolver / display-alignment paths keyed by
-                    // ActiveReFlyRecordingId still see the original
-                    // trajectory data. Origin is left untouched: no live
-                    // mutation, no session tagging, no rollback snapshot
-                    // needed for Discard. Chain identity (ChainId/Index/
-                    // Branch) is intentionally NOT copied so the supersede
-                    // table is the only authority on chain-tip resolution,
-                    // matching the non-in-place placeholder pattern.
-                    provisional.VesselPersistentId = originChild.VesselPersistentId;
-                    provisional.VesselName = originChild.VesselName;
-                    provisional.IsDebris = originChild.IsDebris;
-                    provisional.Generation = originChild.Generation;
-                    provisional.SegmentPhase = originChild.SegmentPhase;
-                    provisional.SegmentBodyName = originChild.SegmentBodyName;
-                    provisional.StartBodyName = originChild.StartBodyName;
-                    provisional.StartBiome = originChild.StartBiome;
-                    provisional.StartSituation = originChild.StartSituation;
-                    provisional.LaunchSiteName = originChild.LaunchSiteName;
-                    provisional.VesselSnapshot = originChild.VesselSnapshot != null
-                        ? originChild.VesselSnapshot.CreateCopy()
+                    // payload. The fork freezes the inheritance source's
+                    // trajectory under the fork's own pre-Re-Fly anchor
+                    // snapshot so the resolver / display-alignment paths keyed
+                    // by ActiveReFlyRecordingId still see the prior
+                    // trajectory data. The inheritance source is left
+                    // untouched: no live mutation, no session tagging, no
+                    // rollback snapshot needed for Discard. Chain identity
+                    // (ChainId/Index/Branch) is intentionally NOT copied so
+                    // the supersede table is the only authority on chain-tip
+                    // resolution, matching the non-in-place placeholder
+                    // pattern.
+                    //
+                    // When the slot has prior CommittedProvisional Re-Fly
+                    // recordings (priorTip != origin), the inheritance source
+                    // is the chain tip's recording rather than origin so the
+                    // new fork picks up the latest committed snapshot/identity
+                    // — without that, the second-Re-Fly-of-an-unsealed-slot
+                    // path falls through to the placeholder branch, the
+                    // recorder never arms (RestoreActiveTreeFromPending's
+                    // marker-swap is gated on inPlaceContinuation), and the
+                    // live vessel stays as the original full assembly.
+                    provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
+                    provisional.VesselName = inheritFrom.VesselName;
+                    provisional.IsDebris = inheritFrom.IsDebris;
+                    provisional.Generation = inheritFrom.Generation;
+                    provisional.SegmentPhase = inheritFrom.SegmentPhase;
+                    provisional.SegmentBodyName = inheritFrom.SegmentBodyName;
+                    provisional.StartBodyName = inheritFrom.StartBodyName;
+                    provisional.StartBiome = inheritFrom.StartBiome;
+                    provisional.StartSituation = inheritFrom.StartSituation;
+                    provisional.LaunchSiteName = inheritFrom.LaunchSiteName;
+                    provisional.VesselSnapshot = inheritFrom.VesselSnapshot != null
+                        ? inheritFrom.VesselSnapshot.CreateCopy()
                         : null;
-                    provisional.GhostVisualSnapshot = originChild.GhostVisualSnapshot != null
-                        ? originChild.GhostVisualSnapshot.CreateCopy()
+                    provisional.GhostVisualSnapshot = inheritFrom.GhostVisualSnapshot != null
+                        ? inheritFrom.GhostVisualSnapshot.CreateCopy()
                         : null;
-                    provisional.CapturePreReFlyAnchorTrajectoryFrom(originChild, sessionId);
-                    pendingTreeForFork = FindTreeForReFlyFork(originChild.TreeId);
+                    provisional.CapturePreReFlyAnchorTrajectoryFrom(inheritFrom, sessionId);
+                    pendingTreeForFork = FindTreeForReFlyFork(inheritFrom.TreeId);
+                    bool inheritedFromChainTip = !object.ReferenceEquals(inheritFrom, originChild)
+                        && inheritFrom != null;
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation forked — fork " +
-                        $"{provisional.RecordingId} supersedes origin {originChild.RecordingId} " +
-                        $"(origin not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
+                        $"{provisional.RecordingId} supersedes priorTip {priorTip ?? "<none>"} " +
+                        $"(origin={selected.OriginChildRecordingId ?? "<none>"} " +
+                        $"inheritedFrom={(inheritedFromChainTip ? "chain-tip" : "origin")} " +
+                        $"sourceRec={inheritFrom.RecordingId ?? "<no-id>"}; " +
+                        $"source not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
                         $"vesselSnapshot={(provisional.VesselSnapshot != null ? "copied" : "<none>")}; " +
                         $"ghostSnapshot={(provisional.GhostVisualSnapshot != null ? "copied" : "<none>")}; " +
                         $"generation={provisional.Generation}; " +

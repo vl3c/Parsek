@@ -2093,20 +2093,27 @@ namespace Parsek
 
         /// <summary>
         /// Strips the given recording ids from every committed tree's
-        /// <c>Recordings</c> dictionary, resets <c>ActiveRecordingId</c> when it
-        /// pointed at one of the removed ids (preferring
-        /// <paramref name="fallbackOriginChildRecordingId"/> when it survives,
-        /// otherwise null), and rebuilds the affected tree's background map.
-        /// Returns the total number of dictionary entries removed across all
-        /// trees. Without this pass, <c>SaveTreeRecordings</c> would still
-        /// serialise the orphans into <c>RECORDING_TREE</c> nodes after a
-        /// flat-list-only sweep.
+        /// <c>Recordings</c> dictionary, scrubs the same ids out of every
+        /// surviving branch point's <c>ParentRecordingIds</c> /
+        /// <c>ChildRecordingIds</c> lists, clears surviving recordings'
+        /// <c>ParentBranchPointId</c> / <c>ChildBranchPointId</c> values that
+        /// pointed at branch points whose entire endpoint set was removed,
+        /// resets <c>ActiveRecordingId</c> when it pointed at one of the
+        /// removed ids (preferring <paramref name="fallbackOriginChildRecordingId"/>
+        /// when it survives, otherwise null), and rebuilds the affected tree's
+        /// background map. Returns the total number of dictionary entries
+        /// removed across all trees. Without this pass,
+        /// <c>SaveTreeRecordings</c> serialises branch points (independently
+        /// from Recordings) so a Recordings-only sweep still leaves dangling
+        /// topology edges to deleted Re-Fly fragments on disk.
         /// </summary>
         private static int PruneTaggedRecordingsFromCommittedTrees(
             HashSet<string> ids, string fallbackOriginChildRecordingId)
         {
             if (ids == null || ids.Count == 0) return 0;
             int prunedTotal = 0;
+            int scrubbedRefsTotal = 0;
+            int clearedRecordingBpRefsTotal = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
@@ -2137,13 +2144,110 @@ namespace Parsek
                         $"'{tree.ActiveRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"}");
                 }
 
+                int scrubbedRefs = ScrubBranchPointEndpointsAndDropEmpty(tree, ids,
+                    out HashSet<string> droppedBranchPointIds);
+                int clearedRecordingBpRefs = 0;
+                if (droppedBranchPointIds != null && droppedBranchPointIds.Count > 0)
+                {
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        if (rec == null) continue;
+                        if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                            && droppedBranchPointIds.Contains(rec.ParentBranchPointId))
+                        {
+                            rec.ParentBranchPointId = null;
+                            clearedRecordingBpRefs++;
+                        }
+                        if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                            && droppedBranchPointIds.Contains(rec.ChildBranchPointId))
+                        {
+                            rec.ChildBranchPointId = null;
+                            clearedRecordingBpRefs++;
+                        }
+                    }
+                }
+
                 tree.RebuildBackgroundMap();
                 prunedTotal += prunedHere;
+                scrubbedRefsTotal += scrubbedRefs;
+                clearedRecordingBpRefsTotal += clearedRecordingBpRefs;
                 ParsekLog.Verbose("RecordingStore",
                     $"PruneTaggedRecordingsFromCommittedTrees: tree={tree.Id ?? "<none>"} " +
-                    $"prunedRecordings={prunedHere}");
+                    $"prunedRecordings={prunedHere} scrubbedBranchPointRefs={scrubbedRefs} " +
+                    $"clearedRecordingBpRefs={clearedRecordingBpRefs}");
+            }
+            if (prunedTotal > 0 || scrubbedRefsTotal > 0 || clearedRecordingBpRefsTotal > 0)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"PruneTaggedRecordingsFromCommittedTrees totals: " +
+                    $"prunedRecordings={prunedTotal} " +
+                    $"scrubbedBranchPointRefs={scrubbedRefsTotal} " +
+                    $"clearedRecordingBpRefs={clearedRecordingBpRefsTotal}");
             }
             return prunedTotal;
+        }
+
+        /// <summary>
+        /// Walks <paramref name="tree"/>'s <c>BranchPoints</c> and removes any
+        /// occurrences of <paramref name="ids"/> from each branch point's
+        /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> lists. Branch
+        /// points whose entire parent OR child endpoint set is now empty are
+        /// dropped from the tree (their ids are added to
+        /// <paramref name="droppedBranchPointIds"/> so the caller can clear
+        /// surviving recordings' BP back-references). Returns the number of
+        /// id occurrences scrubbed out of endpoint lists.
+        /// </summary>
+        private static int ScrubBranchPointEndpointsAndDropEmpty(
+            RecordingTree tree,
+            HashSet<string> ids,
+            out HashSet<string> droppedBranchPointIds)
+        {
+            droppedBranchPointIds = null;
+            if (tree?.BranchPoints == null || ids == null || ids.Count == 0)
+                return 0;
+
+            int scrubbed = 0;
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (bp.ParentRecordingIds != null)
+                {
+                    for (int p = bp.ParentRecordingIds.Count - 1; p >= 0; p--)
+                    {
+                        if (ids.Contains(bp.ParentRecordingIds[p]))
+                        {
+                            bp.ParentRecordingIds.RemoveAt(p);
+                            scrubbed++;
+                        }
+                    }
+                }
+                if (bp.ChildRecordingIds != null)
+                {
+                    for (int c = bp.ChildRecordingIds.Count - 1; c >= 0; c--)
+                    {
+                        if (ids.Contains(bp.ChildRecordingIds[c]))
+                        {
+                            bp.ChildRecordingIds.RemoveAt(c);
+                            scrubbed++;
+                        }
+                    }
+                }
+
+                bool emptyParents = bp.ParentRecordingIds == null
+                    || bp.ParentRecordingIds.Count == 0;
+                bool emptyChildren = bp.ChildRecordingIds == null
+                    || bp.ChildRecordingIds.Count == 0;
+                if (emptyParents || emptyChildren)
+                {
+                    if (droppedBranchPointIds == null)
+                        droppedBranchPointIds = new HashSet<string>(StringComparer.Ordinal);
+                    if (!string.IsNullOrEmpty(bp.Id))
+                        droppedBranchPointIds.Add(bp.Id);
+                    tree.BranchPoints.RemoveAt(i);
+                }
+            }
+            return scrubbed;
         }
 
         /// <summary>
