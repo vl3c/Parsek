@@ -154,7 +154,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AllowRenderAnchorCorrectionInterval_ReFlyDisplayOffsetActive_SuppressesAnchor()
+        public void AllowRenderAnchorCorrectionInterval_Suppressed_SuppressesAnchor()
         {
             var expectedEps = new Vector3d(11.0, 22.0, 33.0);
             SeedAnchor("rec-refly", sectionIndex: 2, epsilon: expectedEps);
@@ -163,7 +163,7 @@ namespace Parsek.Tests.Rendering
                 "rec-refly",
                 sectionIndex: 2,
                 targetUT: 2050.0,
-                hasReFlyTreeOffset: true,
+                suppressAnchorCorrection: true,
                 out Vector3d epsilon,
                 out string reason);
 
@@ -171,16 +171,16 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, epsilon.x, 9);
             Assert.Equal(0.0, epsilon.y, 9);
             Assert.Equal(0.0, epsilon.z, 9);
-            Assert.Equal("refly-display-offset-active", reason);
+            Assert.Equal("suppressed", reason);
         }
 
         [Fact]
-        public void AllowRenderCoBubbleBlend_ReFlyDisplayOffsetActive_SuppressesBlend()
+        public void AllowRenderCoBubbleBlend_Suppressed_SuppressesBlend()
         {
             bool result = ParsekFlight.allowRenderCoBubbleBlend(
                 "rec-refly-cobubble",
                 targetUT: 2050.0,
-                hasReFlyTreeOffset: true,
+                suppressBlend: true,
                 out Vector3d offset,
                 out string primaryRecordingId,
                 out CoBubbleBlendStatus status,
@@ -192,20 +192,20 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, offset.z, 9);
             Assert.Null(primaryRecordingId);
             Assert.Equal(default(CoBubbleBlendStatus), status);
-            Assert.Equal("refly-display-offset-active", reason);
+            Assert.Equal("suppressed", reason);
         }
 
         [Fact]
-        public void AllowPointHermiteInterpolation_ReFlyDisplayOffsetActive_UsesLinearPath()
+        public void AllowPointHermiteInterpolation_Suppressed_UsesLinearPath()
         {
             bool result = ParsekFlight.allowPointHermiteInterpolation(
-                hasReFlyTreeOffset: true,
+                suppressHermite: true,
                 splineApplied: false,
                 allowNormalPlaybackHermite: true,
                 out string reason);
 
             Assert.False(result);
-            Assert.Equal("refly-display-offset-linearized", reason);
+            Assert.Equal("suppressed", reason);
         }
 
         [Fact]
@@ -218,7 +218,7 @@ namespace Parsek.Tests.Rendering
                 "rec-render",
                 sectionIndex: 2,
                 targetUT: 2050.0,
-                hasReFlyTreeOffset: false,
+                suppressAnchorCorrection: false,
                 out Vector3d epsilon,
                 out string reason);
 

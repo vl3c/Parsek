@@ -135,7 +135,7 @@ namespace Parsek.Tests
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100,
                 endUT = 110,
-                anchorVesselId = 42u,
+                anchorRecordingId = "anchor-rec",
                 frames = new List<TrajectoryPoint> { before, after }
             });
             return rec;
@@ -237,11 +237,12 @@ namespace Parsek.Tests
             };
         }
 
-        static ParsekKSC.KscAnchorLookup AnchorLookup(uint expectedPid, Vector3d anchorPos)
+        static ParsekKSC.KscRecordedAnchorLookup AnchorLookup(string expectedAnchorRecordingId, Vector3d anchorPos)
         {
-            return (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            return (Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
-                if (pid != expectedPid)
+                if (!string.Equals(section.anchorRecordingId, expectedAnchorRecordingId, StringComparison.Ordinal))
                 {
                     anchor = default(ParsekKSC.KscAnchorFrame);
                     return false;
@@ -252,7 +253,8 @@ namespace Parsek.Tests
             };
         }
 
-        static bool MissingAnchorLookup(uint pid, out ParsekKSC.KscAnchorFrame anchor)
+        static bool MissingAnchorLookup(Recording rec, TrackSection section, int sectionIndex,
+            double targetUT, out ParsekKSC.KscAnchorFrame anchor)
         {
             anchor = default(ParsekKSC.KscAnchorFrame);
             return false;
@@ -276,21 +278,21 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(() => surfaceCalled = true),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution pose);
 
             Assert.True(resolved);
             Assert.False(surfaceCalled);
             Assert.Equal(1, cachedFrameSourceKey);
             Assert.Equal("relative", pose.Branch);
-            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Equal("anchor-rec", pose.AnchorRecordingId);
             Assert.Equal(1020.0, pose.WorldPos.x, 6);
             Assert.Equal(2030.0, pose.WorldPos.y, 6);
             Assert.Equal(3040.0, pose.WorldPos.z, 6);
             Assert.Contains(logLines, line =>
                 line.Contains("[KSCGhost]") &&
                 line.Contains("RELATIVE KSC playback resolved") &&
-                line.Contains("anchorPid=42"));
+                line.Contains("anchorRec=anchor-rec"));
         }
 
         [Fact]
@@ -312,11 +314,11 @@ namespace Parsek.Tests
             Assert.False(resolved);
             Assert.Equal("relative", pose.Branch);
             Assert.Equal("relative-anchor-unresolved", pose.FailureReason);
-            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Equal("anchor-rec", pose.AnchorRecordingId);
             Assert.Contains(logLines, line =>
                 line.Contains("[KSCGhost]") &&
                 line.Contains("RELATIVE KSC playback skipped") &&
-                line.Contains("anchorPid=42"));
+                line.Contains("anchorRec=anchor-rec"));
         }
 
         [Fact]
@@ -348,7 +350,7 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution pose);
 
             Assert.True(resolved);
@@ -385,7 +387,9 @@ namespace Parsek.Tests
             int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
             int surfaceCalls = 0;
             bool anchorCalled = false;
-            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
                 anchorCalled = true;
                 anchor = default(ParsekKSC.KscAnchorFrame);
@@ -423,7 +427,9 @@ namespace Parsek.Tests
             int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
             int surfaceCalls = 0;
             bool anchorCalled = false;
-            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
                 anchorCalled = true;
                 anchor = default(ParsekKSC.KscAnchorFrame);
@@ -466,7 +472,7 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution relativePose);
 
             Assert.True(relativeResolved);

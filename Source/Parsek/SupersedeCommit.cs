@@ -362,7 +362,7 @@ namespace Parsek
 
             // Drop any captured pre-Re-Fly anchor snapshots now that the
             // session is committed. The snapshot was only needed to feed
-            // resolver / display-alignment paths while the fork was being
+            // resolver paths while the fork was being
             // populated; post-merge the fork's own data is final.
             ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 

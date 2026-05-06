@@ -151,12 +151,6 @@ namespace Parsek.Tests
             public void ClearOrbitCache()
             {
             }
-
-            public bool TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
-            {
-                worldPosition = Vector3d.zero;
-                return false;
-            }
         }
         // ===================================================================
         // ShouldLoopPlayback — static, pure predicate

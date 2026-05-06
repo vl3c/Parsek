@@ -2309,7 +2309,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveMapPresenceGhostSource_RelativeFrame_SkipsWithRelativeFrameReason()
+        public void ResolveMapPresenceGhostSource_RelativeFrame_WithoutAnchorRecordingIdSkipsUnresolved()
         {
             var rec = new Recording
             {
@@ -2357,11 +2357,11 @@ namespace Parsek.Tests
                 out string skipReason);
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeFrame, skipReason);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeAnchorUnresolved, skipReason);
             Assert.Contains(logLines,
                 l => l.Contains("[GhostMap]")
                     && l.Contains("test-relative")
-                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeFrame));
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeAnchorUnresolved));
         }
 
         // -----------------------------------------------------------------
@@ -2371,9 +2371,8 @@ namespace Parsek.Tests
         // points and the outer gate was `!HasOrbitSegments` only. The fix
         // widens the gate (Relative-frame currentUT is also considered for
         // state-vector resolution) and allows StateVector creation when the
-        // section's anchor vessel is resolvable in the scene; otherwise it
-        // defers with a dedicated "relative-anchor-unresolved" skip reason
-        // so CheckPendingMapVessels retries on the next tick.
+        // section carries an anchor recording id; actual recorded-anchor pose
+        // resolution happens later in the state-vector world-frame resolver.
         //
         // CreateGhostVesselFromStateVectors already has a working Relative
         // branch (PR #547) that resolves world position via the anchor
@@ -2382,16 +2381,12 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------
 
         [Fact]
-        public void ResolveMapPresenceGhostSource_RelativeFrame_AnchorResolvable_ReturnsStateVector()
+        public void ResolveMapPresenceGhostSource_RelativeFrame_AnchorRecordingIdPresent_ReturnsStateVector()
         {
             var rec = BuildRelativeFrameRecording(
-                anchorVesselId: 999u,
+                anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
                 pointSpeed: 0.2);
-
-            // Production path looks anchors up via FlightRecorder.FindVesselByPid.
-            // Override the test seam to simulate "anchor present in scene".
-            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 999u;
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2416,16 +2411,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveMapPresenceGhostSource_RelativeFrame_AnchorUnresolvable_DefersWithRelativeAnchorUnresolved()
+        public void ResolveMapPresenceGhostSource_RelativeFrame_MissingAnchorRecordingId_DefersWithRelativeAnchorUnresolved()
         {
             var rec = BuildRelativeFrameRecording(
-                anchorVesselId: 999u,
+                anchorRecordingId: null,
                 pointDz: 0.5,
                 pointSpeed: 0.2);
-
-            // Anchor PID is set but the scene lookup fails (anchor not yet
-            // loaded into FlightGlobals.Vessels).
-            GhostMapPresence.AnchorResolvableForTesting = pid => false;
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2449,36 +2440,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveMapPresenceGhostSource_RelativeFrame_NoAnchorId_StillSkipsWithRelativeFrame()
-        {
-            // Sections without an anchor id (legacy / synthetic) keep the
-            // pre-#583 skip-reason wording so the path is observably distinct
-            // from "anchor present but not yet resolvable".
-            var rec = BuildRelativeFrameRecording(
-                anchorVesselId: 0u,
-                pointDz: 0.5,
-                pointSpeed: 0.2);
-
-            GhostMapPresence.AnchorResolvableForTesting = pid => true;
-
-            int mapCached = -1;
-            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
-                rec,
-                false,
-                false,
-                200,
-                false,
-                "test-rel-no-anchor",
-                ref mapCached,
-                out _,
-                out _,
-                out string skipReason);
-
-            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
-            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipRelativeFrame, skipReason);
-        }
-
-        [Fact]
         public void ResolveMapPresenceGhostSource_RelativeFrame_DzBelowAltitudeThreshold_StillReturnsStateVector()
         {
             // The whole point of the #583 fix: dz~0 (typical docking offset)
@@ -2490,7 +2451,7 @@ namespace Parsek.Tests
             // Relative-frame point must still produce StateVector because
             // the threshold check is bypassed for that branch.
             var rec = BuildRelativeFrameRecording(
-                anchorVesselId: 42u,
+                anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
                 pointSpeed: 0.2);
 
@@ -2498,8 +2459,6 @@ namespace Parsek.Tests
             // recording would fall under the airless-body create threshold
             // (alt > 1500 && speed > 60).
             Assert.False(GhostMapPresence.ShouldCreateStateVectorOrbit(0.5, 0.2, 0));
-
-            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 42u;
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2527,7 +2486,7 @@ namespace Parsek.Tests
             // None. The fix widens the gate to also consider state-vector
             // resolution when IsInRelativeFrame(currentUT) is true.
             var rec = BuildRelativeFrameRecording(
-                anchorVesselId: 7u,
+                anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
                 pointSpeed: 0.2);
             // Add an unrelated orbit segment far before the Relative section
@@ -2542,8 +2501,6 @@ namespace Parsek.Tests
                     semiMajorAxis = 700000
                 }
             };
-
-            GhostMapPresence.AnchorResolvableForTesting = pid => pid == 7u;
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2563,7 +2520,7 @@ namespace Parsek.Tests
         }
 
         private static Recording BuildRelativeFrameRecording(
-            uint anchorVesselId, double pointDz, double pointSpeed)
+            string anchorRecordingId, double pointDz, double pointSpeed)
         {
             return new Recording
             {
@@ -2600,7 +2557,7 @@ namespace Parsek.Tests
                         startUT = 100,
                         endUT = 300,
                         referenceFrame = ReferenceFrame.Relative,
-                        anchorVesselId = anchorVesselId
+                        anchorRecordingId = anchorRecordingId
                     }
                 }
             };
