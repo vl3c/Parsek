@@ -4257,7 +4257,7 @@ namespace Parsek
         /// branches always set it false. Callers that maintain a pending-map
         /// queue use this overload to decide whether to drop the pending entry
         /// on null return or keep it for the next tick (PR #574 review P2:
-        /// retry-later semantics for the active-Re-Fly suppression gate).
+        /// retry-later semantics for transient map ghost creation misses).
         /// </summary>
         internal static Vessel CreateGhostVesselFromSource(
             int recordingIndex,
@@ -4842,6 +4842,14 @@ namespace Parsek
             public uint AnchorPid;         // 0 unless Branch == "relative"
         }
 
+        internal static bool ShouldRetryStateVectorCreationAfterResolutionMiss(
+            StateVectorWorldFrame resolution)
+        {
+            return !resolution.Resolved
+                && string.Equals(resolution.Branch, "relative", StringComparison.Ordinal)
+                && string.Equals(resolution.FailureReason, "anchor-not-found", StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Pure-static resolution: given a trajectory point, the originating section
         /// (or null), the body, and pre-resolved anchor data, return the world-space
@@ -5141,6 +5149,10 @@ namespace Parsek
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
+                bool retryResolutionLater = ShouldRetryStateVectorCreationAfterResolutionMiss(resolution);
+                if (retryResolutionLater)
+                    retryLater = true;
+
                 var skip = NewDecisionFields("create-state-vector-skip");
                 skip.RecordingId = traj.RecordingId;
                 skip.RecordingIndex = recordingIndex;
@@ -5152,7 +5164,9 @@ namespace Parsek
                 skip.StateVecAlt = point.altitude;
                 skip.StateVecSpeed = point.velocity.magnitude;
                 skip.UT = ut;
-                skip.Reason = resolution.FailureReason ?? "(null)";
+                skip.Reason = retryResolutionLater
+                    ? string.Format(ic, "{0} retryLater=true", resolution.FailureReason ?? "(null)")
+                    : (resolution.FailureReason ?? "(null)");
                 ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
                 return null;
             }
