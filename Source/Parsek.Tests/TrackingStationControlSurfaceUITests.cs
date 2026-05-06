@@ -116,6 +116,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildGhostPopupText_FastForwardMaterialize_ShowsWarpDuration()
+        {
+            var selection = new TrackingStationGhostSelectionInfo(
+                0u,
+                "Plane Ghost",
+                2,
+                "rec-atmo",
+                10.0,
+                85.5,
+                TerminalState.Destroyed,
+                false,
+                0u,
+                hasRecording: true);
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: false,
+                canFocus: true,
+                canSetTarget: false,
+                recordingIndex: 2,
+                hasRecording: true,
+                materializeEligible: false,
+                materializeReason: GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                alreadyMaterialized: false,
+                materializeFastForwardEligible: true);
+
+            string text = ParsekTrackingStation.BuildGhostPopupText(
+                selection,
+                currentUT: 20.0,
+                context);
+
+            Assert.Contains("Recording: T-65.5s to endpoint", text);
+            Assert.Contains("Materialize: fast-forward 1m 5s", text);
+        }
+
+        [Fact]
+        public void BuildGhostPopupStatusPhase_ChangesAtEndpoint()
+        {
+            var selection = new TrackingStationGhostSelectionInfo(
+                0u,
+                "Plane Ghost",
+                2,
+                "rec-atmo",
+                10.0,
+                25.5,
+                TerminalState.Destroyed,
+                false,
+                0u,
+                hasRecording: true);
+
+            Assert.Equal(
+                "before-end",
+                ParsekTrackingStation.BuildGhostPopupStatusPhase(selection, 25.4));
+            Assert.Equal(
+                "endpoint",
+                ParsekTrackingStation.BuildGhostPopupStatusPhase(selection, 25.5));
+        }
+
+        [Fact]
         public void FormatAtmosphericMarkerStockActionLockLine_IncludesDisabledButtonsAndClearError()
         {
             string line = ParsekTrackingStation.FormatAtmosphericMarkerStockActionLockLine(
@@ -204,6 +261,87 @@ namespace Parsek.Tests
             bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
                 rec,
                 105.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.False(selected);
+            Assert.Null(frames);
+            Assert.Equal("relative-without-absolute-shadow", reason);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_AfterRelativeSectionUsesAbsoluteShadowFrames()
+        {
+            var shadowFrames = new List<TrajectoryPoint>
+            {
+                Point(100.0, 1.0, 2.0, 1000.0),
+                Point(110.0, 1.5, 2.5, 1200.0)
+            };
+            var rec = new Recording
+            {
+                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    Point(100.0, 500.0, 600.0, 700.0),
+                    Point(110.0, 510.0, 610.0, 710.0)
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            Point(100.0, 500.0, 600.0, 700.0),
+                            Point(110.0, 510.0, 610.0, 710.0)
+                        },
+                        absoluteFrames = shadowFrames
+                    }
+                }
+            };
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                120.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.True(selected);
+            Assert.Same(shadowFrames, frames);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_BeforeRelativeSectionWithoutShadowFailsClosed()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    Point(100.0, 1.0, 2.0, 1000.0),
+                    Point(110.0, 1.5, 2.5, 1200.0)
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            Point(100.0, 500.0, 600.0, 700.0),
+                            Point(110.0, 510.0, 610.0, 710.0)
+                        }
+                    }
+                }
+            };
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                90.0,
                 out List<TrajectoryPoint> frames,
                 out string reason);
 

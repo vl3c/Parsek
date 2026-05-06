@@ -354,6 +354,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DisableStockActionButtons_NullTracking_ReturnsFalseFlags()
+        {
+            GhostTrackingStationSelection.DisableStockActionButtons(
+                null,
+                out bool flyDisabled,
+                out bool deleteDisabled,
+                out bool recoverDisabled);
+
+            Assert.False(flyDisabled);
+            Assert.False(deleteDisabled);
+            Assert.False(recoverDisabled);
+        }
+
+        [Fact]
         public void BuildActionStates_BeforeRecordingEnd_EnablesMaterializeViaFastForward()
         {
             var context = new TrackingStationGhostActionContext(

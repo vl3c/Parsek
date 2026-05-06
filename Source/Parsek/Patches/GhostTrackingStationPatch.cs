@@ -540,9 +540,11 @@ namespace Parsek.Patches
 
             // Disable Fly/Delete/Recover buttons so the user can't accidentally
             // act on whatever vessel was previously selected internally.
-            __instance.FlyButton.interactable = false;
-            __instance.DeleteButton.interactable = false;
-            __instance.RecoverButton.interactable = false;
+            GhostTrackingStationSelection.DisableStockActionButtons(
+                __instance,
+                out bool flyDisabled,
+                out bool deleteDisabled,
+                out bool recoverDisabled);
 
             bool cleared = GhostTrackingStationSelection.TryClearSelectedVessel(__instance, out object previousSelection, out string clearError);
             if (!string.IsNullOrEmpty(clearError))
@@ -550,7 +552,8 @@ namespace Parsek.Patches
 
             ParsekLog.Info("GhostMap",
                 $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station " +
-                $"clearedSelection={cleared} hadPreviousSelection={previousSelection != null}");
+                $"clearedSelection={cleared} hadPreviousSelection={previousSelection != null} " +
+                $"flyDisabled={flyDisabled} deleteDisabled={deleteDisabled} recoverDisabled={recoverDisabled}");
             return false;
         }
 
@@ -825,6 +828,26 @@ namespace Parsek.Patches
                 error = $"{ex.GetType().Name}: {ex.Message}";
                 return false;
             }
+        }
+
+        internal static void DisableStockActionButtons(
+            SpaceTracking tracking,
+            out bool flyDisabled,
+            out bool deleteDisabled,
+            out bool recoverDisabled)
+        {
+            flyDisabled = DisableStockButton(tracking != null ? tracking.FlyButton : null);
+            deleteDisabled = DisableStockButton(tracking != null ? tracking.DeleteButton : null);
+            recoverDisabled = DisableStockButton(tracking != null ? tracking.RecoverButton : null);
+        }
+
+        private static bool DisableStockButton(UnityEngine.UI.Button button)
+        {
+            if (button == null)
+                return false;
+
+            button.interactable = false;
+            return true;
         }
 
         // Mirror the deselection-only part of SpaceTracking.SetVessel without

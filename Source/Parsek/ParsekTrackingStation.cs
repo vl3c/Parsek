@@ -704,9 +704,11 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     "Atmospheric marker ghost selection failed to clear stock selection: " + clearError);
 
-            bool flyDisabled = DisableStockButton(tracking.FlyButton);
-            bool deleteDisabled = DisableStockButton(tracking.DeleteButton);
-            bool recoverDisabled = DisableStockButton(tracking.RecoverButton);
+            GhostTrackingStationSelection.DisableStockActionButtons(
+                tracking,
+                out bool flyDisabled,
+                out bool deleteDisabled,
+                out bool recoverDisabled);
             ParsekLog.Info(Tag,
                 FormatAtmosphericMarkerStockActionLockLine(
                     cleared,
@@ -716,15 +718,6 @@ namespace Parsek
                     recoverDisabled,
                     clearError,
                     source));
-        }
-
-        private static bool DisableStockButton(UnityEngine.UI.Button button)
-        {
-            if (button == null)
-                return false;
-
-            button.interactable = false;
-            return true;
         }
 
         internal static string FormatAtmosphericMarkerStockActionLockLine(
@@ -774,7 +767,8 @@ namespace Parsek
                 return;
             }
 
-            string key = BuildGhostPopupKey(selection);
+            double currentUT = ghostActionCurrentUT;
+            string key = BuildGhostPopupKey(selection, currentUT);
             if (currentGhostPopup == null || currentGhostPopupKey != key)
             {
                 DismissCurrentGhostPopup("opening-new-ghost-popup");
@@ -784,11 +778,36 @@ namespace Parsek
             CheckGhostPopupOutsideClick();
         }
 
-        private static string BuildGhostPopupKey(TrackingStationGhostSelectionInfo selection)
+        private static string BuildGhostPopupKey(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
         {
+            string phase = BuildGhostPopupStatusPhase(selection, currentUT);
             if (selection.GhostPid != 0)
-                return "ghost:" + selection.GhostPid.ToString(CultureInfo.InvariantCulture);
-            return "recording:" + (selection.RecordingId ?? "(none)");
+            {
+                return "ghost:"
+                    + selection.GhostPid.ToString(CultureInfo.InvariantCulture)
+                    + ":"
+                    + phase;
+            }
+
+            return "recording:" + (selection.RecordingId ?? "(none)") + ":" + phase;
+        }
+
+        internal static string BuildGhostPopupStatusPhase(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
+        {
+            if (!selection.HasRecording)
+                return "no-recording";
+            if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
+                return "materialized";
+            if (double.IsNaN(selection.EndUT) || double.IsInfinity(selection.EndUT))
+                return "unknown-end";
+
+            return currentUT < selection.EndUT
+                ? "before-end"
+                : "endpoint";
         }
 
         private void OpenSelectedGhostPopup(
@@ -813,6 +832,8 @@ namespace Parsek
             TrackingStationGhostActionState materialize =
                 FindAction(actions, TrackingStationGhostActionKind.Materialize);
 
+            // KSP dismisses DialogGUIButton after the handler returns. Clear our
+            // popup reference first so lifecycle code does not touch a stale dialog.
             var options = new DialogGUIBase[]
             {
                 new DialogGUIButton(
@@ -849,7 +870,7 @@ namespace Parsek
                 Vector2.zero,
                 new MultiOptionDialog(
                     "ParsekTrackingStationGhostMenu",
-                    BuildGhostPopupText(selection, currentUT),
+                    BuildGhostPopupText(selection, currentUT, context),
                     "Parsek Ghost",
                     HighLogic.UISkin,
                     GhostPopupWidth,
@@ -914,8 +935,37 @@ namespace Parsek
                 return;
             if (Time.frameCount - ghostPopupOpenFrame < 5)
                 return;
-            if (Input.GetMouseButtonUp(0) || Input.GetMouseButtonUp(1))
-                DismissCurrentGhostPopup("outside-click", clearSelection: true);
+            if (!Input.GetMouseButtonUp(0) && !Input.GetMouseButtonUp(1))
+                return;
+
+            RectTransform rt = currentGhostPopup.GetComponent<RectTransform>();
+            Vector3 mouse = Input.mousePosition;
+            if (IsScreenPointInsideRect(rt, new Vector2(mouse.x, mouse.y)))
+            {
+                ParsekLog.Verbose(Tag,
+                    "Tracking Station ghost popup click ignored: inside-popup");
+                return;
+            }
+
+            DismissCurrentGhostPopup("outside-click", clearSelection: true);
+        }
+
+        private static bool IsScreenPointInsideRect(
+            RectTransform rectTransform,
+            Vector2 screenPoint)
+        {
+            if ((object)rectTransform == null)
+                return false;
+
+            Canvas canvas = rectTransform.GetComponentInParent<Canvas>();
+            Camera camera = null;
+            if ((object)canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                camera = canvas.worldCamera;
+
+            return RectTransformUtility.RectangleContainsScreenPoint(
+                rectTransform,
+                screenPoint,
+                camera);
         }
 
         private static void PositionPopupAtCursor(PopupDialog popup)
@@ -969,6 +1019,31 @@ namespace Parsek
             TrackingStationGhostSelectionInfo selection,
             double currentUT)
         {
+            return BuildGhostPopupText(
+                selection,
+                currentUT,
+                default(TrackingStationGhostActionContext),
+                hasActionContext: false);
+        }
+
+        internal static string BuildGhostPopupText(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT,
+            TrackingStationGhostActionContext actionContext)
+        {
+            return BuildGhostPopupText(
+                selection,
+                currentUT,
+                actionContext,
+                hasActionContext: true);
+        }
+
+        private static string BuildGhostPopupText(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT,
+            TrackingStationGhostActionContext actionContext,
+            bool hasActionContext)
+        {
             string vesselName = string.IsNullOrEmpty(selection.VesselName)
                 ? "(ghost)"
                 : selection.VesselName;
@@ -976,13 +1051,36 @@ namespace Parsek
             string endState = selection.TerminalState.HasValue
                 ? selection.TerminalState.Value.ToString()
                 : "(unknown)";
+            string materializeLine = BuildGhostPopupMaterializeStatusLine(
+                selection,
+                currentUT,
+                actionContext,
+                hasActionContext);
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Ghost: {0}\nRecording: {1}\nEnd state: {2}",
+                "Ghost: {0}\nRecording: {1}\nEnd state: {2}{3}",
                 vesselName,
                 recordingStatus,
-                endState);
+                endState,
+                materializeLine);
+        }
+
+        private static string BuildGhostPopupMaterializeStatusLine(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT,
+            TrackingStationGhostActionContext actionContext,
+            bool hasActionContext)
+        {
+            if (!hasActionContext || !actionContext.MaterializeFastForwardEligible)
+                return string.Empty;
+
+            double remaining = selection.EndUT - currentUT;
+            if (!(remaining > 0.0))
+                return string.Empty;
+
+            return "\nMaterialize: fast-forward "
+                + ParsekTimeFormat.FormatDuration(remaining);
         }
 
         private static string BuildGhostPopupRecordingStatus(
@@ -1253,30 +1351,34 @@ namespace Parsek
                 && recording.TrackSections != null
                 && sectionIdx < recording.TrackSections.Count)
             {
-                TrackSection section = recording.TrackSections[sectionIdx];
-                if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording.TrackSections[sectionIdx],
+                        out frames,
+                        out reason,
+                        out bool blockedBySection))
                 {
-                    reason = "checkpoint-section";
+                    return true;
+                }
+
+                if (blockedBySection)
                     return false;
-                }
-
-                if (section.referenceFrame == ReferenceFrame.Relative)
+            }
+            else if (TryFindNearestTrackSectionForUT(
+                recording.TrackSections,
+                sampleUT,
+                out TrackSection nearestSection))
+            {
+                if (TrySelectTrackingStationFocusFramesFromSection(
+                        nearestSection,
+                        out frames,
+                        out reason,
+                        out bool blockedByNearestSection))
                 {
-                    if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
-                    {
-                        reason = "relative-without-absolute-shadow";
-                        return false;
-                    }
-
-                    frames = section.absoluteFrames;
                     return true;
                 }
 
-                if (section.frames != null && section.frames.Count > 0)
-                {
-                    frames = section.frames;
-                    return true;
-                }
+                if (blockedByNearestSection)
+                    return false;
             }
 
             if (recording.Points == null || recording.Points.Count == 0)
@@ -1287,6 +1389,81 @@ namespace Parsek
 
             frames = recording.Points;
             return true;
+        }
+
+        private static bool TrySelectTrackingStationFocusFramesFromSection(
+            TrackSection section,
+            out List<TrajectoryPoint> frames,
+            out string reason,
+            out bool blocked)
+        {
+            frames = null;
+            reason = null;
+            blocked = false;
+
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                reason = "checkpoint-section";
+                blocked = true;
+                return false;
+            }
+
+            if (section.referenceFrame == ReferenceFrame.Relative)
+            {
+                if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                {
+                    reason = "relative-without-absolute-shadow";
+                    blocked = true;
+                    return false;
+                }
+
+                frames = section.absoluteFrames;
+                return true;
+            }
+
+            if (section.frames != null && section.frames.Count > 0)
+            {
+                frames = section.frames;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryFindNearestTrackSectionForUT(
+            List<TrackSection> sections,
+            double sampleUT,
+            out TrackSection nearestSection)
+        {
+            nearestSection = default(TrackSection);
+            if (sections == null || sections.Count == 0)
+                return false;
+            if (double.IsNaN(sampleUT) || double.IsInfinity(sampleUT))
+                return false;
+
+            double bestDistance = double.PositiveInfinity;
+            bool hasNearest = false;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                TrackSection section = sections[i];
+
+                double distance;
+                if (sampleUT < section.startUT)
+                    distance = section.startUT - sampleUT;
+                else if (sampleUT > section.endUT)
+                    distance = sampleUT - section.endUT;
+                else
+                    distance = 0.0;
+
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    nearestSection = section;
+                    hasNearest = true;
+                }
+            }
+
+            return hasNearest;
         }
 
         private static void UpdateAtmosphericFocusTransform(
