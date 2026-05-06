@@ -954,11 +954,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecalculateAndPatch_UpdatesContractSlotsFromFacilities()
+        public void RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk()
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Mission Control to level 2
+            // Upgrade Mission Control to level 2 and accept a contract in the same walk.
+            // The final availability must use level-2 slots after a single recalc.
             Ledger.AddAction(new GameAction
             {
                 UT = 10.0,
@@ -966,27 +967,30 @@ namespace Parsek.Tests
                 FacilityId = "MissionControl",
                 ToLevel = 2
             });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20.0,
+                Type = GameActionType.ContractAccept,
+                ContractId = "contract-after-mc-upgrade",
+                ContractTitle = "After Mission Control Upgrade"
+            });
 
-            // First recalculate: processes the facility upgrade, but slot limits
-            // were set from prior state (level 1 -> 2 slots) before this walk.
             LedgerOrchestrator.RecalculateAndPatch();
 
-            // Second recalculate: now the facility state shows level 2,
-            // so slot limits update to 7 before the walk.
-            LedgerOrchestrator.RecalculateAndPatch();
-
-            Assert.Equal(7 - 0, LedgerOrchestrator.Contracts.GetAvailableSlots());
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("MissionControl"));
+            Assert.Equal(7 - 1, LedgerOrchestrator.Contracts.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("7 contract slots"));
         }
 
         [Fact]
-        public void RecalculateAndPatch_UpdatesStrategySlotsFromFacilities()
+        public void RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk()
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Administration to level 3
+            // Upgrade Administration to level 3 and activate a strategy in the same walk.
+            // The final availability must use level-3 slots after a single recalc.
             Ledger.AddAction(new GameAction
             {
                 UT = 10.0,
@@ -994,11 +998,20 @@ namespace Parsek.Tests
                 FacilityId = "Administration",
                 ToLevel = 3
             });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20.0,
+                Type = GameActionType.StrategyActivate,
+                StrategyId = "strategy-after-admin-upgrade",
+                SourceResource = StrategyResource.Funds,
+                TargetResource = StrategyResource.Reputation,
+                Commitment = 0.25f
+            });
 
             LedgerOrchestrator.RecalculateAndPatch();
-            LedgerOrchestrator.RecalculateAndPatch(); // second call picks up new level
 
-            Assert.Equal(5 - 0, LedgerOrchestrator.Strategies.GetAvailableSlots());
+            Assert.Equal(3, LedgerOrchestrator.Facilities.GetFacilityLevel("Administration"));
+            Assert.Equal(5 - 1, LedgerOrchestrator.Strategies.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("5 strategy slots"));

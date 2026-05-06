@@ -1539,13 +1539,9 @@ namespace Parsek
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
 
-            // Update contract and strategy slot limits based on facility levels
-            // from the previous recalculation walk. On the very first call, defaults
-            // (2 contracts / 1 strategy) apply — correct for unupgraded buildings.
-            // Subsequent calls use facility state derived from the prior walk,
-            // so slot limits are always one walk behind facility upgrades. This is
-            // acceptable because RecalculateAndPatch runs on every trigger (commit,
-            // rewind, warp exit, load), converging within two calls at most.
+            // Prime contract and strategy slot limits from the last known facility
+            // state. The first walk keeps the constructor defaults (2 contracts /
+            // 1 strategy), which match unupgraded buildings.
             UpdateSlotLimitsFromFacilities();
 
             // End-state population safety net: catch recordings with unpopulated end states
@@ -1565,6 +1561,12 @@ namespace Parsek
             LogRecalculationInputSummary(actions, utCutoff);
 
             RecalculationEngine.Recalculate(actions, utCutoff);
+
+            // FacilitiesModule is dispatched after contracts/strategies, so a
+            // facility upgrade's final slot limit is only known after the walk.
+            // Refresh now so callers that perform a single recalc after warp exit
+            // or a time jump expose the final Mission Control/Admin availability.
+            UpdateSlotLimitsFromFacilities();
 
             // #440 Phase E2: post-walk reconciliation for strategy-transformed
             // and curve-applied reward types. Runs once per walk, log-only,
@@ -3290,8 +3292,8 @@ namespace Parsek
 
         /// <summary>
         /// Updates ContractsModule and StrategiesModule max slot counts based on
-        /// current facility levels tracked by FacilitiesModule. Called before each
-        /// recalculation walk so slot limits reflect the most recent facility state.
+        /// current facility levels tracked by FacilitiesModule. Called around each
+        /// recalculation walk so final slot limits reflect the just-walked facility state.
         /// </summary>
         private static void UpdateSlotLimitsFromFacilities()
         {

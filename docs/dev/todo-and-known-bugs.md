@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 facility slot limits after warp recalc
+
+- ~~Facility-derived contract and strategy slot limits could stay one recalculation behind after warp exit or an instant time jump.~~ Source: review finding [P3]. `LedgerOrchestrator.RecalculateAndPatchCore` primed slot limits from the previous `FacilitiesModule` state before the walk, then a single warp-exit recalc walked the facility upgrade without refreshing the final Mission Control/Admin-derived availability.
+
+**Fix:** `RecalculateAndPatchCore` now refreshes slot limits again after the recalculation walk, when `FacilitiesModule` contains the final state for the current cutoff/full timeline.
+
+**Coverage:** `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk` and `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk`.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 plain rewind kept stale Re-Fly marker
 
 - ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.
