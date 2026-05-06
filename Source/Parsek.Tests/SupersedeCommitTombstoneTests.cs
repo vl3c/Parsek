@@ -6,17 +6,15 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13-§7.17 /
-    /// §7.41 / §10.4): guards the merge-time narrow-scope tombstone step in
+    /// Phase 9 of Rewind-to-Staging: guards the merge-time tombstone step in
     /// <see cref="SupersedeCommit.CommitSupersede"/>.
     ///
     /// <para>
-    /// Covers the v1 eligibility matrix from the subtree-walk perspective
-    /// (kerbal-death actions inside the subtree get tombstoned; contract /
-    /// milestone / facility / strategy / tech / science / funds actions do
-    /// not), parent-subtree exclusion, idempotence, null-scoped pass-through,
-    /// log counters, and the <see cref="ParsekScenario.TombstoneStateVersion"/>
-    /// bump that invalidates the ELS cache.
+    /// Covers the merge eligibility matrix from the subtree-walk perspective,
+    /// parent-subtree exclusion, idempotence, null-scoped / seed / rollout
+    /// pass-through, log counters, and the
+    /// <see cref="ParsekScenario.TombstoneStateVersion"/> bump that invalidates
+    /// the ELS cache.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -43,6 +41,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
@@ -56,6 +55,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
         }
 
         // ---------- Fixture helpers ----------------------------------------
@@ -227,6 +227,21 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction ScienceEarning(string recordingId, double ut,
+            string subjectId = "crewReport@MunSrfLandedMidlands")
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.ScienceEarning,
+                RecordingId = recordingId,
+                SubjectId = subjectId,
+                ScienceAwarded = 10f,
+                SubjectMaxValue = 10f,
+                UT = ut,
+            };
+        }
+
         // ---------- Positive path ------------------------------------------
 
         [Fact]
@@ -278,9 +293,8 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CommitTombstones_UnbundledRepPenalty_NotTombstoned()
+        public void CommitTombstones_UnbundledRepPenalty_Tombstoned()
         {
-            // §7.44: vessel-destruction rep (no paired death) stays in ELS.
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
             var provisional = AddProvisional("rec_provisional", "tree_1",
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
@@ -291,16 +305,15 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.DoesNotContain(scenario.LedgerTombstones,
+            Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == vesselRep.ActionId);
         }
 
-        // ---------- Type-ineligible scope -----------------------------------
+        // ---------- Broad career scope --------------------------------------
 
         [Fact]
-        public void CommitTombstones_SupersededSubtreeContract_NotTombstoned()
+        public void CommitTombstones_SupersededSubtreeContract_Tombstoned()
         {
-            // §7.13: ContractComplete inside the subtree stays in ELS.
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
             var provisional = AddProvisional("rec_provisional", "tree_1",
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
@@ -311,14 +324,13 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.DoesNotContain(scenario.LedgerTombstones,
+            Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == complete.ActionId);
         }
 
         [Fact]
-        public void CommitTombstones_ParentSubtreeMilestone_NotTombstoned()
+        public void CommitTombstones_ParentSubtreeMilestone_Tombstoned()
         {
-            // §7.15: milestone earned by superseded recording stays sticky.
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
             var provisional = AddProvisional("rec_provisional", "tree_1",
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
@@ -329,8 +341,67 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.DoesNotContain(scenario.LedgerTombstones,
+            Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == milestone.ActionId);
+        }
+
+        [Fact]
+        public void CommitTombstones_PreservesRolloutBuildCost()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var rollout = new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.FundsSpending,
+                RecordingId = "rec_origin",
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                FundsSpent = 1234f,
+                UT = 1.0,
+            };
+            Ledger.AddAction(rollout);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == rollout.ActionId);
+        }
+
+        [Fact]
+        public void CommitTombstones_ScienceAndContractOldBranch_DoNotBlockRetryReplay()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var oldScience = ScienceEarning("rec_origin", 100.0);
+            var retryScience = ScienceEarning("rec_provisional", 120.0);
+            var oldComplete = ContractComplete("rec_origin", 101.0, contractId: "contract_1");
+            var retryComplete = ContractComplete("rec_provisional", 121.0, contractId: "contract_1");
+            Ledger.AddAction(oldScience);
+            Ledger.AddAction(retryScience);
+            Ledger.AddAction(oldComplete);
+            Ledger.AddAction(retryComplete);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var els = EffectiveState.ComputeELS().ToList();
+            Assert.DoesNotContain(els, a => a.ActionId == oldScience.ActionId);
+            Assert.DoesNotContain(els, a => a.ActionId == oldComplete.ActionId);
+            Assert.Contains(els, a => a.ActionId == retryScience.ActionId);
+            Assert.Contains(els, a => a.ActionId == retryComplete.ActionId);
+
+            RecalculationEngine.ClearModules();
+            RecalculationEngine.RegisterModule(new ScienceModule(), RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(new ContractsModule(), RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(els);
+
+            Assert.Equal(10f, retryScience.EffectiveScience);
+            Assert.True(retryComplete.Effective);
         }
 
         // ---------- Null scope pass-through --------------------------------
@@ -398,7 +469,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            // Inside subtree: 1 death + 1 bundled rep + 1 contract + 1 milestone.
+            // Inside subtree: 1 death + 1 rep + 1 contract + 1 milestone.
             var death = KerbalDeath("rec_origin", 100.0);
             var bundled = RepPenalty("rec_origin", 100.1, ReputationPenaltySource.KerbalDeath);
             var contract = ContractComplete("rec_origin", 95.0);
@@ -413,18 +484,17 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            // §10.4 Info advisory line.
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerSwap]") &&
-                l.Contains("Tombstoned 2 (KerbalDeath=1, repBundled=1)") &&
+                l.Contains("Tombstoned 4 career actions") &&
                 l.Contains("Contract=1") &&
+                l.Contains("Reputation=1") &&
+                l.Contains("Kerbal=1") &&
                 l.Contains("Milestone=1"));
 
-            // §10.4 Narrow-v1 advisory line.
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") &&
-                l.Contains("Narrow v1 effects: tombstoned 2 actions") &&
-                l.Contains("career state"));
+                l.Contains("Supersede tombstone effects: tombstoned 4 recording-scoped career actions"));
         }
 
         [Fact]
@@ -443,6 +513,20 @@ namespace Parsek.Tests
             // show zero tombstoned.
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerSwap]") && l.Contains("Tombstoned 0"));
+        }
+
+        [Fact]
+        public void CommitTombstones_EmptySubtree_BumpsTombstoneStateVersion()
+        {
+            InstallTree("tree_1", new List<Recording>(), new List<BranchPoint>());
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: null);
+            var scenario = InstallScenario(Marker("rec_not_in_store", "rec_provisional"));
+            int before = scenario.TombstoneStateVersion;
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.NotEqual(before, scenario.TombstoneStateVersion);
         }
 
         // ---------- Cache invalidation -------------------------------------
@@ -487,7 +571,9 @@ namespace Parsek.Tests
 
             Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == death.ActionId);
             Assert.Contains(logLines, l =>
-                l.Contains("[LedgerSwap]") && l.Contains("Tombstoned 1 (KerbalDeath=1"));
+                l.Contains("[LedgerSwap]") &&
+                l.Contains("Tombstoned 1 career actions") &&
+                l.Contains("Kerbal=1"));
         }
 
         [Fact]

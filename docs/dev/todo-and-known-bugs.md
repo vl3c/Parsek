@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly tombstone career symmetry
+
+- ~~Re-Fly merge tombstones covered only `KerbalAssignment(Dead)` plus paired kerbal-death reputation penalties, so contract completions/fails, milestone awards, science earnings, facility upgrades/costs, funds/reputation rows, and non-death crew assignments from the superseded subtree could survive in ELS.~~ Review follow-up: this let old-branch science consume hard-cap headroom, old contract rows double-pay or suppress retry completions, facility spends leak through Re-Fly, and original crew remain reserved after a retry with different crew.
+
+**Fix:** merge tombstoning now covers every non-seed, recording-scoped career action in the superseded subtree. Null-scoped KSC/system rows remain pass-through, and `FundsSpending(VesselBuild)` rollout rows stay preserved because Re-Fly reuses the already-paid launch. `CommitTombstones` also bumps `TombstoneStateVersion` on every merge tombstone pass, even when the pass adds zero new tombstones, so ELS cache invalidation no longer depends on a narrow positive-count shape.
+
+**Coverage:** `TombstoneEligibilityTests.SupersedeTombstoneEligibility_CareerActionsEligible`, `SupersedeTombstoneEligibility_PreservesSeedsNullScopeAndRollout`, `SupersedeCommitTombstoneTests.CommitTombstones_ScienceAndContractOldBranch_DoNotBlockRetryReplay`, plus updated contract/milestone/reputation/rollout tombstone coverage.
+
+**Status:** CLOSED 2026-05-06.
+
+---
+
 ## Done - v0.9.2 plain rewind kept stale Re-Fly marker
 
 - ~~After a normal Rewind-to-Launch, Watch could remain unavailable because the rewind save reloaded an older `ActiveReFlySessionMarker` before the plain rewind branch returned early.~~ Source: `logs/2026-05-04_1817`; filtered investigation copy `KSP.parsek.no-ghostrendertrace.log`. The key sequence was: Watch worked for `#7 Kerbal X Probe`, normal group Rewind loaded the launch save, `LoadRewindStagingState` imported `sess_183f...`, and later FLIGHT frames still logged `RunSpawnDeathChecks: skipped during active re-fly session` plus `sessionSuppressed=2`. This was not a request to make future inactive recordings watchable before activation; the stale marker was the bug.

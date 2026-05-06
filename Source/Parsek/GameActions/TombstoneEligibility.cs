@@ -4,21 +4,16 @@ using System.Collections.Generic;
 namespace Parsek
 {
     /// <summary>
-    /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13 / §7.14 / §7.15 /
-    /// §7.16 / §7.41 / §7.44): v1 tombstone-eligibility classifier for ledger
+    /// Phase 9 of Rewind-to-Staging: tombstone-eligibility classifiers for ledger
     /// actions in the supersede subtree of a merged re-fly session.
     ///
     /// <para>
-    /// v1 narrow scope retires ONLY <see cref="GameActionType.KerbalAssignment"/>
-    /// actions whose <see cref="GameAction.KerbalEndStateField"/> is
-    /// <see cref="KerbalEndState.Dead"/>, plus <see cref="GameActionType.ReputationPenalty"/>
-    /// actions paired with one of those kerbal-death actions on the same
-    /// <see cref="GameAction.RecordingId"/> within a tight UT window. Contract
-    /// completions / failures / cancels / accepts, milestones, facility upgrades
-    /// / repairs / destruction, strategies, tech research, science spending,
-    /// funds spending, vessel-destruction rep penalties, and all other action
-    /// types stay in ELS even when their source recording is superseded
-    /// (§7.13-§7.15, §7.44).
+    /// Merge tombstoning now retires all non-seed, recording-scoped career actions
+    /// from the superseded subtree so the Effective Ledger Set models the merged
+    /// timeline rather than retaining the old branch's contract, milestone, science,
+    /// facility, reputation, and crew consequences. The older death-only helper is
+    /// still exposed for retry/autoseal classifiers that need to distinguish
+    /// non-player-attributable kerbal-death cleanup from retry-blocking player actions.
     /// </para>
     ///
     /// <para>
@@ -39,20 +34,42 @@ namespace Parsek
         internal const double BundledRepUtWindow = 1.0;
 
         /// <summary>
-        /// True iff <paramref name="action"/> is v1 tombstone-eligible on its
+        /// True iff <paramref name="action"/> is merge-tombstone-eligible when its
+        /// <see cref="GameAction.RecordingId"/> is in the superseded subtree.
+        /// Null-scoped actions and ledger seed rows are preserved. Rollout build
+        /// cost rows stay preserved because Re-Fly reuses the already-paid launch
+        /// rather than issuing a second stock rollout charge.
+        /// </summary>
+        public static bool IsSupersedeTombstoneEligible(GameAction action)
+        {
+            if (action == null) return false;
+            if (string.IsNullOrEmpty(action.RecordingId)) return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.FundsInitial:
+                case GameActionType.ScienceInitial:
+                case GameActionType.ReputationInitial:
+                    return false;
+
+                case GameActionType.FundsSpending:
+                    return action.FundsSpendingSource != FundsSpendingSource.VesselBuild;
+
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>
+        /// True iff <paramref name="action"/> is the legacy death-cleanup case on its
         /// own — i.e. a <see cref="GameActionType.KerbalAssignment"/> whose
         /// <see cref="GameAction.KerbalEndStateField"/> is
         /// <see cref="KerbalEndState.Dead"/> and whose
         /// <see cref="GameAction.RecordingId"/> is non-null (§7.16, §7.41).
         ///
-        /// <para>
-        /// Bundled <see cref="GameActionType.ReputationPenalty"/> actions are
-        /// NOT eligible via this method; they require the pairing context
-        /// supplied to <see cref="TryPairBundledRepPenalty"/>. Callers asking
-        /// "is this action eligible?" for a rep penalty must route through
-        /// <see cref="TryPairBundledRepPenalty"/> with the same-recording slice
-        /// of the ledger.
-        /// </para>
+        /// Bundled <see cref="GameActionType.ReputationPenalty"/> actions are NOT
+        /// eligible via this helper; retry/autoseal callers that still need the old
+        /// death-bundle carve-out must route through <see cref="TryPairBundledRepPenalty"/>.
         /// </summary>
         public static bool IsEligible(GameAction action)
         {
