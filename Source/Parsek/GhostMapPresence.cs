@@ -2647,13 +2647,29 @@ namespace Parsek
                 && PlanetariumCamera.fetch != null
                 && spawned.mapObject != null)
             {
-                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
-                ParsekLog.Info(Tag,
+                if (TrySetReadyMapObjectTarget(
+                        () => spawned.mapObject.GetName(),
+                        () => PlanetariumCamera.fetch.SetTarget(spawned.mapObject),
+                        out string mapObjectName,
+                        out string mapObjectError))
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} mapObject='{2}' reason={3}",
+                            handoffState.GhostPid,
+                            spawnedPid,
+                            mapObjectName ?? "(null)",
+                            reason));
+                    return;
+                }
+
+                ParsekLog.Warn(Tag,
                     string.Format(ic,
-                        "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} reason={2}",
+                        "Tracking-station handoff could not restore map focus for ghostPid={0} spawnedPid={1} reason={2}: {3}",
                         handoffState.GhostPid,
                         spawnedPid,
-                        reason));
+                        reason,
+                        mapObjectError ?? "map object probe failed"));
                 return;
             }
 
@@ -2666,6 +2682,65 @@ namespace Parsek
                     MapView.MapIsEnabled,
                     PlanetariumCamera.fetch != null,
                     spawned.mapObject != null));
+        }
+
+        internal static bool TrySetReadyMapObjectTarget(
+            Func<string> getName,
+            Action setTarget,
+            out string name,
+            out string error)
+        {
+            if (!TryProbeMapObjectName(getName, out name, out error))
+                return false;
+
+            if (setTarget == null)
+            {
+                error = "setTarget-null";
+                return false;
+            }
+
+            try
+            {
+                setTarget();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "SetTarget threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
+        }
+
+        internal static bool TryProbeMapObjectName(
+            Func<string> getName,
+            out string name,
+            out string error)
+        {
+            name = null;
+            error = null;
+
+            if (getName == null)
+            {
+                error = "getName-null";
+                return false;
+            }
+
+            try
+            {
+                name = getName();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "GetName threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
         }
 
         internal static bool TrySelectTrackingStationVessel(
@@ -2685,7 +2760,11 @@ namespace Parsek
                     vesselSelection.GetType());
                 if (setVesselMethod != null)
                 {
-                    setVesselMethod.Invoke(trackingInstance, new[] { vesselSelection });
+                    object[] args = BuildTrackingStationSetVesselArguments(
+                        setVesselMethod,
+                        vesselSelection,
+                        keepFocus: false);
+                    setVesselMethod.Invoke(trackingInstance, args);
                     return true;
                 }
 
@@ -2706,6 +2785,144 @@ namespace Parsek
                 error = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
+        }
+
+        internal static object[] BuildTrackingStationSetVesselArguments(
+            MethodInfo setVesselMethod,
+            object vesselSelection,
+            bool keepFocus)
+        {
+            if (setVesselMethod == null)
+                return null;
+
+            ParameterInfo[] parameters = setVesselMethod.GetParameters();
+            if (parameters.Length == 2
+                && parameters[1].ParameterType == typeof(bool))
+            {
+                return new[] { vesselSelection, (object)keepFocus };
+            }
+
+            return new[] { vesselSelection };
+        }
+
+        internal static bool TryRefreshLiveTrackingStationVesselList(string reason)
+        {
+            if (!IsTrackingStationSceneForVesselListRefresh())
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refresh skipped: reason={0} scene={1}",
+                        string.IsNullOrEmpty(reason) ? "(none)" : reason,
+                        GetCurrentSceneName()));
+                return false;
+            }
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            return TryInvokeTrackingStationVesselListRefresh(
+                tracking,
+                reason,
+                out _);
+        }
+
+        private static bool IsTrackingStationSceneForVesselListRefresh()
+        {
+            try
+            {
+                return HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static bool TryInvokeTrackingStationVesselListRefresh(
+            object trackingInstance,
+            string reason,
+            out string error)
+        {
+            error = null;
+            string safeReason = string.IsNullOrEmpty(reason) ? "(none)" : reason;
+
+            if (trackingInstance == null)
+            {
+                error = "SpaceTracking instance not found";
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                        safeReason,
+                        error));
+                return false;
+            }
+
+            try
+            {
+                MethodInfo buildMethod = FindTrackingStationNoArgMethod(
+                    trackingInstance.GetType(),
+                    "buildVesselsList");
+                if (buildMethod == null)
+                {
+                    error = "buildVesselsList method not found";
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                            safeReason,
+                            error));
+                    return false;
+                }
+
+                buildMethod.Invoke(trackingInstance, null);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refreshed: reason={0}",
+                        safeReason));
+                return true;
+            }
+            catch (TargetInvocationException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                error = string.Format(ic,
+                    "buildVesselsList threw {0}: {1}",
+                    inner.GetType().Name,
+                    inner.Message);
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "buildVesselsList reflection failed {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(ic,
+                    "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                    safeReason,
+                    error ?? "(none)"));
+            return false;
+        }
+
+        private static MethodInfo FindTrackingStationNoArgMethod(
+            Type trackingType,
+            string methodName)
+        {
+            if (trackingType == null || string.IsNullOrEmpty(methodName))
+                return null;
+
+            MethodInfo[] methods = trackingType.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.Name != methodName)
+                    continue;
+
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length == 0)
+                    return method;
+            }
+
+            return null;
         }
 
         internal static bool IsTrackingStationRecordingAlreadyMaterialized(Recording rec)
@@ -2738,6 +2955,7 @@ namespace Parsek
 
             MethodInfo[] methods = trackingType.GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            MethodInfo oneArgumentFallback = null;
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
@@ -2745,14 +2963,31 @@ namespace Parsek
                     continue;
 
                 ParameterInfo[] parameters = method.GetParameters();
-                if (parameters.Length != 1)
+                if (!IsTrackingStationSetVesselSignature(parameters, selectionType))
                     continue;
 
-                if (parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                if (parameters.Length == 2)
                     return method;
+                if (oneArgumentFallback == null)
+                    oneArgumentFallback = method;
             }
 
-            return null;
+            return oneArgumentFallback;
+        }
+
+        private static bool IsTrackingStationSetVesselSignature(
+            ParameterInfo[] parameters,
+            Type selectionType)
+        {
+            if (parameters == null || selectionType == null)
+                return false;
+            if (parameters.Length != 1 && parameters.Length != 2)
+                return false;
+            if (!parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                return false;
+
+            return parameters.Length == 1
+                || parameters[1].ParameterType == typeof(bool);
         }
 
         private static void RestoreTrackingStationSelectedVessel(
@@ -4339,11 +4574,13 @@ namespace Parsek
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
         /// </summary>
-        internal static void UpdateTrackingStationGhostLifecycle()
+        internal static void UpdateTrackingStationGhostLifecycle(bool refreshStockList = true)
         {
             double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
+            int createdBefore = lifecycleCreatedThisTick;
+            int destroyedBefore = lifecycleDestroyedThisTick;
 
             // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
             if (hasCommittedRecordings)
@@ -4380,6 +4617,12 @@ namespace Parsek
 
             if (!hasCommittedRecordings)
             {
+                RefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    refreshStockList,
+                    "tracking-station-lifecycle-empty");
+                EmitLifecycleSummary("tracking-station", currentUT);
                 return;
             }
 
@@ -4448,7 +4691,51 @@ namespace Parsek
                 lifecycleCreated,
                 alreadyTracked);
 
+            RefreshTrackingStationVesselListAfterLifecycleMutation(
+                createdBefore,
+                destroyedBefore,
+                refreshStockList,
+                "tracking-station-lifecycle");
             EmitLifecycleSummary("tracking-station", currentUT);
+        }
+
+        private static void RefreshTrackingStationVesselListAfterLifecycleMutation(
+            int createdBefore,
+            int destroyedBefore,
+            bool refreshStockList,
+            string reason)
+        {
+            if (!refreshStockList)
+                return;
+
+            if (!ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    lifecycleCreatedThisTick,
+                    lifecycleDestroyedThisTick))
+            {
+                return;
+            }
+
+            int created = lifecycleCreatedThisTick - createdBefore;
+            int destroyed = lifecycleDestroyedThisTick - destroyedBefore;
+
+            TryRefreshLiveTrackingStationVesselList(
+                string.Format(ic,
+                    "{0} created={1} destroyed={2}",
+                    string.IsNullOrEmpty(reason) ? "tracking-station-lifecycle" : reason,
+                    created,
+                    destroyed));
+        }
+
+        internal static bool ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+            int createdBefore,
+            int destroyedBefore,
+            int createdAfter,
+            int destroyedAfter)
+        {
+            return createdAfter - createdBefore > 0
+                || destroyedAfter - destroyedBefore > 0;
         }
 
         private static void RefreshTrackingStationGhosts(
