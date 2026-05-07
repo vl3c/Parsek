@@ -34,7 +34,9 @@ So the strategy is: **add tripwires (regression harness, scoped to what we can t
 2. **Debris fallback when parent unresolvable / > 2500m:** parent's last known *Absolute* pose + debris's recorded offset. (See Step 2 §"Defining 'parent's last known pose'" for the precise semantics — there is a CLAUDE.md gotcha here.)
 3. **Cascade cap:** stays at `MaxRecordingGeneration = 1`. Secondary debris remains untracked.
 4. **Step 4 cleanups:** defer to a separate PR after the debris fix lands.
-5. **Loop-debris (post-review default, override-able):** if the parent recording has `LoopAnchorVesselId != 0`, debris uses Absolute throughout (no parent-anchor contract). This preserves current behavior since today the resolver rejects loop recordings as anchors anyway. The alternative (relax the resolver's loop rejection for debris-of-loop) is a Re-Fly-adjacent change and explicitly out of scope. **Flagged for sign-off before Step 3 lands.**
+5. **Recording-time distance source for `ShouldUseRelativeFrame`:** Option C — when `recording.AnchorRecordingId != null`, always record Relative, skip the 2300/2500m hysteresis at recording time. Playback fallback handles parent-far / parent-gone cases. Simplest, fewest moving parts.
+6. **Primary bug surface:** focused-vessel debris (booster decouples during ascent / staging). Background-vessel debris is secondary. This means `ParsekFlight.CreateBreakupChildRecording` is the **highest-priority** of the three creation sites — Step 3b prioritizes it.
+7. **Loop-debris and control-transfer:** no special cases. Contract is simply `child.AnchorRecordingId = parent.RecordingId` for any debris child. Loop recordings aren't realistic parents (they're authored via Gloops, not produced by flights with decouple events); if it ever happens, the resolver's existing loop-anchor rejection plus the new debris fallback combine to produce Absolute playback for free. Debris vessels by definition have no controller and can't be focused-and-flown.
 
 ---
 
@@ -102,16 +104,20 @@ Realistic: 1-2 weeks for the initial harness including the `IPlaybackBody` mock 
 
 ## Step 2 — Debris contract definition (one page, before any code)
 
+### Background on the rendering link
+
+Today's playback already renders a vessel ghost together with its debris children — they appear visually linked. What's wrong is the *spatial data*: the debris's anchor at sample time was "nearest eligible vessel," which is usually but not always the parent. So the visually-linked rendering shows debris in the wrong place when the recorded anchor wasn't the parent. The contract below makes the recorded data match what the visual link already implies.
+
 ### Proposed contract
 
-> **Debris is anchored to its parent recording for its entire lifetime, except when the parent is a loop recording.**
+> **Debris is anchored to its parent recording for its entire lifetime.**
 >
 > When a split produces a child recording marked `IsDebris = true`:
 >
-> 1. The child's `Recording.AnchorRecordingId` (a new top-level field) is set to the parent's `RecordingId` at registration time, **unless** the parent has `LoopAnchorVesselId != 0`, in which case `AnchorRecordingId` stays null and debris records Absolute throughout (preserves current behavior).
+> 1. The child's `Recording.AnchorRecordingId` (a new top-level field) is set to the parent's `RecordingId` at registration time. No special cases.
 > 2. When `AnchorRecordingId != null`, every Relative `TrackSection` written into the child uses that anchor — the per-frame nearest-anchor search is **skipped** for those recordings.
-> 3. When `AnchorRecordingId` is set, the recorder's frame decision (`AnchorDetector.ShouldUseRelativeFrame`) measures distance to the parent's pose at sample time, not to "nearest live vessel."
-> 4. At playback, if the anchor recording resolves but the resulting parent pose is unresolvable at the requested UT (parent destroyed, parent superseded and Re-Fly walk-back returns nothing) **OR** is more than `2500 m` from the debris's recorded relative offset, the section falls back to **Absolute** by reading the parent's last-known Absolute pose + the debris's offset (see definition below).
+> 3. **Recording-time:** Option C (per Decision §5). Always record Relative. The 2300/2500m hysteresis is bypassed at recording time — the playback fallback handles parent-far / parent-gone cases.
+> 4. At playback, if the anchor recording resolves but the resulting parent pose is unresolvable at the requested UT (parent destroyed, parent superseded and Re-Fly walk-back returns nothing, parent rejected as loop anchor) **OR** is more than `2500 m` from the debris's recorded relative offset, the section falls back to **Absolute** by reading the parent's last-known Absolute pose + the debris's offset (see definition below).
 > 5. The fallback in (4) is **only** reachable when `recording.IsDebris == true && recording.AnchorRecordingId != null && resolver returned no pose`. Non-debris recordings can NEVER enter this fallback.
 > 6. The cascade cap (`MaxRecordingGeneration = 1`) stays — secondary debris (debris of debris) is still not recorded.
 
@@ -123,8 +129,7 @@ Realistic: 1-2 weeks for the initial harness including the `IPlaybackBody` mock 
 | Parent re-flied (supersede chain) | Re-Fly resolver chases anchor through chain, but also through any other anchor the debris picked up during sample time → unpredictable | Anchor is always parent; resolver only chases parent supersedes |
 | Debris of debris | Silently dropped (cascade cap) | Still silently dropped — same behavior, but now explicitly contracted |
 | Parent destroyed mid-debris-life | Debris ghost may continue rendering with stale anchor pose | Defined fallback: Absolute from parent's last known pose |
-| **Parent is loop recording** | Resolver rejects loop as anchor → debris falls back to nearest-non-loop or Absolute | Debris uses Absolute throughout (preserves current behavior; no plumbing change) |
-| **Debris becomes focused vessel mid-life** (player takes control) | Recording continues with `IsDebris = true` data flag; no anchor change | Open question for Step 3 — see "Open questions" at end. Default: anchor stays pinned to original parent. |
+| **Parent ghost is in loop replay** (rare — loop ghosts are usually authored via Gloops, not produced by flights with decouple events) | Resolver rejects loop recording as anchor → debris falls back via the new Absolute fallback path | Same: fallback fires uniformly; debris renders at parent's last known Absolute pose + offset. No special case needed in the contract; the resolver's loop-anchor rejection plus the new fallback compose correctly. |
 | **Cross-tree anchor** | Today's `IsRecordingAnchorDAGOrderEligible` allows cross-tree | Debris is always same-tree (parent is by construction). Contract is no-op for this case but harness scenario should verify |
 
 ### Defining "parent's last known pose" precisely
@@ -152,7 +157,7 @@ The original plan named one. There are three:
 ### What *changes* at recording time
 
 - New field: `Recording.AnchorRecordingId` (string, default null), persisted in ConfigNode.
-- All three creation sites set it for `IsDebris` children (subject to the loop-parent exception in contract item 1).
+- All three creation sites set it for `IsDebris` children. No exceptions.
 - BackgroundRecorder per-frame sampling: when `recording.AnchorRecordingId != null`, write that as `section.anchorRecordingId` and skip the nearest-anchor search.
 - `AnchorDetector.ShouldUseRelativeFrame` distance source: when `recording.AnchorRecordingId != null`, distance is to parent recording's pose at sample time. Requires the recorder to invoke the resolver — **acknowledged inversion of dependency** that adds non-trivial implementation risk (see Step 3b notes).
 
@@ -189,35 +194,27 @@ The new top-level `Recording.AnchorRecordingId` is written by `RecordingTreeReco
 
 ### 3b. Recorder (PR 3b) — three sites, one helper
 
-Pre-cursor consideration: the three child-recording creation sites have similar but not identical setup. Worth introducing a small helper:
+The three child-recording creation sites have similar but not identical setup. Introduce a small helper:
 
 ```
 internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
 {
     if (!child.IsDebris) return;
-    if (parent.LoopAnchorVesselId != 0u) return; // loop-parent exception
     child.AnchorRecordingId = parent.RecordingId;
 }
 ```
 
-Call this helper from all three sites:
-- `BackgroundRecorder.RegisterChildRecordingsFromSplit` (post-`BuildBackgroundSplitBranchData`).
-- `BackgroundRecorder.BuildBackgroundSplitBranchData` (after setting `IsDebris`).
-- `ParsekFlight.CreateBreakupChildRecording` (after the call returns the new Recording).
+Call this helper from all three sites, **prioritizing the focused-vessel path first** (per Decision §6, this is where the observed bugs are):
+
+1. `ParsekFlight.CreateBreakupChildRecording` (`ParsekFlight.cs:5103`) — focused-vessel debris via crash coalescer. **Highest priority — the dominant bug surface.**
+2. `BackgroundRecorder.RegisterChildRecordingsFromSplit` (`BackgroundRecorder.cs:1059`) — BG-vessel split registration.
+3. `BackgroundRecorder.BuildBackgroundSplitBranchData` (`BackgroundRecorder.cs:1143`) — pure-static factory called from path 2.
 
 The pure-static `BuildBackgroundSplitBranchData` may need a parent-recording parameter (it currently takes `parentRecordingId : string`) — small refactor, unit-testable.
 
-Per-frame anchor write (in `BackgroundRecorder` sampling loop): when `recording.AnchorRecordingId != null`, set `section.anchorRecordingId = recording.AnchorRecordingId` and skip the candidate-list / nearest-search.
+**Per-frame anchor write** (in `BackgroundRecorder` sampling loop): when `recording.AnchorRecordingId != null`, set `section.anchorRecordingId = recording.AnchorRecordingId` and skip the candidate-list / nearest-search.
 
-**Recording-time parent-pose resolution** (the inversion of dependency the review flagged): `AnchorDetector.ShouldUseRelativeFrame` needs distance to parent. Implementation options:
-
-- **Option A:** Recorder calls into `RelativeAnchorResolver.TryResolveRecordingPose` for the parent at the current sample UT. Performance concern: per-active-debris-frame resolver call. Probably fine since debris is N≤10 typically.
-- **Option B:** Cache the parent's last sample pose on the parent's recorder and read it via a thin getter. Faster but tighter coupling.
-- **Option C:** Always record Relative when `AnchorRecordingId != null`, skip the distance check. Simplest. Loses the 2300/2500m hysteresis as a recording-time optimization but keeps the contract; the playback-side fallback handles the >2500m case.
-
-**My recommendation: Option C.** The hysteresis was originally about choosing the right frame for an unconstrained recording. With a fixed parent-anchor contract, the recorder's job is just "always Relative to parent unless parent is unresolvable." Simpler, fewer moving parts, and the playback fallback handles the edge case the hysteresis was originally for.
-
-This option needs sign-off — **flagged in "Open questions" below.**
+**Recording-time frame decision (Option C, per Decision §5):** when `recording.AnchorRecordingId != null`, the recorder always writes Relative sections — no distance computation, no hysteresis at recording time. The playback fallback handles parent-far / parent-gone uniformly. No resolver call from the recorder, no recursion concerns.
 
 ### 3c. Resolver fallback (PR 3c)
 
@@ -284,7 +281,7 @@ The audit also called the playback dispatch "single" — it isn't; it's disperse
 | Step 3 misses a debris registration site | **Was high in v1; medium now** | Three sites enumerated. Helper function reduces drift. Harness scenarios 4 + 5 + 7 cover all three paths. |
 | Step 3c fallback fires on non-debris recordings → breaks Re-Fly | **High if guard is wrong** | Triple-conjunction guard (`IsDebris && AnchorRecordingId != null && resolution-failed`). Unit tests exercise non-debris chains and assert fallback never invoked. |
 | "Parent's last known pose" reads a Relative point as Absolute | **High if not specified** | Binding definition in Step 2: walk back to last Absolute point only. Refuse to fallback if no Absolute point exists. Do NOT reinterpret Relative lat/lon as body-fixed. |
-| Loop-parent debris becomes unrenderable | **Was high in v1; eliminated** | Contract item 1 explicitly excludes loop parents. Default behavior (Absolute throughout) preserved. |
+| Loop-parent debris becomes unrenderable | Low (rare in practice; loop ghosts are Gloops-authored without decouple events) | If it occurs, resolver's existing loop-anchor rejection (`RelativeAnchorResolver.cs:154`) drops through to the new debris fallback, which renders Absolute. No special-case code in the recorder. |
 | Format-version bump corrupts legacy saves | Low | ConfigNode codec only. Standard load-time default-on-legacy. |
 | Recording-time parent-pose resolution introduces recursion / performance issues | Medium | Option C in Step 3b (always Relative when contract applies, skip hysteresis at recording time) sidesteps the problem entirely. Sign-off needed. |
 | Harness mock infrastructure is harder than estimated | Medium | Initial PR 1 includes `IPlaybackBody` mock setup. If it bogs down, fall back to "test resolver math against pre-computed expected outputs" without the body abstraction. |
@@ -304,13 +301,9 @@ Each PR independently shippable; bisect-friendly. PR 3c can be reverted alone wi
 
 ---
 
-## Open questions — sign-off needed before Step 3 lands
+## Open questions
 
-1. **Loop-debris behavior.** Default proposed: debris of a loop parent uses Absolute throughout, no parent-anchor contract (preserves current behavior). Alternative: relax `RelativeAnchorResolver`'s loop rejection for debris-of-loop. Default is safer but means loop-vessel debris won't get the contract benefit. Pick one before PR 3b.
-
-2. **Recording-time distance source for `ShouldUseRelativeFrame` (Step 3b).** Default proposed: Option C — always Relative when `AnchorRecordingId != null`, skip the hysteresis at recording time and let the playback fallback handle parent-far / parent-gone cases. Alternative: Option A (recorder calls resolver per-frame) or B (cache last parent pose). Pick before PR 3b.
-
-3. **Debris-becomes-focused-vessel.** Player takes control of a separated probe core via tracking station. Recording's `IsDebris` data-flag stays true, `AnchorRecordingId` stays pinned to original parent. Is that the right behavior, or should taking control clear the contract? Default: keep pinned (the recording's history is what it is; control state is orthogonal). Pick before PR 3b.
+None remaining. All decisions confirmed by user 2026-05-07. Plan is implementation-ready pending one final sanity pass.
 
 ---
 
@@ -327,7 +320,7 @@ Each PR independently shippable; bisect-friendly. PR 3c can be reverted alone wi
 ## Review history
 
 - **2026-05-07, v1 (commit `d3bb84a`):** Initial plan. Single-PR Step 3, single-recorder-site change, harness scoped to "world positions over UT span."
-- **2026-05-07, v2 (this revision):** Post-Opus-review amendments:
+- **2026-05-07, v2 (commit `e860601`):** Post-Opus-review amendments:
   - Acknowledged audit's "single playback dispatch" was an oversimplification — dispatch is dispersed across `IGhostPositioner` methods.
   - Added the missed third creation site (`ParsekFlight.CreateBreakupChildRecording`, line 5103) — the dominant focused-vessel-debris case.
   - Added the loop-debris exception (parent has `LoopAnchorVesselId != 0` → no contract).
@@ -337,3 +330,10 @@ Each PR independently shippable; bisect-friendly. PR 3c can be reverted alone wi
   - Split PR 3 into 3a (schema) / 3b (recorder) / 3c (resolver) for safer revert.
   - Clarified that the binary codec does NOT need a version bump (top-level field is ConfigNode-only).
   - Added scenarios 9 (loop) and 10 (same-chain continuation) to the harness.
+- **2026-05-07, v3 (this revision):** Post-discussion-with-user simplifications. User clarified: (a) loop ghosts are authored via Gloops and don't realistically have decouple-event-derived debris children; (b) debris vessels by definition have no controller and can't be focused-and-flown; (c) playback already renders parent ghost together with debris children visually linked — what's broken is the spatial data, not the linkage.
+  - Removed loop-parent exception from contract item 1 — no special case needed; resolver's existing loop-anchor rejection composes correctly with the new fallback.
+  - Removed "debris becomes focused vessel" edge case — doesn't happen.
+  - Confirmed Option C for recording-time frame decision (Decision §5).
+  - Marked focused-vessel debris as the highest-priority creation site in Step 3b (Decision §6).
+  - Added the rendering-link background to Step 2 — clarifies *why* the contract makes sense (visual link already exists; we're fixing the spatial data to match).
+  - Cleared the Open Questions section.
