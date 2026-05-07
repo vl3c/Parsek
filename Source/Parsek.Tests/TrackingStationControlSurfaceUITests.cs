@@ -95,7 +95,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildGhostPopupText_BeforeEndpoint_ShowsTimeToEndpoint()
+        public void BuildGhostPopupText_BeforeEndpoint_ShowsStableEndpointStatus()
         {
             var selection = new TrackingStationGhostSelectionInfo(
                 0u,
@@ -111,12 +111,12 @@ namespace Parsek.Tests
 
             string text = ParsekTrackingStation.BuildGhostPopupText(selection, currentUT: 20.0);
 
-            Assert.Contains("Recording: T-5.5s to endpoint", text);
+            Assert.Contains("Recording: before endpoint", text);
             Assert.Contains("End state: Destroyed", text);
         }
 
         [Fact]
-        public void BuildGhostPopupText_FastForwardMaterialize_ShowsWarpDuration()
+        public void BuildMaterializeButtonLabel_FastForwardMaterialize_ShowsLiveWarpDuration()
         {
             var selection = new TrackingStationGhostSelectionInfo(
                 0u,
@@ -140,13 +140,13 @@ namespace Parsek.Tests
                 alreadyMaterialized: false,
                 materializeFastForwardEligible: true);
 
-            string text = ParsekTrackingStation.BuildGhostPopupText(
+            string label = ParsekTrackingStation.BuildMaterializeButtonLabel(
+                "Materialize",
                 selection,
-                currentUT: 20.0,
-                context);
+                context,
+                currentUT: 20.0);
 
-            Assert.Contains("Recording: T-65.5s to endpoint", text);
-            Assert.Contains("Materialize: fast-forward 1m 5s", text);
+            Assert.Equal("Materialize (1m 5s)", label);
         }
 
         [Fact]
@@ -423,6 +423,24 @@ namespace Parsek.Tests
                 ParsekTrackingStation.ShouldProcessAtmosphericMarkerEvent(
                     eventType,
                     pointerOverParsekWindow));
+        }
+
+        [Theory]
+        [InlineData(EventType.MouseDown, true, true)]
+        [InlineData(EventType.MouseUp, true, true)]
+        [InlineData(EventType.Repaint, true, false)]
+        [InlineData(EventType.MouseDown, false, false)]
+        [InlineData(EventType.Layout, true, false)]
+        public void ShouldBlockAtmosphericMarkerClickForGhostPopup_OnlyBlocksClickEvents(
+            EventType eventType,
+            bool pointerOverGhostPopup,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                ParsekTrackingStation.ShouldBlockAtmosphericMarkerClickForGhostPopup(
+                    eventType,
+                    pointerOverGhostPopup));
         }
 
         [Fact]

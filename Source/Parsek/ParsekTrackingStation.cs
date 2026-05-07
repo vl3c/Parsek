@@ -301,6 +301,20 @@ namespace Parsek
             {
                 EventTypeName = etype.ToString()
             };
+            bool pointerOverGhostPopup =
+                IsAtmosphericMarkerClickEvent(etype)
+                && IsMouseOverCurrentGhostPopup();
+            if (ShouldBlockAtmosphericMarkerClickForGhostPopup(
+                    etype,
+                    pointerOverGhostPopup))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "atmos-marker-popup-click-blocked",
+                    "Atmospheric marker click ignored: pointer over ghost popup event=" + etype,
+                    1.0);
+                return;
+            }
+
             if (!ShouldProcessAtmosphericMarkerEvent(
                     etype,
                     IsPointerOverParsekWindow(currentEvent.mousePosition)))
@@ -407,6 +421,20 @@ namespace Parsek
                 return false;
 
             return true;
+        }
+
+        internal static bool IsAtmosphericMarkerClickEvent(EventType eventType)
+        {
+            return eventType == EventType.MouseDown
+                || eventType == EventType.MouseUp;
+        }
+
+        internal static bool ShouldBlockAtmosphericMarkerClickForGhostPopup(
+            EventType eventType,
+            bool pointerOverGhostPopup)
+        {
+            return pointerOverGhostPopup
+                && IsAtmosphericMarkerClickEvent(eventType);
         }
 
         private void DrawControlSurface()
@@ -851,7 +879,11 @@ namespace Parsek
                     true,
                     (DialogGUIBase[])null),
                 new DialogGUIButton(
-                    () => materialize.Label,
+                    () => BuildMaterializeButtonLabel(
+                        materialize.Label,
+                        selection,
+                        context,
+                        Planetarium.GetUniversalTime()),
                     () =>
                     {
                         currentGhostPopup = null;
@@ -870,7 +902,7 @@ namespace Parsek
                 Vector2.zero,
                 new MultiOptionDialog(
                     "ParsekTrackingStationGhostMenu",
-                    BuildGhostPopupText(selection, currentUT, context),
+                    BuildGhostPopupText(selection, currentUT),
                     "Parsek Ghost",
                     HighLogic.UISkin,
                     GhostPopupWidth,
@@ -938,9 +970,7 @@ namespace Parsek
             if (!Input.GetMouseButtonUp(0) && !Input.GetMouseButtonUp(1))
                 return;
 
-            RectTransform rt = currentGhostPopup.GetComponent<RectTransform>();
-            Vector3 mouse = Input.mousePosition;
-            if (IsScreenPointInsideRect(rt, new Vector2(mouse.x, mouse.y)))
+            if (IsMouseOverCurrentGhostPopup())
             {
                 ParsekLog.Verbose(Tag,
                     "Tracking Station ghost popup click ignored: inside-popup");
@@ -948,6 +978,16 @@ namespace Parsek
             }
 
             DismissCurrentGhostPopup("outside-click", clearSelection: true);
+        }
+
+        private bool IsMouseOverCurrentGhostPopup()
+        {
+            if (currentGhostPopup == null)
+                return false;
+
+            RectTransform rt = currentGhostPopup.GetComponent<RectTransform>();
+            Vector3 mouse = Input.mousePosition;
+            return IsScreenPointInsideRect(rt, new Vector2(mouse.x, mouse.y));
         }
 
         private static bool IsScreenPointInsideRect(
@@ -1019,31 +1059,6 @@ namespace Parsek
             TrackingStationGhostSelectionInfo selection,
             double currentUT)
         {
-            return BuildGhostPopupText(
-                selection,
-                currentUT,
-                default(TrackingStationGhostActionContext),
-                hasActionContext: false);
-        }
-
-        internal static string BuildGhostPopupText(
-            TrackingStationGhostSelectionInfo selection,
-            double currentUT,
-            TrackingStationGhostActionContext actionContext)
-        {
-            return BuildGhostPopupText(
-                selection,
-                currentUT,
-                actionContext,
-                hasActionContext: true);
-        }
-
-        private static string BuildGhostPopupText(
-            TrackingStationGhostSelectionInfo selection,
-            double currentUT,
-            TrackingStationGhostActionContext actionContext,
-            bool hasActionContext)
-        {
             string vesselName = string.IsNullOrEmpty(selection.VesselName)
                 ? "(ghost)"
                 : selection.VesselName;
@@ -1051,36 +1066,33 @@ namespace Parsek
             string endState = selection.TerminalState.HasValue
                 ? selection.TerminalState.Value.ToString()
                 : "(unknown)";
-            string materializeLine = BuildGhostPopupMaterializeStatusLine(
-                selection,
-                currentUT,
-                actionContext,
-                hasActionContext);
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Ghost: {0}\nRecording: {1}\nEnd state: {2}{3}",
+                "Ghost: {0}\nRecording: {1}\nEnd state: {2}",
                 vesselName,
                 recordingStatus,
-                endState,
-                materializeLine);
+                endState);
         }
 
-        private static string BuildGhostPopupMaterializeStatusLine(
+        internal static string BuildMaterializeButtonLabel(
+            string baseLabel,
             TrackingStationGhostSelectionInfo selection,
-            double currentUT,
             TrackingStationGhostActionContext actionContext,
-            bool hasActionContext)
+            double currentUT)
         {
-            if (!hasActionContext || !actionContext.MaterializeFastForwardEligible)
-                return string.Empty;
+            if (!actionContext.MaterializeFastForwardEligible)
+                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
 
             double remaining = selection.EndUT - currentUT;
             if (!(remaining > 0.0))
-                return string.Empty;
+                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
 
-            return "\nMaterialize: fast-forward "
-                + ParsekTimeFormat.FormatDuration(remaining);
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} ({1})",
+                string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel,
+                ParsekTimeFormat.FormatDuration(remaining));
         }
 
         private static string BuildGhostPopupRecordingStatus(
@@ -1096,10 +1108,7 @@ namespace Parsek
 
             double remaining = selection.EndUT - currentUT;
             return remaining > 0.0
-                ? string.Format(
-                    CultureInfo.InvariantCulture,
-                    "T-{0:F1}s to endpoint",
-                    remaining)
+                ? "before endpoint"
                 : "endpoint reached";
         }
 
