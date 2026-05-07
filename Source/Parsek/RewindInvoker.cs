@@ -952,6 +952,12 @@ namespace Parsek
                     provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
                     provisional.VesselName = inheritFrom.VesselName;
                     provisional.IsDebris = inheritFrom.IsDebris;
+                    // PR 3b: critical Re-Fly safety hook — propagate the v12+ debris
+                    // parent-anchor contract so a re-fly of a flight with debris children
+                    // doesn't silently lose the contract on the provisional. Without this,
+                    // the resolver's chain-walk would not have a parent recording id to
+                    // chase through supersede successors.
+                    provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
                     provisional.Generation = inheritFrom.Generation;
                     provisional.SegmentPhase = inheritFrom.SegmentPhase;
                     provisional.SegmentBodyName = inheritFrom.SegmentBodyName;

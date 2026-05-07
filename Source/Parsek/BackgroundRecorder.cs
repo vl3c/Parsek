@@ -671,6 +671,11 @@ namespace Parsek
                     ParentBranchPointId = bp.Id,
                     ExplicitStartUT = branchUT,
                     IsDebris = parentRec.IsDebris,
+                    // Forward-compat propagation (plan Decision §10): MaxRecordingGeneration=1
+                    // means parent continuations of *debris* recordings are never created
+                    // today, but if Step 4a raises the cap, the contract must already be in
+                    // place — see plan §"`IsDebris` propagation surface" site #8.
+                    DebrisParentRecordingId = parentRec.DebrisParentRecordingId,
                     Generation = parentRec.Generation
                 };
                 bp.ChildRecordingIds.Insert(0, parentContRecId);
@@ -709,7 +714,7 @@ namespace Parsek
             }
 
             // Add each child recording to tree and BackgroundMap
-            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT, parentEngineState);
+            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT, parentRecordingId, parentEngineState);
 
             ParsekLog.Info("BgRecorder",
                 $"Background split branch complete: bp={bp.Id} type={branchType} " +
@@ -1055,11 +1060,19 @@ namespace Parsek
         /// <summary>
         /// Registers child recordings from a vessel split: captures snapshots, adds to tree
         /// and BackgroundMap, initializes tracking state, and sets TTL for debris children.
+        ///
+        /// Per plan §3b §"Primary creation sites — invocation and ordering" (PR 3b),
+        /// `IsDebris` and the v12+ <see cref="Recording.DebrisParentRecordingId"/> contract
+        /// are set on the Recording BEFORE <see cref="RecordingTree.AddOrReplaceRecording"/>
+        /// and BEFORE <see cref="OnVesselBackgrounded"/>. The seed-point orchestration in
+        /// <see cref="InitializeLoadedState"/> reads these fields to decide whether to open
+        /// the first track section as Relative-to-parent or as Absolute.
         /// </summary>
         private void RegisterChildRecordingsFromSplit(
             List<Recording> childRecordings,
             List<(uint pid, string name, bool hasController)> newVesselInfos,
             double branchUT,
+            string parentRecordingId,
             InheritedEngineState? inherited = null)
         {
             // Capture vessel snapshots so ghosts can be built during playback
@@ -1067,6 +1080,19 @@ namespace Parsek
             for (int i = 0; i < childRecordings.Count; i++)
             {
                 var child = childRecordings[i];
+
+                // PR 3b: stamp IsDebris + DebrisParentRecordingId BEFORE the tree write
+                // and the OnVesselBackgrounded dispatch so InitializeLoadedState can read
+                // the contract and open the first track section as Relative-to-parent.
+                bool hasController = newVesselInfos[i].hasController;
+                child.IsDebris = !hasController;
+                Recording.ApplyDebrisAnchorContract(child, parentRecordingId);
+                if (child.IsDebris)
+                {
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Debris contract applied at split: childRecId={child.RecordingId} " +
+                        $"childPid={child.VesselPersistentId} parentRecId={parentRecordingId ?? "(none)"}");
+                }
 
                 // Capture snapshot for ghost building — the vessel is still loaded at this point
                 Vessel childVessel = FlightRecorder.FindVesselByPid(child.VesselPersistentId);
@@ -1108,16 +1134,14 @@ namespace Parsek
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
                     initialTrajectoryPoint: childInitialPoint);
 
-                bool hasController = newVesselInfos[i].hasController;
                 if (!hasController)
                 {
-                    // Debris child: set TTL
-                    child.IsDebris = true;
+                    // Debris child: TTL keyed on branch UT, distinct logging
                     debrisTTLExpiry[child.VesselPersistentId] = branchUT + DebrisTTLSeconds;
                     ParsekLog.Info("BgRecorder",
                         $"Child recording created (debris, TTL={DebrisTTLSeconds:F0}s): " +
                         $"recId={child.RecordingId} vesselPid={child.VesselPersistentId} " +
-                        $"name='{child.VesselName}'");
+                        $"name='{child.VesselName}' parentRecId={parentRecordingId ?? "(none)"}");
                 }
                 else
                 {
@@ -1176,6 +1200,10 @@ namespace Parsek
                     IsDebris = !newVesselInfos[i].hasController,
                     Generation = parentGeneration + 1
                 };
+                // PR 3b: stamp the v12+ debris parent-anchor contract on the new
+                // child Recording adjacent to the IsDebris assignment. String overload
+                // because this static factory is invoked with the parent recording id.
+                Recording.ApplyDebrisAnchorContract(child, parentRecordingId);
                 childRecordings.Add(child);
             }
 
@@ -1237,6 +1265,70 @@ namespace Parsek
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: vessel left physics bubble, ending recording: " +
                         $"vesselPid={vesselPid}");
+                    continue;
+                }
+
+                // PR 3b §"Parent on-rails hook" (Decision §10): for v12+ debris
+                // carrying the parent-anchor contract, end the debris recording when
+                // the parent's recorded data is gone or the parent vessel is no
+                // longer live. Three end-conditions, one for each failure mode.
+                // Legacy v11 debris (no DebrisParentRecordingId) keeps original lifetime.
+                if (tree == null
+                    || tree.BackgroundMap == null
+                    || !tree.BackgroundMap.TryGetValue(vesselPid, out string childRecId))
+                {
+                    continue;
+                }
+                Recording childRec;
+                if (tree.Recordings == null
+                    || !tree.Recordings.TryGetValue(childRecId, out childRec))
+                {
+                    continue;
+                }
+                if (string.IsNullOrEmpty(childRec.DebrisParentRecordingId))
+                    continue; // legacy v11 — keep original behavior
+
+                Recording parentRec;
+                if (!tree.Recordings.TryGetValue(childRec.DebrisParentRecordingId, out parentRec))
+                {
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent recording missing from tree, ending: " +
+                        $"parentRecId={childRec.DebrisParentRecordingId} childPid={vesselPid}");
+                    continue;
+                }
+
+                // Parent finalized while still loaded (the §"Bug evidence"
+                // closed-coverage-hole case at UT 1213.398/1228.435): end the debris
+                // too — its Relative samples beyond the parent's end UT cannot
+                // resolve at playback time.
+                if (!double.IsNaN(parentRec.ExplicitEndUT)
+                    && parentRec.ExplicitEndUT < currentUT)
+                {
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent recording finalized, ending recording: " +
+                        $"parentRecId={childRec.DebrisParentRecordingId} " +
+                        $"parentEndUT={parentRec.ExplicitEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"childPid={vesselPid}");
+                    continue;
+                }
+
+                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId);
+                if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
+                {
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent on-rails or destroyed, ending recording: " +
+                        $"parentRecId={childRec.DebrisParentRecordingId} " +
+                        $"parentPid={parentRec.VesselPersistentId} " +
+                        $"parentLoaded={parentVessel?.loaded ?? false} " +
+                        $"parentPacked={parentVessel?.packed ?? false} " +
+                        $"childPid={vesselPid}");
                     continue;
                 }
             }
@@ -1684,6 +1776,25 @@ namespace Parsek
             if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
 
             double ut = Planetarium.GetUniversalTime();
+
+            // PR 3b §"Re-Fly settle window hook" (Decision §11): when this is a
+            // v12+ debris recording whose parent is the focus recorder's settle
+            // target, skip the per-frame sample. Parent's recording is suppressed
+            // during the ~1–2 s post-load settle window — writing a Relative
+            // section against a suppressed parent would leave the resolver
+            // unable to walk back to a parent pose. The debris recording's
+            // first emitted Relative section starts at parent-settle-release UT.
+            if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
+                && FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(treeRec.DebrisParentRecordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    "debris-parent-settle-suppressed|" + treeRec.RecordingId,
+                    $"RELATIVE sample suppressed (parent in Re-Fly settle): pid={pid} " +
+                    $"recordingId={treeRec.RecordingId} parentRecId={treeRec.DebrisParentRecordingId} " +
+                    $"sampleUT={ut.ToString("F2", CultureInfo.InvariantCulture)}",
+                    2.0);
+                return;
+            }
 
             // Poll part events (always, regardless of sampling rate)
             PollPartEvents(bgVessel, state, treeRec, ut);
@@ -2906,18 +3017,113 @@ namespace Parsek
                     v.mainBody != null && v.mainBody.ocean);
             }
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
-            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
-                hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
-            if (hasInitialTrajectoryPoint)
+
+            // PR 3b §"Initial seed point coordinate transform": when the recording
+            // carries the debris parent-anchor contract, open the first track section
+            // as Relative-to-parent and convert the body-fixed seed point into anchor-
+            // local metres BEFORE it lands in the section. Without this, the seed has
+            // CLAUDE.md "metres-as-degrees" mismatch — its lat/lon/alt are body-fixed
+            // degrees but downstream playback in a Relative section interprets them
+            // as anchor-local (dx, dy, dz) metres.
+            //
+            // Resolve the recording: TrySeedLoadedPartEvents already provides
+            // `treeRecForSeed` when `hasTreeRecording == true`; fall back to a tree
+            // lookup when seeding was skipped (e.g. recording already had part events).
+            Recording treeRecForDebris = hasTreeRecording ? treeRecForSeed : null;
+            if (treeRecForDebris == null && tree?.Recordings != null && !string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out treeRecForDebris);
+            bool debrisContractApplies = treeRecForDebris != null
+                && !string.IsNullOrEmpty(treeRecForDebris.DebrisParentRecordingId)
+                && hasInitialTrajectoryPoint;
+
+            bool debrisSeedOpened = false;
+            if (debrisContractApplies)
             {
-                ActivateBackgroundHighFidelitySampling(
-                    state,
-                    initialTrajectoryPoint.ut,
-                    "initial-trajectory-point");
-                if (hasTreeRecording)
-                    ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                Recording parentRec = null;
+                tree.Recordings.TryGetValue(treeRecForDebris.DebrisParentRecordingId, out parentRec);
+                Vessel parentVessel = parentRec != null
+                    ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
+                    : null;
+                if (parentRec == null || parentVessel == null)
+                {
+                    ParsekLog.Warn("BgRecorder",
+                        $"InitializeLoadedState: debris contract applies but parent unavailable, " +
+                        $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
+                        $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                        $"parentRecResolved={parentRec != null} " +
+                        $"parentVesselResolved={parentVessel != null}");
+                }
                 else
-                    AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+                {
+                    var anchorPose = new AnchorPose(
+                        parentVessel.GetWorldPos3D(),
+                        parentVessel.transform.rotation,
+                        -1,
+                        treeRecForDebris.DebrisParentRecordingId);
+
+                    var liveCandidate = new RecordingAnchorCandidate(
+                        treeRecForDebris.DebrisParentRecordingId,
+                        anchorPose.WorldPos,
+                        anchorPose.WorldRotation,
+                        AnchorCandidateSource.Live,
+                        diagnosticPid: parentVessel.persistentId,
+                        ghostIndex: -1,
+                        isSealed: false,
+                        isSameReplayPoint: false,
+                        isSameVesselLineage: false);
+                    SetBackgroundCurrentAnchor(state, liveCandidate);
+
+                    StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative,
+                        initialTrajectoryPoint.ut);
+                    if (!ApplyBackgroundRelativeOffsetForAnchorPose(
+                            state,
+                            ref initialTrajectoryPoint,
+                            v,
+                            anchorPose,
+                            treeRecForDebris.DebrisParentRecordingId,
+                            AnchorCandidateSource.Live,
+                            parentVessel.persistentId,
+                            logSample: true))
+                    {
+                        ParsekLog.Warn("BgRecorder",
+                            $"InitializeLoadedState: debris seed transform failed, " +
+                            $"section opened Relative but offset not applied: " +
+                            $"pid={vesselPid} recId={recordingId} parentRecId={treeRecForDebris.DebrisParentRecordingId}");
+                    }
+                    ActivateBackgroundHighFidelitySampling(
+                        state,
+                        initialTrajectoryPoint.ut,
+                        "initial-trajectory-point-debris");
+                    if (hasTreeRecording)
+                        ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                    else
+                        AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+                    debrisSeedOpened = true;
+
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris parent-anchor contract applied at seed: pid={vesselPid} " +
+                        $"recId={recordingId} parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                        $"parentPid={parentVessel.persistentId} " +
+                        $"seedUT={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"|offset|=(dx={initialTrajectoryPoint.latitude:F2},dy={initialTrajectoryPoint.longitude:F2},dz={initialTrajectoryPoint.altitude:F2})");
+                }
+            }
+
+            if (!debrisSeedOpened)
+            {
+                StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
+                if (hasInitialTrajectoryPoint)
+                {
+                    ActivateBackgroundHighFidelitySampling(
+                        state,
+                        initialTrajectoryPoint.ut,
+                        "initial-trajectory-point");
+                    if (hasTreeRecording)
+                        ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                    else
+                        AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+                }
             }
 
             ParsekLog.Verbose("BgRecorder", $"Loaded state initialized: pid={vesselPid} " +
@@ -3447,6 +3653,16 @@ namespace Parsek
             if (state == null || bgVessel == null || treeRec == null)
                 return;
 
+            // PR 3b (Decision §5, Option C): when the recording carries the debris
+            // parent-anchor contract, bypass the candidate-list / nearest-search
+            // entirely and pin the anchor to the parent recording. The recorder
+            // unconditionally writes Relative for the debris's lifetime.
+            if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId))
+            {
+                ApplyDebrisAnchorContractToState(state, treeRec, ut);
+                return;
+            }
+
             bool onSurface = EnvironmentDetector.IsSurfaceForAnchorDetection(
                 state.environmentHysteresis?.CurrentEnvironment,
                 (int)bgVessel.situation);
@@ -3732,6 +3948,97 @@ namespace Parsek
             state.hasCurrentAnchorCandidate = true;
         }
 
+        /// <summary>
+        /// PR 3b (Decision §5 + plan §3b §"Per-frame anchor write" / §"Structural-event
+        /// seam"): pins <paramref name="state"/>'s anchor to the parent recording id
+        /// carried by the v12+ <see cref="Recording.DebrisParentRecordingId"/> contract.
+        /// Skips the candidate-list / nearest-search and lets
+        /// <see cref="ApplyBackgroundCurrentAnchorToTrackSection"/> propagate the anchor
+        /// id into <see cref="TrackSection.anchorRecordingId"/>. Builds a Live anchor
+        /// candidate from the parent vessel when available; falls back to a record-only
+        /// candidate that resolves through the recorded-anchor pose path.
+        /// </summary>
+        private void ApplyDebrisAnchorContractToState(
+            BackgroundVesselState state,
+            Recording treeRec,
+            double ut)
+        {
+            if (state == null || treeRec == null) return;
+            string parentRecId = treeRec.DebrisParentRecordingId;
+            if (string.IsNullOrEmpty(parentRecId)) return;
+
+            string previousAnchorRecordingId = state.currentAnchorRecordingId;
+            bool wasRelative = state.isRelativeMode;
+
+            // Resolve the parent vessel by its persistent id so we can author a Live
+            // anchor candidate when the parent is loaded. The recorded-anchor pose
+            // path is a graceful fallback when the parent vessel is gone (the
+            // CheckDebrisTTL hook ends the recording shortly after this).
+            Recording parentRec = null;
+            tree?.Recordings?.TryGetValue(parentRecId, out parentRec);
+            Vessel parentVessel = parentRec != null
+                ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
+                : null;
+
+            if (parentVessel != null && parentVessel.loaded)
+            {
+                var liveCandidate = new RecordingAnchorCandidate(
+                    parentRecId,
+                    parentVessel.GetWorldPos3D(),
+                    parentVessel.transform.rotation,
+                    AnchorCandidateSource.Live,
+                    diagnosticPid: parentVessel.persistentId,
+                    ghostIndex: -1,
+                    isSealed: false,
+                    isSameReplayPoint: false,
+                    isSameVesselLineage: false);
+                SetBackgroundCurrentAnchor(state, liveCandidate);
+            }
+            else
+            {
+                // Parent not in scene as a live vessel — pin the recording id; pose
+                // resolution falls through to TryResolveBackgroundRecordedAnchorPose
+                // (recorded-data path) which the resolver chain handles.
+                state.isRelativeMode = true;
+                state.currentAnchorRecordingId = parentRecId;
+                state.currentAnchorCandidate = default;
+                state.hasCurrentAnchorCandidate = false;
+            }
+
+            // If we just transitioned into the contract or swapped anchors, close
+            // the Absolute section we opened (or re-open) and start a Relative one.
+            // The contract is "always Relative for debris's lifetime" so any non-
+            // Relative active section needs to flip.
+            bool needsSectionFlip = state.trackSectionActive
+                && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;
+            bool anchorChanged = !wasRelative
+                || !string.Equals(previousAnchorRecordingId, parentRecId, StringComparison.Ordinal);
+            if (needsSectionFlip || anchorChanged)
+            {
+                if (state.trackSectionActive)
+                    CloseBackgroundTrackSection(state, ut);
+                SegmentEnvironment env = state.environmentHysteresis != null
+                    ? state.environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                if (anchorChanged)
+                {
+                    string transition = previousAnchorRecordingId == null ? "entered" : "switched";
+                    ParsekLog.Info("BgRecorder",
+                        $"RELATIVE mode {transition} (debris parent-anchor contract): pid={state.vesselPid} " +
+                        $"recordingId={treeRec.RecordingId} parentRecId={parentRecId} " +
+                        $"previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
+                        $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
+                        $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
+            }
+            else
+            {
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+            }
+        }
+
         private static void ClearBackgroundCurrentAnchor(BackgroundVesselState state)
         {
             state.isRelativeMode = false;
@@ -3759,7 +4066,23 @@ namespace Parsek
             Vessel vessel,
             double ut)
         {
-            if (state == null || !state.isRelativeMode)
+            if (state == null) return false;
+
+            // PR 3b §"Structural-event seam": the structural-event snapshot path
+            // bypasses UpdateBackgroundAnchorDetection, so the debris contract must
+            // be enforced here too. For v12+ debris, pin state to the parent
+            // recording id before any pose resolution. Re-runs of the periodic path
+            // hit the same helper but it's idempotent when the contract is already
+            // applied (anchorChanged=false → no log spam, no section flip).
+            Recording treeRec = null;
+            if (!string.IsNullOrEmpty(state.recordingId))
+                tree?.Recordings?.TryGetValue(state.recordingId, out treeRec);
+            if (treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId))
+            {
+                ApplyDebrisAnchorContractToState(state, treeRec, ut);
+            }
+
+            if (!state.isRelativeMode)
                 return false;
             if (string.IsNullOrWhiteSpace(state.currentAnchorRecordingId))
             {

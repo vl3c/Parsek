@@ -264,32 +264,24 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
         }
 
-        // ===== Scenario 4: Focused-vessel debris with wrong anchor. =====
+        // ===== Scenario 4: Focused-vessel debris (PR 3b parent-anchor contract). =====
         //
-        // Today's bug surface (per refactor plan §"Bug evidence"
-        // failure-mode #1): focused-vessel debris (booster decouples,
-        // engine fragment from staging, etc.) gets its `anchorRecordingId`
-        // set to "nearest eligible vessel at sample time" rather than the
-        // parent recording. When that nearest vessel is NOT the parent,
-        // the debris's Relative offsets are encoded in a frame that
-        // doesn't follow the parent — so on playback the debris snaps
-        // to whatever pose the (wrong) anchor recording is at, not where
-        // the actual breakup happened.
+        // Reset by PR 3b: debris parent-anchor contract introduced
+        // (plan §3b §"Helper" + §"Per-frame anchor write"). The recorder
+        // now writes Relative sections anchored to the parent recording
+        // and stamps `DebrisParentRecordingId` on the child. Composition
+        // is now (parent_pos + offset) — the correct visual co-bubble.
         //
-        // This baseline encodes that broken behavior. The debris is
-        // marked IsDebris=true and its Relative section is anchored to
-        // "other-vessel" instead of "parent". The resolver dutifully
-        // composes: debris_world = other_world + offset. After PR 3b,
-        // the scenario will be rewritten to anchor to parent and set
-        // DebrisParentRecordingId — the hash will change and the
-        // baseline will be reset with a justification comment.
-        //
-        // Topology:
-        //   parent: Absolute, sweeps (100, 0, 0) → (200, 0, 0)
-        //   other-vessel: Absolute, sweeps (300, 50, 0) → (310, 50, 0)
-        //   debris: Relative anchored to "other-vessel", offset (1, 0, 0)
+        // Topology (rewritten):
+        //   parent (focused): Absolute, sweeps (100, 0, 0) → (200, 0, 0)
+        //   other-vessel: Absolute, sweeps (300, 50, 0) → (310, 50, 0).
+        //     Kept in the scene so the harness verifies the resolver
+        //     ignores it — the contract pins the anchor regardless.
+        //   debris: Relative anchored to "focused-parent" (the parent),
+        //     `DebrisParentRecordingId = parent.RecordingId`, offset (1, 0, 0)
         // Expected debris world position(ut) =
-        //   other-vessel(ut) + (1, 0, 0) = (301 + ut, 50, 0).
+        //   focused-parent(ut) + (1, 0, 0) = (101 + 10*(ut/10), 0, 0)
+        //   i.e. parent sweeps 100..200, debris sweeps 101..201.
         internal static HarnessScenario BuildScenario4_FocusedVesselDebrisWrongAnchor()
         {
             var tree = new RecordingTree { Id = "tree-s4" };
@@ -300,11 +292,11 @@ namespace Parsek.Tests.Harness
                 new Vector3d(200, 0, 0),
                 startUT: 0.0,
                 endUT: 10.0);
-            // Mark with a long live trajectory so it reads as the focused
-            // vessel — not load-bearing for the resolver, but documents
-            // the intent that this is the focused-vessel breakup case.
             parent.VesselPersistentId = 100u;
 
+            // Kept around as a third vessel that the broken pre-PR-3b
+            // recorder used to anchor against. After the contract lands,
+            // this recording is irrelevant to the debris's resolution.
             Recording otherVessel = MakeAbsoluteRecording(
                 "other-vessel",
                 tree.Id,
@@ -314,18 +306,17 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
             otherVessel.VesselPersistentId = 200u;
 
-            // Debris with WRONG anchor — points at other-vessel rather
-            // than parent. This is what "nearest eligible vessel at
-            // sample time" picks when other-vessel happens to be closer
-            // than parent at the moment the debris spawns.
+            // Debris correctly anchored to parent, with DebrisParentRecordingId
+            // stamped per the PR 3b contract.
             Recording debris = MakeRelativeRecording(
                 "focused-debris-wrong-anchor",
                 tree.Id,
                 localOffset: new Vector3d(1, 0, 0),
-                anchorRecordingId: otherVessel.RecordingId,
+                anchorRecordingId: parent.RecordingId,
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
+            debris.DebrisParentRecordingId = parent.RecordingId;
             debris.VesselPersistentId = 300u;
 
             tree.AddOrReplaceRecording(parent);
@@ -364,6 +355,9 @@ namespace Parsek.Tests.Harness
         //           — encoded in a frame that should have been bg-parent
         // Expected debris world position(ut) =
         //   bg-other(ut) + (0, 0, 7) = (0, 100 + ut, 7).
+        // Reset by PR 3b: BG-vessel debris is now anchored to its bg parent
+        // and stamped with DebrisParentRecordingId (plan §3b §"Primary creation
+        // sites #2,#3"). Composition becomes (bg-parent + offset).
         internal static HarnessScenario BuildScenario5_BackgroundVesselDebrisWrongAnchor()
         {
             var tree = new RecordingTree { Id = "tree-s5" };
@@ -376,6 +370,8 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
             bgParent.VesselPersistentId = 1000u;
 
+            // Kept as a third vessel the pre-PR-3b nearest-search would have
+            // anchored against. After the contract lands, irrelevant.
             Recording bgOther = MakeAbsoluteRecording(
                 "bg-other-vessel",
                 tree.Id,
@@ -385,14 +381,17 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
             bgOther.VesselPersistentId = 2000u;
 
+            // Debris correctly anchored to bg-parent per the PR 3b contract.
+            // Expected world: bg-parent(ut) + (0, 0, 7) = (-50, 100 + ut, 7).
             Recording debris = MakeRelativeRecording(
                 "bg-debris-wrong-anchor",
                 tree.Id,
                 localOffset: new Vector3d(0, 0, 7),
-                anchorRecordingId: bgOther.RecordingId,
+                anchorRecordingId: bgParent.RecordingId,
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
+            debris.DebrisParentRecordingId = bgParent.RecordingId;
             debris.VesselPersistentId = 3000u;
 
             tree.AddOrReplaceRecording(bgParent);
@@ -446,6 +445,14 @@ namespace Parsek.Tests.Harness
         // the frozen pre-Re-Fly snapshot — debris world position
         // becomes (101 + ut, 0, 0), which is the actual breakup site.
         // The hash will change; reset with justification.
+        // Reset by PR 3b: debris created during a Re-Fly session is now
+        // anchored to the active-refly recording with DebrisParentRecordingId
+        // set, so the resolver's TryResolveActiveReFlyAnchorRecording fires
+        // and walks back to the frozen pre-Re-Fly snapshot rather than
+        // resolving against the displaced pre-refly-ghost. The pre-refly-ghost
+        // is kept in the scene to verify the resolver ignores it under the
+        // contract. See plan §3b §"Re-Fly settle window hook" + §"Helper".
+        // Composition is now (frozen pre-Re-Fly active + offset).
         internal static HarnessScenario BuildScenario7_ReFlyDebrisWrongAnchor()
         {
             var tree = new RecordingTree { Id = "tree-s7" };
@@ -459,9 +466,8 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
             active.CapturePreReFlyAnchorTrajectory("session-7");
             // Mutate the live TrackSection to simulate post-Re-Fly state.
-            // If a future change wrongly walks back to this for the
-            // (wrong-anchor) debris, the hash flips because positions
-            // jump from ~500..510 to ~900..910.
+            // The Re-Fly walk-back (driven by the marker below) must read
+            // the frozen pre-Re-Fly snapshot, not these mutated values.
             Recording postReFly = MakeAbsoluteRecording(
                 active.RecordingId,
                 tree.Id,
@@ -470,6 +476,8 @@ namespace Parsek.Tests.Harness
             active.TrackSections.Clear();
             active.TrackSections.Add(postReFly.TrackSections[0]);
 
+            // Kept in scene as the (broken) pre-PR-3b nearest-search target;
+            // post-contract, the debris no longer anchors here.
             Recording preReFlyGhost = MakeAbsoluteRecording(
                 "pre-refly-ghost",
                 tree.Id,
@@ -478,14 +486,18 @@ namespace Parsek.Tests.Harness
                 startUT: 0.0,
                 endUT: 10.0);
 
+            // Debris correctly anchored to active-refly per the PR 3b
+            // contract. Expected world: pre-Re-Fly active(ut) + (1, 0, 0) =
+            // (101 + ut, 0, 0).
             Recording debris = MakeRelativeRecording(
                 "refly-debris-wrong-anchor",
                 tree.Id,
                 localOffset: new Vector3d(1, 0, 0),
-                anchorRecordingId: preReFlyGhost.RecordingId,
+                anchorRecordingId: active.RecordingId,
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
+            debris.DebrisParentRecordingId = active.RecordingId;
 
             tree.AddOrReplaceRecording(active);
             tree.AddOrReplaceRecording(preReFlyGhost);

@@ -72,22 +72,19 @@ namespace Parsek.Tests.Harness
                     "da72f033954edbf4781eda0d36294e5ce6bc757fda0f4b9d79b909967a73bc9b",
                 ["scenario-9-loop-anchor-rejection"] =
                     "49613c44e81b0ce987485db7b2466c4b593d13ab28133c8d450b614067632bba",
-                // PR 2 (debris baselines + same-chain continuation):
-                // Scenarios 4, 5, 7 capture today's BROKEN debris
-                // composition — debris's `anchorRecordingId` points at
-                // "nearest eligible vessel at sample time" rather than
-                // the parent recording. After PR 3b lands the parent-
-                // anchor contract, the recorder writes the correct
-                // anchor and these hashes will be reset with a
-                // justification comment in the diff. Scenario 10
-                // (same-chain continuation) is non-debris and must
-                // remain stable across PR 3b.
+                // Reset by PR 3b: debris parent-anchor contract introduced.
+                // The recorder now anchors debris to its parent recording
+                // and stamps `Recording.DebrisParentRecordingId`. The
+                // composition is now (parent_pos + offset) for scenarios 4
+                // and 5; scenario 7 walks back through the active Re-Fly
+                // recording's frozen pre-Re-Fly snapshot. Scenario 10
+                // (non-debris same-chain continuation) is unchanged.
                 ["scenario-4-focused-debris-wrong-anchor"] =
-                    "59a02c591a6273e6f9bfdce09ed96200daca60e501a30650c0cdc51611dd9db3",
+                    "1a055be72d38ce65e49e164529ca8b58253c1b49675946ef643d14065156de8f",
                 ["scenario-5-bg-debris-wrong-anchor"] =
-                    "040d7253b5c65bb8fd6853e6fbe97ed61dc716f0a81b00990adb082981f2dcba",
+                    "29c53c63665af8f7db226b541692244ceffdbe6b5410a15c7e5861fd5a8a9860",
                 ["scenario-7-refly-debris-wrong-anchor"] =
-                    "d98798b7aee5d185ae83eab2b4d1324733291c4eea21483ef7595582835235a5",
+                    "da72f033954edbf4781eda0d36294e5ce6bc757fda0f4b9d79b909967a73bc9b",
                 ["scenario-10-same-chain-continuation"] =
                     "fbd0c929ea865bb5bb9cec4c3411104f5df3a986f7787040006f6251c038ae76",
             };
