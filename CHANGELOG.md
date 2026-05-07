@@ -45,11 +45,14 @@ All notable changes to Parsek are documented here.
 - New `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` filters to Absolute-frame TrackSection points so the live idle-on-pad fast path doesn't misread RELATIVE-frame `lat/lon/alt` (which are anchor-local Cartesian metres) as body-fixed coordinates.
 - `RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting` renamed to `IsNextTreeSceneExitCommitSuppressionArmed` - the flag is no longer test-only.
 - The deferred post-load merge dialog coroutine (`ParsekScenario.ShowDeferredMergeDialog`) now logs a Warn canary on entry. Triggers indicate the pre-transition prefix missed a flight-exit (mod compat, KSP version drift).
+- New `Recording.DebrisParentRecordingId` field (PR 3a of the debris-rendering refactor, plan §3a). Recording format bumped to v12 (`DebrisParentRecordingFormatVersion = CurrentRecordingFormatVersion`). The field is sparse-on-disk: only written by `RecordingTreeRecordCodec.SaveRecordingInto` when non-null, so non-debris recordings stay byte-identical across the v11 -> v12 upgrade. The `IPlaybackTrajectory` interface gains a matching `DebrisParentRecordingId` property exposed via an explicit-interface bridge on `Recording`. The field is unused at recording-time and at playback-time in this PR — PR 3b will populate it at recording-time and PR 3c will gate legacy v11 debris through the absolute-shadow path when this id is null. The binary `.prec` layout is unchanged at v12 (the field is a top-level Recording field, not trajectory data); the binary stamp tracks the recording's format version so freshly-written v12 sidecars probe as v12.
 
 ### Tests
 
 - New `SceneExitInterceptorTests` covering the decision matrix and `SafeWritePersistent` test seam.
 - New journal-active-guard tests for `MergeDiscard`, `MergeDiscardWithResult`, and `TryDiscardActiveReFlyAttempt`.
+- New `RecordingFieldExtensionTests` cases for `DebrisParentRecordingId`: ConfigNode round-trip with the field set, sparse-write invariants on non-debris and debris-without-parent recordings, legacy v11 debris loads with the field defaulted to null, and the `IPlaybackTrajectory` explicit-interface bridge returns the field value.
+- `FormatVersionTests` and `FormatRoundtripTests` updated for the v11 -> v12 bump: new `DebrisParentRecordingFormatVersion_Is12` and `CurrentRecordingFormatVersion_Is12` cases, plus the `RecordingAnchorChainFormatVersion`-pinned-at-11 invariant separated from the `CurrentRecordingFormatVersion` tracking guard.
 
 ---
 

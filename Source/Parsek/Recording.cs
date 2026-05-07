@@ -24,6 +24,14 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // Set on debris recordings (v12+) to the parent recording's id; null on legacy v11
+        // debris and on non-debris. PR 3a schema only — populated by PR 3b at recording
+        // time (BackgroundRecorder / ParsekFlight breakup paths) and consumed by PR 3c
+        // playback gate to dispatch legacy v11 debris through the absolute-shadow path
+        // when this id is null. See docs/dev/plans/recording-and-ghost-policies-refactor-plan.md
+        // §"3a. Schema (PR 3a)".
+        public string DebrisParentRecordingId;
+
         // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
         // Ghost-only recordings never spawn a real vessel at playback end.
         public bool IsGhostOnly;
@@ -926,6 +934,7 @@ namespace Parsek
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
+        string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
         double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
         double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;

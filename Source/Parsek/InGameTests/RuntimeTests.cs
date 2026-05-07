@@ -16777,6 +16777,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -16872,6 +16873,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -16971,6 +16973,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -17019,6 +17022,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -17100,6 +17104,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -17166,6 +17171,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
+        public string DebrisParentRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0.0;

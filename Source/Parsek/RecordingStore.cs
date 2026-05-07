@@ -62,7 +62,8 @@ namespace Parsek
         public const int TerrainGroundClearanceFormatVersion = 9;
         public const int StructuralEventFlagFormatVersion = 10;
         public const int RecordingAnchorChainFormatVersion = 11;
-        public const int CurrentRecordingFormatVersion = RecordingAnchorChainFormatVersion;
+        public const int DebrisParentRecordingFormatVersion = 12;
+        public const int CurrentRecordingFormatVersion = DebrisParentRecordingFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -111,6 +112,14 @@ namespace Parsek
         // v11: TrackSection.anchorRecordingId for non-loop Relative sections. This is a
         //     private-development format break: v11 correctness is recording-id anchored,
         //     while legacy pid-only Relative sections are fenced by playback follow-up phases.
+        // v12: top-level Recording.DebrisParentRecordingId — set on debris recordings to
+        //     the parent recording's id, null on non-debris and on legacy v11 debris.
+        //     ConfigNode codec only; the binary `.prec` codec is unaffected (it stores
+        //     trajectory data, not top-level Recording fields). Sparse on disk: only
+        //     written when non-null, so non-debris recordings stay byte-identical across
+        //     the upgrade. Legacy v11 saves load with the field defaulted to null and
+        //     dispatch through the PR 3c playback gate. See
+        //     docs/dev/plans/recording-and-ghost-policies-refactor-plan.md.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
