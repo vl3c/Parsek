@@ -26,18 +26,11 @@ Scope: read-only audit. No code changes proposed; this is a reference document.
 - Enter Relative when distance to anchor < `2300 m` (`PhysicsBubbleMeters`, `ParsekConfig.cs:34,44`)
 - Exit Relative when distance to anchor ≥ `2500 m` (`ParsekConfig.cs:45`)
 
-### Single playback dispatch
+### Playback frame dispatch (correction — see review history)
 
-All ghosts — focused, debris, background, re-fly — go through one `if/else` at `GhostPlaybackEngine.cs:2369`:
+The Absolute/Relative contract is decided per-section by `section.referenceFrame`. There is **no** `IsDebris`, no `IsReFly`, no scenario-aware branching anywhere in playback — what changes between scenarios is the **data the recorder wrote**, not the playback logic.
 
-```
-if (section.referenceFrame != ReferenceFrame.Relative)
-    // absolute path — body.GetWorldSurfacePosition(lat, lon, alt)
-else
-    // relative path — RelativeAnchorResolver chases section.anchorRecordingId
-```
-
-There is **no** `IsDebris`, no `IsReFly`, no scenario-aware branching here. What changes between scenarios is the **data the recorder wrote**, not the playback logic.
+**However**, the dispatch is *physically dispersed*, not a single line. The world-position math lives across `IGhostPositioner` methods (`InterpolateAndPosition`, `InterpolateAndPositionRelative`, `PositionLoop`, etc.) implemented in `ParsekFlight.cs` (~15961-16082+). Additional `referenceFrame` checks exist at `GhostPlaybackEngine.cs:4578, 4631, 4647`. The earlier draft of this audit called it a "single dispatch at line 2369" — that's a gating helper inside `TryGetRelativeSectionAtUT`, not the actual world-position dispatcher. Changes to the resolver have wide blast radius but do not represent "one place to fix things."
 
 ---
 
@@ -154,14 +147,14 @@ Same as 1c — `BackgroundRecorder.OnBackgroundPartJointBreak` → `RegisterChil
 
 ### 2. Ghost rendering policies
 
-Single dispatch site at `GhostPlaybackEngine.cs:2369`:
+Frame decision per section:
 
 ```
 if (section.referenceFrame != ReferenceFrame.Relative) { /* absolute */ }
 else { /* relative — requires anchorRecordingId in v11+ */ }
 ```
 
-This dispatch reads `section.referenceFrame` only. **Does NOT check `IsDebris`, vessel type, or any scenario flag.** Every recording — focused, debris, background, re-fly — flows through the same branch.
+This decision reads `section.referenceFrame` only. **Does NOT check `IsDebris`, vessel type, or any scenario flag.** Every recording — focused, debris, background, re-fly — uses the same scheme. (See "Playback frame dispatch (correction)" earlier in the document — the actual world-position math is dispersed across `IGhostPositioner` methods on `ParsekFlight`, not a single dispatcher line.)
 
 #### 2a. Main vessel ghost (regular flight)
 
@@ -214,8 +207,8 @@ Same dispatch. Self-anchored Relative or Absolute, identical to 2c.
 - On-rails vs loaded distinction inside `BackgroundRecorder` is enforced by separate state classes (`BackgroundOnRailsState` vs `BackgroundVesselState`) with a deliberate invariant (no env-classified TrackSections on rails).
 
 **Tangled and risky:**
-- **Playback frame dispatch** has zero scenario-awareness — one switch on `section.referenceFrame` for all scenarios. Touching `RelativeAnchorResolver` is global-blast-radius.
-- **Anchor candidate building is duplicated** across focused and background paths with no shared eligibility module — silent drift risk.
+- **Playback world-position math is dispersed** across `IGhostPositioner` methods on `ParsekFlight` plus per-section `referenceFrame` checks across multiple files. Touching `RelativeAnchorResolver` is global-blast-radius — the resolver feeds every scenario. (Earlier wording called it a "single dispatch"; that was wrong. The contract is unified, the implementation is scattered.)
+- **Recording-level anchor eligibility is centralized** in `AnchorDetector.IsRecordingAnchorEligible` (`AnchorDetector.cs:190`), shared by both recorders. Vessel-level live-peer filtering (`IsLiveRecordingAnchorVesselCandidate`, `FlightRecorder.cs:5048`) is focused-only by design — not a duplication. (Earlier wording flagged this as duplicated; that was wrong.)
 - **Re-Fly is a constellation of singletons** (`ActiveReFlySessionMarker` + per-recording `SpawnSuppressedByRewind` + journal phase) read across many files, with no single "Re-Fly observability" module.
 - **The cascade cap is a magic constant** with comments noting that callers assume `=1` semantics.
 - **Debris is *not* parent-anchored by design** — it's nearest-anchor like everything else. If you want a parent-anchor contract for debris, that's a deliberate change.
