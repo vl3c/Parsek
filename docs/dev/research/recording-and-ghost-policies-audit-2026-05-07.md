@@ -183,7 +183,7 @@ Same dispatch. The Re-Fly difference is purely **whether the ghost spawns at all
 
 #### 2f. Other / background nearby vessel ghosts
 
-Same dispatch. Self-anchored Relative or Absolute, identical to 2c.
+Same dispatch. Sections are either Absolute or Relative cross-anchored to another recording, identical to 2c. Self-anchoring is not possible.
 
 ### 3. Coupling analysis — where changing one breaks another
 

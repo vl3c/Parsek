@@ -1,7 +1,7 @@
 # Recording & Ghost Rendering — Refactor Plan
 
 Date: 2026-05-07
-Last amended: 2026-05-07 (v11 — fixes for harness-scope, residual settle-API call, IPlaybackTrajectory seam, focused-debris path, audit self-anchor claim)
+Last amended: 2026-05-07 (v12 — explicit-interface bridge for IPlaybackTrajectory + audit §2f residual self-anchor)
 Branch: `claude/investigate-recording-policies-6tMZ9`
 Companion documents:
 - `recording-and-ghost-policies-audit-2026-05-07.md` — read-only audit of current behavior
@@ -253,11 +253,17 @@ PR 3a touches both the recording-data schema AND the engine/recording isolation 
 
 **Recording field:**
 
-- Add `Recording.DebrisParentRecordingId` (string, default null).
+- Add `public string DebrisParentRecordingId;` at `Recording.cs:25` area, mirroring the existing `public bool IsDebris;` field.
 
 **Interface seam** (load-bearing for PR 3c — without this, the gate cannot compile from its intended call sites):
 
-- **Add `string DebrisParentRecordingId { get; }` to `IPlaybackTrajectory`** at `IPlaybackTrajectory.cs:70` (adjacent to the existing `bool IsDebris` property). The interface is the deliberate engine/recording isolation seam (`GhostPlaybackEngine` accesses trajectories only through it — see `IPlaybackTrajectory.cs` doc comment and CLAUDE.md §`GhostPlaybackEngine.cs`). PR 3c's gate sits in `ParsekFlight.InterpolateAndPositionRecordedRelative`, where the in-scope variable is `IPlaybackTrajectory traj`, NOT `Recording` — without this property on the interface, the gate's condition #2 (`string.IsNullOrEmpty(traj.DebrisParentRecordingId)`) does not compile. `Recording` (the canonical implementer of `IPlaybackTrajectory`) gains the property automatically by virtue of the field above. Any test fakes or alternative implementers in `Source/Parsek.Tests` need the property too — small, mechanical addition.
+- **Add `string DebrisParentRecordingId { get; }` to `IPlaybackTrajectory`** at `IPlaybackTrajectory.cs:70` (adjacent to the existing `bool IsDebris` property). The interface is the deliberate engine/recording isolation seam (`GhostPlaybackEngine` accesses trajectories only through it — see `IPlaybackTrajectory.cs` doc comment and CLAUDE.md §`GhostPlaybackEngine.cs`). PR 3c's gate sits in `ParsekFlight.InterpolateAndPositionRecordedRelative`, where the in-scope variable is `IPlaybackTrajectory traj`, NOT `Recording` — without this property on the interface, the gate's condition #2 (`string.IsNullOrEmpty(traj.DebrisParentRecordingId)`) does not compile.
+- **Add an explicit-interface bridge on `Recording`** at `Recording.cs:928` area, mirroring the existing `bool IPlaybackTrajectory.IsDebris => IsDebris;` line:
+  ```
+  string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;
+  ```
+  C# does **not** let a field satisfy an interface property automatically — the field needs an explicit-interface property accessor (or the field must be promoted to an auto-property). The existing `Recording` codebase uses the explicit-interface pattern for `IsDebris`, so PR 3a follows the same pattern for symmetry.
+- **Test fakes / alternative implementers** in `Source/Parsek.Tests` (e.g. any minimal `IPlaybackTrajectory` mocks for harness scenarios) need the property added as a regular auto-property — small, mechanical addition. Scenario 11 (the predicate truth-table) builds these fakes, so verify the harness builders cover the new field.
 - ConfigNode codec **write** in `RecordingTreeRecordCodec.SaveRecordingInto` (alongside the existing `IsDebris` write at line 215 area). **Conditional**: only write the line when `DebrisParentRecordingId != null`, mirroring how `IsDebris` is conditionally written. This keeps non-debris recordings byte-identical on disk across the upgrade.
 - ConfigNode codec **read** in the load path adjacent to `RecordingTreeRecordCodec.cs:744` (`isDebris` load). On legacy `RecordingFormatVersion < 12`, the field defaults to null (Decision §9 behavior — PR 3c gate fires).
 - Format-version constant + bump per "Format version" section above.
@@ -827,3 +833,6 @@ Replaying `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (or 
   - **Initial-seed orchestration only mentioned the BG-vessel path (clarity).** v10 said "RegisterChildRecordingsFromSplit builds the seed..." which read as if the orchestration was BG-debris-only. v11 explicitly enumerates BOTH creation paths (BG-vessel via `RegisterChildRecordingsFromSplit`, focused-vessel via `ParsekFlight.CreateBreakupChildRecording`) and notes both funnel into the same `OnVesselBackgrounded` → `InitializeLoadedState` dispatch — placing the orchestration inside `InitializeLoadedState` (the shared sink) covers both without duplication.
   - **PR 3c gate insertion-point table (clarity).** v10 had the correct line numbers in prose but mixed pre-resolver and post-resolver line numbers in adjacent sentences, which a literal-reader implementer could conflate. v11 replaces the prose with a 3-row table that explicitly pairs each branch's pre-resolver insertion point with its existing post-resolver fallback line, making it impossible to confuse the two.
   - **Audit §2c self-anchor claim corrected (real bug).** Audit said "Background recordings most often have self-anchored Relative sections (their `anchorRecordingId` points to themselves)." This is impossible: `AnchorDetector.IsRecordingAnchorEligible` rejects self-anchoring, and the background candidate builders skip the queried recording's own ID. v11 corrects the claim to: "either Absolute sections, or Relative sections cross-anchored to **another** recording."
+- **2026-05-07, v12 (this revision):** Two follow-ups missed in v11.
+  - **Field-as-interface-property doesn't compile (real bug).** v11's "Recording gains the property automatically by virtue of the field above" was wrong: C# fields don't satisfy interface properties. The existing `Recording` codebase resolves this for `IsDebris` via the explicit-interface pattern at `Recording.cs:928`: `bool IPlaybackTrajectory.IsDebris => IsDebris;`. v12 adds the symmetric line `string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;` to PR 3a's checklist and clarifies that test fakes need a regular auto-property.
+  - **Audit §2f residual self-anchor wording (real bug).** v11 fixed §2c but §2f still said "Self-anchored Relative or Absolute, identical to 2c," which preserved the false invariant via cross-reference. v12 corrects §2f to "Sections are either Absolute or Relative cross-anchored to another recording, identical to 2c. Self-anchoring is not possible."
