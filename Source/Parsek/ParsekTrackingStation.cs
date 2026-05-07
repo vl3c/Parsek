@@ -32,7 +32,7 @@ namespace Parsek
         private const float LifecycleCheckIntervalSec = 2.0f;
         private const float GhostPopupWidth = 180f;
         private const float MaterializedFocusRetryDurationSec = 20.0f;
-        private const float MaterializedFocusRetryIntervalSec = 0.25f;
+        private const float MaterializedFocusRetryIntervalSec = 0.0f;
         private float nextLifecycleCheckTime;
         private ToolbarControl toolbarControl;
         private ParsekUI ui;
