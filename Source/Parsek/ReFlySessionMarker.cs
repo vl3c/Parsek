@@ -70,6 +70,19 @@ namespace Parsek
         public string InvokedRealTime;
 
         /// <summary>
+        /// True when the Re-Fly session was invoked in the in-place
+        /// continuation case: the player keeps flying the same physical
+        /// vessel as the slot's origin recording, so
+        /// <see cref="OriginChildRecordingId"/> and the strip-selected
+        /// vessel pid match. The active attempt is forked into a separate
+        /// <see cref="ActiveReFlyRecordingId"/> recording that supersedes
+        /// origin at commit; before this flag, in-place sessions pointed
+        /// the marker at the origin id directly and mutated the origin
+        /// recording in flight (issue #734).
+        /// </summary>
+        public bool InPlaceContinuation;
+
+        /// <summary>
         /// Snapshot of <see cref="BranchPoint.Id"/>s that already existed
         /// in the marker's tree at session-creation time. Used by
         /// <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>
@@ -85,6 +98,22 @@ namespace Parsek
         public List<string> PreSessionBranchPointIds;
 
         internal const string NodeName = "REFLY_SESSION_MARKER";
+
+        /// <summary>
+        /// Returns true when <paramref name="marker"/> represents an
+        /// in-place Re-Fly continuation: <see cref="InPlaceContinuation"/>
+        /// is set by <c>RewindInvoker.AtomicMarkerWrite</c> when it forks
+        /// the attempt off the same physical vessel as origin (issue #734).
+        /// All in-place gating across the codebase routes through this
+        /// helper so call sites cannot drift to ad-hoc shape checks.
+        /// </summary>
+        public static bool IsInPlaceContinuation(ReFlySessionMarker marker)
+        {
+            if (marker == null || !marker.InPlaceContinuation)
+                return false;
+            return !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId);
+        }
 
         /// <summary>Saves into a dedicated child node on the parent.</summary>
         public void SaveInto(ConfigNode parent)
@@ -103,6 +132,8 @@ namespace Parsek
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
                 node.AddValue("invokedRealTime", InvokedRealTime);
+            if (InPlaceContinuation)
+                node.AddValue("inPlaceContinuation", "true");
             if (PreSessionBranchPointIds != null)
             {
                 // Always emit the sentinel so absent-vs-empty round-trips
@@ -164,6 +195,10 @@ namespace Parsek
 
             m.InvokedRealTime = node.GetValue("invokedRealTime");
 
+            string inPlaceFlag = node.GetValue("inPlaceContinuation");
+            m.InPlaceContinuation = string.Equals(
+                inPlaceFlag, "true", StringComparison.OrdinalIgnoreCase);
+
             string presentFlag = node.GetValue("preSessionBranchPointIdsPresent");
             if (string.Equals(presentFlag, "true", StringComparison.OrdinalIgnoreCase))
             {
@@ -183,13 +218,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug #585: in-place continuation Re-Fly marker carve-out for
-        /// <c>RestoreActiveTreeFromPending</c>. When the marker exists,
-        /// represents an in-place continuation
-        /// (<c>OriginChildRecordingId == ActiveReFlyRecordingId</c>), and the
-        /// marker's recording id is present in the freshly-popped tree, the
-        /// restore coroutine MUST resolve the expected active vessel from the
-        /// marker's recording -- NOT from the tree's stale
+        /// In-place continuation Re-Fly marker carve-out for
+        /// <c>RestoreActiveTreeFromPending</c>. When the marker represents
+        /// an in-place continuation (<see cref="InPlaceContinuation"/>=true)
+        /// and the marker's recording id is present in the freshly-popped
+        /// tree, the restore coroutine MUST resolve the expected active
+        /// vessel from the marker's recording -- NOT from the tree's stale
         /// <c>ActiveRecordingId</c> (which still points at the pre-rewind
         /// active vessel, just stripped). Returns
         /// <c>ShouldSwap=true</c> with the new target identity when the swap
@@ -227,14 +261,11 @@ namespace Parsek
                     Reason = "marker-fields-empty",
                 };
             }
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            if (!IsInPlaceContinuation(marker))
             {
-                // Placeholder pattern (origin != active) -- the tree's
-                // ActiveRecordingId still points at the live pre-rewind
-                // vessel which is what we want; no swap.
+                // Placeholder pattern (no InPlaceContinuation flag) -- the
+                // tree's ActiveRecordingId still points at the live
+                // pre-rewind vessel which is what we want; no swap.
                 return new InPlaceContinuationTarget
                 {
                     ShouldSwap = false,

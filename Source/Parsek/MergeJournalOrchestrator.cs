@@ -338,12 +338,44 @@ namespace Parsek
             // in-memory state (loaded by OnLoad from a save pre-crash) matches
             // disk — removal of a session-provisional recording is idempotent
             // when the recording is already absent.
-            int removedProvisional = 0;
+            //
+            // Sweep every recording tagged with this session, not just the
+            // ActiveReFlyRecordingId. RecordingStore.RunOptimizationSplitPass
+            // copies CreatingSessionId / ProvisionalForRpId onto the second
+            // half when it splits a session-tagged recording. If we only
+            // removed the named id we'd leave the optimizer-created tail
+            // orphaned in the committed list.
+            string rewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            // Prefer the supersede chain tip (the recording that was active
+            // before this session began) over the slot's original origin.
+            // For a slot already Re-flown once (CommittedProvisional, slot
+            // stays open), the supersede chain has extended past origin to
+            // a prior Re-Fly's recording; resetting tree.ActiveRecordingId
+            // to origin after rollback would undo the prior session's
+            // commit. Origin is the legacy fallback for slots that have
+            // never been Re-flown (priorTip == origin).
+            string fallback =
+                scenario.ActiveReFlySessionMarker?.SupersedeTargetId
+                ?? scenario.ActiveReFlySessionMarker?.OriginChildRecordingId;
+            int removedProvisional = RecordingStore.RemoveSessionProvisionalRecordings(
+                sessionId, rewindPointId, fallback);
             string provisionalId =
                 scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
-            if (!string.IsNullOrEmpty(provisionalId))
+            if (removedProvisional > 0)
             {
-                removedProvisional = RemoveCommittedRecordingById(provisionalId);
+                ParsekLog.Info(Tag,
+                    $"Rollback: removed {removedProvisional.ToString(CultureInfo.InvariantCulture)} " +
+                    $"session-provisional recording(s) sess={sessionId} " +
+                    $"rp={rewindPointId ?? "<none>"} provisional={provisionalId ?? "<none>"}");
+            }
+            else if (!string.IsNullOrEmpty(provisionalId))
+            {
+                // Legacy fallback: pre-feature recordings without CreatingSessionId
+                // tagging fall back to the by-id sweep so existing saves still roll
+                // back cleanly.
+                int legacyRemoved = RemoveCommittedRecordingById(provisionalId);
+                if (legacyRemoved > 0)
+                    removedProvisional = legacyRemoved;
             }
 
             bool hadMarker = scenario.ActiveReFlySessionMarker != null;

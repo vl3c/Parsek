@@ -122,8 +122,9 @@ namespace Parsek.Tests.Rendering
                     SessionId = "sBE",
                     TreeId = tree.Id,
                     ActiveReFlyRecordingId = rLive.RecordingId,
-                    OriginChildRecordingId = rLive.RecordingId
-                },
+                    OriginChildRecordingId = rLive.RecordingId,
+                InPlaceContinuation = true,
+            },
                 new List<Recording> { rLive, rSib },
                 Lookup(tree, bp),
                 _ => Vector3d.zero);
@@ -153,8 +154,9 @@ namespace Parsek.Tests.Rendering
                     SessionId = "sEM",
                     TreeId = tree.Id,
                     ActiveReFlyRecordingId = rLive.RecordingId,
-                    OriginChildRecordingId = rLive.RecordingId
-                },
+                    OriginChildRecordingId = rLive.RecordingId,
+                InPlaceContinuation = true,
+            },
                 new List<Recording> { rLive, rSib },
                 Lookup(tree, bp),
                 _ => new Vector3d(10, 20, 30));
@@ -183,8 +185,9 @@ namespace Parsek.Tests.Rendering
                     SessionId = "sLR",
                     TreeId = tree.Id,
                     ActiveReFlyRecordingId = rLive.RecordingId,
-                    OriginChildRecordingId = rLive.RecordingId
-                },
+                    OriginChildRecordingId = rLive.RecordingId,
+                InPlaceContinuation = true,
+            },
                 new List<Recording> { rLive, rA, rB },
                 Lookup(tree, bp),
                 _ => new Vector3d(7, 8, 9));
@@ -229,8 +232,9 @@ namespace Parsek.Tests.Rendering
                     SessionId = "sBR",
                     TreeId = tree.Id,
                     ActiveReFlyRecordingId = rLive.RecordingId,
-                    OriginChildRecordingId = rLive.RecordingId
-                },
+                    OriginChildRecordingId = rLive.RecordingId,
+                InPlaceContinuation = true,
+            },
                 new List<Recording> { rLive, rSib },
                 Lookup(tree, bp),
                 _ => new Vector3d(1_000_000, 0, 0));
@@ -291,8 +295,9 @@ namespace Parsek.Tests.Rendering
                 {
                     SessionId = "sIP",
                     ActiveReFlyRecordingId = rOrigin.RecordingId,
-                    OriginChildRecordingId = rOrigin.RecordingId
-                },
+                    OriginChildRecordingId = rOrigin.RecordingId,
+                InPlaceContinuation = true,
+            },
                 new List<Recording> { rOrigin },
                 _ => new RecordingTreeContext(null, null),
                 _ => new Vector3d(1, 2, 3));

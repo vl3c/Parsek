@@ -8,7 +8,7 @@ namespace Parsek.Tests
     public class GhostVisualFrameTests
     {
         [Fact]
-        public void DescribeAppearanceActiveSection_RelativeFrameIncludesAnchorRecordingOrLegacyPid()
+        public void DescribeAppearanceActiveSection_RelativeFrameIncludesAnchorRecordingOnly()
         {
             var traj = new MockTrajectory
             {
@@ -28,7 +28,9 @@ namespace Parsek.Tests
 
             Assert.Contains("activeFrame=Relative", summary);
             Assert.Contains("sectionUT=19.74-22.00", summary);
-            Assert.Contains("anchorRec=missing legacyAnchorPid=77", summary);
+            Assert.Contains("anchorRec=missing", summary);
+            Assert.DoesNotContain("legacyAnchorPid", summary);
+            Assert.DoesNotContain("anchorPid", summary);
         }
 
         [Fact]
@@ -65,7 +67,9 @@ namespace Parsek.Tests
             Assert.Contains("recordingStart@19.76", summary);
             Assert.Contains("frame=Relative", summary);
             Assert.Contains("offset=(1.25,-2.50,3.75)", summary);
-            Assert.Contains("anchorRec=missing legacyAnchorPid=88", summary);
+            Assert.Contains("anchorRec=missing", summary);
+            Assert.DoesNotContain("legacyAnchorPid", summary);
+            Assert.DoesNotContain("anchorPid", summary);
             Assert.DoesNotContain("world=", summary);
         }
 

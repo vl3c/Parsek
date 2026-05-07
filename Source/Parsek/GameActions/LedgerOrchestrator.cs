@@ -100,8 +100,15 @@ namespace Parsek
 
         /// <summary>
         /// Fired after RecalculateAndPatch completes — signals that timeline data
-        /// (recordings, ledger actions) may have changed. Subscribed by ParsekUI
-        /// to invalidate the TimelineWindowUI cache.
+        /// (recordings, ledger actions, milestone replay cursors, or event
+        /// visibility) may have changed. Subscribed by ParsekUI to invalidate the
+        /// TimelineWindowUI cache and by StockUiOverlayController to refresh open
+        /// stock-screen badges.
+        ///
+        /// Future code that mutates MilestoneStore.LastReplayedEventIndex or
+        /// GameStateStore event visibility must end with RecalculateAndPatch()
+        /// or invoke this signal directly, otherwise open stock overlays can stay
+        /// stale until their building is reopened.
         /// </summary>
         internal static Action OnTimelineDataChanged;
 

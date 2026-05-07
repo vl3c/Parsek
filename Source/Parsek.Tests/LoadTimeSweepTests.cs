@@ -285,13 +285,15 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording>
                 {
+                    Rec("rec_active_fork", MergeState.NotCommitted),
                     Rec("rec_origin", MergeState.Immutable),
                 },
                 new List<BranchPoint> { Bp("bp_1", "rp_1") });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
-            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1",
+            var marker = Marker("sess_1", "tree_1", "rec_active_fork", "rec_origin", "rp_1",
                 invokedUt: 500.0);
+            marker.InPlaceContinuation = true;
             InstallScenario(
                 rps: new List<RewindPoint> { rp },
                 marker: marker);
@@ -341,13 +343,15 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording>
                 {
+                    Rec("rec_active_fork", MergeState.NotCommitted),
                     Rec("rec_origin", MergeState.Immutable),
                 },
                 new List<BranchPoint> { Bp("bp_1", "rp_1") });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
-            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1",
+            var marker = Marker("sess_1", "tree_1", "rec_active_fork", "rec_origin", "rp_1",
                 invokedUt: 500.0);
+            marker.InPlaceContinuation = true;
             InstallScenario(
                 rps: new List<RewindPoint> { rp },
                 marker: marker);
@@ -633,33 +637,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MarkerValid_InPlaceContinuation_CommittedProvisional_Preserved()
+        public void MarkerValid_InPlaceContinuation_ForkProvisional_Preserved()
         {
-            // Regression: 2026-04-25_1246 playtest. RewindInvoker.AtomicMarkerWrite's
-            // in-place continuation path (item 11 in todo-and-known-bugs.md)
-            // sets ActiveReFlyRecordingId == OriginChildRecordingId so the
-            // marker points at the existing recording instead of a fresh
-            // placeholder. When that recording was a previously-promoted
-            // Unfinished Flight its MergeState is CommittedProvisional, NOT
-            // NotCommitted. The validator MUST accept that state for the
-            // in-place continuation case or the marker is silently wiped on
-            // every save+load cycle (e.g. the FLIGHT->SPACECENTER scene
-            // change for the merge dialog), and TryCommitReFlySupersede
-            // falls through to the regular tree-merge path with
-            // 'no active re-fly session marker'.
+            // Issue #734 fork model: AtomicMarkerWrite always creates a
+            // fresh NotCommitted provisional for the active attempt -- the
+            // pre-fork "active == origin reuses the committed Recording"
+            // pattern is gone, and so is the relax-set that accepted
+            // CommittedProvisional / Immutable for the active recording.
+            // The validator only accepts NotCommitted now; this test pins
+            // that the in-place fork (a fresh NotCommitted active beside a
+            // surviving committed origin) survives load-time validation.
             InstallTree("tree_1",
                 new List<Recording>
                 {
-                    // Active == origin (in-place continuation). MergeState is
-                    // CommittedProvisional from the prior tree merge that
-                    // promoted this recording out of NotCommitted into the
-                    // crash-terminal RP-child slot.
+                    Rec("rec_active_fork", MergeState.NotCommitted),
                     Rec("rec_origin", MergeState.CommittedProvisional),
                 },
                 new List<BranchPoint> { Bp("bp_1", "rp_1") });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
             var marker = Marker("sess_1", "tree_1",
-                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
+                activeId: "rec_active_fork", originId: "rec_origin", rpId: "rp_1");
+            marker.InPlaceContinuation = true;
             var scenario = InstallScenario(
                 rps: new List<RewindPoint> { rp },
                 marker: marker);
@@ -700,41 +698,6 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") &&
                 l.Contains("Marker invalid field=ActiveReFlyRecordingId"));
-        }
-
-        [Fact]
-        public void MarkerValid_InPlaceContinuation_Immutable_Preserved()
-        {
-            // Review follow-up: an Immutable recording IS a valid re-fly
-            // target when it is also an Unfinished Flight (terminal=
-            // Destroyed + matching RP). EffectiveState.IsUnfinishedFlight
-            // accepts both Immutable and CommittedProvisional (line 156-
-            // 157), and RewindInvoker.AtomicMarkerWrite has no MergeState
-            // gate — so the validator must accept the same shape it can
-            // legitimately produce. Without this carve-out, a save/load
-            // during an in-place re-fly of an Immutable UF wipes the
-            // marker and the merge falls through to the regular tree-
-            // merge path (no force-Immutable, no RP reap). The
-            // CommittedProvisional sister case is pinned by the test
-            // immediately above.
-            InstallTree("tree_1",
-                new List<Recording>
-                {
-                    Rec("rec_origin", MergeState.Immutable),
-                },
-                new List<BranchPoint> { Bp("bp_1", "rp_1") });
-            var rp = Rp("rp_1", "bp_1", sessionProvisional: false);
-            var marker = Marker("sess_1", "tree_1",
-                activeId: "rec_origin", originId: "rec_origin", rpId: "rp_1");
-            var scenario = InstallScenario(
-                rps: new List<RewindPoint> { rp },
-                marker: marker);
-
-            LoadTimeSweep.Run();
-
-            Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.ActiveReFlyRecordingId);
-            Assert.Equal("rec_origin", scenario.ActiveReFlySessionMarker.OriginChildRecordingId);
         }
 
         // ---------- Spare + discard sets ----------------------------------
@@ -810,12 +773,14 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording>
                 {
+                    Rec("rec_active_fork", MergeState.NotCommitted),
                     Rec("rec_origin", MergeState.Immutable),
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
                 slots: new[] { Slot(0, "rec_origin") });
-            var marker = Marker("sess_1", "tree_1", "rec_origin", "rec_origin", "rp_1");
+            var marker = Marker("sess_1", "tree_1", "rec_active_fork", "rec_origin", "rp_1");
+            marker.InPlaceContinuation = true;
             RewindPointReaper.DeleteQuicksaveForTesting = id =>
             {
                 deletedRpIds.Add(id);

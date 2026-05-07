@@ -15,14 +15,6 @@ namespace Parsek
     public class FlightRecorder
     {
         internal static Func<double> QuickloadResumeUTProviderForTesting;
-        internal delegate bool TryResolveReFlyRecordingFrameOffset(
-            string recordingId,
-            double currentUT,
-            out Vector3d offset,
-            out string reason);
-        internal static TryResolveReFlyRecordingFrameOffset
-            ReFlyRecordingFrameOffsetOverrideForTesting;
-
         internal enum VesselSwitchDecision
         {
             None,
@@ -6502,7 +6494,7 @@ namespace Parsek
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
-            // Frame-mismatch repair when stale-anchor validation downgraded a
+            // Frame-mismatch repair when resume-anchor validation downgraded a
             // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
             // Relative section's last frame, whose lat/lon/alt fields hold
             // anchor-local Cartesian metres (NOT body-fixed surface coords).
@@ -7587,26 +7579,8 @@ namespace Parsek
             offset = Vector3d.zero;
             reason = null;
 
-            if (ReFlyRecordingFrameOffsetOverrideForTesting != null)
-            {
-                return ReFlyRecordingFrameOffsetOverrideForTesting(
-                    recordingId,
-                    currentUT,
-                    out offset,
-                    out reason);
-            }
-
-            if (ParsekFlight.Instance == null)
-            {
-                reason = "flight-missing";
-                return false;
-            }
-
-            return ParsekFlight.Instance.TryGetReFlyRecordingFrameOffset(
-                recordingId,
-                currentUT,
-                out offset,
-                out reason);
+            reason = "display-alignment-removed";
+            return false;
         }
 
         internal static bool TryResolveAbsolutePointWorldForRelativeOffset(
@@ -9073,7 +9047,7 @@ namespace Parsek
             return TryGetFlightGlobalsVessels();
         }
 
-        // Test-only seam: lets xUnit drive the stale-anchor downgrade branch
+        // Test-only seam: lets xUnit drive the resume-anchor downgrade branch
         // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
         // production this stays null and the helper falls back to
         // TryGetFlightGlobalsVessels(), which returns null in xUnit and so

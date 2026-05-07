@@ -767,17 +767,51 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.SPACECENTER,
-            Description = "KSC RELATIVE playback resolves against a live anchor vessel")]
-        public void ParsekKscRelativePlaybackUsesLiveAnchor()
+            Description = "KSC RELATIVE playback resolves through anchorRecordingId")]
+        public void ParsekKscRelativePlaybackUsesRecordedAnchor()
         {
             var ksc = Object.FindObjectOfType<ParsekKSC>();
             if (ksc == null)
                 InGameAssert.Skip("No ParsekKSC instance");
 
-            Vessel anchor = FindLoadedAnchorForKscRelativePlaybackTest();
-            if (anchor == null)
-                InGameAssert.Skip("No loaded non-ghost vessel available as KSC RELATIVE anchor");
+            CelestialBody kerbin = FlightGlobals.GetBodyByName("Kerbin");
+            if (kerbin == null || kerbin.bodyTransform == null)
+                InGameAssert.Skip("Kerbin body unavailable");
 
+            var anchorPoint = new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = -0.0972,
+                longitude = -74.5575,
+                altitude = 1000,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            };
+            var anchorRec = new Recording
+            {
+                RecordingId = "runtime-ksc-recorded-anchor",
+                VesselName = "Runtime KSC Recorded Anchor",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion
+            };
+            anchorRec.Points.Add(anchorPoint);
+            anchorRec.Points.Add(new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = anchorPoint.latitude,
+                longitude = anchorPoint.longitude,
+                altitude = anchorPoint.altitude,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            });
+            anchorRec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100,
+                endUT = 110,
+                frames = new List<TrajectoryPoint>(anchorRec.Points)
+            });
             var before = new TrajectoryPoint
             {
                 ut = 100,
@@ -802,7 +836,7 @@ namespace Parsek.InGameTests
             {
                 RecordingId = "runtime-ksc-relative-anchor",
                 VesselName = "Runtime KSC Relative Probe",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion
             };
             rec.Points.Add(before);
             rec.Points.Add(after);
@@ -811,9 +845,21 @@ namespace Parsek.InGameTests
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100,
                 endUT = 110,
-                anchorVesselId = anchor.persistentId,
+                anchorRecordingId = anchorRec.RecordingId,
                 frames = new List<TrajectoryPoint> { before, after }
             });
+            var tree = new RecordingTree
+            {
+                Id = "runtime-ksc-relative-recorded-anchor-tree",
+                TreeName = "Runtime KSC Relative Recorded Anchor",
+                RootRecordingId = anchorRec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            anchorRec.TreeId = tree.Id;
+            rec.TreeId = tree.Id;
+            tree.Recordings[anchorRec.RecordingId] = anchorRec;
+            tree.Recordings[rec.RecordingId] = rec;
+            RecordingStore.AddCommittedTreeForTesting(tree);
 
             GameObject probe = new GameObject("Parsek_KSC_RelativeRuntimeProbe");
             var state = new GhostPlaybackState
@@ -833,13 +879,17 @@ namespace Parsek.InGameTests
                     ref cachedFrameSourceKey,
                     105);
 
-                InGameAssert.IsTrue(positioned, "KSC relative runtime probe should resolve a live anchor");
+                InGameAssert.IsTrue(positioned, "KSC relative runtime probe should resolve a recorded anchor");
                 InGameAssert.IsFalse(state.deferVisibilityUntilPlaybackSync,
                     "Successful KSC relative positioning should clear deferred visibility");
 
+                Vector3d anchorWorld = kerbin.GetWorldSurfacePosition(
+                    anchorPoint.latitude,
+                    anchorPoint.longitude,
+                    anchorPoint.altitude);
                 Vector3d expected = TrajectoryMath.ResolveRelativePlaybackPosition(
-                    anchor.GetWorldPos3D(),
-                    anchor.transform.rotation,
+                    anchorWorld,
+                    kerbin.bodyTransform.rotation,
                     15,
                     25,
                     35,
@@ -849,31 +899,14 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(error < 0.25,
                     $"KSC relative runtime probe should land at anchor-local offset; error={error:F3}m");
                 ParsekLog.Verbose("TestRunner",
-                    $"KSC relative runtime probe resolved anchorPid={anchor.persistentId} error={error:F3}m");
+                    $"KSC relative runtime probe resolved anchorRec={anchorRec.RecordingId} error={error:F3}m");
             }
             finally
             {
+                RecordingStore.RemoveCommittedTreeById(tree.Id, "runtime-ksc-relative-recorded-anchor-cleanup");
                 if (probe != null)
                     Object.Destroy(probe);
             }
-        }
-
-        private static Vessel FindLoadedAnchorForKscRelativePlaybackTest()
-        {
-            if (FlightGlobals.Vessels == null)
-                return null;
-
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                Vessel vessel = FlightGlobals.Vessels[i];
-                if (vessel == null || !vessel.loaded || vessel.transform == null)
-                    continue;
-                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
-                    continue;
-                return vessel;
-            }
-
-            return null;
         }
 
         [InGameTest(Category = "SceneAndPatch", Scene = GameScenes.TRACKSTATION,

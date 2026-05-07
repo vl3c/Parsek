@@ -56,14 +56,6 @@ namespace Parsek
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
         public bool simplified;          // true when SimplifyToOrbitLine soft cap hid the ghost mesh
         public bool deferVisibilityUntilPlaybackSync; // fresh/rebuilt ghost stays hidden until positioned and synced
-        // Host-scene gate (#688 follow-up): when true, ActivateGhostVisualsIfNeeded
-        // refuses to flip the ghost active. Set by the positioner while the
-        // host has additional gating to apply — currently used so a ghost in
-        // the active Re-Fly tree stays hidden until the frozen display
-        // alignment has been resolved at least once. Cleared by the same
-        // positioner the moment the gating condition lifts. Engine never
-        // writes this field.
-        public bool externalActivationDeferred;
         // Bug #613 (PR #594 P1): set to true by the relative-frame positioner
         // when the recorded anchor pid is unresolvable in the current scene
         // (most common cause: a Re-Fly rewind erased the original anchor
@@ -132,12 +124,6 @@ namespace Parsek
             fidelityDisabledRenderers = null;
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
-            // Teardown only — bypasses ParsekFlight.LowerExternalActivationGate
-            // logging by design. The ghost mesh is going away (loop rebuild,
-            // distance-LOD unload, scene exit), not transitioning to visible,
-            // so a "gate lowered" log line here would mislead future debug
-            // sessions correlating gate state with visibility.
-            externalActivationDeferred = false;
             anchorRetiredThisFrame = false;
             positionedThisFrame = false;
             cameraPivot = null;
