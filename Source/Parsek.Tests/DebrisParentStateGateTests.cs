@@ -80,11 +80,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Returns_True_When_VesselPersistentId_Is_Zero()
+        public void Returns_True_When_VesselPersistentId_Is_Zero_AND_Not_TreeActiveRecording()
         {
-            // Defensive: a Recording with VesselPersistentId == 0 cannot be
-            // looked up in BackgroundMap (the key would be ambiguous), so
-            // treat it as closed.
+            // Defensive: a Recording with VesselPersistentId == 0 that is
+            // NOT the tree's active recording cannot be matched in
+            // BackgroundMap (the key would be ambiguous) and has no
+            // active-focused fallback, so treat it as closed. This is
+            // distinct from the focused-corner-case test below
+            // (`Returns_False_When_Parent_Is_TreeActiveRecording_With_VesselPersistentId_Zero`)
+            // where ActiveRecordingId DOES match — in that case the
+            // active-focused branch fires and the predicate returns false
+            // even with vessel id 0.
             var tree = new RecordingTree { Id = "tree" };
             var parentRec = new Recording
             {
@@ -92,6 +98,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 0u,
             };
             tree.AddOrReplaceRecording(parentRec);
+            // ActiveRecordingId intentionally NOT set to parentRec.RecordingId.
 
             Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree));
         }
@@ -152,6 +159,82 @@ namespace Parsek.Tests
             tree.BackgroundMap[100u] = "continuation";
 
             Assert.False(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(continuationRec, tree));
+        }
+
+        // ===== PR 3b review follow-up #2: focused-parent regression =====
+        // The active focused-vessel recording is intentionally NOT in
+        // BackgroundMap (which only tracks background-recorded vessels).
+        // Focused-vessel debris (created via
+        // ParsekFlight.CreateBreakupChildRecording) anchors to the active
+        // recording, so a predicate that only consults BackgroundMap would
+        // expire every focused-vessel debris on the first TTL tick. The
+        // tree.ActiveRecordingId match must be honored as "active and
+        // accepting samples."
+
+        [Fact]
+        public void Returns_False_When_Parent_Is_TreeActiveRecording_Even_If_Not_In_BackgroundMap()
+        {
+            // The reviewer's bug: an active focused recording absent from
+            // BackgroundMap (which is the design — BackgroundMap is
+            // background-recorded vessels only) must NOT be treated as
+            // closed. Focused-vessel debris's parent is by construction
+            // the tree's ActiveRecordingId.
+            var tree = new RecordingTree { Id = "tree" };
+            var activeRec = new Recording
+            {
+                RecordingId = "active-focused",
+                VesselPersistentId = 4242u,
+                ChildBranchPointId = null,
+            };
+            tree.AddOrReplaceRecording(activeRec);
+            tree.ActiveRecordingId = activeRec.RecordingId;
+            // BackgroundMap intentionally has NO entry for this vessel pid —
+            // the focused vessel is not background-recorded.
+
+            Assert.False(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(activeRec, tree));
+        }
+
+        [Fact]
+        public void Returns_False_When_Parent_Is_TreeActiveRecording_With_VesselPersistentId_Zero()
+        {
+            // Defensive corner: an active recording may have
+            // VesselPersistentId == 0 transiently (before the recorder
+            // assigns one). The active-recording-match branch fires before
+            // the vessel-id check, so this still resolves as "active."
+            var tree = new RecordingTree { Id = "tree" };
+            var activeRec = new Recording
+            {
+                RecordingId = "active-no-pid",
+                VesselPersistentId = 0u,
+                ChildBranchPointId = null,
+            };
+            tree.AddOrReplaceRecording(activeRec);
+            tree.ActiveRecordingId = activeRec.RecordingId;
+
+            Assert.False(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(activeRec, tree));
+        }
+
+        [Fact]
+        public void Returns_True_When_Parent_Was_Active_But_Now_Closed_At_Split()
+        {
+            // Composition: ChildBranchPointId set wins over ActiveRecordingId
+            // match. A recording can be tree.ActiveRecordingId AND have
+            // ChildBranchPointId set transiently (between CloseParentRecording
+            // and the swap to the continuation), but it's still closed.
+            // Treat ChildBranchPointId as the authoritative closed signal.
+            var tree = new RecordingTree { Id = "tree" };
+            var closedRec = new Recording
+            {
+                RecordingId = "closed-but-still-active-id",
+                VesselPersistentId = 100u,
+                ChildBranchPointId = "bp-1",   // closed at a split
+            };
+            tree.AddOrReplaceRecording(closedRec);
+            // Hypothetical: ActiveRecordingId still points at the closed
+            // recording. The ChildBranchPointId branch should win.
+            tree.ActiveRecordingId = closedRec.RecordingId;
+
+            Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(closedRec, tree));
         }
     }
 }
