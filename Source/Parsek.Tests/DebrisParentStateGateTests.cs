@@ -23,25 +23,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Returns_True_When_ParentRecording_Has_ChildBranchPointId()
+        public void Returns_True_When_ClosedBackgroundParent_Not_In_ActivePool()
         {
-            // Parent was closed by a split (CloseParentRecording set
-            // ChildBranchPointId). Even if a continuation took over the live
-            // vessel, this specific recording will receive no more samples.
-            // Anchor must be re-pointed at the continuation by the recorder
-            // (the P1 #1 fix at the split site); any debris still anchored
-            // here at TTL time should be ended.
+            // After a background split, CloseParentRecording sets
+            // ChildBranchPointId on the closed parent AND the surrounding
+            // flow swaps BackgroundMap[pid] to the continuation's id.
+            // The closed parent's RecordingId no longer matches the
+            // BackgroundMap entry (continuation owns it), and the closed
+            // parent isn't tree.ActiveRecordingId either — both
+            // active-pool checks miss, so the predicate returns true.
+            //
+            // The model "ChildBranchPointId set means closed" was fixed
+            // in the fourth review pass: that signal is also set on the
+            // ACTIVE focused recording during a focused breakup
+            // (ProcessBreakupEvent at ParsekFlight.cs:5427), where the
+            // recording keeps growing. So ChildBranchPointId-set is
+            // NOT sufficient evidence of closure — what closes a
+            // background parent is the BackgroundMap swap to the
+            // continuation, not the ChildBranchPointId stamp.
             var tree = new RecordingTree { Id = "tree" };
-            var parentRec = new Recording
+            var closedParent = new Recording
             {
                 RecordingId = "closed-parent",
                 VesselPersistentId = 100u,
                 ChildBranchPointId = "bp-1",
             };
-            tree.AddOrReplaceRecording(parentRec);
-            tree.BackgroundMap[100u] = "closed-parent";
+            tree.AddOrReplaceRecording(closedParent);
+            // Continuation owns the BackgroundMap entry now.
+            tree.BackgroundMap[100u] = "continuation-rec";
 
-            Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree));
+            Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(closedParent, tree));
         }
 
         [Fact]
@@ -215,26 +226,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Returns_True_When_Parent_Was_Active_But_Now_Closed_At_Split()
+        public void Returns_False_When_FocusedParent_Has_ChildBranchPointId_From_Breakup()
         {
-            // Composition: ChildBranchPointId set wins over ActiveRecordingId
-            // match. A recording can be tree.ActiveRecordingId AND have
-            // ChildBranchPointId set transiently (between CloseParentRecording
-            // and the swap to the continuation), but it's still closed.
-            // Treat ChildBranchPointId as the authoritative closed signal.
+            // Fourth review pass — the load-bearing focused-breakup-continuous
+            // regression. ParsekFlight.ProcessBreakupEvent (line 5427) sets
+            //   activeRec.ChildBranchPointId = breakupBp.Id
+            // on the active focused recording at every focused-vessel breakup,
+            // BUT the comment at line 5430 explicitly says
+            //   "The recording continues past breakup (breakup-continuous design)".
+            // So the active focused recording can have ChildBranchPointId set
+            // mid-flight while still receiving samples. A predicate that
+            // short-circuits on ChildBranchPointId-set would have ended every
+            // focused-vessel debris on the first TTL tick after the very
+            // breakup that spawned it.
+            //
+            // The active-recording match must win over any
+            // ChildBranchPointId signal.
             var tree = new RecordingTree { Id = "tree" };
-            var closedRec = new Recording
+            var focusedActive = new Recording
             {
-                RecordingId = "closed-but-still-active-id",
-                VesselPersistentId = 100u,
-                ChildBranchPointId = "bp-1",   // closed at a split
+                RecordingId = "focused-active",
+                VesselPersistentId = 4242u,
+                ChildBranchPointId = "breakup-bp-1",  // set by ProcessBreakupEvent
             };
-            tree.AddOrReplaceRecording(closedRec);
-            // Hypothetical: ActiveRecordingId still points at the closed
-            // recording. The ChildBranchPointId branch should win.
-            tree.ActiveRecordingId = closedRec.RecordingId;
+            tree.AddOrReplaceRecording(focusedActive);
+            tree.ActiveRecordingId = focusedActive.RecordingId;
+            // BackgroundMap intentionally has NO entry for this vessel pid —
+            // the focused vessel is not background-recorded.
 
-            Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(closedRec, tree));
+            Assert.False(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(
+                focusedActive, tree));
         }
     }
 }

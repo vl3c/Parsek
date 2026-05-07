@@ -8,16 +8,25 @@ namespace Parsek
     /// trajectory samples — so the debris recording should be ended by the
     /// TTL hook (`BackgroundRecorder.CheckDebrisTTL`).
     ///
-    /// Rationale (PR 3b review follow-up): the original v8-of-the-plan
-    /// pseudocode used <c>parentRec.ExplicitEndUT &lt; currentUT</c> as the
-    /// "finalized" signal. That's a real bug — active background recordings
-    /// update <c>ExplicitEndUT</c> only at sample boundaries, so it lags the
-    /// current frame by the sample interval. Treating that lag as "finalized"
-    /// would end every v12 debris on the next TTL tick (a regression worse
-    /// than the original bug).
+    /// Rationale (PR 3b review follow-up — fourth iteration): the original
+    /// v8-of-the-plan pseudocode used <c>parentRec.ExplicitEndUT &lt; currentUT</c>
+    /// as the "finalized" signal. That's a real bug — active background
+    /// recordings update <c>ExplicitEndUT</c> only at sample boundaries, so
+    /// it lags the current frame by the sample interval. Treating that lag
+    /// as "finalized" would end every v12 debris on the next TTL tick.
     ///
-    /// Three categories of "still accepting samples" the predicate must
-    /// recognize as NOT-closed:
+    /// The natural-looking replacement was "<c>ChildBranchPointId</c> set
+    /// means closed." That's wrong too — focused-vessel breakups
+    /// (<c>ParsekFlight.ProcessBreakupEvent</c>) set
+    /// <c>activeRec.ChildBranchPointId = breakupBp.Id</c> on the active
+    /// focused recording, but the recording <i>keeps growing past the
+    /// breakup</i> (breakup-continuous design — see
+    /// <c>ParsekFlight.cs:5427-5432</c>). So <c>ChildBranchPointId</c>-set
+    /// is NOT sufficient to conclude "closed." It's a chain-topology
+    /// marker, not a recording-state marker.
+    ///
+    /// The authoritative signal for "still accepting samples" is membership
+    /// in one of the recorder's two active-recording pools:
     /// <list type="number">
     /// <item><description><b>Active focused recording</b> —
     /// <c>tree.ActiveRecordingId == parent.RecordingId</c>. The active /
@@ -27,33 +36,36 @@ namespace Parsek
     /// incorrectly expire focused-vessel debris on the first TTL tick.
     /// This is the case for debris produced by
     /// <c>ParsekFlight.CreateBreakupChildRecording</c> — its parent is
-    /// the focused vessel.</description></item>
+    /// the focused vessel, and that vessel may have <c>ChildBranchPointId</c>
+    /// set from the very breakup that spawned the debris.</description></item>
     /// <item><description><b>Active background recording</b> —
     /// <c>BackgroundMap[parent.VesselPersistentId] == parent.RecordingId</c>.
     /// The recorder is currently writing samples to this recording for
-    /// its vessel.</description></item>
+    /// its vessel. After a background split,
+    /// <c>CloseParentRecording</c> sets <c>ChildBranchPointId</c> on the
+    /// closed parent AND swaps <c>BackgroundMap[pid]</c> to the
+    /// continuation's id — so the closed parent's <c>RecordingId</c> no
+    /// longer matches <c>BackgroundMap[pid]</c>, and this branch
+    /// correctly fails for it.</description></item>
     /// </list>
     ///
-    /// Robust "closed/superseded" signals (return <c>true</c>):
-    /// <list type="bullet">
-    /// <item><description><c>ChildBranchPointId</c> is set — the parent
-    /// recording was closed by a later split, even if a continuation took
-    /// over the live vessel. <c>CloseParentRecording</c> sets this when a
-    /// background split closes a parent.</description></item>
-    /// <item><description>Neither active-focused nor active-background:
-    /// the recorder has moved on (parent vessel destroyed →
-    /// <c>OnVesselRemovedFromBackground</c> removed the BG entry; or
-    /// parent was superseded by a Re-Fly that swapped the active
-    /// recording).</description></item>
-    /// </list>
+    /// Anything that fails BOTH active-pool checks is closed/superseded —
+    /// either the parent vessel was destroyed (BG entry removed by
+    /// <c>OnVesselRemovedFromBackground</c>), or the parent was superseded
+    /// by a Re-Fly (the active recording swapped to the provisional fork),
+    /// or the parent was a closed background recording whose continuation
+    /// now owns the BackgroundMap entry. ChildBranchPointId is no longer a
+    /// gate input — it is logged as a diagnostic hint at the call site so
+    /// the operator can distinguish "closed by split" from "vessel
+    /// destroyed" without changing predicate behavior.
     ///
     /// Defensive cases (return <c>true</c>): null inputs. Parent with
-    /// <c>VesselPersistentId == 0</c> is no longer treated as
-    /// automatically-closed because the focused-vessel case may legitimately
-    /// have a zero pid before the recorder assigns one (the active-recording
-    /// match handles that case correctly).
+    /// <c>VesselPersistentId == 0</c> is not treated as automatically-closed
+    /// because the focused-vessel case may legitimately have a zero pid
+    /// before the recorder assigns one (the active-recording match handles
+    /// that case correctly).
     ///
-    /// Pure function of three <see cref="Recording"/> fields and two
+    /// Pure function of two <see cref="Recording"/> fields and two
     /// <see cref="RecordingTree"/> fields; testable from xUnit without a
     /// Unity runtime.
     /// </summary>
@@ -70,17 +82,14 @@ namespace Parsek
             RecordingTree tree)
         {
             if (parentRec == null) return true;
-            // Closed at a split — even if a continuation took over the live
-            // vessel, the closed recording itself receives no more samples.
-            if (!string.IsNullOrEmpty(parentRec.ChildBranchPointId)) return true;
             if (tree == null) return true;
 
             // Active-focused recording: the parent IS the tree's active
-            // recording. PR 3b review follow-up #2 — focused-vessel debris
-            // (ParsekFlight.CreateBreakupChildRecording) anchors here, and
-            // the active recording is intentionally absent from BackgroundMap.
-            // Without this branch, every focused-vessel debris would be
-            // expired on the first TTL tick.
+            // recording. ChildBranchPointId may also be set (focused
+            // breakup-continuous design — ProcessBreakupEvent links the
+            // recording into the breakup BP topologically while the
+            // recording keeps growing past the breakup), so the active
+            // match must win over any ChildBranchPointId signal.
             if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
                 && string.Equals(
                         tree.ActiveRecordingId,
@@ -92,6 +101,11 @@ namespace Parsek
 
             // Active-background recording: BackgroundMap entry for the
             // parent's vessel pid points at the parent's recording id.
+            // After a background split, CloseParentRecording sets
+            // ChildBranchPointId AND swaps BackgroundMap[pid] to the
+            // continuation's id — so this branch correctly fails for the
+            // closed parent (its RecordingId no longer matches the
+            // BackgroundMap entry).
             if (parentRec.VesselPersistentId != 0u
                 && tree.BackgroundMap != null
                 && tree.BackgroundMap.TryGetValue(
