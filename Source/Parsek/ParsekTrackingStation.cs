@@ -32,7 +32,7 @@ namespace Parsek
         private const float LifecycleCheckIntervalSec = 2.0f;
         private const float GhostPopupWidth = 180f;
         private const float MaterializedFocusRetryDurationSec = 20.0f;
-        private const float MaterializedFocusRetryIntervalSec = 0.0f;
+        private const float MaterializedFocusRetryIntervalSec = 0.1f;
         private float nextLifecycleCheckTime;
         private ToolbarControl toolbarControl;
         private ParsekUI ui;
@@ -1699,6 +1699,22 @@ namespace Parsek
 
             uint spawnedPid = pendingMaterializedFocusPid;
             string reason = pendingMaterializedFocusReason ?? "tracking-station-materialize";
+            if (ShouldAbortMaterializedFocusRetryForCurrentSelection(
+                    spawnedPid,
+                    out string abortReason))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
+                        spawnedPid,
+                        reason,
+                        pendingMaterializedFocusAttempts,
+                        abortReason ?? "(none)"));
+                ClearPendingMaterializedFocus();
+                return;
+            }
+
             pendingMaterializedFocusAttempts++;
             nextMaterializedFocusAttemptTime = Time.time + MaterializedFocusRetryIntervalSec;
 
@@ -1730,6 +1746,82 @@ namespace Parsek
                     pendingMaterializedFocusAttempts,
                     focusError ?? "(none)"),
                 1.0);
+        }
+
+        private bool ShouldAbortMaterializedFocusRetryForCurrentSelection(
+            uint spawnedPid,
+            out string abortReason)
+        {
+            uint selectedGhostPid = GhostTrackingStationSelection.HasSelectedGhost
+                ? GhostTrackingStationSelection.SelectedGhost.GhostPid
+                : 0u;
+            if (ShouldAbortMaterializedFocusRetryForUserSelection(
+                    spawnedPid,
+                    GhostTrackingStationSelection.HasSelectedGhost,
+                    selectedGhostPid,
+                    selectedGhostPid != 0,
+                    out abortReason))
+            {
+                return true;
+            }
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+                return false;
+
+            if (!GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                    tracking,
+                    out uint selectedPid,
+                    out string selectedError))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "materialized-focus-selected-vessel-probe-failed",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry selection probe failed: pid={0} error={1}",
+                        spawnedPid,
+                        selectedError ?? "(none)"),
+                    1.0);
+                return false;
+            }
+
+            return ShouldAbortMaterializedFocusRetryForUserSelection(
+                spawnedPid,
+                false,
+                selectedPid,
+                selectedPid != 0,
+                out abortReason);
+        }
+
+        internal static bool ShouldAbortMaterializedFocusRetryForUserSelection(
+            uint pendingPid,
+            bool hasSelectedGhost,
+            uint selectedPid,
+            bool selectedPidAvailable,
+            out string reason)
+        {
+            reason = null;
+            if (pendingPid == 0)
+                return false;
+
+            if (hasSelectedGhost)
+            {
+                reason = "ghost-selected";
+                return true;
+            }
+
+            if (selectedPidAvailable
+                && selectedPid != 0
+                && selectedPid != pendingPid)
+            {
+                reason = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "stock-selection-changed selectedPid={0}",
+                    selectedPid);
+                return true;
+            }
+
+            return false;
         }
 
         private void ClearPendingMaterializedFocus()

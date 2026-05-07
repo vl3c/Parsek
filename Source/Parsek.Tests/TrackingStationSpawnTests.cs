@@ -491,6 +491,31 @@ namespace Parsek.Tests
             Assert.True(expired);
         }
 
+        [Theory]
+        [InlineData(123u, false, 0u, false, false, null)]
+        [InlineData(123u, false, 123u, true, false, null)]
+        [InlineData(123u, false, 456u, true, true, "stock-selection-changed selectedPid=456")]
+        [InlineData(123u, true, 456u, true, true, "ghost-selected")]
+        [InlineData(0u, true, 456u, true, false, null)]
+        public void ShouldAbortMaterializedFocusRetryForUserSelection_OnlyCancelsAfterUserNavigatesAway(
+            uint pendingPid,
+            bool hasSelectedGhost,
+            uint selectedPid,
+            bool selectedPidAvailable,
+            bool expectedAbort,
+            string expectedReason)
+        {
+            bool abort = ParsekTrackingStation.ShouldAbortMaterializedFocusRetryForUserSelection(
+                pendingPid,
+                hasSelectedGhost,
+                selectedPid,
+                selectedPidAvailable,
+                out string reason);
+
+            Assert.Equal(expectedAbort, abort);
+            Assert.Equal(expectedReason, reason);
+        }
+
         [Fact]
         public void GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices()
         {

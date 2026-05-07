@@ -950,6 +950,97 @@ namespace Parsek.Patches
             }
         }
 
+        internal static bool TryGetSelectedVesselPid(
+            object trackingInstance,
+            out uint selectedPid,
+            out string error)
+        {
+            selectedPid = 0;
+            error = null;
+
+            if (trackingInstance == null)
+                return false;
+
+            try
+            {
+                FieldInfo selectedField = trackingInstance.GetType().GetField(
+                    "selectedVessel",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (selectedField == null)
+                {
+                    error = "selectedVessel field not found";
+                    return false;
+                }
+
+                object selected = selectedField.GetValue(trackingInstance);
+                if (selected == null)
+                    return true;
+
+                if (selected is Vessel vessel)
+                {
+                    selectedPid = vessel.persistentId;
+                    return true;
+                }
+
+                if (TryReadPersistentId(selected, out selectedPid))
+                    return true;
+
+                error = "selectedVessel persistentId not found";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool TryReadPersistentId(object selected, out uint persistentId)
+        {
+            persistentId = 0;
+            if (selected == null)
+                return false;
+
+            const BindingFlags flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            Type type = selected.GetType();
+            FieldInfo field = type.GetField("persistentId", flags);
+            if (TryConvertPersistentId(field != null ? field.GetValue(selected) : null, out persistentId))
+                return true;
+
+            PropertyInfo property = type.GetProperty("persistentId", flags);
+            return TryConvertPersistentId(
+                property != null ? property.GetValue(selected, null) : null,
+                out persistentId);
+        }
+
+        private static bool TryConvertPersistentId(object raw, out uint persistentId)
+        {
+            persistentId = 0;
+            if (raw is uint uintValue)
+            {
+                persistentId = uintValue;
+                return true;
+            }
+            if (raw is int intValue && intValue >= 0)
+            {
+                persistentId = (uint)intValue;
+                return true;
+            }
+            if (raw is long longValue && longValue >= 0 && longValue <= uint.MaxValue)
+            {
+                persistentId = (uint)longValue;
+                return true;
+            }
+            if (raw is ulong ulongValue && ulongValue <= uint.MaxValue)
+            {
+                persistentId = (uint)ulongValue;
+                return true;
+            }
+
+            return false;
+        }
+
         internal static void DisableStockActionButtons(
             SpaceTracking tracking,
             out bool flyDisabled,

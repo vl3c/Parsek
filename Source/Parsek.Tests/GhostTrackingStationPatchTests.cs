@@ -252,6 +252,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetSelectedVesselPid_WithPrivateSelection_ReturnsPid()
+        {
+            var tracking = new FakeTrackingStation(new FakeSelectedVessel(456u));
+
+            bool ok = GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                tracking,
+                out uint selectedPid,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal(456u, selectedPid);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TryGetSelectedVesselPid_WithNoSelection_ReturnsZeroWithoutError()
+        {
+            var tracking = new FakeTrackingStation(null);
+
+            bool ok = GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                tracking,
+                out uint selectedPid,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal(0u, selectedPid);
+            Assert.Null(error);
+        }
+
+        [Fact]
         public void TrySelectTrackingStationVessel_WithSetVesselMethod_SelectsSpawnedVessel()
         {
             var spawned = new object();
@@ -1133,6 +1163,16 @@ namespace Parsek.Tests
             private void buildVesselsList()
             {
                 throw new InvalidOperationException("stock rebuild failed");
+            }
+        }
+
+        private sealed class FakeSelectedVessel
+        {
+            public readonly uint persistentId;
+
+            public FakeSelectedVessel(uint persistentId)
+            {
+                this.persistentId = persistentId;
             }
         }
     }
