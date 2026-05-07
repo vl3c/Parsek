@@ -24,6 +24,14 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // Set on debris recordings (v12+) to the parent recording's id; null on legacy v11
+        // debris and on non-debris. PR 3a schema only — populated by PR 3b at recording
+        // time (BackgroundRecorder / ParsekFlight breakup paths) and consumed by PR 3c
+        // playback gate to dispatch legacy v11 debris through the absolute-shadow path
+        // when this id is null. See docs/dev/plans/recording-and-ghost-policies-refactor-plan.md
+        // §"3a. Schema (PR 3a)".
+        public string DebrisParentRecordingId;
+
         // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
         // Ghost-only recordings never spawn a real vessel at playback end.
         public bool IsGhostOnly;
@@ -567,6 +575,10 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            // Propagate the v12+ debris parent-anchor contract alongside IsDebris.
+            // Without this, every cloned debris recording would silently lose the
+            // contract — see plan §"`IsDebris` propagation surface" site #4.
+            DebrisParentRecordingId = source.DebrisParentRecordingId;
             IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
@@ -846,6 +858,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stamps the v12+ debris parent-anchor contract on <paramref name="child"/>:
+        /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
+        /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
+        /// recordings so callers can invoke unconditionally adjacent to their existing
+        /// `IsDebris = …` assignments. Per plan §3b §"Helper".
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parent?.RecordingId;
+        }
+
+        /// <summary>
+        /// String overload of <see cref="ApplyDebrisAnchorContract(Recording, Recording)"/>
+        /// for the pure-static factory path (`BuildBackgroundSplitBranchData`) where the
+        /// caller has the parent's recording id but no Recording object in scope.
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parentRecordingId;
+        }
+
+        /// <summary>
         /// Returns true if this recording is "logically loopable" — a launch, atmospheric
         /// descent, surface departure, or docking segment whose loop replay has visual value.
         /// Used by the timeline L button to decide which entries get a loop toggle.
@@ -926,6 +964,7 @@ namespace Parsek
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
+        string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
         double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
         double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;

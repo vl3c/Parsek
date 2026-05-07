@@ -5105,7 +5105,8 @@ namespace Parsek
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
             ConfigNode fallbackSnapshot = null,
             TrajectoryPoint? fallbackTrajectoryPoint = null,
-            int parentGeneration = 0)
+            int parentGeneration = 0,
+            string parentRecordingId = null)
         {
             string childRecId = Guid.NewGuid().ToString("N");
             string vesselName = Recording.ResolveLocalizedName(vessel?.vesselName) ?? fallbackName;
@@ -5121,6 +5122,17 @@ namespace Parsek
                 IsDebris = isDebris,
                 Generation = parentGeneration + 1
             };
+            // PR 3b: stamp the v12+ debris parent-anchor contract on the new child
+            // Recording. The breakup branch point's ParentRecordingIds list can have
+            // multiple parents in chain-merge cases, so passing parentRecordingId
+            // explicitly avoids ambiguity — the focused recording is the right anchor.
+            Recording.ApplyDebrisAnchorContract(childRec, parentRecordingId);
+            if (childRec.IsDebris)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Debris contract applied at breakup: childRecId={childRecId} " +
+                    $"childPid={pid} parentRecId={parentRecordingId ?? "(none)"}");
+            }
 
             // Bug #419 — invariant-enforcement: before any seed-point or snapshot code
             // runs, trim any pre-existing trajectory points at or after the breakup UT.
@@ -5495,7 +5507,8 @@ namespace Parsek
                     initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
 
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
-                        ctrlSnap, initialPoint, parentGeneration: activeRec.Generation);
+                        ctrlSnap, initialPoint, parentGeneration: activeRec.Generation,
+                        parentRecordingId: activeRec.RecordingId);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
@@ -5550,7 +5563,8 @@ namespace Parsek
                         crashCoalescer.GetPreCapturedTrajectoryPoint(pid),
                         breakupBp.UT);
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
-                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
+                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation,
+                        parentRecordingId: activeRec.RecordingId);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
