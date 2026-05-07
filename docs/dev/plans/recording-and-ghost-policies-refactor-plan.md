@@ -1,13 +1,46 @@
 # Recording & Ghost Rendering — Refactor Plan
 
 Date: 2026-05-07
-Last amended: 2026-05-07 (post-Opus review)
+Last amended: 2026-05-07 (v7 — bug-evidence integration + legacy-debris playback gate)
 Branch: `claude/investigate-recording-policies-6tMZ9`
-Companion document: `recording-and-ghost-policies-audit-2026-05-07.md`
+Companion documents:
+- `recording-and-ghost-policies-audit-2026-05-07.md` — read-only audit of current behavior
+- `fix-debris-trajectory-rendering.md` (branch `investigate-debris-trajectory-rendering`) — companion investigation with the alternative Absolute-only proposal and the retained log bundle. See §"Considered alternatives".
 
 ## Goal
 
 Fix the observed debris-rendering bugs **without introducing regressions in the working Re-Fly path.** Re-Fly recording and rendering currently work; nothing in this plan should change Re-Fly's data, code paths, or playback dispatch in ways that affect non-debris recordings.
+
+## Bug evidence
+
+The dominant symptoms come from a retained investigation session captured under `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (companion investigation document: `docs/dev/plans/fix-debris-trajectory-rendering.md` on branch `investigate-debris-trajectory-rendering`). These signals are the validation targets for the fix: after the contract lands, replaying this session should drive every count below to zero for debris recordings.
+
+**KSP.log counts (`grep -c`):**
+
+- 49 × `relative-anchor-unresolved: reason=anchor-out-of-recorded-range`
+- 21 × `RELATIVE recorded-anchor fallback to absolute shadow`
+- 5 × `Recording anchor candidates: ... live=0/1 ghost=...` for debris
+
+**Representative evidence lines:**
+
+```text
+[Playback] RELATIVE recorded-anchor fallback to absolute shadow: recording #6 "Kerbal X Debris" recordingId=0123b753 anchorRec=b2b5215a32ba49778a8bba50c058ff56 frames=73 sectionUT=[16500.5,16524.1]
+[Playback] RELATIVE recorded-anchor fallback to absolute shadow: recording #4 "Kerbal X Debris" recordingId=6213fe30 anchorRec=c2c7d56a21e44af2abb8830a94ccaaf7 frames=59 sectionUT=[16499.8,16522.1]
+[Merger] MergeTree: boundary discontinuity=8147542.00m at section[2] ut=16524.10 vessel='Kerbal X Debris' prevRef=Relative nextRef=Relative dt=0.80s expectedFromVel=144.77m cause=sample-skip
+[Flight] RestoreActiveTreeFromPending: in-place continuation marker swapped target rec='e1ea034b...'->'rec_7304951b...' vessel='Kerbal X'->'Kerbal X Probe' bgMapEntries=1->0
+[BgRecorder] Background recording anchor candidates: pid=186071430 recordingId=d84e050b... live=0/1 ghost=7/7 total=7 | suppressed=7
+[BgRecorder] RELATIVE mode entered: pid=186071430 recordingId=d84e050b... anchorRecordingId=0123b753... source=Ghost diagnosticPid=3420041107 dist=200.8m liveCandidates=0/1 ghostCandidates=7/7
+```
+
+**Two failure modes are visible:**
+
+1. **Ordinary debris with closed-anchor coverage hole** (recording `e13b6f3f...` anchor `00964eb6...` ends at UT 1213.398, child sample at UT 1228.435). Anchor recording finalized before the child needed it; resolver falls back to `absoluteFrames` shadow on every frame. Sparse Relative sections (`maxGap=1.640s`, `maxGap=1.846s`) make the fallback noisy.
+
+2. **Re-Fly debris loses live anchor.** `RestoreActiveTreeFromPending` removes the active Re-Fly recording from `tree.BackgroundMap` (`bgMapEntries=1->0`). `BackgroundRecorder.AddBackgroundLiveAnchorCandidates` only resolves loaded live candidates through `BackgroundMap`, so new debris from the live Re-Fly vessel sees `live=0/1 ghost=7/7` and anchors to **old pre-Re-Fly ghosts**, encoding its trajectory relative to a displaced ghost frame instead of the actual breakup site. The merger then reads those Relative offsets as world coordinates and reports megametre-scale "discontinuities" (`105148.80m`, `406011.50m`, `8147542.00m`, up to `16479040.00m`).
+
+**Why this fix solves both:** the parent-anchor contract makes "find the anchor" a Recording-ID lookup that doesn't go through `BackgroundMap` — Re-Fly inheritance via `RewindInvoker.cs:954` carries the parent's recording ID through the supersede chain, and the resolver's existing chain-walk handles supersede successors. The closed-coverage-hole case is fixed because the parent recording has live samples for the entire window the debris exists (debris cannot outlive a parent that was unrenderable; Decision §7).
+
+The megametre merger discontinuities are a **separate, independent bug** in `SessionMerger.ComputeBoundaryDiscontinuity` (interprets Relative anchor-local metres as world lat/lon/alt). Tracked in §"Known follow-ups" — not addressed by this plan.
 
 ## Why "isolation by adding code paths" is the wrong instinct
 
@@ -24,19 +57,23 @@ The Absolute/Relative contract is decided per-section by `section.referenceFrame
 1. **Debris policy is implicit, not contractual.** It's "nearest-eligible-anchor, like every other vessel." That's an emergent property of code that wasn't written with debris in mind — there's no contract saying "debris should be anchored to its parent." Mental models around the codebase assume there is one.
 2. **No regression harness on the resolver/positioning chain.** Re-Fly works today. Nothing prevents tomorrow's fix from silently breaking it.
 
-So the strategy is: **add tripwires (regression harness, scoped to what we can test) and contract clarity (explicit debris policy). Implement the fix at the recorder. Do not touch the resolver or any playback code** — debris visibility is bound to parent visibility, so the existing resolver behavior (return false on unresolvable anchor → don't render) is already the correct answer.
+So the strategy is: **add tripwires (regression harness, scoped to what we can test) and contract clarity (explicit debris policy). Implement the new-data fix at the recorder (PR 3b). Add a small read-only playback gate for legacy v11 debris (PR 3c) so existing broken saves render correctly without sidecar mutation.** For v12+ debris, the resolver behavior is unchanged: return false on unresolvable anchor → don't render, because debris visibility is bound to parent visibility (Decision §7).
 
 ---
 
 ## Decisions (confirmed by user 2026-05-07)
 
 1. **Harness location:** `Source/Parsek.Tests` (xUnit). Deterministic mocks where they can be added cheaply.
-2. **Parent unresolvable at playback (parent destroyed, loop-rejected, missing):** existing resolver behavior — return false → debris ghost doesn't render that frame. **No new fallback code.** Decision §7 below explains why.
+2. **Parent unresolvable at playback for v12+ debris (parent destroyed, loop-rejected, missing):** existing resolver behavior — return false → debris ghost doesn't render that frame. **No new fallback code for the contract case.** Decision §7 below explains why. (Legacy v11 debris is handled separately — see Decision §9.)
 3. **Cascade cap:** stays at `MaxRecordingGeneration = 1`. Secondary debris remains untracked.
 4. **Step 4 cleanups:** defer to a separate PR after the debris fix lands.
-5. **Recording-time distance source for `ShouldUseRelativeFrame`:** Option C — when `recording.AnchorRecordingId != null`, always record Relative, skip the 2300/2500m hysteresis at recording time. Simplest, fewest moving parts.
+5. **Recording-time distance source for `ShouldUseRelativeFrame`:** Option C — when `recording.DebrisParentRecordingId != null`, always record Relative, skip the 2300/2500m hysteresis at recording time. Simplest, fewest moving parts.
 6. **Primary bug surface:** focused-vessel debris (booster decouples during ascent / staging). Background-vessel debris is secondary. This means `ParsekFlight.CreateBreakupChildRecording` is the **highest-priority** of the three creation sites — Step 3b prioritizes it.
-7. **Debris visibility is bound to parent visibility (v6).** Debris is small and only meaningful within ~2300 m. If the parent isn't being rendered (too far, destroyed, loop-rejected), the debris doesn't need to either. This is why no playback fallback is needed: the existing "resolver returns false on unresolvable anchor → don't render" path is correct. Loop-debris and control-transfer therefore have no special cases. Contract is simply `child.AnchorRecordingId = parent.RecordingId` for any debris child.
+7. **Debris visibility is bound to parent visibility (v6).** Debris is small and only meaningful within ~2300 m. If the parent isn't being rendered (too far, destroyed, loop-rejected), the debris doesn't need to either. This is why no playback fallback is needed for v12+ debris: the existing "resolver returns false on unresolvable anchor → don't render" path is correct. Loop-debris and control-transfer therefore have no special cases. Contract is simply `child.DebrisParentRecordingId = parent.RecordingId` for any debris child.
+8. **Field naming.** The new top-level Recording field is `DebrisParentRecordingId : string` (default null). The name encodes the contract: it is debris-only, it points to the parent recording. Rationale: the name "Anchor" is already overloaded in the codebase (`Recording.LoopAnchorVesselId`, `TrackSection.anchorRecordingId`, `RecordingAnchorCandidate`, `AnchorDetector`); a generic-sounding alternative like `Recording.AnchorRecordingId` would invite confusion at every read site. If we ever generalize to non-debris parent anchoring, a rename is cheap.
+9. **Legacy v11 debris gets a retroactive playback-only fix (PR 3c).** Existing broken saves contain v11 debris recordings whose `section.anchorRecordingId` was chosen by the nearest-vessel-at-sample-time rule and is often wrong. These recordings cannot be repaired in place (sidecar mutation on read is rejected as too risky), but their `section.absoluteFrames` shadows are intact and represent the actual world position at sample time. Playback dispatch prefers `absoluteFrames` over the resolver chain whenever `recording.IsDebris && recording.DebrisParentRecordingId == null && section.referenceFrame == Relative && section.absoluteFrames` is non-empty. This fires for legacy v11 debris only — for v12+ debris, `DebrisParentRecordingId` is always set so the gate is skipped and Decision §7 holds. Reasoning: the user has existing broken saves; without this, "fix" means "stop creating new broken data" and the existing data stays broken until overwritten.
+10. **Parent goes on-rails → end debris recording.** When a debris recording's parent vessel transitions to `packed` / `!loaded` (mid-debris-life timewarp / scene boundary), the debris recording is finalized via the existing `EndDebrisRecording` path. Implementation hooks into `CheckDebrisTTL` (`BackgroundRecorder.cs:1191`); see Step 3b §"Parent on-rails" for details. Composes with Decision §7 — the same "debris bound to parent visibility" rule, applied at recording time instead of playback.
+11. **Re-Fly settle gap → suppress debris sampling while parent is suppressed.** During the ~1–2 s post-load Re-Fly settle window, parent's recording has trajectory writes blocked by `ShouldSuppressReFlyPostLoadTrajectoryWrite`. Debris created during that window mirrors the parent: skip the per-frame Relative sample. The debris recording's first emitted Relative section starts at parent-settle-release UT, anchored to parent's live pose at that UT. Net effect: brand-new debris created during a Re-Fly load is invisible for ~1–2 s, then appears. Acceptable per the visibility-bound-to-parent contract. See Step 3b §"Re-Fly settle window" for the recorder hook.
 
 ---
 
@@ -109,19 +146,22 @@ Realistic: 1-2 weeks for the initial harness including the `IPlaybackBody` mock 
 Today's playback already renders a vessel ghost together with its debris children — they appear visually linked. Two consequences flow from this:
 
 1. **What's wrong** is the *spatial data*: the debris's anchor at sample time was "nearest eligible vessel," which is usually but not always the parent. So the visually-linked rendering shows debris in the wrong place when the recorded anchor wasn't the parent. The contract below makes the recorded data match what the visual link already implies.
-2. **What's right** is the visibility coupling: debris visibility is bound to parent visibility. Debris is small (only meaningful within ~2300 m) and exists *as part of* the parent's visual narrative. If the parent isn't rendering (too far, destroyed, loop-rejected), the debris doesn't need to either. **This is why the contract needs no playback-side fallback** — the existing resolver behavior (return false on unresolvable anchor → don't render) is exactly the right answer.
+2. **What's right** is the visibility coupling: debris visibility is bound to parent visibility. Debris is small (only meaningful within ~2300 m) and exists *as part of* the parent's visual narrative. If the parent isn't rendering (too far, destroyed, loop-rejected), the debris doesn't need to either. **This is why v12+ debris needs no playback-side fallback** — the existing resolver behavior (return false on unresolvable anchor → don't render) is exactly the right answer. The separate PR 3c playback gate addresses *legacy v11 debris in existing saves*, not the v12+ contract.
 
 ### Proposed contract
 
-> **Debris is anchored to its parent recording for its entire lifetime.**
+> **Debris is anchored to its parent recording for its entire lifetime (v12+).**
 >
-> When a split produces a child recording marked `IsDebris = true`:
+> When a split produces a child recording marked `IsDebris = true` in v12+ code:
 >
-> 1. The child's `Recording.AnchorRecordingId` (a new top-level field) is set to the parent's `RecordingId` at registration time. No special cases.
-> 2. When `AnchorRecordingId != null`, every Relative `TrackSection` written into the child uses that anchor — the per-frame nearest-anchor search is **skipped** for those recordings.
+> 1. The child's `Recording.DebrisParentRecordingId` (a new top-level field) is set to the parent's `RecordingId` at registration time. No special cases.
+> 2. When `DebrisParentRecordingId != null`, every Relative `TrackSection` written into the child uses that anchor — the per-frame nearest-anchor search is **skipped** for those recordings.
 > 3. **Recording-time:** Option C (per Decision §5). Always record Relative. The 2300/2500m hysteresis is bypassed at recording time — the debris is always-Relative-to-parent for its entire lifetime.
-> 4. **Playback-time:** no new code path. If the parent's pose is unresolvable at the requested UT (parent destroyed, parent superseded and Re-Fly walk-back returns nothing, parent rejected as loop anchor), the existing resolver returns false and the debris ghost doesn't render for that frame. This is **the desired behavior** — debris visibility is bound to parent visibility.
-> 5. The cascade cap (`MaxRecordingGeneration = 1`) stays — secondary debris (debris of debris) is still not recorded.
+> 4. **Playback-time for v12+ debris:** no new code path. If the parent's pose is unresolvable at the requested UT (parent destroyed, parent superseded and Re-Fly walk-back returns nothing, parent rejected as loop anchor, parent on-rails), the existing resolver returns false and the debris ghost doesn't render for that frame. This is **the desired behavior** — debris visibility is bound to parent visibility.
+> 5. **Playback-time for legacy v11 debris** (`IsDebris == true && DebrisParentRecordingId == null`, per Decision §9): playback prefers `section.absoluteFrames` over the resolver chain. This is a small, version-aware playback adjustment that retroactively fixes existing broken saves. Spelled out in Step 3c.
+> 6. The cascade cap (`MaxRecordingGeneration = 1`) stays — secondary debris (debris of debris) is still not recorded.
+
+The contract is **two-pronged**: (a) v12+ recorder writes correct data going forward; (b) v11 playback prefers the persisted `absoluteFrames` shadow that already represents the actual world position at sample time. Both prongs deliver visible improvement on the user's known-broken cases — without (b), users with existing broken saves see no change until they overwrite all old debris.
 
 ### Edge cases this contract addresses
 
@@ -129,14 +169,18 @@ Today's playback already renders a vessel ghost together with its debris childre
 |-----------|------------------------|-------------------|
 | Booster decouples, drifts away | Anchor flips to whatever is nearest, then to Absolute past 2500m → ghost can teleport when the late-life "anchor" is some other vessel that moved | Anchor stays parent for life. Once the parent is too far to render (also true for the debris at that distance), neither renders. |
 | Parent re-flied (supersede chain) | Re-Fly resolver chases anchor through chain, but also through any other anchor the debris picked up during sample time → unpredictable | Anchor is always parent; resolver only chases parent supersedes. |
+| **New debris created during Re-Fly** | `RestoreActiveTreeFromPending` excludes provisional from `BackgroundMap` (`bgMapEntries=1->0`). New debris sees `live=0/1 ghost=N/N` and anchors to old pre-Re-Fly ghosts → renders at displaced pre-Re-Fly position. | Recorder writes `DebrisParentRecordingId = provisional.RecordingId` directly. No `BackgroundMap` lookup needed. Resolver's existing chain-walk handles supersede. |
 | Debris of debris | Silently dropped (cascade cap) | Still silently dropped — same behavior, but now explicitly contracted. |
 | Parent destroyed mid-debris-life | Debris ghost may continue rendering with stale anchor pose | Resolver returns false → debris stops rendering. Matches design intent: debris exists as part of parent's visual narrative. |
+| **Parent goes on-rails / packed mid-debris-life** | Debris keeps recording Relative against an on-rails parent that has no live world pose to sample against. Resulting Relative offsets are stale or invalid. | Per Decision §10: `CheckDebrisTTL` ends the debris recording when parent is `packed` or `!loaded`. `EndDebrisRecording` flushes the existing data; debris stops growing. Symmetric with parent-destroyed. |
+| **Re-Fly settle window** (debris created during ~1–2 s post-load suppression) | Parent's recording is suppressed during settle. New debris would write Relative sections referencing parent UTs with no recorded data → resolver fails for entire window. | Per Decision §11: recorder skips per-frame Relative sample for debris while parent is suppressed (same `ShouldSuppressReFlyPostLoadTrajectoryWrite` predicate). First emitted Relative section starts at parent-settle-release UT. Brand-new debris invisible for ~1–2 s, then appears. |
 | **Parent recording has `LoopAnchorVesselId != 0`** | Resolver rejects loop recording as anchor → debris's nearest-anchor fallback may pick something wrong | Resolver still rejects → debris stops rendering. No special case in the contract. Same outcome as parent-destroyed: bound to parent visibility. |
 | **Cross-tree anchor** | Today's `IsRecordingAnchorDAGOrderEligible` allows cross-tree | Debris is always same-tree (parent is by construction). Contract is no-op for this case but harness scenario should verify. |
+| **Legacy v11 debris in existing saves** | `section.anchorRecordingId` was chosen by nearest-vessel-at-sample-time and is often wrong. Resolver "succeeds" but produces wrong pose. Today: 21× `RELATIVE recorded-anchor fallback to absolute shadow` warnings + 49× `anchor-out-of-recorded-range` per investigation session. | PR 3c playback gate: `recording.IsDebris && recording.DebrisParentRecordingId == null` prefers `section.absoluteFrames` over the resolver. Retroactively fixes the broken saves without mutating sidecars. |
 
-### `IsDebris` propagation surface (post-review v2)
+### `IsDebris` propagation surface
 
-The plan must propagate `Recording.AnchorRecordingId` through **every site that propagates `IsDebris`**. The first review caught the three primary creation sites; the second review caught five secondary propagation sites the plan had ignored. Complete enumeration:
+The plan must propagate `Recording.DebrisParentRecordingId` through **every site that propagates `IsDebris`**. Eight sites total — three primary creation sites, five secondary propagation sites. Complete enumeration:
 
 **Primary creation sites (set `IsDebris = true` on a brand-new Recording):**
 
@@ -153,54 +197,63 @@ The plan must propagate `Recording.AnchorRecordingId` through **every site that 
 8. `BackgroundRecorder.cs:673` — parent-continuation recording in BG-split branch: `IsDebris = parentRec.IsDebris`.
 
 **Read sites (no propagation needed but useful for tests):**
-- `RecordingTreeRecordCodec.cs:744` — load. Must default `AnchorRecordingId = null` on legacy versions; explicit symmetric write at `RecordingTreeRecordCodec.cs:215` for new field.
+- `RecordingTreeRecordCodec.cs:744` — load. Must default `DebrisParentRecordingId = null` on legacy versions; explicit symmetric write at `RecordingTreeRecordCodec.cs:215` for new field.
 
-**Implementation strategy:** introduce a single helper `ApplyDebrisAnchorContract` (Step 3b) and call it adjacent to every primary `IsDebris = true` assignment. For secondary copy sites, propagate the new field on the same line: `dest.AnchorRecordingId = src.AnchorRecordingId;` immediately after each `dest.IsDebris = src.IsDebris;`.
+**Implementation strategy:** introduce a single helper `ApplyDebrisAnchorContract` (Step 3b) and call it adjacent to every primary `IsDebris = true` assignment. For secondary copy sites, propagate the new field on the same line: `dest.DebrisParentRecordingId = src.DebrisParentRecordingId;` immediately after each `dest.IsDebris = src.IsDebris;`.
 
 **Unit test obligation (Step 1 / harness):** every numbered site above gets a unit test that exercises the propagation. If the harness scenarios capture broken behavior at any site, the propagation isn't complete.
 
 ### What *changes* at recording time
 
-- New field: `Recording.AnchorRecordingId` (string, default null), persisted in ConfigNode.
+- New field: `Recording.DebrisParentRecordingId` (string, default null), persisted in ConfigNode.
 - All three creation sites set it for `IsDebris` children. No exceptions.
-- BackgroundRecorder per-frame sampling: when `recording.AnchorRecordingId != null`, write that as `section.anchorRecordingId` and skip the nearest-anchor search.
-- `AnchorDetector.ShouldUseRelativeFrame` distance source: when `recording.AnchorRecordingId != null`, distance is to parent recording's pose at sample time. Requires the recorder to invoke the resolver — **acknowledged inversion of dependency** that adds non-trivial implementation risk (see Step 3b notes).
+- **Per-frame sampling, periodic path** (`BackgroundRecorder.OnBackgroundPhysicsFrame` → `ApplyBackgroundRelativeOffset` at line 1780): when `recording.DebrisParentRecordingId != null`, force Relative section, write `section.anchorRecordingId = recording.DebrisParentRecordingId`, skip the candidate-list / nearest-search.
+- **Per-frame sampling, structural-event seam** (`BackgroundRecorder.OnBackgroundPhysicsFrame` → `ApplyBackgroundRelativeOffset` at line 5460, called from the structural-event snapshot path): same treatment. **Critical:** the structural-event path bypasses `UpdateBackgroundAnchorDetection`, so the debris-anchor enforcement must apply directly in `ApplyBackgroundRelativeOffset` (or its `*ForAnchorPose` callee), not only in the periodic anchor-detection branch. Per investigation §"Phase 1 §2".
+- **Initial seed point.** `RegisterChildRecordingsFromSplit` builds the seed via `CreateAbsoluteTrajectoryPointFromVessel` and stores it in `pendingInitialTrajectoryPoints` for `OnVesselBackgrounded` to consume one frame later. The seed is "Absolute" only in the data sense (its `latitude/longitude/altitude` fields are body-fixed). For a debris recording with `DebrisParentRecordingId != null`, the seed is converted to Relative-to-parent **before** it lands in the first track section: open the first section as `ReferenceFrame.Relative` with `anchorRecordingId = parent.RecordingId`, then run the existing `ApplyBackgroundRelativeOffsetForAnchorPose` on the seed point (mutating `latitude/longitude/altitude` into anchor-local metres `dx/dy/dz` via `TrajectoryMath.ComputeRelativeLocalOffset`, and `rotation` into anchor-local form via `ComputeRelativeLocalRotation`). The same helpers used for the focused recorder; no new math.
+- **Recording-time anchor-pose source.** Parent's live world pose at sample UT, pulled from `Vessel.transform` via the parent recording's `VesselPersistentId` (`FlightRecorder.FindVesselByPid(parent.VesselPersistentId)`). This is a scene-state lookup, not a recording-data lookup — no recursion through `RelativeAnchorResolver` at recording time. For focused-vessel debris, parent is the focused vessel (`FlightGlobals.ActiveVessel`); for background-vessel debris, parent is another loaded background vessel in `tree.BackgroundMap`. Decision §5 ensures we never need parent's recorded pose at sample time, only its live pose.
+- **`AnchorDetector.ShouldUseRelativeFrame` is bypassed for debris.** Per Decision §5 (Option C): when `recording.DebrisParentRecordingId != null`, the recorder unconditionally writes Relative — no distance computation, no hysteresis read, no resolver call. This sidesteps the recursion / performance concerns the v5 plan flagged.
+- **`CheckDebrisTTL` extended to end debris when parent goes on-rails** (per Decision §10). Today the loop in `BackgroundRecorder.cs:1198-1242` ends the recording when the *debris's own* `Vessel` is `null` or `!loaded`. Extend it: when `child.DebrisParentRecordingId != null`, also resolve `parentVessel = FlightRecorder.FindVesselByPid(parent.VesselPersistentId)` and end the debris recording if `parentVessel == null || parentVessel.packed || !parentVessel.loaded`. Same exit path (`EndDebrisRecording`), distinct log line (`Debris TTL: parent on-rails or destroyed, ending recording: parentPid=... vesselPid=...`).
+- **Re-Fly settle gap → skip per-frame Relative sample while parent is suppressed** (per Decision §11). In the `BackgroundRecorder` per-frame entry for a recording with `DebrisParentRecordingId != null`, before computing the Relative offset, check `ShouldSuppressReFlyPostLoadTrajectoryWrite(parent.RecordingId, sampleUT)`. If suppressed, skip the sample entirely — log `RELATIVE sample suppressed (parent in Re-Fly settle): pid=... recordingId=... parentRecId=...` and return without writing a section. The debris recording's first emitted section thus starts at parent-settle-release UT, anchored to parent's live pose at that UT.
 
 ### What *doesn't* change
 
-- The `referenceFrame`-based dispatch in `GhostPlaybackEngine` and the positioner methods. Untouched.
+- The `referenceFrame`-based dispatch in `GhostPlaybackEngine` and the positioner methods. Untouched for non-debris. **Debris adds one new gate** — see Step 3c (legacy debris prefers `absoluteFrames`).
 - The `RelativeAnchorResolver` chain for non-debris recordings. Untouched.
+- The `RelativeAnchorResolver` chain for **v12+ debris**. Walks the parent recording exactly like any other anchor; no new resolver behavior required for the contract case.
 - Re-Fly walk-back for non-debris. Untouched.
-- Non-debris background vessels. Untouched.
+- Non-debris background vessels. Untouched. (Their existing closed-anchor coverage holes are tracked in §"Known follow-ups" — not addressed by this plan.)
 - The cascade cap.
+- The `absoluteFrames` shadow continues to be written by the recorder for v12+ debris (the v7+ format already does this for every Relative section via `state.currentTrackSection.absoluteFrames`). The shadows are insurance — they feed PR 3c's playback rule for legacy debris, and they're still useful for `IncompleteBallisticSceneExitFinalizer` / merger paths.
 
 ### Format version
 
-The new top-level `Recording.AnchorRecordingId` is written by `RecordingTreeRecordCodec.SaveRecordingInto` (ConfigNode codec). The binary `.prec` codec is **not affected** — it stores trajectory data (points, sections, orbit segments, events), not top-level Recording fields.
+The new top-level `Recording.DebrisParentRecordingId` is written by `RecordingTreeRecordCodec.SaveRecordingInto` (ConfigNode codec). The binary `.prec` codec is **not affected** — it stores trajectory data (points, sections, orbit segments, events), not top-level Recording fields.
 
-- ConfigNode codec: bump `RecordingFormatVersion` to 12, add `DebrisAnchorChainFormatVersion = 12 = CurrentRecordingFormatVersion` named constant in `RecordingStore.cs:57-65`.
+- ConfigNode codec: bump `RecordingFormatVersion` to 12, add `DebrisParentRecordingFormatVersion = 12 = CurrentRecordingFormatVersion` named constant in `RecordingStore.cs:57-65`.
 - Binary codec: **no version bump** (the per-section `anchorRecordingId` field already exists since v11).
-- Load-time: legacy recordings get `AnchorRecordingId = null` and use legacy nearest-anchor search.
+- Load-time: legacy recordings get `DebrisParentRecordingId = null` and use legacy nearest-anchor search.
 
 ---
 
 ## Step 3 — Implement the debris contract
 
-**Slicing:** Step 3 splits into two PRs (3a, 3b). The original plan had a third PR (3c) for a resolver-side fallback, but v6 dropped that — debris visibility is bound to parent visibility, so the existing "resolver returns false → don't render" path is the correct behavior when the parent is unresolvable. No new playback code is needed.
+**Slicing:** Step 3 is three PRs (3a schema, 3b recorder, 3c legacy-debris playback gate). The v6 revision had eliminated 3c entirely on the basis that "no playback code is needed"; v7 reintroduces a *different* 3c — not a fallback for unresolvable parents, but a small playback gate that retroactively fixes legacy v11 debris in existing saves. See Decision §9 and the §"Bug evidence" investigation for the rationale.
 
 ### 3a. Schema (PR 3a)
 
-- Add `Recording.AnchorRecordingId` (string, default null).
+- Add `Recording.DebrisParentRecordingId` (string, default null).
 - ConfigNode codec **write** in `RecordingTreeRecordCodec.SaveRecordingInto` (alongside the existing `IsDebris` write at line 215 area).
 - ConfigNode codec **read** in the load path adjacent to `RecordingTreeRecordCodec.cs:744` (`isDebris` load).
 - Format-version constant + bump per "Format version" section above.
-- Load-time default-to-null on legacy versions (recordings with `RecordingFormatVersion < 12` get `AnchorRecordingId = null` and continue using legacy nearest-anchor at recording time + legacy shadow at playback).
+- Load-time default-to-null on legacy versions (recordings with `RecordingFormatVersion < 12` get `DebrisParentRecordingId = null` and continue using legacy nearest-anchor at recording time + legacy shadow at playback).
 - Save/load round-trip tests.
 - **No recorder change. Field is unused. Bisect-safe.**
 
-### 3b. Recorder (PR 3b) — primary fix, load-bearing
+### 3b. Recorder (PR 3b) — primary fix for new data
 
-**This is the load-bearing PR — the entire fix.** v6 dropped the planned resolver fallback (PR 3c was eliminated) because debris visibility is bound to parent visibility (Decision §7). The dominant observed bug ("debris ghost teleports / desyncs") is fixed entirely by writing the *correct* `anchorRecordingId` into the section at recording time. Once the section's anchor is the parent recording, the existing playback path produces correct visuals when the parent is rendered, and produces "no render" when the parent isn't — which is the right behavior.
+**This is the load-bearing PR for new data.** Writing the *correct* `anchorRecordingId` into the section at recording time fixes the dominant observed bug ("debris ghost teleports / desyncs") for any debris recorded after this PR lands. PR 3c is the companion that delivers the same fix retroactively for users with existing broken saves — without 3c, "fix" means "stop creating new broken data" and existing data stays broken until overwritten.
+
+Once the section's anchor is the parent recording, the existing playback path produces correct visuals when the parent is rendered, and produces "no render" when the parent isn't — which is the right behavior per Decision §7.
 
 #### Helper
 
@@ -210,63 +263,153 @@ Introduce two overloads (one Recording-typed, one string-typed for the static fa
 internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
 {
     if (!child.IsDebris) return;
-    child.AnchorRecordingId = parent?.RecordingId;
+    child.DebrisParentRecordingId = parent?.RecordingId;
 }
 
 internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
 {
     if (!child.IsDebris) return;
-    child.AnchorRecordingId = parentRecordingId;
+    child.DebrisParentRecordingId = parentRecordingId;
 }
 ```
 
 #### Primary creation sites — invocation and ordering
 
 1. `ParsekFlight.CreateBreakupChildRecording` (`ParsekFlight.cs:5103`) — call helper immediately after the new Recording is constructed, before it's returned to the caller.
-2. `BackgroundRecorder.RegisterChildRecordingsFromSplit` (`BackgroundRecorder.cs:1059`) — **ordering matters** (per review §S3). Today the code at lines 1097-1115 registers the recording in the tree and initializes sampling state *before* setting `IsDebris = true` at line 1115. The helper must be moved earlier so `AnchorRecordingId` is set **before** `tree.AddOrReplaceRecording(child)` (line 1097) and before `OnVesselBackgrounded(...)` (line 1108). Concretely: refactor lines 1097-1129 so the `IsDebris` and `AnchorRecordingId` assignments happen at the top of the per-child loop iteration, then registration, then sampling init.
+2. `BackgroundRecorder.RegisterChildRecordingsFromSplit` (`BackgroundRecorder.cs:1059`) — **ordering matters** (per review §S3). Today the code at lines 1097-1115 registers the recording in the tree and initializes sampling state *before* setting `IsDebris = true` at line 1115. The helper must be moved earlier so `DebrisParentRecordingId` is set **before** `tree.AddOrReplaceRecording(child)` (line 1097) and before `OnVesselBackgrounded(...)` (line 1108). Concretely: refactor lines 1097-1129 so the `IsDebris` and `DebrisParentRecordingId` assignments happen at the top of the per-child loop iteration, then registration, then sampling init.
 3. `BackgroundRecorder.BuildBackgroundSplitBranchData` (`BackgroundRecorder.cs:1143`) — call helper inside the loop at lines 1163-1180, immediately after the constructor sets `IsDebris`.
 
 #### Secondary propagation sites
 
 Per the IsDebris-propagation enumeration above, also propagate at:
 
-- `Recording.cs:569` (`ApplyPersistenceArtifactsFrom`): add `AnchorRecordingId = source.AnchorRecordingId;` immediately after the `IsDebris` line.
-- `SessionMerger.cs:135`: add `merged.AnchorRecordingId = srcRec.AnchorRecordingId;`.
-- `RewindInvoker.cs:954`: add `provisional.AnchorRecordingId = inheritFrom.AnchorRecordingId;`. Re-Fly safety depends on this.
-- `RecordingOptimizer.cs:931`: add `second.AnchorRecordingId = original.AnchorRecordingId;`.
-- `BackgroundRecorder.cs:673` (parent-continuation): add `AnchorRecordingId = parentRec.AnchorRecordingId,` to the object initializer.
+- `Recording.cs:569` (`ApplyPersistenceArtifactsFrom`): add `DebrisParentRecordingId = source.DebrisParentRecordingId;` immediately after the `IsDebris` line.
+- `SessionMerger.cs:135`: add `merged.DebrisParentRecordingId = srcRec.DebrisParentRecordingId;`.
+- `RewindInvoker.cs:954`: add `provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;`. Re-Fly safety depends on this.
+- `RecordingOptimizer.cs:931`: add `second.DebrisParentRecordingId = original.DebrisParentRecordingId;`.
+- `BackgroundRecorder.cs:673` (parent-continuation): add `DebrisParentRecordingId = parentRec.DebrisParentRecordingId,` to the object initializer.
 
 #### Optimizer changes (per review §S5)
 
-- `RecordingOptimizer.CanAutoMerge` (`RecordingOptimizer.cs:26`): after the existing `LoopAnchorVesselId` mismatch guard at line 65, add an `AnchorRecordingId` mismatch guard. Two debris recordings with different parents cannot auto-merge — anchor mismatch is silent corruption of the parent-anchor contract.
-- `SplitAtSection` propagation is covered above.
+- `RecordingOptimizer.CanAutoMerge` (`RecordingOptimizer.cs:26`): after the existing `LoopAnchorVesselId` mismatch guard at line 65, add **two** new mismatch guards:
+  - `if (a.IsDebris != b.IsDebris) return false;` — defends against contract corruption where one half of a previously-split recording lost the field. Auto-merge only operates on consecutive chain segments of the same vessel, so this case shouldn't normally arise; the guard is one-line insurance.
+  - `if (a.DebrisParentRecordingId != b.DebrisParentRecordingId) return false;` — two debris with different parents cannot auto-merge.
+- `SplitAtSection` (`RecordingOptimizer.cs:931`): the `original` half is mutated in place and retains `IsDebris` and `DebrisParentRecordingId` automatically; only the `second` half (a fresh `Recording`) needs the explicit `second.DebrisParentRecordingId = original.DebrisParentRecordingId;` line, alongside the existing `second.IsDebris = original.IsDebris;`. Add an assertion test that the `original` half retains the field, so a future refactor that reconstructs `original` as a new object (rather than mutating in place) doesn't silently drop the contract.
 
 #### Per-frame anchor write
 
-In `BackgroundRecorder` sampling loop: when `recording.AnchorRecordingId != null`, set `section.anchorRecordingId = recording.AnchorRecordingId` and skip the candidate-list / nearest-search.
+In `BackgroundRecorder.ApplyBackgroundRelativeOffset` (called from `OnBackgroundPhysicsFrame` at line 1780, periodic sampling): when `recording.DebrisParentRecordingId != null`, set `section.anchorRecordingId = recording.DebrisParentRecordingId` and skip the candidate-list / nearest-search.
+
+#### Structural-event seam (per investigation §Phase 1 §2)
+
+`BackgroundRecorder.ApplyBackgroundRelativeOffset` is **also** called directly from the structural-event snapshot path at line 5460, bypassing `UpdateBackgroundAnchorDetection`. The debris-anchor enforcement must apply at both call sites: the helper that sets `section.anchorRecordingId` for debris must live inside `ApplyBackgroundRelativeOffset` (or its `*ForAnchorPose` callee), not only in the periodic anchor-detection branch. Without this, structural events for debris write Relative sections with whatever stale `state.currentAnchorRecordingId` was set in `state` — exactly the bug we're fixing.
+
+#### Initial seed point coordinate transform
+
+`RegisterChildRecordingsFromSplit` builds the seed point via `CreateAbsoluteTrajectoryPointFromVessel` (body-fixed `lat/lon/alt`). For debris with `DebrisParentRecordingId != null`, run `ApplyBackgroundRelativeOffsetForAnchorPose` on the seed before it lands in the first track section. The first section opens as `ReferenceFrame.Relative` with `anchorRecordingId = DebrisParentRecordingId`, then the seed's `latitude/longitude/altitude` are mutated to anchor-local metres `(dx, dy, dz)` via `TrajectoryMath.ComputeRelativeLocalOffset`, and `rotation` becomes anchor-local via `ComputeRelativeLocalRotation`. Same machinery as the focused recorder's `ApplyRelativeOffset`. **No new math.**
+
+Without this transform, the body-fixed seed lands in a Relative section whose downstream interpretation expects metres-as-`(dx, dy, dz)` — the CLAUDE.md "metres-as-degrees" gotcha in reverse. The seed would then read as a wildly off-scale anchor offset.
+
+#### Parent on-rails hook (per Decision §10)
+
+Extend `CheckDebrisTTL` (`BackgroundRecorder.cs:1198-1242`):
+
+```
+Vessel parentVessel = (child.DebrisParentRecordingId != null)
+    ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
+    : null;
+if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
+{
+    if (expired == null) expired = new List<uint>();
+    expired.Add(vesselPid);
+    ParsekLog.Info("BgRecorder",
+        $"Debris TTL: parent on-rails or destroyed, ending recording: " +
+        $"parentRecId={child.DebrisParentRecordingId} parentPid={parentRec.VesselPersistentId} " +
+        $"vesselPid={vesselPid}");
+    continue;
+}
+```
+
+Distinct log line so the existing "vessel destroyed/despawned" path remains diagnosable independently. The new branch is keyed on `child.DebrisParentRecordingId != null` — legacy v11 debris (without the field) keeps its original lifetime contract.
+
+#### Re-Fly settle window hook (per Decision §11)
+
+In `OnBackgroundPhysicsFrame`'s entry for a recording with `DebrisParentRecordingId != null`, before `UpdateBackgroundAnchorDetection` / `ApplyBackgroundRelativeOffset`:
+
+```
+if (ShouldSuppressReFlyPostLoadTrajectoryWrite(parent.RecordingId, sampleUT))
+{
+    ParsekLog.VerboseRateLimited("BgRecorder", "debris-parent-settle-suppressed",
+        $"RELATIVE sample suppressed (parent in Re-Fly settle): pid={vesselPid} " +
+        $"recordingId={recording.RecordingId} parentRecId={parent.RecordingId} " +
+        $"sampleUT={sampleUT.ToString("F2", CultureInfo.InvariantCulture)}",
+        2.0);
+    return;
+}
+```
+
+The debris recording's first emitted Relative section thus starts at parent-settle-release UT, anchored to parent's live pose at that UT. Net effect: brand-new debris created during a Re-Fly load is invisible for the ~1–2 s of settle, then appears.
 
 #### Recording-time frame decision (Option C, per Decision §5)
 
-When `recording.AnchorRecordingId != null`, the recorder always writes Relative sections — no distance computation, no hysteresis at recording time. No resolver call from the recorder, no recursion concerns. At playback, the existing resolver handles parent-resolvable cases correctly (parent is rendered → debris is rendered relative to it) and parent-unresolvable cases correctly (parent isn't rendered → resolver returns false → debris isn't rendered either).
+When `recording.DebrisParentRecordingId != null`, the recorder always writes Relative sections — no distance computation, no hysteresis at recording time. No resolver call from the recorder, no recursion concerns. At playback for v12+ debris, the existing resolver handles parent-resolvable cases correctly (parent is rendered → debris is rendered relative to it) and parent-unresolvable cases correctly (parent isn't rendered → resolver returns false → debris isn't rendered either). For legacy v11 debris (without the field), PR 3c handles playback separately.
 
-### 3c. Playback (no change required)
+### 3c. Legacy-debris playback gate (PR 3c) — retroactive fix for existing saves
 
-**No new playback code.** The dominant observed bug ("debris ghost teleports / desyncs because the recorded anchor was a third party that itself moved") is fixed entirely by PR 3b — by the time playback runs, the section's `anchorRecordingId` has already been written correctly by the recorder, and the existing resolver succeeds.
+**Purpose:** make existing v11 broken debris saves render correctly without mutating sidecar data. Per Decision §9.
 
-The contract's only "fallback" case is "parent unresolvable at playback time" (parent destroyed, loop-rejected, missing from save). For that case, the existing resolver behavior (return false → ghost doesn't render) is exactly the right answer, because **debris visibility is bound to parent visibility** — debris is small, only meaningful within ~2300 m, and exists as part of the parent's visual narrative. If the parent isn't rendering, the debris doesn't need to either.
+**Rule.** In the three Relative-resolver call sites in `ParsekFlight.InterpolateAndPositionRecordedRelative` (currently at `ParsekFlight.cs:21268, 21310, 21370`), insert a precheck **before** the call to `TryPositionGhostRecordedRelativeAt` / `TryResolveRecordedRelativeAnchorPose`:
 
-This means:
-- No format-version gate needed for a fallback path (there is no fallback path).
-- No resolver-recursion concerns for non-debris chains (the resolver is unchanged).
-- No "parent's last known Absolute pose" walk-back code (not needed).
-- The legacy v7 absolute-shadow path at `ParsekFlight.cs:21852` (`TryUseRelativeAbsoluteShadowFallback`) is **untouched** — pre-existing recordings that depend on it keep using it.
-- The CLAUDE.md "metres-as-degrees" gotcha never gets exercised — we never read parent's Relative-section lat/lon as body-fixed.
+```
+if (recording.IsDebris
+    && string.IsNullOrEmpty(recording.DebrisParentRecordingId)
+    && section.referenceFrame == ReferenceFrame.Relative
+    && section.absoluteFrames != null
+    && section.absoluteFrames.Count > 0)
+{
+    // Legacy v11 debris with broken anchor — prefer the absolute-shadow path
+    // that already represents the actual world position at sample time.
+    if (TryUseRelativeAbsoluteShadowFallback(...))
+        return;
+}
+// Fall through to the existing path (resolver-first, then shadow on resolver failure).
+```
+
+**Why a precheck and not a fallback rearrangement.** The existing call sites already use `TryUseRelativeAbsoluteShadowFallback` *after* resolver failure. For legacy v11 debris, the resolver often "succeeds" with the wrong anchor (some unrelated nearby vessel that has since moved) and never reaches the shadow path. Moving the shadow check ahead of the resolver — gated on the four-condition guard above — bypasses that wrong-anchor success case.
+
+**Conditions of the gate, in order:**
+
+1. `recording.IsDebris == true` — non-debris is unaffected.
+2. `string.IsNullOrEmpty(recording.DebrisParentRecordingId)` — v12+ debris (which has the field set) skips this gate and uses the resolver per Decision §7. Only legacy v11 debris (where `DebrisParentRecordingId` defaulted to null on load) hits the new path.
+3. `section.referenceFrame == ReferenceFrame.Relative` — Absolute sections need no special handling.
+4. `section.absoluteFrames` non-null and non-empty — graceful no-op when shadow data is unavailable (oldest format versions that predate v7 had no shadows; rare in practice but defensive).
+
+When all four conditions hold, the gate fires. When any condition fails, control falls through to the existing path verbatim.
+
+**Blast radius.** Three call sites in `ParsekFlight.cs`. The gate is read-only — no mutation of recording or section state. For non-debris and v12+ debris recordings, the new code is unreachable (gate fails) so behavior is byte-identical to today's main.
+
+**What this does NOT do:**
+
+- Does **not** mutate sidecar files. Existing `.prec` data is untouched on disk.
+- Does **not** alter the `RelativeAnchorResolver`'s behavior or recursion.
+- Does **not** affect map / tracking-station rendering paths (`GhostMapPresence.cs`) — those have their own resolver call sites; if log evidence later shows the same legacy bug surfaces there, the same gate can be replicated. Currently out of scope (no log evidence of map-side debris desync in the investigation bundle).
+- Does **not** apply to the `MergeTree: boundary discontinuity` megametre warnings. Those come from `SessionMerger.ComputeBoundaryDiscontinuity` interpreting Relative `lat/lon/alt` as world coordinates — a separate bug. Tracked in §"Known follow-ups".
+- Does **not** ship without `recording.IsDebris` guard — applying the rule to non-debris would silently change behavior for any non-debris Relative section that has a shadow, which could mask real resolver bugs.
+
+**Logging.** When the gate fires, emit a one-shot per-(recording, section) verbose log: `Playback: legacy debris path — preferring absoluteFrames shadow (recordingId=..., sectionIndex=..., shadowFrames=...)`. Use `ParsekLog.VerboseRateLimited` keyed on `legacy-debris-shadow-preferred` to avoid spam.
 
 ### 3d. Re-run harness
 
 Scenarios 4, 5, 7 hashes will change after PR 3b (the recorder change). Reset them in PR 3b with a comment: `// reset: debris parent-anchor contract introduced, see refactor-plan.md`. Scenarios 1, 2, 3, 6, 8, 9, 10 must NOT change. If any of them does, stop and investigate before merging.
 
-For scenarios involving debris with parent unresolvable (parent destroyed, loop-rejected): the resolver returns false → no rendered position. The harness should hash this as a sentinel value (e.g. `(NaN, NaN, NaN, NaN, NaN, NaN, NaN)`) and the test expectation is that the resolver consistently produces sentinels. This verifies the "debris bound to parent visibility" property without requiring a fallback code path.
+For scenarios involving v12+ debris with parent unresolvable (parent destroyed, loop-rejected): the resolver returns false → no rendered position. The harness should hash this as a sentinel value (e.g. `(NaN, NaN, NaN, NaN, NaN, NaN, NaN)`) and the test expectation is that the resolver consistently produces sentinels. This verifies the "debris bound to parent visibility" property.
+
+PR 3c adds two new scenarios:
+
+- **Scenario 11 — Legacy v11 debris (`DebrisParentRecordingId == null`) with `absoluteFrames` shadow.** Construct a synthetic v11 recording with `IsDebris = true`, no `DebrisParentRecordingId`, a Relative section pointing at an unrelated vessel, and a populated `section.absoluteFrames`. Hash the resolver output across the section. Expectation: hashes match the shadow data (`absoluteFrames` body-fixed positions), NOT the resolver's wrong-anchor output.
+- **Scenario 12 — Legacy v11 debris with no `absoluteFrames` shadow.** Same setup but with empty `absoluteFrames`. Expectation: gate's condition (4) fails, falls through to existing path. Hashes match the existing (pre-fix) behavior.
+
+Both scenarios run only after PR 3c lands; they fail-loud if the gate isn't wired correctly.
 
 ---
 
@@ -279,9 +422,9 @@ For scenarios involving debris with parent unresolvable (parent destroyed, loop-
 
 ### 4b. Audit-correction documentation
 
-The audit document said `AnchorEligibility` is duplicated across recorders. **It isn't** — `AnchorDetector.IsRecordingAnchorEligible` is shared. Update the audit's coupling table accordingly.
+Already addressed in v5 / v7 plan revisions: the audit's stale claims about `AnchorEligibility` duplication and "single playback dispatch" are corrected at audit lines 29-43, 157-161, 192, 210-211, 217-218. No further audit edits required for this fix.
 
-The audit also called the playback dispatch "single" — it isn't; it's dispersed across `IGhostPositioner` methods. Update the audit's "Coupling Analysis" row #1 to clarify.
+Future cleanup PRs touching the audit should preserve the corrections.
 
 ### 4c. What's NOT a refactor target
 
@@ -298,40 +441,87 @@ The audit also called the playback dispatch "single" — it isn't; it's disperse
 
 ---
 
-## Risk analysis (updated v6)
+## Considered alternatives
+
+### Absolute-only debris recording (rejected)
+
+Companion investigation document `docs/dev/plans/fix-debris-trajectory-rendering.md` (branch `investigate-debris-trajectory-rendering`) proposes restoring the pre-`f5cf3b68` invariant: **`Recording.IsDebris` background recordings author Absolute trajectory sections only.** The argument: the regression correlates with `f5cf3b68` introducing recording-id Relative anchors for background recordings, and the pre-`f5cf3b68` Absolute-only path "looked decent."
+
+This plan deliberately takes a different direction. Trade-offs:
+
+| Property | Absolute-only | Parent-anchor Relative (this plan) |
+|----------|---------------|-------------------------------------|
+| Visual co-bubble (parent and debris within ~2300 m) | Loses the spatial relationship — debris drifts independently in world frame even when it should appear locked to parent | Preserves the spatial relationship — debris pose is anchored to parent's pose, identical to how the focused vessel renders relative to its loaded peers today |
+| High-velocity atmospheric breakup (parent itself in Relative against focused vessel during ascent) | Debris is body-fixed but parent is moving in the focused vessel's frame → parent and debris drift apart visually | Both anchored to the same chain → coherent visual narrative |
+| Closed-anchor coverage hole (parent finalized before debris) | No problem — debris is body-fixed, doesn't need an anchor | Solved by Decision §10 (parent on-rails / destroyed → end debris recording) |
+| New debris during Re-Fly | Solved trivially (no anchor needed) | Solved by parent-anchor + `RewindInvoker.cs:954` inheritance + resolver supersede chain |
+| Recording cost | One body lat/lon/alt computation per sample | One anchor-pose lookup + one coordinate transform per sample (cheaper — uses live `Vessel.transform`, no resolver call) |
+| Existing broken saves | Migration path via "playback prefers shadow" (Phase 2 in the investigation) | Same migration path (PR 3c) — the two plans converge here |
+| Conceptual clarity | "Debris is its own world-frame object" | "Debris is part of parent's visual narrative" |
+
+The investigation's evidence (49 `anchor-out-of-recorded-range`, 21 fallback-to-shadow, 5 broken Re-Fly debris) is fixed by either approach. The deciding factor is the visual co-bubble: when a player watches a stage separation, the booster should appear locked to the main vessel during the brief window before they drift apart. Absolute-only loses that visual coherence; parent-anchor preserves it. This is consistent with how every other Relative-frame recording in Parsek works.
+
+The investigation document remains a useful comparison artifact — its log evidence and root-cause analysis are independent of the chosen fix and inform §"Bug evidence" above.
+
+### Eliminated by v6 (no longer applicable in v7)
+
+The v6 revision eliminated five risks under the "no playback code change" framing. v7 reintroduces a small playback change (PR 3c, legacy-debris-only) — but the eliminated risks remain eliminated because v7's playback change is structurally different from the v5 fallback:
+
+- ~~"Parent's last known pose" reads a Relative point as Absolute~~ — v7's gate uses `section.absoluteFrames` (which is body-fixed by construction), never reads parent's Relative-section lat/lon. CLAUDE.md gotcha not exercised.
+- ~~Fallback fires on non-debris recordings → breaks Re-Fly~~ — v7's gate has `recording.IsDebris` as condition #1.
+- ~~Format-version gate concerns~~ — v7's gate uses presence/absence of `DebrisParentRecordingId` (a runtime field state) instead of a version comparison.
+- ~~Loop-parent-with-no-Absolute debris becomes invisible (tradeoff)~~ — for v12+ debris, still by-design invisible per Decision §7. For v11 legacy debris with shadow, renders correctly via shadow.
+- ~~Re-Fly settle gap → fallback walks back to pre-rewind pose~~ — v7's recorder skips sampling during settle (Decision §11), so no settle-window data exists to walk back to.
+
+---
+
+## Known follow-ups not in this plan
+
+These are issues surfaced during investigation that share scope with the debris fix but are independent and are deliberately deferred.
+
+1. **`SessionMerger.ComputeBoundaryDiscontinuity` Relative-frame interpretation bug.** Current implementation compares `latitude/longitude/altitude` between consecutive points without checking `section.referenceFrame`. For Relative sections those fields are anchor-local metres `(dx, dy, dz)`, not world coordinates — the merger reads them as if they were lat/lon/alt and reports megametre "discontinuities" that aren't real. Source of the `8147542.00m` and `16479040.00m` warnings in the §"Bug evidence" appendix. Fix lives in `SessionMerger.cs`, independent of this plan; needs its own design pass.
+2. **Non-debris Relative anchor coverage holes.** Today's `BackgroundRecorder` can write a Relative section against an anchor recording that finalizes before the section's UT range ends. At playback this produces `anchor-out-of-recorded-range` for non-debris too. Investigation Phase 3 proposes a `LiveOpen` / `PersistedResolvable` / `PersistedOutOfRange` classification at recording time. Out of scope here; non-debris vessels are not the dominant bug surface and the same fix doesn't compose with parent-anchor for debris.
+3. **Parent recording deletion cascade.** When a user deletes a recording with debris children referencing it via `DebrisParentRecordingId`, the debris is orphaned (visible in recordings table, unrenderable). Decision deferred — UX pass on the deletion dialog should decide whether to cascade-delete with confirmation, hide-orphans, or warn-and-leave. Recorder/playback code is unchanged either way.
+4. **Map / tracking-station rendering for legacy debris.** PR 3c's gate is in `ParsekFlight.InterpolateAndPositionRecordedRelative` (flight-scene rendering). `GhostMapPresence.cs` has its own resolver call sites for tracking-station and map markers; if log evidence later shows debris also misrenders there, replicate the gate. Deferred until log evidence justifies it.
+5. **Positioner extraction from `ParsekFlight`** to enable a fuller xUnit harness (currently §4d). Re-evaluate if a positioner-level regression bites that the resolver-level harness misses.
+
+---
+
+## Risk analysis (updated v7)
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
 | Harness fails to capture a positioner-level regression | **Medium-high (acknowledged gap)** | Scoped to resolver level. Document gaps. Extend harness only if a positioner-level bug actually bites; until then, accept as known limitation. |
 | Step 3 misses an `IsDebris` propagation site (clones, merge, Re-Fly inheritance, optimizer split) | **High if not enumerated; bounded now** | Eight sites enumerated in §"`IsDebris` propagation surface". Each gets a unit test. Without this, cloned / merged / re-flied debris silently lose the contract. |
 | **Re-Fly inheritance loses the contract** | High if `RewindInvoker.cs:954` propagation is omitted | Explicit propagation requirement at §"Secondary propagation sites". Re-Fly + debris harness scenario (#7) catches drift. |
-| Helper invocation ordering wrong → first-frame sampling sees `AnchorRecordingId == null` | High if not specified | Step 3b explicit ordering: helper called **before** `tree.AddOrReplaceRecording` and `OnVesselBackgrounded`. |
-| `RecordingOptimizer.CanAutoMerge` merges debris with mismatched parents | Medium | Add `AnchorRecordingId` mismatch guard at `RecordingOptimizer.cs:65` area, alongside the existing `LoopAnchorVesselId` guard. |
+| Helper invocation ordering wrong → first-frame sampling sees `DebrisParentRecordingId == null` | High if not specified | Step 3b explicit ordering: helper called **before** `tree.AddOrReplaceRecording` and `OnVesselBackgrounded`. |
+| **Structural-event seam writes Relative without parent-anchor enforcement** | High if not addressed | `BackgroundRecorder.cs:5460` calls `ApplyBackgroundRelativeOffset` directly from the structural-event snapshot path, bypassing `UpdateBackgroundAnchorDetection`. Step 3b §"Per-frame sampling" requires the debris-anchor enforcement to apply at both call sites (line 1780 and line 5460). Investigation §Phase 1 §2 caught this. |
+| **Initial seed point lands in Relative section without coordinate transform** | High if not addressed | The seed from `CreateAbsoluteTrajectoryPointFromVessel` has body-fixed `lat/lon/alt`. If it's appended to a Relative section without running `ApplyBackgroundRelativeOffsetForAnchorPose` first, the resulting point has metres-as-degrees CLAUDE.md gotcha. Step 3b §"Initial seed point" requires the transform before the seed enters the first section. |
+| `RecordingOptimizer.CanAutoMerge` merges debris with mismatched parents | Medium | Add `DebrisParentRecordingId` mismatch guard + `IsDebris` mismatch guard at `RecordingOptimizer.cs:65` area, alongside the existing `LoopAnchorVesselId` guard. |
 | Format-version bump corrupts legacy saves | Low | ConfigNode codec only. Standard load-time default-on-legacy. |
-| Recording-time parent-pose resolution introduces recursion / performance issues | Eliminated by Option C | Option C in Step 3b (always Relative when contract applies, skip hysteresis at recording time) sidesteps the problem entirely. |
+| Recording-time parent-pose resolution introduces recursion / performance issues | Eliminated by Option C + Decision §11 | Option C (always Relative when contract applies, skip hysteresis at recording time) plus Decision §11 (skip sampling during parent's Re-Fly settle suppression) sidestep recursion entirely. Recording-time anchor-pose source is `Vessel.transform`, not a recording-data lookup. |
 | Harness mock infrastructure is harder than estimated | Medium | Initial PR 1 includes `IPlaybackBody` mock setup. If it bogs down, fall back to "test resolver math against pre-computed expected outputs" without the body abstraction. |
-| Debris with parent unresolvable becomes invisible (parent destroyed / loop-rejected) | **By design, not a risk** | Decision §7: debris visibility is bound to parent visibility. Existing resolver behavior (return false → don't render) is correct. No fallback code, no associated risks. |
-
-### Risks eliminated by v6 simplification (no longer applicable)
-
-- ~~Step 3c fallback pre-empts legacy v7 absolute-shadow path~~ — no fallback exists; v7 path untouched.
-- ~~Step 3c fallback fires on non-debris recordings → breaks Re-Fly~~ — no fallback exists.
-- ~~"Parent's last known pose" reads a Relative point as Absolute~~ — no walk-back code exists.
-- ~~Loop-parent-with-no-Absolute debris becomes invisible (tradeoff)~~ — no longer a tradeoff; expected behavior.
-- ~~Re-Fly settle gap → fallback walks back to pre-rewind pose~~ — no fallback code that could walk back.
-- ~~Audit document still has stale claims~~ — fixed in v5 commit (alongside plan v5).
+| **PR 3c gate fires on a path other than `InterpolateAndPositionRecordedRelative`** | Medium | Three call sites enumerated explicitly (`ParsekFlight.cs:21268, 21310, 21370`). If a fourth site exists, the gate has a known gap; map-side rendering (`GhostMapPresence.cs`) is captured in §"Known follow-ups" rather than expanded into 3c's scope. |
+| **PR 3c gate masks a real resolver bug for v12+ debris** | Eliminated by gate condition #2 | The gate explicitly requires `string.IsNullOrEmpty(recording.DebrisParentRecordingId)` — v12+ debris (which always has the field set) skips the gate entirely. A resolver bug for v12+ debris would surface as today, no masking. |
+| **Parent on-rails / packed mid-debris-life produces stale Relative offsets** | High without §"Parent on-rails" hook | Decision §10 + Step 3b §"Parent on-rails" hook in `CheckDebrisTTL`: end the debris recording when parent transitions to `packed` / `!loaded`. Distinct log line for diagnosis. |
+| **Re-Fly settle gap → debris writes Relative against suppressed parent** | High without §"Re-Fly settle window" hook | Decision §11 + Step 3b §"Re-Fly settle window" hook: skip per-frame sampling while `ShouldSuppressReFlyPostLoadTrajectoryWrite(parent.RecordingId, sampleUT)`. New debris invisible for ~1–2 s post-load, then renders correctly. |
+| Debris with parent unresolvable becomes invisible (parent destroyed / loop-rejected) for v12+ recordings | **By design, not a risk** | Decision §7: debris visibility is bound to parent visibility. Existing resolver behavior (return false → don't render) is correct. |
+| Legacy v11 debris in existing saves never gets fixed | **Eliminated by PR 3c** | Decision §9 + PR 3c gate retroactively resolve legacy debris via `absoluteFrames` shadow. Users with broken saves see immediate improvement on next playback. |
 
 ---
 
-## Proposed PR sequence (v6 — 3c eliminated)
+## Proposed PR sequence (v7)
 
 1. **PR 1 — Harness skeleton.** `IPlaybackBody` (or fake `CelestialBody`) infrastructure + scenarios 1, 2, 6, 9 (no debris, no behavior changes). Lowest risk. Establishes tripwire for non-debris paths before any contract change.
 2. **PR 2 — Harness debris baselines.** Scenarios 4, 5, 7, 10 capture *current* (broken) debris behavior and same-chain continuation behavior. Lowest risk; just adds coverage.
-3. **PR 3a — Schema.** Add `Recording.AnchorRecordingId` field, ConfigNode codec read+write, format version 12. Field unused. Bisect-safe.
-4. **PR 3b — Recorder + helper + propagation + optimizer + hash resets.** Add `ApplyDebrisAnchorContract` helper (Recording and string overloads). Call from all three primary creation sites. Propagate through five secondary sites. Optimizer mismatch guard. Per-frame anchor write. Reset scenarios 4, 5, 7 hashes with justification. Scenarios 1, 2, 3, 6, 8, 9, 10 must remain unchanged. **Load-bearing PR.**
-5. **PR 4 (optional) — Step 4 cleanups.**
+3. **PR 3a — Schema.** Add `Recording.DebrisParentRecordingId` field, ConfigNode codec read+write, format version 12. Field unused. Bisect-safe.
+4. **PR 3b — Recorder + helper + propagation + optimizer + hash resets.** Add `ApplyDebrisAnchorContract` helper (Recording and string overloads). Call from all three primary creation sites. Propagate through five secondary sites. Both `ApplyBackgroundRelativeOffset` call sites (periodic line 1780 + structural-event seam line 5460). Initial seed-point coordinate transform. `CheckDebrisTTL` extension for parent-on-rails. Re-Fly settle suppression check. Optimizer mismatch guard (`DebrisParentRecordingId` and `IsDebris`). Reset scenarios 4, 5, 7 hashes with justification. Scenarios 1, 2, 3, 6, 8, 9, 10 must remain unchanged. **Load-bearing for new data.**
+5. **PR 3c — Legacy-debris playback gate.** Insert the four-condition gate at `ParsekFlight.cs:21268, 21310, 21370`. Add scenarios 11 + 12 to harness. Read-only on recording state, no mutation. **Retroactive fix for existing v11 broken saves.**
+6. **PR 4 (optional) — Step 4 cleanups.**
 
-Each PR independently shippable; bisect-friendly. The previous v5 plan had a separate PR 3c for a resolver fallback; v6 dropped it because debris visibility is bound to parent visibility — the existing "resolver returns false on unresolvable anchor → don't render" is exactly correct.
+Each PR independently shippable; bisect-friendly. PRs 3b and 3c are intentionally separable: a problem in 3c (e.g. legacy gate misfires) can be reverted without giving up the new-data fix in 3b, and vice versa.
+
+PR 3c is small (three call sites in one file, one read-only gate) and can ship in parallel with PR 3b once the schema (3a) is merged. Recommended order is 3a → 3b → 3c so that the harness's debris scenarios can verify both the new-data path (after 3b) and the legacy-data path (after 3c) before users see either change.
 
 ---
 
@@ -339,18 +529,43 @@ Each PR independently shippable; bisect-friendly. The previous v5 plan had a sep
 
 None remaining. All decisions confirmed by user 2026-05-07. Plan is implementation-ready pending one final sanity pass.
 
+`docs/dev/todo-and-known-bugs.md` should be updated as part of PR 3c (per CLAUDE.md "Documentation Updates — Per Commit") to mark this fix as superseding the suspected active-Re-Fly-live-debris-anchor fix mentioned in the investigation document.
+
+The CLAUDE.md format-version constant block (`RecordingStore.cs:57-65`) needs an explicit edit in PR 3a: add `DebrisParentRecordingFormatVersion = 12 = CurrentRecordingFormatVersion` and bump the `CurrentRecordingFormatVersion` line. The CLAUDE.md "Format-v11 enums" prose paragraph also needs the v12 entry. This is a same-commit concern.
+
 ---
 
 ## Success criteria
 
-- Observed debris bugs no longer reproduce on the user's known-broken cases (verified manually in-game).
-- All Re-Fly tests (existing in-game + harness scenarios 6, 7) still pass.
-- Scenario hashes for non-debris non-Re-Fly cases (1, 2, 3, 6, 8, 9, 10) are unchanged across PR 3b.
-- All eight `IsDebris` propagation sites have unit tests proving `AnchorRecordingId` flows through.
-- `RecordingOptimizer.CanAutoMerge` has explicit test rejecting two debris with mismatched `AnchorRecordingId`.
-- A test exists confirming that when a debris's parent is destroyed / loop-rejected, the resolver returns false → ghost doesn't render (the design intent for "debris visibility is bound to parent visibility").
+### Behavioral validation (replay the investigation session)
+
+After PRs 3a + 3b + 3c land, replaying `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (or an equivalent fresh ascent + Re-Fly + breakup repro) and running `python scripts/collect-logs.py debris-trajectory-rendering-fix` should produce:
+
+- **Zero** `[Parsek][WARN][Playback] RELATIVE recorded-anchor fallback to absolute shadow` lines for `IsDebris` recordings (today: 21).
+- **Zero** `[Parsek][WARN][Anchor] anchor-out-of-recorded-range` for debris recordings on the new-data path (today: 49 across all sources). For legacy v11 debris in existing saves, the warning may still emit if the `absoluteFrames` shadow path also fails — but PR 3c's gate prefers the shadow before the resolver reports the warning, so the count should drop substantially.
+- **Zero** `Background recording anchor candidates: ... live=0/1 ghost=N/N` for debris created during a Re-Fly session (today: 5).
+- **Zero** megametre-scale `MergeTree: boundary discontinuity` warnings for debris recordings authored after PR 3b. (Pre-existing legacy debris may still trigger these via `SessionMerger.ComputeBoundaryDiscontinuity`'s independent bug — see §"Known follow-ups" #1.)
+- Manual in-game confirmation: booster ghost stays visually locked to the parent vessel during the staging breakup window; new debris created during a Re-Fly load appears at the actual breakup site (not a displaced pre-Re-Fly ghost frame).
+
+### Test coverage
+
+- All eight `IsDebris` propagation sites have unit tests proving `DebrisParentRecordingId` flows through.
+- `RecordingOptimizer.CanAutoMerge` has explicit tests rejecting (a) two debris with mismatched `DebrisParentRecordingId`, (b) a debris paired with a non-debris.
+- `RecordingOptimizer.SplitAtSection` has an assertion test verifying both halves keep the parent's `DebrisParentRecordingId`.
+- A test exists confirming that when a v12+ debris's parent is destroyed / loop-rejected / on-rails, the resolver returns false → ghost doesn't render (the design intent for "debris visibility is bound to parent visibility").
+- A test exists confirming that when a v12+ debris's parent enters Re-Fly settle suppression, the recorder skips per-frame sampling for the duration.
+- A test exists confirming that legacy v11 debris with `absoluteFrames` shadow is rendered via the shadow (PR 3c gate fires).
+- A test exists confirming that legacy v11 debris **without** `absoluteFrames` shadow falls through to the existing resolver path (PR 3c gate condition #4 fails).
+- A test exists confirming that v12+ debris is **not** caught by PR 3c's gate (condition #2 fails because `DebrisParentRecordingId` is set).
+
+### Non-goals / negative invariants
+
+- Scenario hashes for non-debris, non-Re-Fly cases (1, 2, 3, 6, 8, 9, 10) are unchanged across PR 3b and PR 3c.
+- For non-debris recordings: zero behavior change in `ParsekFlight.InterpolateAndPositionRecordedRelative` (PR 3c gate fails on condition #1).
+- For v12+ debris with `DebrisParentRecordingId` set: byte-identical playback as PR 3b alone (PR 3c gate fails on condition #2).
 - No new tangled coupling introduced (Step 4d list is preserved).
-- No changes to playback code (resolver, positioners) — only recorder, schema, optimizer.
+- No changes to the `RelativeAnchorResolver` chain. PR 3c adjusts the **caller** of the resolver, not the resolver itself.
+- No mutation of `.prec` sidecar data on read or save. Existing files are byte-identical across upgrades.
 
 ---
 
@@ -379,17 +594,28 @@ None remaining. All decisions confirmed by user 2026-05-07. Plan is implementati
   - **Reframed PR 3b as load-bearing for the dominant bug**, PR 3c as belt-and-suspenders for the parent-gone tail. Earlier wording overstated the resolver fallback's role.
   - **Enumerated all eight `IsDebris` propagation sites** (three primary creation + five secondary copy). Plan v4 had only the three primary. Critical gap: `RewindInvoker.cs:954` Re-Fly inheritance and `Recording.cs:569` clones would have silently lost the contract.
   - **Specified helper invocation ordering** in `RegisterChildRecordingsFromSplit` — must run before `tree.AddOrReplaceRecording` and `OnVesselBackgrounded`, not after the existing `IsDebris = true` line at 1115.
-  - **Added format-version gate** to the resolver fallback: `RecordingFormatVersion >= DebrisAnchorChainFormatVersion` (i.e. ≥12). Legacy v7 debris keeps using the existing `ParsekFlight.cs:21852` absolute-shadow fallback. The new fallback applies only to v12+ recordings. Guard is now quadruple-conjunction.
-  - **Added optimizer interactions**: `RecordingOptimizer.CanAutoMerge` mismatch guard for `AnchorRecordingId`; `SplitAtSection` propagation already covered by the secondary-sites enumeration.
+  - **Added format-version gate** to the resolver fallback: `RecordingFormatVersion >= DebrisParentRecordingFormatVersion` (i.e. ≥12). Legacy v7 debris keeps using the existing `ParsekFlight.cs:21852` absolute-shadow fallback. The new fallback applies only to v12+ recordings. Guard is now quadruple-conjunction.
+  - **Added optimizer interactions**: `RecordingOptimizer.CanAutoMerge` mismatch guard for `DebrisParentRecordingId`; `SplitAtSection` propagation already covered by the secondary-sites enumeration.
   - **Added helper string-overload** for the pure-static `BuildBackgroundSplitBranchData` factory (which takes `parentRecordingId : string`, not a `Recording`).
   - **Schema PR 3a** now explicitly covers ConfigNode read symmetry in addition to write.
   - **Documented loop-parent-with-no-Absolute-points limitation** explicitly: such debris is invisible at playback. Tradeoff vs v2's wrong-but-visible. User accepted (Decision §7).
   - **Added Re-Fly-settle-gap edge case** acknowledgement (low severity; debris is short-lived).
   - **Audit document updated in tandem**: stale "single dispatch" and "duplicated anchor candidate building" claims fixed at audit lines 29-43, 157-161, 217-218.
-- **2026-05-07, v6 (this revision):** User insight collapsed Step 3c entirely. Two observations:
+- **2026-05-07, v6:** User insight collapsed Step 3c entirely. Two observations:
   - Debris isn't visible past ~2300 m (small visual element, only meaningful in close range).
   - Debris visibility is bound to parent visibility — if the parent isn't rendering, the debris doesn't need to either.
   - **Consequence:** the "fallback to Absolute when parent is unresolvable / > 2500 m" logic is unnecessary. The existing resolver behavior (return false on unresolvable anchor → don't render) is exactly the right answer. PR 3c is eliminated; the recorder change in PR 3b is the entire fix.
   - Eliminated risks: format-version gate concerns, fallback firing on non-debris, "parent's last known pose" walk-back, loop-parent-invisible tradeoff, Re-Fly settle gap. None apply with no new playback code.
   - PR sequence reduced from 5 PRs to 4 (PR 1 harness skeleton, PR 2 harness debris baselines, PR 3a schema, PR 3b recorder + propagation + optimizer + hash resets).
   - Plan no longer touches the playback path at all — purely recorder + schema + optimizer changes. Smallest blast radius of any version of this plan.
+- **2026-05-07, v7 (this revision):** Integration of bug evidence and a small playback-side path for legacy data. Triggered by reviewing the companion investigation document `docs/dev/plans/fix-debris-trajectory-rendering.md` (branch `investigate-debris-trajectory-rendering`).
+  - **Added §"Bug evidence"** anchored to the retained `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` bundle. Concrete counts (49 / 21 / 5), representative log lines, two failure-mode breakdowns. Establishes validation criteria.
+  - **Added §"Considered alternatives"** that explicitly weighs the investigation's Absolute-only proposal against the parent-anchor Relative direction. Rejection rationale: visual co-bubble preservation; high-velocity ascent breakup coherence; recording cost. Investigation evidence remains useful as comparison material.
+  - **Added §"Known follow-ups not in this plan"** listing the `SessionMerger` Relative-frame interpretation bug (megametre discontinuities), non-debris anchor coverage holes, parent-deletion cascade UX, map-side rendering for legacy debris, positioner extraction. Each tracked as independent.
+  - **Reintroduced PR 3c with a different shape.** Not a fallback for unresolvable parents (v5's design, eliminated in v6) — instead, a four-condition playback-time gate that prefers `section.absoluteFrames` for legacy v11 debris (`recording.IsDebris && DebrisParentRecordingId == null && referenceFrame == Relative && absoluteFrames` non-empty). Three call sites in `ParsekFlight.cs:21268, 21310, 21370`. Read-only on recording state. Retroactively fixes existing broken saves without sidecar mutation.
+  - **Renamed** the new field to `Recording.DebrisParentRecordingId` (was `Recording.AnchorRecordingId`). Reasoning: "Anchor" is overloaded in the codebase; the new name encodes the contract is debris-only. Helper name (`ApplyDebrisAnchorContract`) unchanged. Format-version constant renamed to `DebrisParentRecordingFormatVersion`.
+  - **Added Decisions §8 (naming), §9 (legacy retroactive fix), §10 (parent-on-rails), §11 (Re-Fly settle gap).** §10 and §11 surfaced during code investigation: Decision §7's "no playback fallback" framing only holds at recording time if these recorder-side hooks exist; otherwise the recorder produces stale or unresolvable Relative sections.
+  - **Step 3b expanded:** explicit treatment of the structural-event seam at `BackgroundRecorder.cs:5460` (per investigation §Phase 1 §2 — `ApplyBackgroundRelativeOffset` is called from two places, not one), explicit initial-seed-point coordinate transform via `ApplyBackgroundRelativeOffsetForAnchorPose` before the seed enters the first section, explicit recording-time anchor-pose source (`Vessel.transform` lookup, not resolver chain), explicit `CheckDebrisTTL` extension for parent-on-rails, explicit Re-Fly settle suppression check.
+  - **Risk analysis updated** with three new rows (structural-event seam, initial seed transform, parent-on-rails) and refined existing rows. PR 3c risks bounded by the four-condition gate (no masking of resolver bugs for v12+ debris).
+  - **Success criteria tightened** with concrete log-grep validation targets (zero / zero / zero / zero) tied to the investigation bundle.
+  - **PR sequence back to 5** (1 harness, 2 baselines, 3a schema, 3b recorder + structural-event seam + propagation + on-rails + settle, 3c legacy gate, 4 cleanups). PR 3c is small and independently revertible.
