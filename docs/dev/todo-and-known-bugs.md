@@ -11,6 +11,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - splashed-then-rest tail keeps Splashed terminal even on high-velocity water impact
+
+- During the 2026-05-07 playtest of the debris-rendering stack, a Re-Fly of the upper-stage capsule splashed at ~UT 16746 and the recorder produced an `eb8a39dd…` "Kerbal X" surface tail (`startUT=16742.2`, `endUT=16751.4`) with `terminal=Splashed` that KSC then rendered as a capsule "floating on the water" after impact (`logs/2026-05-07_2251_refly-after-anchor-fix/KSP.log:188742`, `:188780`, `:190153`). The user's expectation was that a hard impact should classify as Destroyed and not spawn a floating ghost — KSP's water-impact lenience marks `vessel.situation=SPLASHED` even when the impact velocity well exceeds the part's `crashTolerance`, so Parsek faithfully recorded what KSP said but visually the outcome looks wrong.
+- The optimizer split (`RecordingOptimizer.SplitAtSection` driven by `SplitBoundaryReason.SurfaceInvolved`) creates a brief surface tail at the atmospheric→surface boundary; that tail then inherits `TerminalStateValue` from the original via `RecordingOptimizer.cs:907 second.TerminalStateValue = original.TerminalStateValue;`. The KSC ghost spawn path renders any structurally-eligible Kerbin recording with a non-superseded `PlaybackEnabled` (`ParsekKSC.ShouldShowInKSC`), so the tail spawns regardless of whether its surface phase represents a meaningful "vessel rests here" state vs. a "moment of impact" tail.
+
+**Three candidate approaches** (need a design choice before implementing):
+
+1. **Recorder-side velocity capture + reclassification.** Hook `OnVesselSituationChange` in `ParsekFlight.cs:5993` to capture `vessel.GetSrfVelocity().magnitude` at FLYING→SPLASHED/LANDED transitions on the active vessel; store on a transient field of the active recording; add an overload `RecordingTree.DetermineTerminalState(int situation, Vessel vessel, double impactSpeedMps)` that returns Destroyed when the captured speed exceeds a threshold (~30 m/s, well above Mk1's 14 m/s ground crashTolerance) and the situation resolves to Splashed/Landed. Plumbing required through `FinalizationLiveVesselAccess` so `FlightRecorder.FinalizeIndividualRecording` (`ParsekFlight.cs:11588`) passes the speed through. **Pros:** semantically correct, surfaces in every classifier path. **Cons:** touches the hot terminal-classification path used by KSC ghost spawn, merge-dialog persist decisions, ledger, and unfinished-flights — broad regression surface. Threshold is heuristic.
+
+2. **Optimizer-side suppress.** In `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` (`RecordingOptimizer.cs:233+` step 4 / `IsSurfaceGrazePattern`), add a "brief surface tail at end of recording" suppression so a < 30 s surface section that ends within `BriefSectionMaxSeconds` of the recording's `ExplicitEndUT` and inherits a Splashed/Landed terminal does not split off. The combined recording stays as one Splashed entry; `eb8a39dd` never exists. **Pros:** small, local, no terminal-state contract change. **Cons:** the parent's KSC ghost still renders at the splash position (the floating-capsule ghost just changes which recording it comes from, not whether it appears).
+
+3. **KSC-spawn gate.** Extend `ParsekKSC.IsKscStructurallyEligible` to also reject brief Splashed/Landed surface tails whose preceding section was Atmospheric and whose total duration is below a threshold. **Pros:** smallest behavioral change, only affects rendering. **Cons:** still keeps the recording around with Splashed terminal; merge dialog, ledger, and Watch playback would still expose it.
+
+The user's framing in their 2026-05-07 review was "if the capsule impact should destroy it, the terminal classification/surface split is wrong" — they explicitly point at the classification side (option 1), not the rendering gate (option 3). Approach 1 is preferred but should ship as a focused PR with its own test surface; bundling it with the in-place fork ghost-snapshot fix introduced too much risk.
+
+**Status:** OPEN 2026-05-07. Design choice required from the user before implementation.
+
+---
+
 ## Open - Splashed-on-ocean ghost mesh sinks below waterline during Watch playback
 
 - During Watch on a Re-Fly tree's Splashed leaf (Kerbal X capsule, recording `39df7c67e074467fb14c1948fbe1600f`), the ghost capsule rendered with its mesh half-submerged in the ocean for the entire ~12 s playback window instead of bobbing at the waterline. Source: `logs/2026-05-06_2246_refly-vessel-spawn-debris-watch` — `Watch focus (transfer): rec=#1 ... vessel="Kerbal X" ... alt=0m ghostBody=Kerbin`, `Watch horizon basis: rec=#1 ... alt=0m` repeated for the duration of the watch hold, and the trajectory sidecar `saves/x6/Parsek/Recordings/39df7c67e074467fb14c1948fbe1600f.prec.txt` showing all 36 points at `alt = -0.1 .. 0.5` (sea-level root-part origin) with `clearance ≈ 641` against `recTerrain=-640.8 curTerrain=-640.8` from the `Pipeline-Terrain TailLift inactive` line.
