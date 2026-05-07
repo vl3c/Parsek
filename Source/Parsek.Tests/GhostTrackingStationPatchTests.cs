@@ -252,6 +252,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetSelectedVesselPid_WithPrivateSelection_ReturnsPid()
+        {
+            var tracking = new FakeTrackingStation(new FakeSelectedVessel(456u));
+
+            bool ok = GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                tracking,
+                out uint selectedPid,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal(456u, selectedPid);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TryGetSelectedVesselPid_WithNoSelection_ReturnsZeroWithoutError()
+        {
+            var tracking = new FakeTrackingStation(null);
+
+            bool ok = GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                tracking,
+                out uint selectedPid,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal(0u, selectedPid);
+            Assert.Null(error);
+        }
+
+        [Fact]
         public void TrySelectTrackingStationVessel_WithSetVesselMethod_SelectsSpawnedVessel()
         {
             var spawned = new object();
@@ -266,6 +296,135 @@ namespace Parsek.Tests
             Assert.Same(spawned, tracking.SelectedForTesting);
             Assert.Equal(1, tracking.SetVesselCalls);
             Assert.Null(error);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationVessel_WithTwoArgumentSetVessel_UsesStockSignatureAndDoesNotKeepFocus()
+        {
+            var spawned = new object();
+            var tracking = new FakeTrackingStationWithTwoArgumentSetVessel();
+
+            bool selected = GhostMapPresence.TrySelectTrackingStationVessel(
+                tracking,
+                spawned,
+                out string error);
+
+            Assert.True(selected);
+            Assert.Same(spawned, tracking.SelectedForTesting);
+            Assert.Equal(1, tracking.TwoArgumentSetVesselCalls);
+            Assert.False(tracking.LastKeepFocus);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationVessel_WithBothSetVesselOverloads_PrefersTwoArgumentStockSignature()
+        {
+            var spawned = new object();
+            var tracking = new FakeTrackingStationWithBothSetVesselOverloads();
+
+            bool selected = GhostMapPresence.TrySelectTrackingStationVessel(
+                tracking,
+                spawned,
+                out string error);
+
+            Assert.True(selected);
+            Assert.Same(spawned, tracking.SelectedForTesting);
+            Assert.Equal(1, tracking.TwoArgumentSetVesselCalls);
+            Assert.Equal(0, tracking.OneArgumentSetVesselCalls);
+            Assert.False(tracking.LastKeepFocus);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void BuildTrackingStationSetVesselArguments_TwoArgumentMethod_AppendsKeepFocus()
+        {
+            var method = typeof(FakeTrackingStationWithTwoArgumentSetVessel)
+                .GetMethod("SetVessel");
+            var spawned = new object();
+
+            object[] args = GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                method,
+                spawned,
+                keepFocus: true);
+
+            Assert.Equal(2, args.Length);
+            Assert.Same(spawned, args[0]);
+            Assert.Equal(true, args[1]);
+        }
+
+        [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WithBuildMethod_RebuildsListAndLogs()
+        {
+            var tracking = new FakeTrackingStation(null);
+
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                tracking,
+                "test-refresh",
+                out string error);
+
+            Assert.True(refreshed);
+            Assert.Equal(1, tracking.BuildVesselsListCalls);
+            Assert.Null(error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[INFO][GhostMap]")
+                && line.Contains("Tracking Station vessel list refreshed")
+                && line.Contains("reason=test-refresh"));
+        }
+
+        [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WithoutBuildMethod_ReturnsError()
+        {
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                new object(),
+                "missing-method",
+                out string error);
+
+            Assert.False(refreshed);
+            Assert.Equal("buildVesselsList method not found", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Tracking Station vessel list refresh failed")
+                && line.Contains("missing-method")
+                && line.Contains("buildVesselsList method not found"));
+        }
+
+        [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WhenBuildThrows_ReturnsError()
+        {
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                new FakeTrackingStationWithThrowingBuildList(),
+                "throwing-build",
+                out string error);
+
+            Assert.False(refreshed);
+            Assert.Equal("buildVesselsList threw InvalidOperationException: stock rebuild failed", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Tracking Station vessel list refresh failed")
+                && line.Contains("throwing-build")
+                && line.Contains("stock rebuild failed"));
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0, 0, false)]
+        [InlineData(0, 0, 1, 0, true)]
+        [InlineData(0, 0, 0, 1, true)]
+        [InlineData(2, 3, 2, 3, false)]
+        [InlineData(2, 3, 5, 3, true)]
+        [InlineData(2, 3, 2, 4, true)]
+        public void ShouldRefreshTrackingStationVesselListAfterLifecycleMutation_OnlyRefreshesOnCreateOrDestroy(
+            int createdBefore,
+            int destroyedBefore,
+            int createdAfter,
+            int destroyedAfter,
+            bool expected)
+        {
+            Assert.Equal(expected,
+                GhostMapPresence.ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    createdAfter,
+                    destroyedAfter));
         }
 
         [Fact]
@@ -318,7 +477,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndOmitsBlockedStockActions()
+        public void BuildActionStates_WithEligibleRecording_EnablesOnlyMaterializeAndOmitsNonTsActions()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -333,32 +492,64 @@ namespace Parsek.Tests
             TrackingStationGhostActionState[] states =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
-            TrackingStationGhostActionState focus = FindState(states, TrackingStationGhostActionKind.Focus);
-            TrackingStationGhostActionState target = FindState(states, TrackingStationGhostActionKind.SetTarget);
-            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
-            Assert.True(focus.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
-            Assert.True(target.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, target.Safety);
-            Assert.True(recording.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, recording.Safety);
             Assert.True(materialize.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
 
-            // Permanently-disabled stock actions are no longer rendered, so
+            // Native Tracking Station selection already focuses the ghost, and
+            // permanently-disabled stock actions are no longer rendered, so
             // BuildActionStates must not return them at all — callers iterate
             // the array, so leftover entries would re-introduce the dead
             // button row.
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Focus);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Fly);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Delete);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Recover);
-            Assert.Equal(4, states.Length);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.SetTarget);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.ShowRecording);
+            Assert.Single(states);
         }
 
         [Fact]
-        public void BuildActionStates_BeforeRecordingEnd_DisablesMaterializeAndExplainsReason()
+        public void DisableStockActionButtons_NullTracking_ReturnsFalseFlags()
+        {
+            GhostTrackingStationSelection.DisableStockActionButtons(
+                null,
+                out bool flyDisabled,
+                out bool deleteDisabled,
+                out bool recoverDisabled);
+
+            Assert.False(flyDisabled);
+            Assert.False(deleteDisabled);
+            Assert.False(recoverDisabled);
+        }
+
+        [Fact]
+        public void BuildActionStates_BeforeRecordingEnd_EnablesMaterializeViaFastForward()
+        {
+            var context = new TrackingStationGhostActionContext(
+                hasGhostVessel: true,
+                canFocus: true,
+                canSetTarget: true,
+                recordingIndex: 1,
+                hasRecording: true,
+                materializeEligible: false,
+                materializeReason: GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                alreadyMaterialized: false,
+                materializeFastForwardEligible: true);
+
+            TrackingStationGhostActionState[] states =
+                TrackingStationGhostActionPresentation.BuildActionStates(context);
+
+            TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
+
+            Assert.True(materialize.Enabled);
+            Assert.Contains("Fast-forward", materialize.Reason);
+        }
+
+        [Fact]
+        public void BuildActionStates_BeforeRecordingEndWithoutEndpointEligibility_DisablesMaterialize()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -376,11 +567,11 @@ namespace Parsek.Tests
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
             Assert.False(materialize.Enabled);
-            Assert.Contains("endpoint", materialize.Reason);
+            Assert.Contains("endpoint is not eligible", materialize.Reason);
         }
 
         [Fact]
-        public void BuildActionStates_ChainGhostWithoutRecording_DisablesRecordingAndMaterialize()
+        public void BuildActionStates_ChainGhostWithoutRecording_DisablesMaterialize()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -395,13 +586,149 @@ namespace Parsek.Tests
             TrackingStationGhostActionState[] states =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
-            TrackingStationGhostActionState recording = FindState(states, TrackingStationGhostActionKind.ShowRecording);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
-            Assert.False(recording.Enabled);
-            Assert.Contains("no direct committed recording", recording.Reason);
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.ShowRecording);
             Assert.False(materialize.Enabled);
             Assert.Contains("No committed recording", materialize.Reason);
+        }
+
+        [Fact]
+        public void SelectRecordingMarker_StoresSelectionWithoutGhostPid()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-marker", pid: 123);
+
+            GhostTrackingStationSelection.SelectRecordingMarker(4, rec, "test marker");
+
+            Assert.True(GhostTrackingStationSelection.HasSelectedGhost);
+            TrackingStationGhostSelectionInfo selection = GhostTrackingStationSelection.SelectedGhost;
+            Assert.Equal(0u, selection.GhostPid);
+            Assert.Equal(4, selection.RecordingIndex);
+            Assert.Equal("rec-marker", selection.RecordingId);
+            Assert.True(selection.HasRecording);
+            Assert.True(selection.ShowPopup);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Selected Tracking Station ghost marker")
+                && line.Contains("rec-marker")
+                && line.Contains("showPopup=True"));
+        }
+
+        [Fact]
+        public void ShouldShowPopupForSetVessel_UsesMatchingIconClickIntentWithinWindow()
+        {
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 100);
+
+            Assert.True(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 110,
+                out string source));
+            Assert.Equal("vessel icon click", source);
+
+            Assert.True(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 130,
+                out source));
+            Assert.Equal("vessel icon click", source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Remembered Tracking Station ghost popup intent")
+                && line.Contains("pid=365"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Applied Tracking Station ghost popup intent to SetVessel")
+                && line.Contains("pid=365"));
+        }
+
+        [Fact]
+        public void ShouldShowPopupForSetVessel_ExpiredOrDifferentGhost_ReturnsFalseAndClears()
+        {
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 100);
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 131,
+                out string source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("expired currentFrame=131 untilFrame=130"));
+
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 200);
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 999u,
+                currentFrame: 201,
+                out source));
+            Assert.Null(source);
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 202,
+                out source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("different-ghost requestedPid=999"));
+        }
+
+        [Fact]
+        public void ClearSelectedGhost_ClearsPendingPopupIntent()
+        {
+            GhostTrackingStationSelection.SetSelectedGhostForTesting(
+                new TrackingStationGhostSelectionInfo(
+                    365u,
+                    "Ghost: Test",
+                    0,
+                    "rec-test",
+                    0,
+                    10,
+                    TerminalState.Landed,
+                    false,
+                    0u,
+                    hasRecording: true));
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 10);
+
+            GhostTrackingStationSelection.ClearSelectedGhost("unit test clear");
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 11,
+                out string source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("ghost-selection-cleared unit test clear"));
+        }
+
+        [Fact]
+        public void TryFocusGhostMapObject_NullVessel_ReturnsFalseAndLogs()
+        {
+            bool focused = GhostTrackingStationSelection.TryFocusGhostMapObject(
+                vessel: null,
+                source: "unit test",
+                error: out string error);
+
+            Assert.False(focused);
+            Assert.Equal("vessel-null", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Failed to focus Tracking Station ghost via unit test")
+                && line.Contains("vessel-null"));
         }
 
         [Fact]
@@ -445,6 +772,44 @@ namespace Parsek.Tests
             Assert.Equal(
                 GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
                 context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_BeforeRecordingEnd_EnablesMaterializeFastForwardWhenEndpointEligible()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-before-end", pid: 556);
+            RecordingStore.AddCommittedInternal(rec);
+            var selection = new TrackingStationGhostSelectionInfo(
+                9003u,
+                "Ghost: Before End",
+                0,
+                rec.RecordingId,
+                rec.StartUT,
+                rec.EndUT,
+                rec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: rec.EndUT - 10,
+                    chains: new Dictionary<uint, GhostChain>());
+            TrackingStationGhostActionState materialize = FindState(
+                TrackingStationGhostActionPresentation.BuildActionStates(context),
+                TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(context.MaterializeEligible);
+            Assert.True(context.MaterializeFastForwardEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
+                context.MaterializeReason);
+            Assert.True(materialize.Enabled);
+            Assert.Contains("Fast-forward", materialize.Reason);
         }
 
         [Fact]
@@ -493,6 +858,100 @@ namespace Parsek.Tests
             Assert.Equal(
                 GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
                 context.MaterializeReason);
+        }
+
+        [Fact]
+        public void BuildActionContext_BeforeRecordingEndSupersededRelation_DisablesMaterializeFastForward()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-before-old", pid: 616);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-before-new", pid: 717);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_before_endpoint",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+            var selection = new TrackingStationGhostSelectionInfo(
+                9004u,
+                "Ghost: Before Superseded",
+                0,
+                oldRec.RecordingId,
+                oldRec.StartUT,
+                oldRec.EndUT,
+                oldRec.TerminalStateValue,
+                false,
+                0u,
+                hasRecording: true);
+
+            TrackingStationGhostActionContext context =
+                GhostTrackingStationSelection.BuildActionContext(
+                    selection,
+                    hasGhostVessel: true,
+                    canFocus: true,
+                    canSetTarget: true,
+                    currentUT: oldRec.EndUT - 10,
+                    chains: new Dictionary<uint, GhostChain>());
+            TrackingStationGhostActionState materialize = FindState(
+                TrackingStationGhostActionPresentation.BuildActionStates(context),
+                TrackingStationGhostActionKind.Materialize);
+
+            Assert.False(context.MaterializeEligible);
+            Assert.False(context.MaterializeFastForwardEligible);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                context.MaterializeReason);
+            Assert.False(materialize.Enabled);
+            Assert.Contains(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                materialize.Reason);
+        }
+
+        [Fact]
+        public void EvaluateMaterializeAtEndpoint_NoVesselSnapshot_ReturnsBlockedReason()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-no-snapshot", pid: 818);
+            rec.VesselSnapshot = null;
+
+            var result = GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(rec);
+
+            Assert.False(result.needsSpawn);
+            Assert.Equal("no vessel snapshot", result.reason);
+        }
+
+        [Fact]
+        public void EvaluateMaterializeAtEndpoint_SupersededRelation_ReturnsSupersededReason()
+        {
+            var oldRec = MakeEligibleTrackingStationRecording(id: "rec-endpoint-old", pid: 819);
+            var newRec = MakeEligibleTrackingStationRecording(id: "rec-endpoint-new", pid: 820);
+            RecordingStore.AddCommittedInternal(oldRec);
+            RecordingStore.AddCommittedInternal(newRec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_endpoint",
+                        OldRecordingId = oldRec.RecordingId,
+                        NewRecordingId = newRec.RecordingId
+                    }
+                }
+            });
+
+            var result = GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(oldRec);
+
+            Assert.False(result.needsSpawn);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationSpawnSkipSupersededByRelation,
+                result.reason);
         }
 
         [Fact]
@@ -625,6 +1084,8 @@ namespace Parsek.Tests
 
             public int SetVesselCalls { get; private set; }
 
+            public int BuildVesselsListCalls { get; private set; }
+
             public void SetSelectedForTesting(object selected)
             {
                 selectedVessel = selected;
@@ -634,6 +1095,11 @@ namespace Parsek.Tests
             {
                 SetVesselCalls++;
                 selectedVessel = selected;
+            }
+
+            private void buildVesselsList()
+            {
+                BuildVesselsListCalls++;
             }
         }
 
@@ -654,6 +1120,59 @@ namespace Parsek.Tests
             {
                 SetVesselCalled = true;
                 throw new InvalidOperationException("TryClearSelectedVessel should not call SetVessel");
+            }
+        }
+
+        private sealed class FakeTrackingStationWithTwoArgumentSetVessel
+        {
+            public object SelectedForTesting { get; private set; }
+            public int TwoArgumentSetVesselCalls { get; private set; }
+            public bool LastKeepFocus { get; private set; }
+
+            public void SetVessel(object vessel, bool keepFocus)
+            {
+                TwoArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+                LastKeepFocus = keepFocus;
+            }
+        }
+
+        private sealed class FakeTrackingStationWithBothSetVesselOverloads
+        {
+            public object SelectedForTesting { get; private set; }
+            public int OneArgumentSetVesselCalls { get; private set; }
+            public int TwoArgumentSetVesselCalls { get; private set; }
+            public bool LastKeepFocus { get; private set; }
+
+            public void SetVessel(object vessel)
+            {
+                OneArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+            }
+
+            public void SetVessel(object vessel, bool keepFocus)
+            {
+                TwoArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+                LastKeepFocus = keepFocus;
+            }
+        }
+
+        private sealed class FakeTrackingStationWithThrowingBuildList
+        {
+            private void buildVesselsList()
+            {
+                throw new InvalidOperationException("stock rebuild failed");
+            }
+        }
+
+        private sealed class FakeSelectedVessel
+        {
+            public readonly uint persistentId;
+
+            public FakeSelectedVessel(uint persistentId)
+            {
+                this.persistentId = persistentId;
             }
         }
     }
