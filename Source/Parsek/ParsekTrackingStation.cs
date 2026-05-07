@@ -264,7 +264,10 @@ namespace Parsek
                     "— forcing immediate lifecycle tick");
                 lastKnownShowGhosts = currentShowGhosts;
                 if (!currentShowGhosts)
+                {
                     GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled");
+                    GhostMapPresence.TryRefreshLiveTrackingStationVesselList("ghost-filter-disabled");
+                }
                 nextLifecycleCheckTime = 0f;
             }
 
@@ -1606,6 +1609,15 @@ namespace Parsek
 
             if (handled)
             {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialize handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
+                        selection.RecordingId ?? "(none)"));
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
+                nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-materialize-handoff");
+
                 if (recording.SpawnedVesselPersistentId != 0)
                 {
                     if (!FocusSpawnedTrackingStationVessel(

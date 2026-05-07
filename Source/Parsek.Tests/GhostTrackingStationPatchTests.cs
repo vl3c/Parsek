@@ -269,6 +269,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WithBuildMethod_RebuildsListAndLogs()
+        {
+            var tracking = new FakeTrackingStation(null);
+
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                tracking,
+                "test-refresh",
+                out string error);
+
+            Assert.True(refreshed);
+            Assert.Equal(1, tracking.BuildVesselsListCalls);
+            Assert.Null(error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[INFO][GhostMap]")
+                && line.Contains("Tracking Station vessel list refreshed")
+                && line.Contains("reason=test-refresh"));
+        }
+
+        [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WithoutBuildMethod_ReturnsError()
+        {
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                new object(),
+                "missing-method",
+                out string error);
+
+            Assert.False(refreshed);
+            Assert.Equal("buildVesselsList method not found", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Tracking Station vessel list refresh failed")
+                && line.Contains("missing-method")
+                && line.Contains("buildVesselsList method not found"));
+        }
+
+        [Fact]
+        public void TryInvokeTrackingStationVesselListRefresh_WhenBuildThrows_ReturnsError()
+        {
+            bool refreshed = GhostMapPresence.TryInvokeTrackingStationVesselListRefresh(
+                new FakeTrackingStationWithThrowingBuildList(),
+                "throwing-build",
+                out string error);
+
+            Assert.False(refreshed);
+            Assert.Equal("buildVesselsList threw InvalidOperationException: stock rebuild failed", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Tracking Station vessel list refresh failed")
+                && line.Contains("throwing-build")
+                && line.Contains("stock rebuild failed"));
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0, 0, false)]
+        [InlineData(0, 0, 1, 0, true)]
+        [InlineData(0, 0, 0, 1, true)]
+        [InlineData(2, 3, 2, 3, false)]
+        [InlineData(2, 3, 5, 3, true)]
+        [InlineData(2, 3, 2, 4, true)]
+        public void ShouldRefreshTrackingStationVesselListAfterLifecycleMutation_OnlyRefreshesOnCreateOrDestroy(
+            int createdBefore,
+            int destroyedBefore,
+            int createdAfter,
+            int destroyedAfter,
+            bool expected)
+        {
+            Assert.Equal(expected,
+                GhostMapPresence.ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    createdAfter,
+                    destroyedAfter));
+        }
+
+        [Fact]
         public void TryClearSelectedVessel_WhenAlternatingStockSelections_ClearsEachPreviousStockTarget()
         {
             var asteroid = new object();
@@ -925,6 +1000,8 @@ namespace Parsek.Tests
 
             public int SetVesselCalls { get; private set; }
 
+            public int BuildVesselsListCalls { get; private set; }
+
             public void SetSelectedForTesting(object selected)
             {
                 selectedVessel = selected;
@@ -934,6 +1011,11 @@ namespace Parsek.Tests
             {
                 SetVesselCalls++;
                 selectedVessel = selected;
+            }
+
+            private void buildVesselsList()
+            {
+                BuildVesselsListCalls++;
             }
         }
 
@@ -954,6 +1036,14 @@ namespace Parsek.Tests
             {
                 SetVesselCalled = true;
                 throw new InvalidOperationException("TryClearSelectedVessel should not call SetVessel");
+            }
+        }
+
+        private sealed class FakeTrackingStationWithThrowingBuildList
+        {
+            private void buildVesselsList()
+            {
+                throw new InvalidOperationException("stock rebuild failed");
             }
         }
     }
