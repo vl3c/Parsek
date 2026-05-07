@@ -21918,6 +21918,14 @@ namespace Parsek
             ref int playbackIdx,
             out InterpolationResult interpResult)
         {
+            // PR 3c review follow-up: pass `suppressFallbackWarn: true` so the
+            // legacy-debris path does NOT emit
+            // [WARN][Playback] RELATIVE recorded-anchor fallback to absolute shadow —
+            // that warning is one of the plan's zero-count validation targets, and
+            // for legacy v11 debris the shadow path is the INTENDED dispatch (not a
+            // resolver-failure recovery). The legacy path's distinct
+            // `Playback: legacy debris path — preferring absoluteFrames shadow`
+            // verbose log below is the diagnostic signal for this case.
             if (!TryUseRelativeAbsoluteShadowFallback(
                     recordingIndex,
                     trajectory,
@@ -21925,7 +21933,8 @@ namespace Parsek
                     target,
                     targetUT,
                     ref playbackIdx,
-                    out interpResult))
+                    out interpResult,
+                    suppressFallbackWarn: true))
             {
                 return false;
             }
@@ -21957,7 +21966,8 @@ namespace Parsek
             RelativeSectionPlaybackTarget target,
             double targetUT,
             ref int playbackIdx,
-            out InterpolationResult interpResult)
+            out InterpolationResult interpResult,
+            bool suppressFallbackWarn = false)
         {
             interpResult = InterpolationResult.Zero;
             if (state?.ghost == null
@@ -21983,22 +21993,32 @@ namespace Parsek
                 sectionIndex: target.SectionIndex);
             playbackIdx = absolutePlaybackIdx;
 
-            string key = string.Concat(
-                "recorded-relative-shadow-fallback|",
-                target.RecordingId ?? "(none)",
-                "|",
-                target.AnchorRecordingId ?? "(missing)",
-                "|",
-                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-            if (loggedRelativeAbsoluteShadowStart.Add(key))
+            // PR 3c review follow-up: skip the [WARN] entirely (don't even
+            // populate the dedupe set) when called by the legacy-debris gate —
+            // the wrapper emits its own distinct verbose log so legacy-path
+            // dispatches stay filterable. This keeps the post-failure-recovery
+            // and intended-legacy-path log surfaces cleanly separate, and stops
+            // the gate from inflating the WARN count the plan's success
+            // criteria require to reach zero on a clean replay.
+            if (!suppressFallbackWarn)
             {
-                ParsekLog.Warn("Playback",
-                    $"RELATIVE recorded-anchor fallback to absolute shadow: " +
-                    $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
-                    $"recordingId={ShortRecordingId(target.RecordingId)} " +
-                    $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                    $"frames={target.Section.absoluteFrames.Count} " +
-                    $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
+                string key = string.Concat(
+                    "recorded-relative-shadow-fallback|",
+                    target.RecordingId ?? "(none)",
+                    "|",
+                    target.AnchorRecordingId ?? "(missing)",
+                    "|",
+                    target.SectionIndex.ToString(CultureInfo.InvariantCulture));
+                if (loggedRelativeAbsoluteShadowStart.Add(key))
+                {
+                    ParsekLog.Warn("Playback",
+                        $"RELATIVE recorded-anchor fallback to absolute shadow: " +
+                        $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
+                        $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                        $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                        $"frames={target.Section.absoluteFrames.Count} " +
+                        $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
+                }
             }
             return true;
         }
