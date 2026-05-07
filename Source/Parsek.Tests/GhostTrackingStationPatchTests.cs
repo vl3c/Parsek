@@ -269,6 +269,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrySelectTrackingStationVessel_WithTwoArgumentSetVessel_UsesStockSignatureAndDoesNotKeepFocus()
+        {
+            var spawned = new object();
+            var tracking = new FakeTrackingStationWithTwoArgumentSetVessel();
+
+            bool selected = GhostMapPresence.TrySelectTrackingStationVessel(
+                tracking,
+                spawned,
+                out string error);
+
+            Assert.True(selected);
+            Assert.Same(spawned, tracking.SelectedForTesting);
+            Assert.Equal(1, tracking.TwoArgumentSetVesselCalls);
+            Assert.False(tracking.LastKeepFocus);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationVessel_WithBothSetVesselOverloads_PrefersTwoArgumentStockSignature()
+        {
+            var spawned = new object();
+            var tracking = new FakeTrackingStationWithBothSetVesselOverloads();
+
+            bool selected = GhostMapPresence.TrySelectTrackingStationVessel(
+                tracking,
+                spawned,
+                out string error);
+
+            Assert.True(selected);
+            Assert.Same(spawned, tracking.SelectedForTesting);
+            Assert.Equal(1, tracking.TwoArgumentSetVesselCalls);
+            Assert.Equal(0, tracking.OneArgumentSetVesselCalls);
+            Assert.False(tracking.LastKeepFocus);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void BuildTrackingStationSetVesselArguments_TwoArgumentMethod_AppendsKeepFocus()
+        {
+            var method = typeof(FakeTrackingStationWithTwoArgumentSetVessel)
+                .GetMethod("SetVessel");
+            var spawned = new object();
+
+            object[] args = GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                method,
+                spawned,
+                keepFocus: true);
+
+            Assert.Equal(2, args.Length);
+            Assert.Same(spawned, args[0]);
+            Assert.Equal(true, args[1]);
+        }
+
+        [Fact]
         public void TryInvokeTrackingStationVesselListRefresh_WithBuildMethod_RebuildsListAndLogs()
         {
             var tracking = new FakeTrackingStation(null);
@@ -1036,6 +1090,41 @@ namespace Parsek.Tests
             {
                 SetVesselCalled = true;
                 throw new InvalidOperationException("TryClearSelectedVessel should not call SetVessel");
+            }
+        }
+
+        private sealed class FakeTrackingStationWithTwoArgumentSetVessel
+        {
+            public object SelectedForTesting { get; private set; }
+            public int TwoArgumentSetVesselCalls { get; private set; }
+            public bool LastKeepFocus { get; private set; }
+
+            public void SetVessel(object vessel, bool keepFocus)
+            {
+                TwoArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+                LastKeepFocus = keepFocus;
+            }
+        }
+
+        private sealed class FakeTrackingStationWithBothSetVesselOverloads
+        {
+            public object SelectedForTesting { get; private set; }
+            public int OneArgumentSetVesselCalls { get; private set; }
+            public int TwoArgumentSetVesselCalls { get; private set; }
+            public bool LastKeepFocus { get; private set; }
+
+            public void SetVessel(object vessel)
+            {
+                OneArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+            }
+
+            public void SetVessel(object vessel, bool keepFocus)
+            {
+                TwoArgumentSetVesselCalls++;
+                SelectedForTesting = vessel;
+                LastKeepFocus = keepFocus;
             }
         }
 

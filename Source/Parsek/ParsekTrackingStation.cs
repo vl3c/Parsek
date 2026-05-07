@@ -264,10 +264,7 @@ namespace Parsek
                     "— forcing immediate lifecycle tick");
                 lastKnownShowGhosts = currentShowGhosts;
                 if (!currentShowGhosts)
-                {
-                    GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled");
-                    GhostMapPresence.TryRefreshLiveTrackingStationVesselList("ghost-filter-disabled");
-                }
+                    HideTrackingStationGhostsNow("ghost-filter-disabled");
                 nextLifecycleCheckTime = 0f;
             }
 
@@ -541,12 +538,26 @@ namespace Parsek
             lastKnownShowGhosts = showGhosts;
 
             if (!showGhosts)
-                GhostMapPresence.RemoveAllGhostVessels("tracking-station-ui-toggle");
+                HideTrackingStationGhostsNow("tracking-station-ui-toggle");
 
             nextLifecycleCheckTime = 0f;
             ParsekLog.Info(Tag,
                 $"Control surface set showGhostsInTrackingStation={showGhosts} " +
                 $"liveSettingsUpdated={liveSettingsUpdated}");
+        }
+
+        private void HideTrackingStationGhostsNow(string reason)
+        {
+            string safeReason = string.IsNullOrEmpty(reason)
+                ? "tracking-station-ghosts-hidden"
+                : reason;
+            DismissCurrentGhostPopup(safeReason, clearSelection: true);
+            DestroyAtmosphericFocusTarget(safeReason);
+            atmosCachedIndices.Clear();
+            ghostActionCacheFrame = -1;
+            ghostActionChains.Clear();
+            GhostMapPresence.RemoveAllGhostVessels(safeReason);
+            GhostMapPresence.TryRefreshLiveTrackingStationVesselList(safeReason);
         }
 
         internal static bool TryApplyGhostVisibilitySetting(ParsekSettings settings, bool showGhosts)

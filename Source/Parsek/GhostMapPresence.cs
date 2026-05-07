@@ -2760,7 +2760,11 @@ namespace Parsek
                     vesselSelection.GetType());
                 if (setVesselMethod != null)
                 {
-                    setVesselMethod.Invoke(trackingInstance, new[] { vesselSelection });
+                    object[] args = BuildTrackingStationSetVesselArguments(
+                        setVesselMethod,
+                        vesselSelection,
+                        keepFocus: false);
+                    setVesselMethod.Invoke(trackingInstance, args);
                     return true;
                 }
 
@@ -2781,6 +2785,24 @@ namespace Parsek
                 error = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
+        }
+
+        internal static object[] BuildTrackingStationSetVesselArguments(
+            MethodInfo setVesselMethod,
+            object vesselSelection,
+            bool keepFocus)
+        {
+            if (setVesselMethod == null)
+                return null;
+
+            ParameterInfo[] parameters = setVesselMethod.GetParameters();
+            if (parameters.Length == 2
+                && parameters[1].ParameterType == typeof(bool))
+            {
+                return new[] { vesselSelection, (object)keepFocus };
+            }
+
+            return new[] { vesselSelection };
         }
 
         internal static bool TryRefreshLiveTrackingStationVesselList(string reason)
@@ -2933,6 +2955,7 @@ namespace Parsek
 
             MethodInfo[] methods = trackingType.GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            MethodInfo oneArgumentFallback = null;
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
@@ -2940,14 +2963,31 @@ namespace Parsek
                     continue;
 
                 ParameterInfo[] parameters = method.GetParameters();
-                if (parameters.Length != 1)
+                if (!IsTrackingStationSetVesselSignature(parameters, selectionType))
                     continue;
 
-                if (parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                if (parameters.Length == 2)
                     return method;
+                if (oneArgumentFallback == null)
+                    oneArgumentFallback = method;
             }
 
-            return null;
+            return oneArgumentFallback;
+        }
+
+        private static bool IsTrackingStationSetVesselSignature(
+            ParameterInfo[] parameters,
+            Type selectionType)
+        {
+            if (parameters == null || selectionType == null)
+                return false;
+            if (parameters.Length != 1 && parameters.Length != 2)
+                return false;
+            if (!parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                return false;
+
+            return parameters.Length == 1
+                || parameters[1].ParameterType == typeof(bool);
         }
 
         private static void RestoreTrackingStationSelectedVessel(
