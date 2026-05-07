@@ -171,7 +171,7 @@ This decision reads `section.referenceFrame` only. **Does NOT check `IsDebris`, 
 
 #### 2c. Background real vessel ghost
 
-Same dispatch. Background recordings most often have **self-anchored** Relative sections (their `anchorRecordingId` points to themselves) or Absolute sections. Cross-recording anchoring exists but is rare.
+Same dispatch. Background recordings have either Absolute sections or Relative sections cross-anchored to **another** recording (typically the focused vessel's recording when within physics-bubble range, or another loaded background recording). Self-anchoring is **not possible**: `AnchorDetector.IsRecordingAnchorEligible` (`AnchorDetector.cs:190`) rejects any candidate whose `RecordingId` equals the focus recording's, and the background candidate builders (`BuildBackgroundRecordingAnchorCandidates` / `AddBackgroundLiveAnchorCandidates`) skip the queried recording's own ID. So a Relative section's `anchorRecordingId` always points to a different recording.
 
 #### 2d. Main vessel ghost during Re-Fly
 

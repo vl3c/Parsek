@@ -1,7 +1,7 @@
 # Recording & Ghost Rendering — Refactor Plan
 
 Date: 2026-05-07
-Last amended: 2026-05-07 (v10 — citation/wording touch-ups from Opus review of v9)
+Last amended: 2026-05-07 (v11 — fixes for harness-scope, residual settle-API call, IPlaybackTrajectory seam, focused-debris path, audit self-anchor claim)
 Branch: `claude/investigate-recording-policies-6tMZ9`
 Companion documents:
 - `recording-and-ghost-policies-audit-2026-05-07.md` — read-only audit of current behavior
@@ -249,8 +249,15 @@ The new top-level `Recording.DebrisParentRecordingId` is written by `RecordingTr
 
 ### 3a. Schema (PR 3a)
 
+PR 3a touches both the recording-data schema AND the engine/recording isolation seam:
+
+**Recording field:**
+
 - Add `Recording.DebrisParentRecordingId` (string, default null).
-- **Add `string DebrisParentRecordingId { get; }` to `IPlaybackTrajectory`** (`IPlaybackTrajectory.cs`, adjacent to existing `bool IsDebris` at line 70). The interface is the deliberate engine/recording isolation seam (`GhostPlaybackEngine` accesses trajectories only through it — see `IPlaybackTrajectory.cs` doc comment and CLAUDE.md §`GhostPlaybackEngine.cs`). Adding a property is a small, non-breaking change to the seam — the implementer (`Recording`) already exposes the new field as a public property by virtue of the schema change. PR 3c needs interface access to gate on it (the call sites have `IPlaybackTrajectory traj` in scope, not `Recording`).
+
+**Interface seam** (load-bearing for PR 3c — without this, the gate cannot compile from its intended call sites):
+
+- **Add `string DebrisParentRecordingId { get; }` to `IPlaybackTrajectory`** at `IPlaybackTrajectory.cs:70` (adjacent to the existing `bool IsDebris` property). The interface is the deliberate engine/recording isolation seam (`GhostPlaybackEngine` accesses trajectories only through it — see `IPlaybackTrajectory.cs` doc comment and CLAUDE.md §`GhostPlaybackEngine.cs`). PR 3c's gate sits in `ParsekFlight.InterpolateAndPositionRecordedRelative`, where the in-scope variable is `IPlaybackTrajectory traj`, NOT `Recording` — without this property on the interface, the gate's condition #2 (`string.IsNullOrEmpty(traj.DebrisParentRecordingId)`) does not compile. `Recording` (the canonical implementer of `IPlaybackTrajectory`) gains the property automatically by virtue of the field above. Any test fakes or alternative implementers in `Source/Parsek.Tests` need the property too — small, mechanical addition.
 - ConfigNode codec **write** in `RecordingTreeRecordCodec.SaveRecordingInto` (alongside the existing `IsDebris` write at line 215 area). **Conditional**: only write the line when `DebrisParentRecordingId != null`, mirroring how `IsDebris` is conditionally written. This keeps non-debris recordings byte-identical on disk across the upgrade.
 - ConfigNode codec **read** in the load path adjacent to `RecordingTreeRecordCodec.cs:744` (`isDebris` load). On legacy `RecordingFormatVersion < 12`, the field defaults to null (Decision §9 behavior — PR 3c gate fires).
 - Format-version constant + bump per "Format version" section above.
@@ -326,7 +333,14 @@ In `BackgroundRecorder.ApplyBackgroundRelativeOffset` (called from `OnBackground
 
 #### Initial seed point coordinate transform
 
-`RegisterChildRecordingsFromSplit` builds the seed point via `CreateAbsoluteTrajectoryPointFromVessel` (body-fixed `lat/lon/alt`) and stores it in `pendingInitialTrajectoryPoints[child.VesselPersistentId]` for `OnVesselBackgrounded` to consume one frame later. For debris with `DebrisParentRecordingId != null`, the seed must be transformed from body-fixed to anchor-local **before it enters the first track section**. The transform reuses `ApplyBackgroundRelativeOffsetForAnchorPose` (`BackgroundRecorder.cs:3832`), but that helper requires a fully-initialized `BackgroundVesselState` plus an `AnchorPose`, neither of which exists at `RegisterChildRecordingsFromSplit` time (state is created inside `OnVesselBackgrounded` one frame later).
+**Both creation paths** funnel into the same `OnVesselBackgrounded` → `InitializeLoadedState` flow, and the orchestration below handles both uniformly:
+
+- **Background-vessel debris** (`BackgroundRecorder.RegisterChildRecordingsFromSplit` at `:1059`): builds the seed via `CreateAbsoluteTrajectoryPointFromVessel` at line 1104, stashes it in `pendingInitialTrajectoryPoints` and calls `OnVesselBackgrounded(...)` at line 1108.
+- **Focused-vessel debris** (`ParsekFlight.CreateBreakupChildRecording` at `ParsekFlight.cs:5103`): the caller (`ParsekFlight.cs:5552-5570`) builds the seed via `BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel` at line 5561, then calls `backgroundRecorder.OnVesselBackgrounded(pid, breakupEngineState, initialTrajectoryPoint: initialPoint)` at line 5566. Same dispatch point as the background path.
+
+Both produce a body-fixed `lat/lon/alt` seed and feed it through `OnVesselBackgrounded` → `InitializeLoadedState`, which is where `BackgroundVesselState` is constructed and the first track section opens. For debris with `DebrisParentRecordingId != null`, the seed must be transformed from body-fixed to anchor-local **before it enters the first track section**. The transform reuses `ApplyBackgroundRelativeOffsetForAnchorPose` (`BackgroundRecorder.cs:3832`), but that helper requires a fully-initialized `BackgroundVesselState` plus an `AnchorPose`, neither of which exists at `RegisterChildRecordingsFromSplit` / `CreateBreakupChildRecording` time (state is created inside `InitializeLoadedState` one frame later, after `OnVesselBackgrounded` dispatches).
+
+Placing the orchestration inside `InitializeLoadedState` (the shared sink) covers both creation paths without duplication. Both paths get the test obligation at the bottom of this section; the propagation enumeration in §"`IsDebris` propagation surface" already lists both `RegisterChildRecordingsFromSplit` and `CreateBreakupChildRecording` as primary creation sites that must call `ApplyDebrisAnchorContract` before the seed is built — that's how `recording.DebrisParentRecordingId` becomes non-null in time for `InitializeLoadedState` to read it.
 
 **Call order** (the orchestration the implementer needs to set up — this is where the implementation does have non-trivial work).
 
@@ -445,13 +459,17 @@ When `recording.DebrisParentRecordingId != null`, the recorder always writes Rel
 
 **Purpose:** make existing v11 broken debris saves render correctly without mutating sidecar data. Per Decision §9.
 
-**Rule.** In `ParsekFlight.InterpolateAndPositionRecordedRelative` (`ParsekFlight.cs:21228+`), insert a precheck **before** each of the three calls to `TryPositionGhostRecordedRelativeAt` / `TryResolveRecordedRelativeAnchorPose`. The three pre-resolver insertion points (in current main):
+**Rule.** In `ParsekFlight.InterpolateAndPositionRecordedRelative` (`ParsekFlight.cs:21228+`), insert a precheck **before** each of the three calls to `TryPositionGhostRecordedRelativeAt` / `TryResolveRecordedRelativeAnchorPose`. **Insert ABOVE the resolver attempt, not after its failure** — the dominant legacy-debris failure mode is "resolver succeeds with the wrong anchor," so the existing post-failure shadow path at lines 21268/21310/21370 is unreachable for this case.
 
-- **~line 21253** (pre-range branch, just before the first `TryPositionGhostRecordedRelativeAt(ghost, frames[0], ...)` call).
-- **~line 21295** (single-point branch, just before `TryPositionGhostRecordedRelativeAt(ghost, before, ...)`).
-- **~line 21368** (regular interpolation branch, just before `TryResolveRecordedRelativeAnchorPose(target, targetUT, out anchorPose)`).
+The three correct **pre-resolver** insertion points (in current main):
 
-Note the line numbers are NOT `21268/21310/21370` — those are the existing failure-branch `TryUseRelativeAbsoluteShadowFallback` calls, which stay in place as the resolver-failure fallback for non-debris and v12+ debris. The gate is inserted ABOVE the resolver attempt, not after its failure.
+| Branch | Pre-resolver insertion point | Existing post-failure fallback (untouched) |
+|--------|------------------------------|---------------------------------------------|
+| Pre-range (`indexBefore < 0`) | **~line 21253**, before `TryPositionGhostRecordedRelativeAt(ghost, frames[0], ...)` | line 21268 (`TryUseRelativeAbsoluteShadowFallback`) |
+| Single-point (`segmentDuration <= 0.0001`) | **~line 21295**, before `TryPositionGhostRecordedRelativeAt(ghost, before, ...)` | line 21310 |
+| Regular interpolation | **~line 21368**, before `TryResolveRecordedRelativeAnchorPose(target, targetUT, ...)` | line 21370 |
+
+The post-failure fallback calls (21268, 21310, 21370) **stay in place** as the resolver-failure path for non-debris and v12+ debris recordings. They are not the insertion points for the new gate.
 
 The gate code (in scope: `traj` is the `IPlaybackTrajectory`, `target.Section` is the current `TrackSection`, `target.SectionIndex` is its index):
 
@@ -495,18 +513,67 @@ When all four conditions hold, the gate fires. When any condition fails, control
 
 **Logging.** When the gate fires, emit a verbose log: `Playback: legacy debris path — preferring absoluteFrames shadow (recordingId=..., sectionIndex=..., shadowFrames=...)`. Use `ParsekLog.VerboseRateLimited` with a composite key keyed on `legacy-debris-shadow-preferred|<recordingId>|<sectionIndex>` so each (recording, section) logs at most once per the rate-limit window — mirroring the existing `RELATIVE recorded-anchor fallback to absolute shadow` log at `ParsekFlight.cs:21885-21891` (which uses a four-part key `recordingId|anchorRecordingId|sectionIndex`). A single legacy debris recording with multiple Relative sections then logs once per section, not once per frame.
 
+#### Test seam (xUnit harness can't reach the gate as written)
+
+The Step 1 harness is **resolver-level only** — it hashes `RelativeAnchorResolver.TryResolveRecordingPose` outputs over a UT span (per Step 1 §"Scope reduction"). The PR 3c gate sits in `ParsekFlight.InterpolateAndPositionRecordedRelative` — a `MonoBehaviour` method on the positioner, not on the resolver. Hashing resolver output won't exercise the new caller-side gate, and Scenarios 11/12 as originally written (in §3d below) cannot validate that the gate fires correctly.
+
+The fix is to extract the gate's four-condition predicate into a pure static method that lives in a new helper file and is callable from xUnit:
+
+```
+internal static class LegacyDebrisShadowGate
+{
+    /// Returns true when this Relative section should bypass the resolver
+    /// chain in favor of the absolute-shadow path: legacy v11 debris
+    /// (DebrisParentRecordingId not yet set on load) with a populated
+    /// shadow. Pure function of two interface fields and two TrackSection
+    /// fields; testable from xUnit without Unity.
+    internal static bool IsLegacyDebrisShadowEligible(
+        IPlaybackTrajectory traj,
+        TrackSection section)
+    {
+        if (traj == null || !traj.IsDebris) return false;
+        if (!string.IsNullOrEmpty(traj.DebrisParentRecordingId)) return false;
+        if (section.referenceFrame != ReferenceFrame.Relative) return false;
+        if (section.absoluteFrames == null) return false;
+        if (section.absoluteFrames.Count == 0) return false;
+        return true;
+    }
+}
+```
+
+The gate code at the three call sites then reduces to a one-line check:
+
+```
+if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+    && TryUseRelativeAbsoluteShadowFallback(
+        recordingIndex, traj, retireSignalState, target,
+        targetUT, ref cachedIndex, out interpResult))
+    return;
+// Fall through to the existing path (resolver-first, then shadow on resolver failure).
+```
+
+**xUnit coverage** for the predicate (Scenarios 11/12 are restated in §3d to test the predicate directly):
+
+- Test that returns true for `IsDebris == true && DebrisParentRecordingId == null && referenceFrame == Relative && absoluteFrames.Count > 0`.
+- Tests that return false for each of the four condition negations (non-debris, v12+ debris with `DebrisParentRecordingId` set, Absolute section, empty/null shadow).
+- A tiny `IPlaybackTrajectory` fake suffices; no `MonoBehaviour` dependency.
+
+**What the predicate does NOT cover**: whether `TryUseRelativeAbsoluteShadowFallback` actually produces the correct world pose from the shadow — that's an existing behavior of an unchanged method, exercised at playback by other code paths today (the post-resolver-failure branches). If a positioner-level test seam ever lands (Step 4 / §"Known follow-ups" #5), drive the full call site through it; until then, the predicate test plus the unchanged fallback behavior together establish the gate's correctness without needing to instantiate a `MonoBehaviour`.
+
 ### 3d. Re-run harness
 
 Scenarios 4, 5, 7 hashes will change after PR 3b (the recorder change). Reset them in PR 3b with a comment: `// reset: debris parent-anchor contract introduced, see refactor-plan.md`. Scenarios 1, 2, 3, 6, 8, 9, 10 must NOT change. If any of them does, stop and investigate before merging.
 
 For scenarios involving v12+ debris with parent unresolvable (parent destroyed, loop-rejected): the resolver returns false → no rendered position. The harness should hash this as a sentinel value (e.g. `(NaN, NaN, NaN, NaN, NaN, NaN, NaN)`) and the test expectation is that the resolver consistently produces sentinels. This verifies the "debris bound to parent visibility" property.
 
-PR 3c adds two new scenarios:
+PR 3c adds two new test surfaces — the gate predicate is testable directly via the extracted `LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible` static helper (§3c §"Test seam"), and the harness gets two scenarios that exercise predicate-level coverage:
 
-- **Scenario 11 — Legacy v11 debris (`DebrisParentRecordingId == null`) with `absoluteFrames` shadow.** Construct a synthetic v11 recording with `IsDebris = true`, no `DebrisParentRecordingId`, a Relative section pointing at an unrelated vessel, and a populated `section.absoluteFrames`. Hash the resolver output across the section. Expectation: hashes match the shadow data (`absoluteFrames` body-fixed positions), NOT the resolver's wrong-anchor output.
-- **Scenario 12 — Legacy v11 debris with no `absoluteFrames` shadow.** Same setup but with empty `absoluteFrames`. Expectation: gate's condition (4) fails, falls through to existing path. Hashes match the existing (pre-fix) behavior.
+- **Scenario 11 — Predicate truth table.** Build small in-memory `IPlaybackTrajectory` fakes plus synthetic `TrackSection` instances and assert each condition independently: (a) returns true for `IsDebris && DebrisParentRecordingId == null && Relative && shadow.Count > 0`; (b) returns false for non-debris; (c) returns false for v12+ debris (`DebrisParentRecordingId` set); (d) returns false for Absolute section; (e) returns false for empty/null shadow. This is pure xUnit, runs in milliseconds, no positioner involvement.
+- **Scenario 12 — `TryUseRelativeAbsoluteShadowFallback` shadow-pose correctness.** This is unchanged code today, but it has gaps in coverage; PR 3c implicitly relies on its correctness. Add a focused test that calls the existing fallback with a populated `absoluteFrames` and asserts the resolved `(worldPos, worldRot)` matches the body-fixed shadow data. Hash the output as a baseline; if a future change ever modifies the fallback, this guards it.
 
-Both scenarios run only after PR 3c lands; they fail-loud if the gate isn't wired correctly.
+Together these establish that (a) the gate fires under the right conditions and only those conditions, and (b) the fallback produces the right pose. The composition — gate fires → fallback runs → correct pose rendered — is the integration concern; until a positioner-level harness exists (§"Known follow-ups" #5), in-game manual validation per §"Success criteria" §"Behavioral validation" is the integration coverage.
+
+Both new test surfaces run only after PR 3c lands; they fail-loud if the gate isn't wired correctly.
 
 ---
 
@@ -601,7 +668,7 @@ These are issues surfaced during investigation that share scope with the debris 
 | **PR 3c gate fires on a path other than `InterpolateAndPositionRecordedRelative`** | Medium | Three pre-resolver insertion points enumerated explicitly (`ParsekFlight.cs:~21253, ~21295, ~21368`). If a fourth site exists, the gate has a known gap; map-side rendering (`GhostMapPresence.cs`) is captured in §"Known follow-ups" rather than expanded into 3c's scope. |
 | **PR 3c gate masks a real resolver bug for v12+ debris** | Eliminated by gate condition #2 | The gate explicitly requires `string.IsNullOrEmpty(recording.DebrisParentRecordingId)` — v12+ debris (which always has the field set) skips the gate entirely. A resolver bug for v12+ debris would surface as today, no masking. |
 | **Parent on-rails / packed mid-debris-life produces stale Relative offsets** | High without §"Parent on-rails" hook | Decision §10 + Step 3b §"Parent on-rails" hook in `CheckDebrisTTL`: end the debris recording when parent transitions to `packed` / `!loaded`. Distinct log line for diagnosis. |
-| **Re-Fly settle gap → debris writes Relative against suppressed parent** | High without §"Re-Fly settle window" hook | Decision §11 + Step 3b §"Re-Fly settle window" hook: skip per-frame sampling while `ShouldSuppressReFlyPostLoadTrajectoryWrite(parent.RecordingId, sampleUT)`. New debris invisible for ~1–2 s post-load, then renders correctly. |
+| **Re-Fly settle gap → debris writes Relative against suppressed parent** | High without §"Re-Fly settle window" hook | Decision §11 + Step 3b §"Re-Fly settle window" hook: skip per-frame sampling while `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(parent.RecordingId) == true` (new public accessor introduced in PR 3b — see Decision §11 for rationale). The original private `ShouldSuppressReFlyPostLoadTrajectoryWrite(double ut, string source)` instance method is not callable from `BackgroundRecorder`; the accessor is the bridge. New debris invisible for ~1–2 s post-load, then renders correctly. |
 | Debris with parent unresolvable becomes invisible (parent destroyed / loop-rejected) for v12+ recordings | **By design, not a risk** | Decision §7: debris visibility is bound to parent visibility. Existing resolver behavior (return false → don't render) is correct. |
 | Legacy v11 debris in existing saves never gets fixed | **Eliminated by PR 3c** | Decision §9 + PR 3c gate retroactively resolve legacy debris via `absoluteFrames` shadow. Users with broken saves see immediate improvement on next playback. |
 
@@ -753,3 +820,10 @@ Replaying `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (or 
   - **Per-frame anchor-write wording** in Step 3b §"Per-frame anchor write": switched from "set `section.anchorRecordingId`" to "set `state.currentAnchorRecordingId` and let `ApplyBackgroundCurrentAnchorToTrackSection` propagate" — matches the existing recorder pattern.
   - **`BuildBackgroundSplitBranchData` cited line** in Step 2 §"`IsDebris` propagation surface": `BackgroundRecorder.cs:1143` for the function header (was `:1176` which is a mid-function line; the `IsDebris` initializer is at `:1176` inside the per-child loop, so both are noted).
   - No design changes; v10 is the same plan as v9 with the cited line numbers and variable names matching the actual code.
+- **2026-05-07, v11 (this revision):** Fixes for review comments that surfaced after v10. Three real bugs in the plan plus three clarity gaps:
+  - **PR 3c gate cannot be tested by the resolver-only harness (real bug).** Step 1's harness scope is `RelativeAnchorResolver` outputs only; PR 3c lives in `ParsekFlight.InterpolateAndPositionRecordedRelative` (the resolver's caller). Scenarios 11/12 as v10 wrote them — "hash the resolver output" — would never see the gate fire. v11 extracts the four-condition predicate into a pure-static `LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(IPlaybackTrajectory traj, TrackSection section)` helper that xUnit can call directly, and rewrites Scenario 11 as a predicate truth-table test. Scenario 12 becomes an unchanged-fallback shadow-pose test (covers `TryUseRelativeAbsoluteShadowFallback`'s correctness independently of the gate). Integration coverage (gate fires + fallback runs + correct pose) is acknowledged as a positioner-level gap addressed by §"Known follow-ups" #5 (positioner extraction) and in-game manual validation per §"Success criteria" §"Behavioral validation."
+  - **Risk-table residual referenced the private `ShouldSuppressReFlyPostLoadTrajectoryWrite` (real bug).** v10's risk row "Re-Fly settle gap → debris writes Relative against suppressed parent" still listed the v7-era private call signature. v11 updates it to reference the new `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording` accessor introduced in PR 3b (Decision §11) and explicitly notes the original method is not callable from `BackgroundRecorder`.
+  - **PR 3a interface-seam addition was buried in a sub-bullet (clarity).** v10 mentioned adding `DebrisParentRecordingId` to `IPlaybackTrajectory` as one of several PR 3a items. v11 promotes it to its own first-class subsection, makes the load-bearing-for-PR-3c framing explicit, and notes that test fakes / alternative implementers in `Source/Parsek.Tests` need the property too. Without this addition, PR 3c's gate code does not compile from its intended call sites.
+  - **Initial-seed orchestration only mentioned the BG-vessel path (clarity).** v10 said "RegisterChildRecordingsFromSplit builds the seed..." which read as if the orchestration was BG-debris-only. v11 explicitly enumerates BOTH creation paths (BG-vessel via `RegisterChildRecordingsFromSplit`, focused-vessel via `ParsekFlight.CreateBreakupChildRecording`) and notes both funnel into the same `OnVesselBackgrounded` → `InitializeLoadedState` dispatch — placing the orchestration inside `InitializeLoadedState` (the shared sink) covers both without duplication.
+  - **PR 3c gate insertion-point table (clarity).** v10 had the correct line numbers in prose but mixed pre-resolver and post-resolver line numbers in adjacent sentences, which a literal-reader implementer could conflate. v11 replaces the prose with a 3-row table that explicitly pairs each branch's pre-resolver insertion point with its existing post-resolver fallback line, making it impossible to confuse the two.
+  - **Audit §2c self-anchor claim corrected (real bug).** Audit said "Background recordings most often have self-anchored Relative sections (their `anchorRecordingId` points to themselves)." This is impossible: `AnchorDetector.IsRecordingAnchorEligible` rejects self-anchoring, and the background candidate builders skip the queried recording's own ID. v11 corrects the claim to: "either Absolute sections, or Relative sections cross-anchored to **another** recording."
