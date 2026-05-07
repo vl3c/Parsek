@@ -192,6 +192,155 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
         }
 
+        // ===== Scenario 3: Single recording with Absolute↔Relative
+        // section-boundary transition. =====
+        //
+        // Verifies the section dispatcher's per-section frame routing across
+        // a section boundary at mid-recording. A target recording with two
+        // sections is sampled over the full UT span:
+        //   Section 0 [0, 5]: Absolute, sweeps (100, 0, 0) → (105, 0, 0).
+        //                    Resolver dispatches to TryResolveAbsoluteSectionPose.
+        //   Section 1 [5, 10]: Relative, anchored to "anchor-s3", local
+        //                    offset (1, 0, 0). Resolver dispatches to
+        //                    TryResolveRelativeSectionPose →
+        //                    TryResolveAnchorPose → recursive resolve of the
+        //                    anchor recording → world pose composition.
+        //
+        // The "anchor-s3" recording sweeps (1000, 0, 0) → (1010, 0, 0) over
+        // UT [0, 10] so the second-half samples produce world positions
+        // distinguishable from the first-half samples by ~3 orders of
+        // magnitude — a future regression that accidentally re-routes a
+        // Relative section through the Absolute path (or vice versa) would
+        // perturb the hash by a large, obvious delta.
+        //
+        // This scenario MUST remain stable across PR 3 (per the plan's
+        // success criteria — non-debris invariants).
+        internal static HarnessScenario BuildScenario3_AbsoluteRelativeSectionTransition()
+        {
+            var tree = new RecordingTree { Id = "tree-s3" };
+            Recording anchor = MakeAbsoluteRecording(
+                "anchor-s3",
+                tree.Id,
+                new Vector3d(1000, 0, 0),
+                new Vector3d(1010, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+
+            // Build the target by hand because the existing helpers create
+            // single-section recordings; we need two sections joined at UT 5.
+            var target = new Recording
+            {
+                RecordingId = "abs-rel-transition-target",
+                RecordingFormatVersion =
+                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = tree.Id,
+                VesselName = "abs-rel-transition-target",
+            };
+            target.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = 5.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity),
+                    MakePoint(5.0, new Vector3d(105, 0, 0), Quaternion.identity),
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+            target.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 5.0,
+                endUT = 10.0,
+                anchorRecordingId = anchor.RecordingId,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(5.0, new Vector3d(1, 0, 0), Quaternion.identity),
+                    MakePoint(10.0, new Vector3d(1, 0, 0), Quaternion.identity),
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(target);
+            return new HarnessScenario(
+                "scenario-3-absolute-relative-section-transition",
+                MakeContext(tree),
+                target,
+                startUT: 0.0,
+                endUT: 10.0);
+        }
+
+        // ===== Scenario 8: On-rails background recording (no track
+        // sections). =====
+        //
+        // On-rails BG vessels deliberately emit no env-classified
+        // TrackSections (per project CLAUDE.md "On-rails BG vessels emit
+        // no env-classified TrackSections"; `BackgroundOnRailsState` omits
+        // `currentTrackSection`/`trackSections` and `OnBackgroundPhysicsFrame`
+        // early-returns on `bgVessel.packed`). For format-v6+ recordings,
+        // `RelativeAnchorResolver.TryResolveRecordingPose` requires
+        // TrackSections to be non-empty — empty TrackSections + v6+ format
+        // hits the "anchor-track-sections-missing" branch and returns false
+        // for every UT.
+        //
+        // This scenario pins that consistent-fail behavior for on-rails
+        // recordings. The recording has Points (legacy flat trajectory
+        // list) and OrbitSegments populated to reflect a realistic
+        // on-rails state, but TrackSections is intentionally empty. The
+        // hash captures all-NaN-sentinel samples — if a future change
+        // adds a Points-fallback for empty-TrackSections recordings on
+        // v6+ format (or routes OrbitSegments through pose resolution
+        // without a TrackSection wrapper), the hash flips immediately.
+        //
+        // This scenario MUST remain stable across PR 3 (per the plan's
+        // success criteria — non-debris invariants).
+        internal static HarnessScenario BuildScenario8_OnRailsBackgroundVessel()
+        {
+            var tree = new RecordingTree { Id = "tree-s8" };
+            var target = new Recording
+            {
+                RecordingId = "on-rails-bg",
+                RecordingFormatVersion =
+                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = tree.Id,
+                VesselName = "on-rails-bg",
+            };
+            // Points: realistic flat trajectory list (legacy/non-track-section
+            // shape). Resolver does NOT consult these for v6+ recordings with
+            // empty TrackSections.
+            target.Points.Add(MakePoint(0.0, new Vector3d(700000, 0, 0), Quaternion.identity));
+            target.Points.Add(MakePoint(5.0, new Vector3d(700100, 0, 0), Quaternion.identity));
+            target.Points.Add(MakePoint(10.0, new Vector3d(700200, 0, 0), Quaternion.identity));
+            // OrbitSegments: a single circular Kerbin orbit. Resolver does not
+            // invoke OrbitalCheckpointPoseResolver for these — they are only
+            // referenced via a TrackSection of referenceFrame=OrbitalCheckpoint.
+            target.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 0.0,
+                endUT = 10.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000,
+                eccentricity = 0.0,
+                inclination = 0.0,
+                isPredicted = false,
+            });
+            // TrackSections intentionally empty — this is the on-rails shape.
+
+            tree.AddOrReplaceRecording(target);
+            return new HarnessScenario(
+                "scenario-8-on-rails-bg-vessel",
+                MakeContext(tree),
+                target,
+                startUT: 0.0,
+                endUT: 10.0);
+        }
+
         // ===== Scenario 6: Re-Fly, provisional supersedes origin. =====
         //
         // The origin recording is captured pre-Re-Fly via

@@ -1219,8 +1219,24 @@ namespace Parsek
                     Generation = parentGeneration + 1
                 };
                 // PR 3b: stamp the v12+ debris parent-anchor contract on the new
-                // child Recording adjacent to the IsDebris assignment. String overload
-                // because this static factory is invoked with the parent recording id.
+                // child Recording adjacent to the IsDebris assignment. String
+                // overload because this static factory is invoked with the
+                // parent recording id.
+                //
+                // PR 3b review follow-up note (intentional double-application):
+                // RegisterChildRecordingsFromSplit on the live path re-stamps
+                // the contract a moment later, AFTER `parentContRec` is created,
+                // using the continuation's recording id so the debris anchors to
+                // the still-open continuation rather than the closed pre-split
+                // parent. Stamping here too is harmless (idempotent) and serves
+                // two purposes: (1) it preserves the propagation invariant for
+                // test fixtures that call this static factory without going
+                // through RegisterChildRecordingsFromSplit; (2) it keeps the
+                // contract local to "primary creation sites" per plan §"`IsDebris`
+                // propagation surface" — a future caller that bypasses
+                // RegisterChildRecordingsFromSplit still gets a contract-stamped
+                // debris recording (pointing at the original parent id, which
+                // is the right answer when no continuation exists).
                 Recording.ApplyDebrisAnchorContract(child, parentRecordingId);
                 childRecordings.Add(child);
             }
@@ -5789,6 +5805,30 @@ namespace Parsek
                 if (!FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
                 {
                     legacySkipped++;
+                    continue;
+                }
+
+                // PR 3b review follow-up §"Re-Fly settle window hook" (Decision §11):
+                // mirror the periodic path's settle skip on the structural-event
+                // seam too. If a v12+ debris vessel emits a structural event during
+                // its parent's Re-Fly post-load settle window (e.g. a deploy event
+                // coincident with the settle release), the snapshot would land in
+                // a Relative section anchored to a parent recording whose own
+                // samples are suppressed for the same window — the resolver could
+                // not walk back to a parent pose. Skip this vessel's snapshot;
+                // subsequent samples after settle release will reopen the section.
+                if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
+                    && FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(
+                            treeRec.DebrisParentRecordingId))
+                {
+                    ParsekLog.VerboseRateLimited("BgRecorder",
+                        "debris-parent-settle-suppressed-struct|" + treeRec.RecordingId,
+                        $"Structural-event snapshot suppressed (parent in Re-Fly settle): " +
+                        $"pid={pid} recordingId={treeRec.RecordingId} " +
+                        $"parentRecId={treeRec.DebrisParentRecordingId} " +
+                        $"eventType={eventType ?? "unknown"} " +
+                        $"eventUT={eventUT.ToString("F2", CultureInfo.InvariantCulture)}",
+                        2.0);
                     continue;
                 }
 

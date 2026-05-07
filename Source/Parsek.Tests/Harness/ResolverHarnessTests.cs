@@ -87,6 +87,22 @@ namespace Parsek.Tests.Harness
                     "da72f033954edbf4781eda0d36294e5ce6bc757fda0f4b9d79b909967a73bc9b",
                 ["scenario-10-same-chain-continuation"] =
                     "fbd0c929ea865bb5bb9cec4c3411104f5df3a986f7787040006f6251c038ae76",
+                // PR 3b review follow-up: scenarios 3 and 8 added. Both are
+                // non-debris invariants that MUST remain stable across PR 3,
+                // matching the plan's hand-off criterion (scenarios 1, 2, 3,
+                // 6, 8, 9, 10 unchanged across the recorder change). Captured
+                // against the post-3b tip on 2026-05-07.
+                ["scenario-3-absolute-relative-section-transition"] =
+                    "0ed9b564d121de01ae1e3d58c7b8e78a4cc65db69868117f8c24128441e6762f",
+                // Same hash as scenario-9-loop-anchor-rejection: both produce
+                // all-NaN-sentinel samples (resolver returns false for every
+                // UT). The two scenarios test different failure modes —
+                // empty TrackSections vs loop-anchor live-PID rejection — but
+                // since the hash captures resolver outputs, identical
+                // unresolved-on-every-sample behavior produces identical
+                // hashes. This is by construction, not a baseline collision.
+                ["scenario-8-on-rails-bg-vessel"] =
+                    "49613c44e81b0ce987485db7b2466c4b593d13ab28133c8d450b614067632bba",
             };
 
         [Fact]
@@ -159,6 +175,29 @@ namespace Parsek.Tests.Harness
                 l.Contains("[RelativeAnchorResolver]")
                 && l.Contains("Anchor recording continued through same-chain successor")
                 && l.Contains("recordingId=first-half"));
+        }
+
+        [Fact]
+        public void Scenario3_AbsoluteRelativeSectionTransition_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario3_AbsoluteRelativeSectionTransition();
+            AssertScenarioHash(s);
+        }
+
+        [Fact]
+        public void Scenario8_OnRailsBackgroundVessel_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario8_OnRailsBackgroundVessel();
+            AssertScenarioHash(s);
+
+            // Sanity: empty-TrackSections + v6+ format MUST emit the
+            // anchor-track-sections-missing warn at every UT. If a future
+            // change adds a Points-fallback for this shape the warn would
+            // stop firing; this assertion makes that drift visible
+            // alongside the hash flip.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]")
+                && l.Contains("reason=anchor-track-sections-missing"));
         }
 
         private void AssertScenarioHash(HarnessScenario s)

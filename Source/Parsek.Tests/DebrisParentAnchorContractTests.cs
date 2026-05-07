@@ -202,16 +202,182 @@ namespace Parsek.Tests
         }
 
         // ===== C. Secondary propagation site #5 — SessionMerger =====
-        // SessionMerger is a heavy harness; the propagation line itself is a
-        // mechanical "merged.DebrisParentRecordingId = srcRec.DebrisParentRecordingId"
-        // adjacent to the existing IsDebris copy. ApplyPersistenceArtifactsFrom (above)
-        // exercises the same field-copy contract; in-game tests cover the full merger.
+        // PR 3b review follow-up §3: drive SessionMerger.MergeTree with a
+        // debris source recording and assert the merged copy carries both
+        // IsDebris and DebrisParentRecordingId. A future refactor that
+        // touches one field-copy line but forgets the other lights up here.
+
+        [Fact]
+        public void SessionMerger_DebrisRecording_MergedCopyKeepsParentRecordingId()
+        {
+            var src = new Recording
+            {
+                RecordingId = "src-debris",
+                VesselName = "Booster Debris",
+                TreeId = "test-tree",
+                VesselPersistentId = 4242u,
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec-from-merger",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 10.0,
+            };
+            // Minimum payload: one TrackSection so MergeTree's per-recording
+            // pipeline runs end-to-end.
+            src.TrackSections.Add(new TrackSection
+            {
+                source = TrackSectionSource.Active,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 10.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 0.0 },
+                    new TrajectoryPoint { ut = 10.0 },
+                },
+            });
+
+            var tree = new RecordingTree { Id = "test-tree" };
+            tree.Recordings[src.RecordingId] = src;
+            tree.RootRecordingId = src.RecordingId;
+            tree.ActiveRecordingId = src.RecordingId;
+
+            Dictionary<string, Recording> merged = SessionMerger.MergeTree(tree);
+
+            Assert.True(merged.ContainsKey("src-debris"));
+            Recording mergedRec = merged["src-debris"];
+            Assert.True(mergedRec.IsDebris);
+            Assert.Equal("parent-rec-from-merger", mergedRec.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void SessionMerger_NonDebrisRecording_MergedCopyHasNullParentRecordingId()
+        {
+            // Mirror the sparse-write contract on the merge path: a non-debris
+            // recording's merged copy must NOT carry a non-null
+            // DebrisParentRecordingId (the source side has it null too; this
+            // test pins the no-stamping invariant on the merger).
+            var src = new Recording
+            {
+                RecordingId = "src-non-debris",
+                VesselName = "Active Probe",
+                TreeId = "test-tree",
+                VesselPersistentId = 1u,
+                IsDebris = false,
+                DebrisParentRecordingId = null,
+            };
+            src.TrackSections.Add(new TrackSection
+            {
+                source = TrackSectionSource.Active,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 10.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 0.0 },
+                    new TrajectoryPoint { ut = 10.0 },
+                },
+            });
+
+            var tree = new RecordingTree { Id = "test-tree" };
+            tree.Recordings[src.RecordingId] = src;
+            tree.RootRecordingId = src.RecordingId;
+            tree.ActiveRecordingId = src.RecordingId;
+
+            Dictionary<string, Recording> merged = SessionMerger.MergeTree(tree);
+
+            Assert.True(merged.ContainsKey("src-non-debris"));
+            Recording mergedRec = merged["src-non-debris"];
+            Assert.False(mergedRec.IsDebris);
+            Assert.Null(mergedRec.DebrisParentRecordingId);
+        }
 
         // ===== C. Secondary propagation site #6 — RewindInvoker Re-Fly inheritance =====
-        // The provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId
-        // line is mechanical (one line adjacent to existing IsDebris copy). The
-        // resolver harness scenario 7 exercises the live Re-Fly walk-back; in-game
-        // tests cover full RewindInvoker flow.
+        // PR 3b review follow-up §3: the in-place fork's identity-copy block
+        // (RewindInvoker.cs:920+) was extracted into the pure-static
+        // RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom)
+        // helper so xUnit can validate the field-copy contract directly.
+        // Tests cover null guards plus every field copied including the
+        // load-bearing DebrisParentRecordingId.
+
+        [Fact]
+        public void CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId()
+        {
+            var inheritFrom = new Recording
+            {
+                RecordingId = "inherit-source",
+                VesselPersistentId = 9999u,
+                VesselName = "Booster Debris (origin)",
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec-from-rewind",
+                Generation = 1,
+                SegmentPhase = "Atmospheric",
+                SegmentBodyName = "Kerbin",
+                StartBodyName = "Kerbin",
+                StartBiome = "Shores",
+                StartSituation = "FLYING",
+                LaunchSiteName = "LaunchPad",
+            };
+            var provisional = new Recording
+            {
+                RecordingId = "provisional-fork",
+                // All identity fields start at default — we must observe
+                // every one of them flip to the inheritFrom values.
+            };
+
+            RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom);
+
+            Assert.Equal(9999u, provisional.VesselPersistentId);
+            Assert.Equal("Booster Debris (origin)", provisional.VesselName);
+            Assert.True(provisional.IsDebris);
+            Assert.Equal("parent-rec-from-rewind", provisional.DebrisParentRecordingId);
+            Assert.Equal(1, provisional.Generation);
+            Assert.Equal("Atmospheric", provisional.SegmentPhase);
+            Assert.Equal("Kerbin", provisional.SegmentBodyName);
+            Assert.Equal("Kerbin", provisional.StartBodyName);
+            Assert.Equal("Shores", provisional.StartBiome);
+            Assert.Equal("FLYING", provisional.StartSituation);
+            Assert.Equal("LaunchPad", provisional.LaunchSiteName);
+            // ChainId / ChainIndex / ChainBranch are intentionally NOT copied —
+            // the supersede table is the only authority on chain-tip resolution.
+            // See the call-site comment in AtomicMarkerWrite.
+            Assert.Null(provisional.ChainId);
+        }
+
+        [Fact]
+        public void CopyInheritedIdentityForFork_NonDebrisProvisional_LeavesParentRecordingIdNull()
+        {
+            // A non-debris source recording must NOT stamp a parent on the
+            // provisional. (No-op contract for the field-copy block.)
+            var inheritFrom = new Recording
+            {
+                RecordingId = "inherit-source-nondebris",
+                VesselPersistentId = 1234u,
+                VesselName = "Manned Probe",
+                IsDebris = false,
+                DebrisParentRecordingId = null,
+                Generation = 0,
+            };
+            var provisional = new Recording { RecordingId = "provisional-fork" };
+
+            RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom);
+
+            Assert.Equal(1234u, provisional.VesselPersistentId);
+            Assert.False(provisional.IsDebris);
+            Assert.Null(provisional.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void CopyInheritedIdentityForFork_NullGuards_AreNoOp()
+        {
+            // Defensive: null inputs do not throw. The Re-Fly path should
+            // never call this helper with nulls in practice, but the
+            // null-safe contract makes the helper safe to invoke from
+            // future call sites that haven't been hardened against
+            // unexpected state.
+            RewindInvoker.CopyInheritedIdentityForFork(null, new Recording());
+            RewindInvoker.CopyInheritedIdentityForFork(new Recording(), null);
+            RewindInvoker.CopyInheritedIdentityForFork(null, null);
+        }
 
         // ===== C. Secondary propagation site #7 — RecordingOptimizer.SplitAtSection =====
 

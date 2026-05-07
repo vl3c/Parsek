@@ -207,6 +207,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Copies identity-relevant fields from <paramref name="inheritFrom"/>
+        /// onto <paramref name="provisional"/> for the in-place Re-Fly fork
+        /// (issue #734). Pure field copies — no Unity types, no instance
+        /// state — so xUnit can validate the contract directly.
+        ///
+        /// PR 3b review follow-up §3: extracting this block lets a
+        /// regression test fail fast if a future refactor touches the
+        /// inheritance set without preserving every field. The
+        /// <c>DebrisParentRecordingId</c> copy is the load-bearing v12+
+        /// debris-anchor inheritance the plan flags as a critical
+        /// Re-Fly safety hook (plan §"Risk analysis": "Re-Fly inheritance
+        /// loses the contract — High if RewindInvoker propagation is
+        /// omitted").
+        ///
+        /// Side-effecting follow-up steps (`CapturePreReFlyAnchorTrajectoryFrom`,
+        /// `FindTreeForReFlyFork`, the diagnostic log line) stay inline at
+        /// the call site because they depend on the surrounding
+        /// <c>sessionId</c>, instance state, or call-site context.
+        ///
+        /// Chain identity (<c>ChainId</c>/<c>ChainIndex</c>/<c>ChainBranch</c>)
+        /// is intentionally NOT copied so the supersede table remains the
+        /// only authority on chain-tip resolution — see the call-site
+        /// comment in <c>AtomicMarkerWrite</c>.
+        /// </summary>
+        internal static void CopyInheritedIdentityForFork(
+            Recording provisional,
+            Recording inheritFrom)
+        {
+            if (provisional == null || inheritFrom == null) return;
+            provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
+            provisional.VesselName = inheritFrom.VesselName;
+            provisional.IsDebris = inheritFrom.IsDebris;
+            // PR 3b: critical Re-Fly safety hook — propagate the v12+ debris
+            // parent-anchor contract so a re-fly of a flight with debris children
+            // doesn't silently lose the contract on the provisional. Without this,
+            // the resolver's chain-walk would not have a parent recording id to
+            // chase through supersede successors.
+            provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
+            provisional.Generation = inheritFrom.Generation;
+            provisional.SegmentPhase = inheritFrom.SegmentPhase;
+            provisional.SegmentBodyName = inheritFrom.SegmentBodyName;
+            provisional.StartBodyName = inheritFrom.StartBodyName;
+            provisional.StartBiome = inheritFrom.StartBiome;
+            provisional.StartSituation = inheritFrom.StartSituation;
+            provisional.LaunchSiteName = inheritFrom.LaunchSiteName;
+            provisional.VesselSnapshot = inheritFrom.VesselSnapshot != null
+                ? inheritFrom.VesselSnapshot.CreateCopy()
+                : null;
+            provisional.GhostVisualSnapshot = inheritFrom.GhostVisualSnapshot != null
+                ? inheritFrom.GhostVisualSnapshot.CreateCopy()
+                : null;
+        }
+
+        /// <summary>
         /// Spawns the "Rewind?" confirmation PopupDialog. On accept, starts
         /// the <see cref="StartInvoke"/> pre-load phase; the post-load phase
         /// is driven by <see cref="ParsekScenario.OnLoad"/> calling
@@ -949,28 +1003,7 @@ namespace Parsek
                     // recorder never arms (RestoreActiveTreeFromPending's
                     // marker-swap is gated on inPlaceContinuation), and the
                     // live vessel stays as the original full assembly.
-                    provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
-                    provisional.VesselName = inheritFrom.VesselName;
-                    provisional.IsDebris = inheritFrom.IsDebris;
-                    // PR 3b: critical Re-Fly safety hook — propagate the v12+ debris
-                    // parent-anchor contract so a re-fly of a flight with debris children
-                    // doesn't silently lose the contract on the provisional. Without this,
-                    // the resolver's chain-walk would not have a parent recording id to
-                    // chase through supersede successors.
-                    provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
-                    provisional.Generation = inheritFrom.Generation;
-                    provisional.SegmentPhase = inheritFrom.SegmentPhase;
-                    provisional.SegmentBodyName = inheritFrom.SegmentBodyName;
-                    provisional.StartBodyName = inheritFrom.StartBodyName;
-                    provisional.StartBiome = inheritFrom.StartBiome;
-                    provisional.StartSituation = inheritFrom.StartSituation;
-                    provisional.LaunchSiteName = inheritFrom.LaunchSiteName;
-                    provisional.VesselSnapshot = inheritFrom.VesselSnapshot != null
-                        ? inheritFrom.VesselSnapshot.CreateCopy()
-                        : null;
-                    provisional.GhostVisualSnapshot = inheritFrom.GhostVisualSnapshot != null
-                        ? inheritFrom.GhostVisualSnapshot.CreateCopy()
-                        : null;
+                    CopyInheritedIdentityForFork(provisional, inheritFrom);
                     provisional.CapturePreReFlyAnchorTrajectoryFrom(inheritFrom, sessionId);
                     pendingTreeForFork = FindTreeForReFlyFork(inheritFrom.TreeId);
                     bool inheritedFromChainTip = !object.ReferenceEquals(inheritFrom, originChild)
