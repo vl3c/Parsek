@@ -21250,6 +21250,23 @@ namespace Parsek
 
             if (indexBefore < 0)
             {
+                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+                // bypasses the resolver chain — its `anchorRecordingId` was
+                // chosen by nearest-vessel-at-sample-time and is often wrong
+                // (the resolver "succeeds" with the wrong anchor and never
+                // reaches the existing post-failure shadow path). v12+
+                // debris fails condition #2 and falls through.
+                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                    && TryUseLegacyDebrisShadowFallback(
+                            recordingIndex,
+                            traj,
+                            retireSignalState,
+                            target,
+                            targetUT,
+                            ref cachedIndex,
+                            out interpResult))
+                    return;
+
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         frames[0],
@@ -21292,6 +21309,19 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
+                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+                // bypasses the resolver chain. See pre-range branch above.
+                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                    && TryUseLegacyDebrisShadowFallback(
+                            recordingIndex,
+                            traj,
+                            retireSignalState,
+                            target,
+                            targetUT,
+                            ref cachedIndex,
+                            out interpResult))
+                    return;
+
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         before,
@@ -21364,6 +21394,23 @@ namespace Parsek
             interpolatedRot = TrajectoryMath.SanitizeQuaternion(interpolatedRot);
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
+
+            // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+            // bypasses the resolver chain BEFORE the resolver attempt — the
+            // resolver "succeeds" with the wrong nearest-vessel-at-sample-time
+            // anchor and never reaches the post-failure shadow path. v12+
+            // debris (DebrisParentRecordingId set) fails condition #2 and
+            // falls through to the resolver per Decision §7.
+            if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                && TryUseLegacyDebrisShadowFallback(
+                        recordingIndex,
+                        traj,
+                        retireSignalState,
+                        target,
+                        targetUT,
+                        ref cachedIndex,
+                        out interpResult))
+                return;
 
             if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
             {
@@ -21847,6 +21894,60 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Wraps <see cref="TryUseRelativeAbsoluteShadowFallback"/> for the
+        /// PR 3c legacy-debris gate (`LegacyDebrisShadowGate`). The wrapper
+        /// emits a distinct rate-limited log line so legacy-debris
+        /// dispatches are diagnosable independently of the existing
+        /// resolver-failure shadow path (which keeps emitting
+        /// `RELATIVE recorded-anchor fallback to absolute shadow` for
+        /// non-debris and v12+ debris).
+        ///
+        /// Caller must guard with
+        /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
+        /// before calling — this helper does not re-check the predicate.
+        /// </summary>
+        private bool TryUseLegacyDebrisShadowFallback(
+            int recordingIndex,
+            IPlaybackTrajectory trajectory,
+            GhostPlaybackState state,
+            RelativeSectionPlaybackTarget target,
+            double targetUT,
+            ref int playbackIdx,
+            out InterpolationResult interpResult)
+        {
+            if (!TryUseRelativeAbsoluteShadowFallback(
+                    recordingIndex,
+                    trajectory,
+                    state,
+                    target,
+                    targetUT,
+                    ref playbackIdx,
+                    out interpResult))
+            {
+                return false;
+            }
+
+            // Mirror the post-failure fallback's per-(recording, section) dedupe
+            // window, but with a distinct key prefix so legacy-debris dispatches
+            // are filterable independently.
+            string key = string.Concat(
+                "legacy-debris-shadow-preferred|",
+                target.RecordingId ?? "(none)",
+                "|",
+                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                key,
+                "Playback: legacy debris path — preferring absoluteFrames shadow " +
+                $"(recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
+                $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                $"sectionIndex={target.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"shadowFrames={target.Section.absoluteFrames.Count.ToString(CultureInfo.InvariantCulture)})",
+                5.0);
+            return true;
         }
 
         private bool TryUseRelativeAbsoluteShadowFallback(
