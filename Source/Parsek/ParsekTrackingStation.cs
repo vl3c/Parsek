@@ -31,6 +31,8 @@ namespace Parsek
         private const string Tag = "TrackingStation";
         private const float LifecycleCheckIntervalSec = 2.0f;
         private const float GhostPopupWidth = 180f;
+        private const float MaterializedFocusRetryDurationSec = 20.0f;
+        private const float MaterializedFocusRetryIntervalSec = 0.25f;
         private float nextLifecycleCheckTime;
         private ToolbarControl toolbarControl;
         private ParsekUI ui;
@@ -45,6 +47,11 @@ namespace Parsek
         private int ghostActionCacheFrame = -1;
         private double ghostActionCurrentUT;
         private Dictionary<uint, GhostChain> ghostActionChains = new Dictionary<uint, GhostChain>();
+        private uint pendingMaterializedFocusPid;
+        private string pendingMaterializedFocusReason;
+        private float pendingMaterializedFocusDeadlineTime;
+        private float nextMaterializedFocusAttemptTime;
+        private int pendingMaterializedFocusAttempts;
 
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
@@ -263,6 +270,7 @@ namespace Parsek
 
             if (GhostTrackingStationSelection.HasSelectedGhost)
                 RefreshGhostActionCache();
+            UpdatePendingMaterializedFocus();
             UpdateSelectedGhostPopup();
             UpdateAtmosphericFocusTarget();
 
@@ -1196,9 +1204,17 @@ namespace Parsek
 
             if (recording.SpawnedVesselPersistentId != 0)
             {
-                FocusSpawnedTrackingStationVessel(
-                    recording.SpawnedVesselPersistentId,
-                    "atmospheric-focus-materialized");
+                if (!FocusSpawnedTrackingStationVessel(
+                        recording.SpawnedVesselPersistentId,
+                        "atmospheric-focus-materialized",
+                        restoreStockSelection: true,
+                        warnOnFailure: true,
+                        out _))
+                {
+                    ScheduleMaterializedFocusRetry(
+                        recording.SpawnedVesselPersistentId,
+                        "atmospheric-focus-materialized");
+                }
                 DestroyAtmosphericFocusTarget("atmospheric-focus-materialized");
                 return;
             }
@@ -1591,17 +1607,145 @@ namespace Parsek
             if (handled)
             {
                 if (recording.SpawnedVesselPersistentId != 0)
-                    FocusSpawnedTrackingStationVessel(
-                        recording.SpawnedVesselPersistentId,
-                        "tracking-station-materialize");
+                {
+                    if (!FocusSpawnedTrackingStationVessel(
+                            recording.SpawnedVesselPersistentId,
+                            "tracking-station-materialize",
+                            restoreStockSelection: true,
+                            warnOnFailure: true,
+                            out _))
+                    {
+                        ScheduleMaterializedFocusRetry(
+                            recording.SpawnedVesselPersistentId,
+                            "tracking-station-materialize");
+                    }
+                }
                 DestroyAtmosphericFocusTarget("materialize handoff");
             }
 
             GhostTrackingStationSelection.ClearSelectedGhost("materialize handoff");
         }
 
-        private static bool FocusSpawnedTrackingStationVessel(uint spawnedPid, string reason)
+        private void ScheduleMaterializedFocusRetry(uint spawnedPid, string reason)
         {
+            if (spawnedPid == 0)
+                return;
+
+            pendingMaterializedFocusPid = spawnedPid;
+            pendingMaterializedFocusReason = string.IsNullOrEmpty(reason)
+                ? "tracking-station-materialize"
+                : reason;
+            pendingMaterializedFocusDeadlineTime =
+                Time.time + MaterializedFocusRetryDurationSec;
+            nextMaterializedFocusAttemptTime = Time.time;
+            pendingMaterializedFocusAttempts = 0;
+
+            ParsekLog.Info(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Scheduled materialized Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
+                    spawnedPid,
+                    pendingMaterializedFocusReason,
+                    MaterializedFocusRetryDurationSec,
+                    MaterializedFocusRetryIntervalSec));
+        }
+
+        private void UpdatePendingMaterializedFocus()
+        {
+            bool expired;
+            if (!ShouldAttemptMaterializedFocusRetry(
+                    pendingMaterializedFocusPid,
+                    Time.time,
+                    nextMaterializedFocusAttemptTime,
+                    pendingMaterializedFocusDeadlineTime,
+                    out expired))
+            {
+                if (expired)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Materialized Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
+                            pendingMaterializedFocusPid,
+                            pendingMaterializedFocusReason ?? "(none)",
+                            pendingMaterializedFocusAttempts));
+                    ClearPendingMaterializedFocus();
+                }
+                return;
+            }
+
+            uint spawnedPid = pendingMaterializedFocusPid;
+            string reason = pendingMaterializedFocusReason ?? "tracking-station-materialize";
+            pendingMaterializedFocusAttempts++;
+            nextMaterializedFocusAttemptTime = Time.time + MaterializedFocusRetryIntervalSec;
+
+            if (FocusSpawnedTrackingStationVessel(
+                    spawnedPid,
+                    reason + "-retry",
+                    restoreStockSelection: true,
+                    warnOnFailure: false,
+                    out string focusError))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
+                        spawnedPid,
+                        reason,
+                        pendingMaterializedFocusAttempts));
+                ClearPendingMaterializedFocus();
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag,
+                "materialized-focus-retry-pending|" + spawnedPid,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Materialized Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
+                    spawnedPid,
+                    reason,
+                    pendingMaterializedFocusAttempts,
+                    focusError ?? "(none)"),
+                1.0);
+        }
+
+        private void ClearPendingMaterializedFocus()
+        {
+            pendingMaterializedFocusPid = 0;
+            pendingMaterializedFocusReason = null;
+            pendingMaterializedFocusDeadlineTime = 0f;
+            nextMaterializedFocusAttemptTime = 0f;
+            pendingMaterializedFocusAttempts = 0;
+        }
+
+        internal static bool ShouldAttemptMaterializedFocusRetry(
+            uint pendingPid,
+            float now,
+            float nextAttemptTime,
+            float deadlineTime,
+            out bool expired)
+        {
+            expired = false;
+            if (pendingPid == 0)
+                return false;
+
+            if (now > deadlineTime)
+            {
+                expired = true;
+                return false;
+            }
+
+            return now >= nextAttemptTime;
+        }
+
+        private static bool FocusSpawnedTrackingStationVessel(
+            uint spawnedPid,
+            string reason,
+            bool restoreStockSelection,
+            bool warnOnFailure,
+            out string error)
+        {
+            error = null;
             Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
             if (spawned != null
                 && spawned.mapObject != null
@@ -1613,39 +1757,93 @@ namespace Parsek
                         out string mapObjectName,
                         out string mapObjectError))
                 {
+                    if (restoreStockSelection)
+                    {
+                        SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+                        if (tracking == null)
+                        {
+                            error = "SpaceTracking instance not found";
+                            if (warnOnFailure)
+                            {
+                                ParsekLog.Warn(Tag,
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} error={2}",
+                                        spawnedPid,
+                                        reason ?? "(none)",
+                                        error));
+                            }
+                            return false;
+                        }
+
+                        if (!GhostMapPresence.TrySelectTrackingStationVessel(
+                                tracking,
+                                spawned,
+                                out string selectError))
+                        {
+                            error = string.IsNullOrEmpty(selectError)
+                                ? "stock selection failed"
+                                : selectError;
+                            if (warnOnFailure)
+                            {
+                                ParsekLog.Warn(Tag,
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
+                                        spawnedPid,
+                                        reason ?? "(none)",
+                                        mapObjectName ?? "(null)",
+                                        error));
+                            }
+                            return false;
+                        }
+                    }
+
                     ParsekLog.Info(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3}",
+                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
                             spawned.vesselName ?? "(unknown)",
                             spawned.persistentId,
                             mapObjectName ?? "(null)",
-                            reason ?? "(none)"));
+                            reason ?? "(none)",
+                            restoreStockSelection));
                     return true;
                 }
 
-                ParsekLog.Warn(Tag,
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
-                        spawnedPid,
-                        reason ?? "(none)",
-                        true,
-                        true,
-                        true,
-                        mapObjectError ?? "map object focus failed"));
+                error = mapObjectError ?? "map object focus failed";
+                if (warnOnFailure)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
+                            spawnedPid,
+                            reason ?? "(none)",
+                            true,
+                            true,
+                            true,
+                            error));
+                }
                 return false;
             }
 
-            ParsekLog.Warn(Tag,
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4}",
-                    spawnedPid,
-                    reason ?? "(none)",
-                    spawned != null,
-                    PlanetariumCamera.fetch != null,
-                    spawned != null && spawned.mapObject != null));
+            error = string.Format(
+                CultureInfo.InvariantCulture,
+                "vessel={0} camera={1} mapObj={2}",
+                spawned != null,
+                PlanetariumCamera.fetch != null,
+                spawned != null && spawned.mapObject != null);
+            if (warnOnFailure)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} {2}",
+                        spawnedPid,
+                        reason ?? "(none)",
+                        error));
+            }
             return false;
         }
 

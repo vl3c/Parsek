@@ -436,6 +436,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_NoPendingPid_ReturnsFalse()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 0,
+                now: 10f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_BeforeNextAttempt_ReturnsFalse()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 4.9f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_WhenDue_ReturnsTrue()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 5f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.True(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_AfterDeadline_Expires()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 20.1f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.True(expired);
+        }
+
+        [Fact]
         public void GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "lookup");
