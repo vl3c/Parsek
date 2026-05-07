@@ -239,6 +239,128 @@ namespace Parsek.Tests
             return b;
         }
 
+        // Booster Drop pair (parent + v12+ debris) — exercises the
+        // PR 3b debris parent-anchor contract end-to-end through the
+        // injector → save → load → render pipeline. Returns 2 builders
+        // sharing one tree:
+        //
+        //   index 0: "Booster Drop" — short ascent from KSC pad. Has an
+        //            explicit Absolute TrackSection so the resolver can
+        //            resolve it as the parent at any sample UT.
+        //   index 1: "Booster Drop SRB" — debris child. IsDebris=true,
+        //            DebrisParentRecordingId=parent's recording id, and
+        //            a Relative TrackSection anchored to parent. The
+        //            section's frames carry anchor-local Cartesian metres
+        //            (dx, dy, dz) per the v6+ contract — the SRB drifts
+        //            from (-3, 0, -2) to (-15, 0, -50) over 20 s, behind
+        //            and below the parent.
+        //
+        // After PR 3b: the resolver's TryResolveRelativeSectionPose
+        // composes parent_world_pos + (dx, dy, dz) for each frame, and
+        // the SRB ghost renders trailing the parent ghost. Validates the
+        // injector's plumbing for the new DebrisParentRecordingId field
+        // round-trips correctly through ScenarioWriter into a save that
+        // KSP can load.
+        internal static RecordingBuilder[] BoosterDropDebrisPair(double baseUT = 0)
+        {
+            double t = baseUT + 700; // slot after Mun Transfer (which ends at +1330 — see offsets table)
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Stable recording ids so the debris's DebrisParentRecordingId
+            // can reference the parent without a tree-build dance.
+            const string parentId = "synth-booster-drop-parent";
+            const string debrisId = "synth-booster-drop-debris";
+
+            // ----- Parent: Booster Drop -----
+            var parent = new RecordingBuilder("Booster Drop");
+            parent.WithRecordingId(parentId);
+            parent.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            var parentFrames = new List<TrajectoryPoint>();
+            int parentSamples = 21; // every 1.5 s for 30 s
+            for (int i = 0; i < parentSamples; i++)
+            {
+                double ut = t + i * 1.5;
+                double alt = 80 + i * 18; // 80 → 440 m
+                double lon = baseLon + i * 0.00005; // tiny easterly drift
+                parent.AddPoint(ut, baseLat, lon, alt);
+                parentFrames.Add(new TrajectoryPoint
+                {
+                    ut = ut,
+                    latitude = baseLat,
+                    longitude = lon,
+                    altitude = alt,
+                    rotation = new Quaternion(KscRotX, KscRotY, KscRotZ, KscRotW),
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN
+                });
+            }
+            parent.AddTrackSection(
+                SegmentEnvironment.Atmospheric,
+                ReferenceFrame.Absolute,
+                TrackSectionSource.Active,
+                t,
+                t + 30.0,
+                parentFrames,
+                new List<OrbitSegment>(),
+                sampleRateHz: 0.667f);
+            parent.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Booster Drop", "Bill Kerman", pid: 70010001)
+                    .AsLanded(baseLat, baseLon, 80));
+            parent.WithRecordingGroup("Synthetic");
+
+            // ----- Debris: Booster Drop SRB -----
+            // Uses a Relative TrackSection anchored to parent. The
+            // latitude/longitude/altitude fields here are anchor-local
+            // metres (dx, dy, dz) per the v6+ contract — NOT body-fixed
+            // coords. See CLAUDE.md "Rotation / world frame" notes.
+            var debris = new RecordingBuilder("Booster Drop SRB");
+            debris.WithRecordingId(debrisId);
+            debris.AsDebris();
+            debris.WithDebrisParentRecordingId(parentId);
+            debris.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            var debrisFrames = new List<TrajectoryPoint>();
+            int debrisSamples = 14; // every ~1.5 s for 20 s, starting at t+10
+            for (int i = 0; i < debrisSamples; i++)
+            {
+                double ut = t + 10 + i * 1.5;
+                // Linear drift behind + below parent, anchor-local metres.
+                double dx = -3.0 - i * 0.92;   // -3 m → -15 m (drifts back)
+                double dy = 0.0;
+                double dz = -2.0 - i * 3.7;    // -2 m → -50 m (falls below)
+                debrisFrames.Add(new TrajectoryPoint
+                {
+                    ut = ut,
+                    latitude = dx,
+                    longitude = dy,
+                    altitude = dz,
+                    rotation = Quaternion.identity, // anchor-local rotation
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin",
+                    recordedGroundClearance = double.NaN
+                });
+            }
+            debris.AddTrackSection(
+                SegmentEnvironment.Atmospheric,
+                ReferenceFrame.Relative,
+                TrackSectionSource.Active,
+                t + 10.0,
+                t + 30.0,
+                debrisFrames,
+                new List<OrbitSegment>(),
+                anchorRecordingId: parentId,
+                sampleRateHz: 0.667f);
+            // Ghost-only debris snapshot (single SRB part, no spawn).
+            debris.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ProbeShip("Booster Drop SRB", pid: 70010002));
+            debris.WithRecordingGroup("Synthetic");
+
+            return new[] { parent, debris };
+        }
+
         internal static RecordingBuilder SuborbitalArc(double baseUT = 0)
         {
             double t = baseUT + 120;
@@ -5951,6 +6073,13 @@ namespace Parsek.Tests
             for (int i = 0; i < munTransferSegments.Length; i++)
                 munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
             writer.AddRecordingsAsTree(munTransferSegments);
+
+            // Booster Drop debris pair — exercises the v12+ debris parent-anchor
+            // contract end-to-end. Parent + Relative-anchored debris share a tree.
+            var boosterDropSegments = BoosterDropDebrisPair(baseUT);
+            for (int i = 0; i < boosterDropSegments.Length; i++)
+                boosterDropSegments[i].WithLoopPlayback();
+            writer.AddRecordingsAsTree(boosterDropSegments);
 
             writer.AddRecordingAsTree(TruncatedPlaneCruise(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
             writer.AddRecordingAsTree(TruncatedSuborbitalRecording(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
