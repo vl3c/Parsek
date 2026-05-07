@@ -35,6 +35,7 @@ All notable changes to Parsek are documented here.
 
 ### Enhancements
 
+- Tracking Station ghost actions now use the same native KSP popup as the flight map-view ghost menu. The popup opens from ghost icon and atmospheric marker clicks, shows compact Name / Recording / End-state status, and the Materialize button can fast-forward to the endpoint when needed while keeping the stock vessel list in sync.
 - The "Merge to Timeline / Discard" tree-recording confirmation dialog now appears while the player is still in flight, before the destination scene loads. Quit-to-Main-Menu shows the dialog too (previously force-auto-merged). Re-Fly sessions show Re-Fly-attempt-scoped button labels and a session-scoped body. Stock danger / quit confirmations still run first.
 - The Re-Fly merge confirmation dialog now announces auto-seal explicitly when a merge will permanently seal the slot, and lists the player-attributable reason (transmitted science, undocked, docked with another vessel, etc.). Previously the dialog said the commit was permanent but did not distinguish auto-seal from a regular commit that left the slot re-flyable.
 
