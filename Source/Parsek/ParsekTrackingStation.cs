@@ -54,6 +54,7 @@ namespace Parsek
         private int pendingMaterializedFocusAttempts;
         private bool pendingMaterializedFocusBaselineHasSelectedGhost;
         private uint pendingMaterializedFocusBaselineGhostPid;
+        private string pendingMaterializedFocusBaselineRecordingId;
         private bool pendingMaterializedFocusBaselineSelectedPidAvailable;
         private uint pendingMaterializedFocusBaselineSelectedPid;
 
@@ -1686,6 +1687,10 @@ namespace Parsek
                 pendingMaterializedFocusBaselineHasSelectedGhost
                     ? GhostTrackingStationSelection.SelectedGhost.GhostPid
                     : 0u;
+            pendingMaterializedFocusBaselineRecordingId =
+                pendingMaterializedFocusBaselineHasSelectedGhost
+                    ? GhostTrackingStationSelection.SelectedGhost.RecordingId
+                    : null;
             pendingMaterializedFocusBaselineSelectedPidAvailable = false;
             pendingMaterializedFocusBaselineSelectedPid = 0;
 
@@ -1713,10 +1718,11 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} stockAvailable={3} stockPid={4}",
+                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
                     spawnedPid,
                     pendingMaterializedFocusBaselineHasSelectedGhost,
                     pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineRecordingId ?? "(none)",
                     pendingMaterializedFocusBaselineSelectedPidAvailable,
                     pendingMaterializedFocusBaselineSelectedPid));
         }
@@ -1803,14 +1809,19 @@ namespace Parsek
             uint selectedGhostPid = GhostTrackingStationSelection.HasSelectedGhost
                 ? GhostTrackingStationSelection.SelectedGhost.GhostPid
                 : 0u;
+            string selectedRecordingId = GhostTrackingStationSelection.HasSelectedGhost
+                ? GhostTrackingStationSelection.SelectedGhost.RecordingId
+                : null;
             if (ShouldAbortMaterializedFocusRetryForUserSelection(
                     spawnedPid,
                     pendingMaterializedFocusBaselineHasSelectedGhost,
                     pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineRecordingId,
                     pendingMaterializedFocusBaselineSelectedPidAvailable,
                     pendingMaterializedFocusBaselineSelectedPid,
                     GhostTrackingStationSelection.HasSelectedGhost,
                     selectedGhostPid,
+                    selectedRecordingId,
                     selectedGhostPid != 0,
                     false,
                     0u,
@@ -1856,10 +1867,12 @@ namespace Parsek
                 spawnedPid,
                 pendingMaterializedFocusBaselineHasSelectedGhost,
                 pendingMaterializedFocusBaselineGhostPid,
+                pendingMaterializedFocusBaselineRecordingId,
                 pendingMaterializedFocusBaselineSelectedPidAvailable,
                 pendingMaterializedFocusBaselineSelectedPid,
                 false,
                 0u,
+                null,
                 false,
                 true,
                 selectedPid,
@@ -1870,10 +1883,12 @@ namespace Parsek
             uint pendingPid,
             bool baselineHasSelectedGhost,
             uint baselineGhostPid,
+            string baselineRecordingId,
             bool baselineSelectedPidAvailable,
             uint baselineSelectedPid,
             bool currentHasSelectedGhost,
             uint currentGhostPid,
+            string currentRecordingId,
             bool currentGhostPidAvailable,
             bool currentSelectedPidAvailable,
             uint currentSelectedPid,
@@ -1885,19 +1900,23 @@ namespace Parsek
 
             if (currentHasSelectedGhost)
             {
-                if (!baselineHasSelectedGhost
-                    || !currentGhostPidAvailable
-                    || currentGhostPid != baselineGhostPid)
-                {
-                    reason = string.Format(
-                        CultureInfo.InvariantCulture,
-                        "ghost-selection-changed ghostPid={0} baselineGhostPid={1}",
+                if (IsSameMaterializedFocusGhostSelection(
+                        baselineHasSelectedGhost,
+                        baselineGhostPid,
+                        baselineRecordingId,
                         currentGhostPid,
-                        baselineGhostPid);
-                    return true;
-                }
+                        currentRecordingId,
+                        currentGhostPidAvailable))
+                    return false;
 
-                return false;
+                reason = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "ghost-selection-changed ghostPid={0} baselineGhostPid={1} recId={2} baselineRecId={3}",
+                    currentGhostPid,
+                    baselineGhostPid,
+                    currentRecordingId ?? "(none)",
+                    baselineRecordingId ?? "(none)");
+                return true;
             }
 
             if (currentSelectedPidAvailable
@@ -1917,6 +1936,28 @@ namespace Parsek
             return false;
         }
 
+        internal static bool IsSameMaterializedFocusGhostSelection(
+            bool baselineHasSelectedGhost,
+            uint baselineGhostPid,
+            string baselineRecordingId,
+            uint currentGhostPid,
+            string currentRecordingId,
+            bool currentGhostPidAvailable)
+        {
+            if (!baselineHasSelectedGhost)
+                return false;
+
+            if (currentGhostPidAvailable)
+                return currentGhostPid == baselineGhostPid;
+
+            return baselineGhostPid == 0
+                && !string.IsNullOrEmpty(baselineRecordingId)
+                && string.Equals(
+                    baselineRecordingId,
+                    currentRecordingId,
+                    System.StringComparison.Ordinal);
+        }
+
         private void ClearPendingMaterializedFocus()
         {
             pendingMaterializedFocusPid = 0;
@@ -1926,6 +1967,7 @@ namespace Parsek
             pendingMaterializedFocusAttempts = 0;
             pendingMaterializedFocusBaselineHasSelectedGhost = false;
             pendingMaterializedFocusBaselineGhostPid = 0;
+            pendingMaterializedFocusBaselineRecordingId = null;
             pendingMaterializedFocusBaselineSelectedPidAvailable = false;
             pendingMaterializedFocusBaselineSelectedPid = 0;
         }

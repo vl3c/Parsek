@@ -492,23 +492,27 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(123u, false, 0u, true, 456u, false, 0u, false, true, 456u, false, null)]
-        [InlineData(123u, false, 0u, true, 456u, false, 0u, false, true, 123u, false, null)]
-        [InlineData(123u, false, 0u, true, 456u, false, 0u, false, true, 789u, true, "stock-selection-changed selectedPid=789 baselinePid=456")]
-        [InlineData(123u, false, 0u, false, 0u, false, 0u, false, true, 456u, false, null)]
-        [InlineData(123u, false, 0u, true, 0u, false, 0u, false, true, 456u, true, "stock-selection-changed selectedPid=456 baselinePid=0")]
-        [InlineData(123u, true, 900u, true, 456u, true, 900u, true, true, 456u, false, null)]
-        [InlineData(123u, true, 900u, true, 456u, true, 901u, true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=900")]
-        [InlineData(123u, false, 0u, true, 456u, true, 901u, true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=0")]
-        [InlineData(0u, false, 0u, true, 456u, true, 901u, true, true, 789u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 456u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 123u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 789u, true, "stock-selection-changed selectedPid=789 baselinePid=456")]
+        [InlineData(123u, false, 0u, null, false, 0u, false, 0u, null, false, true, 456u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 0u, false, 0u, null, false, true, 456u, true, "stock-selection-changed selectedPid=456 baselinePid=0")]
+        [InlineData(123u, true, 900u, "rec-a", true, 456u, true, 900u, "rec-b", true, true, 456u, false, null)]
+        [InlineData(123u, true, 900u, "rec-a", true, 456u, true, 901u, "rec-b", true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=900 recId=rec-b baselineRecId=rec-a")]
+        [InlineData(123u, false, 0u, null, true, 456u, true, 901u, "rec-a", true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=0 recId=rec-a baselineRecId=(none)")]
+        [InlineData(123u, true, 0u, "rec-a", true, 456u, true, 0u, "rec-a", false, true, 456u, false, null)]
+        [InlineData(123u, true, 0u, "rec-a", true, 456u, true, 0u, "rec-b", false, true, 456u, true, "ghost-selection-changed ghostPid=0 baselineGhostPid=0 recId=rec-b baselineRecId=rec-a")]
+        [InlineData(0u, false, 0u, null, true, 456u, true, 901u, "rec-a", true, true, 789u, false, null)]
         public void ShouldAbortMaterializedFocusRetryForUserSelection_OnlyCancelsAfterUserNavigatesAway(
             uint pendingPid,
             bool baselineHasSelectedGhost,
             uint baselineGhostPid,
+            string baselineRecordingId,
             bool baselineSelectedPidAvailable,
             uint baselineSelectedPid,
             bool currentHasSelectedGhost,
             uint currentGhostPid,
+            string currentRecordingId,
             bool currentGhostPidAvailable,
             bool currentSelectedPidAvailable,
             uint currentSelectedPid,
@@ -519,10 +523,12 @@ namespace Parsek.Tests
                 pendingPid,
                 baselineHasSelectedGhost,
                 baselineGhostPid,
+                baselineRecordingId,
                 baselineSelectedPidAvailable,
                 baselineSelectedPid,
                 currentHasSelectedGhost,
                 currentGhostPid,
+                currentRecordingId,
                 currentGhostPidAvailable,
                 currentSelectedPidAvailable,
                 currentSelectedPid,
