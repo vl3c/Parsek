@@ -72,6 +72,24 @@ namespace Parsek.Tests.Harness
                     "da72f033954edbf4781eda0d36294e5ce6bc757fda0f4b9d79b909967a73bc9b",
                 ["scenario-9-loop-anchor-rejection"] =
                     "49613c44e81b0ce987485db7b2466c4b593d13ab28133c8d450b614067632bba",
+                // PR 2 (debris baselines + same-chain continuation):
+                // Scenarios 4, 5, 7 capture today's BROKEN debris
+                // composition — debris's `anchorRecordingId` points at
+                // "nearest eligible vessel at sample time" rather than
+                // the parent recording. After PR 3b lands the parent-
+                // anchor contract, the recorder writes the correct
+                // anchor and these hashes will be reset with a
+                // justification comment in the diff. Scenario 10
+                // (same-chain continuation) is non-debris and must
+                // remain stable across PR 3b.
+                ["scenario-4-focused-debris-wrong-anchor"] =
+                    "59a02c591a6273e6f9bfdce09ed96200daca60e501a30650c0cdc51611dd9db3",
+                ["scenario-5-bg-debris-wrong-anchor"] =
+                    "040d7253b5c65bb8fd6853e6fbe97ed61dc716f0a81b00990adb082981f2dcba",
+                ["scenario-7-refly-debris-wrong-anchor"] =
+                    "d98798b7aee5d185ae83eab2b4d1324733291c4eea21483ef7595582835235a5",
+                ["scenario-10-same-chain-continuation"] =
+                    "fbd0c929ea865bb5bb9cec4c3411104f5df3a986f7787040006f6251c038ae76",
             };
 
         [Fact]
@@ -107,6 +125,43 @@ namespace Parsek.Tests.Harness
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]")
                 && l.Contains("reason=loop-anchor-out-of-scope"));
+        }
+
+        [Fact]
+        public void Scenario4_FocusedDebrisWrongAnchor_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario4_FocusedVesselDebrisWrongAnchor();
+            AssertScenarioHash(s);
+        }
+
+        [Fact]
+        public void Scenario5_BackgroundDebrisWrongAnchor_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario5_BackgroundVesselDebrisWrongAnchor();
+            AssertScenarioHash(s);
+        }
+
+        [Fact]
+        public void Scenario7_ReFlyDebrisWrongAnchor_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario7_ReFlyDebrisWrongAnchor();
+            AssertScenarioHash(s);
+        }
+
+        [Fact]
+        public void Scenario10_SameChainContinuation_HashMatchesBaseline()
+        {
+            HarnessScenario s = HarnessScenarios.BuildScenario10_SameChainContinuation();
+            AssertScenarioHash(s);
+
+            // Sanity: the resolver MUST log the same-chain continuation
+            // walk for every sampled UT. If this stops happening,
+            // scenario 10's tripwire would silently drift to "anchor
+            // out-of-recorded-range with no successor."
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]")
+                && l.Contains("Anchor recording continued through same-chain successor")
+                && l.Contains("recordingId=first-half"));
         }
 
         private void AssertScenarioHash(HarnessScenario s)
