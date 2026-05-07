@@ -204,6 +204,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldOpenSelectedGhostPopup_UsesSelectionIntent()
+        {
+            var popupSelection = new TrackingStationGhostSelectionInfo(
+                42u,
+                "Ghost: Icon",
+                1,
+                "rec-icon",
+                0.0,
+                10.0,
+                TerminalState.Landed,
+                false,
+                0u,
+                hasRecording: true,
+                showPopup: true);
+            var focusOnlySelection = new TrackingStationGhostSelectionInfo(
+                43u,
+                "Ghost: List",
+                2,
+                "rec-list",
+                0.0,
+                10.0,
+                TerminalState.Landed,
+                false,
+                0u,
+                hasRecording: true,
+                showPopup: false);
+
+            Assert.True(ParsekTrackingStation.ShouldOpenSelectedGhostPopup(popupSelection));
+            Assert.False(ParsekTrackingStation.ShouldOpenSelectedGhostPopup(focusOnlySelection));
+        }
+
+        [Fact]
         public void TrySelectTrackingStationFocusFrames_RelativeSectionUsesAbsoluteShadowFrames()
         {
             var shadowFrames = new List<TrajectoryPoint>

@@ -798,6 +798,12 @@ namespace Parsek
             }
 
             double currentUT = ghostActionCurrentUT;
+            if (!ShouldOpenSelectedGhostPopup(selection))
+            {
+                DismissCurrentGhostPopup("ghost-selection-focus-only");
+                return;
+            }
+
             string key = BuildGhostPopupKey(selection, currentUT);
             if (currentGhostPopup == null || currentGhostPopupKey != key)
             {
@@ -806,6 +812,11 @@ namespace Parsek
             }
 
             CheckGhostPopupOutsideClick();
+        }
+
+        internal static bool ShouldOpenSelectedGhostPopup(TrackingStationGhostSelectionInfo selection)
+        {
+            return selection.ShowPopup;
         }
 
         private static string BuildGhostPopupKey(

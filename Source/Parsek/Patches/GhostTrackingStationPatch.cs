@@ -89,8 +89,9 @@ namespace Parsek.Patches
         // Stock Fly / Delete / Recover are intentionally absent from the
         // ghost popup: they remain disabled by the GhostTracking{Fly,Delete,
         // Recover} patches until materialization selects the real vessel.
-        // Native Tracking Station list/icon selection already focuses the
-        // selected object, so the popup only needs the materialization action.
+        // Native Tracking Station selection already focuses the selected object.
+        // The popup only needs the materialization action when the interaction
+        // source is a ghost icon or custom atmospheric marker, not the stock list.
         // Set As Target and the old details button also stay out; the popup text
         // carries the status line instead.
         internal static TrackingStationGhostActionState[] BuildActionStates(
@@ -158,7 +159,8 @@ namespace Parsek.Patches
             TerminalState? terminalState,
             bool vesselSpawned,
             uint spawnedVesselPersistentId,
-            bool hasRecording)
+            bool hasRecording,
+            bool showPopup = true)
         {
             GhostPid = ghostPid;
             VesselName = vesselName ?? "Ghost";
@@ -170,6 +172,7 @@ namespace Parsek.Patches
             VesselSpawned = vesselSpawned;
             SpawnedVesselPersistentId = spawnedVesselPersistentId;
             HasRecording = hasRecording;
+            ShowPopup = showPopup;
         }
 
         internal uint GhostPid { get; }
@@ -182,6 +185,7 @@ namespace Parsek.Patches
         internal bool VesselSpawned { get; }
         internal uint SpawnedVesselPersistentId { get; }
         internal bool HasRecording { get; }
+        internal bool ShowPopup { get; }
     }
 
     /// <summary>
@@ -526,7 +530,7 @@ namespace Parsek.Patches
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
 
-            GhostTrackingStationSelection.SelectGhost(v, "SetVessel block");
+            GhostTrackingStationSelection.SelectGhost(v, "SetVessel block", showPopup: false);
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
@@ -563,6 +567,24 @@ namespace Parsek.Patches
                 GhostTrackingStationSelection.ClearSelectedGhost(
                     $"stock SetVessel '{v.vesselName}' pid={v.persistentId}");
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(SpaceTracking), "onVesselIconClick")]
+    internal static class GhostTrackingVesselIconClickPatch
+    {
+        static void Postfix(Vessel v)
+        {
+            if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            GhostTrackingStationSelection.SelectGhost(v, "vessel icon click", showPopup: true);
+            ParsekLog.Info("GhostMap",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Tracking Station ghost icon click routed to popup: vessel='{0}' pid={1}",
+                    v.vesselName ?? "(unknown)",
+                    v.persistentId));
         }
     }
 
@@ -608,7 +630,7 @@ namespace Parsek.Patches
 
         internal static TrackingStationGhostSelectionInfo SelectedGhost => selectedGhost;
 
-        internal static void SelectGhost(Vessel vessel, string source)
+        internal static void SelectGhost(Vessel vessel, string source, bool showPopup = false)
         {
             if (vessel == null)
                 return;
@@ -628,17 +650,19 @@ namespace Parsek.Patches
                 rec?.TerminalStateValue,
                 rec != null && rec.VesselSpawned,
                 rec != null ? rec.SpawnedVesselPersistentId : 0u,
-                rec != null);
+                rec != null,
+                showPopup);
             hasSelectedGhost = true;
 
             ParsekLog.Info("GhostMap",
                 string.Format(ic,
-                    "Selected Tracking Station ghost '{0}' pid={1} recIndex={2} recId={3} source={4}",
+                    "Selected Tracking Station ghost '{0}' pid={1} recIndex={2} recId={3} source={4} showPopup={5}",
                     selectedGhost.VesselName,
                     selectedGhost.GhostPid,
                     selectedGhost.RecordingIndex,
                     selectedGhost.RecordingId ?? "(none)",
-                    source ?? "(unknown)"));
+                    source ?? "(unknown)",
+                    selectedGhost.ShowPopup));
         }
 
         internal static void SelectRecordingMarker(
@@ -659,16 +683,18 @@ namespace Parsek.Patches
                 rec.TerminalStateValue,
                 rec.VesselSpawned,
                 rec.SpawnedVesselPersistentId,
-                hasRecording: true);
+                hasRecording: true,
+                showPopup: true);
             hasSelectedGhost = true;
 
             ParsekLog.Info("GhostMap",
                 string.Format(ic,
-                    "Selected Tracking Station ghost marker '{0}' recIndex={1} recId={2} source={3}",
+                    "Selected Tracking Station ghost marker '{0}' recIndex={1} recId={2} source={3} showPopup={4}",
                     selectedGhost.VesselName,
                     selectedGhost.RecordingIndex,
                     selectedGhost.RecordingId ?? "(none)",
-                    source ?? "(unknown)"));
+                    source ?? "(unknown)",
+                    selectedGhost.ShowPopup));
         }
 
         internal static void ClearSelectedGhost(string reason)

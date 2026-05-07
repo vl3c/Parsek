@@ -447,10 +447,12 @@ namespace Parsek.Tests
             Assert.Equal(4, selection.RecordingIndex);
             Assert.Equal("rec-marker", selection.RecordingId);
             Assert.True(selection.HasRecording);
+            Assert.True(selection.ShowPopup);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostMap]")
                 && line.Contains("Selected Tracking Station ghost marker")
-                && line.Contains("rec-marker"));
+                && line.Contains("rec-marker")
+                && line.Contains("showPopup=True"));
         }
 
         [Fact]
