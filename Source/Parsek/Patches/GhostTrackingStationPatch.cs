@@ -530,7 +530,18 @@ namespace Parsek.Patches
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
 
-            GhostTrackingStationSelection.SelectGhost(v, "SetVessel block", showPopup: false);
+            bool showPopup = GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                v.persistentId,
+                UnityEngine.Time.frameCount,
+                out string selectionSource);
+            if (string.IsNullOrEmpty(selectionSource))
+                selectionSource = "SetVessel block";
+
+            GhostTrackingStationSelection.SelectGhost(v, selectionSource, showPopup);
+            bool focused = GhostTrackingStationSelection.TryFocusGhostMapObject(
+                v,
+                selectionSource,
+                out string focusError);
             ScreenMessages.PostScreenMessage(
                 $"<b>{v.vesselName}</b> is a ghost — it shows the predicted orbit of a recorded vessel.",
                 5f, ScreenMessageStyle.UPPER_CENTER);
@@ -549,6 +560,7 @@ namespace Parsek.Patches
 
             ParsekLog.Info("GhostMap",
                 $"Blocked SetVessel for ghost '{v.vesselName}' pid={v.persistentId} in Tracking Station " +
+                $"showPopup={showPopup} focused={focused} focusError={(string.IsNullOrEmpty(focusError) ? "(none)" : focusError)} " +
                 $"clearedSelection={cleared} hadPreviousSelection={previousSelection != null} " +
                 $"flyDisabled={flyDisabled} deleteDisabled={deleteDisabled} recoverDisabled={recoverDisabled}");
             return false;
@@ -578,6 +590,10 @@ namespace Parsek.Patches
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                v.persistentId,
+                "vessel icon click",
+                UnityEngine.Time.frameCount);
             GhostTrackingStationSelection.SelectGhost(v, "vessel icon click", showPopup: true);
             ParsekLog.Info("GhostMap",
                 string.Format(
@@ -622,13 +638,95 @@ namespace Parsek.Patches
 
     internal static class GhostTrackingStationSelection
     {
+        private const int PopupIntentLifetimeFrames = 30;
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         private static TrackingStationGhostSelectionInfo selectedGhost;
         private static bool hasSelectedGhost;
+        private static uint setVesselPopupIntentGhostPid;
+        private static int setVesselPopupIntentUntilFrame;
+        private static string setVesselPopupIntentSource;
 
         internal static bool HasSelectedGhost => hasSelectedGhost;
 
         internal static TrackingStationGhostSelectionInfo SelectedGhost => selectedGhost;
+
+        internal static void RememberSetVesselPopupIntent(
+            uint ghostPid,
+            string source,
+            int currentFrame)
+        {
+            if (ghostPid == 0)
+                return;
+
+            setVesselPopupIntentGhostPid = ghostPid;
+            setVesselPopupIntentUntilFrame = currentFrame + PopupIntentLifetimeFrames;
+            setVesselPopupIntentSource = string.IsNullOrEmpty(source)
+                ? "vessel icon click"
+                : source;
+            ParsekLog.Verbose("GhostMap",
+                string.Format(ic,
+                    "Remembered Tracking Station ghost popup intent: pid={0} source={1} currentFrame={2} untilFrame={3}",
+                    setVesselPopupIntentGhostPid,
+                    setVesselPopupIntentSource,
+                    currentFrame,
+                    setVesselPopupIntentUntilFrame));
+        }
+
+        internal static bool ShouldShowPopupForSetVessel(
+            uint ghostPid,
+            int currentFrame,
+            out string source)
+        {
+            source = null;
+            if (ghostPid == 0 || setVesselPopupIntentGhostPid == 0)
+                return false;
+
+            if (currentFrame > setVesselPopupIntentUntilFrame)
+            {
+                ClearSetVesselPopupIntent(
+                    string.Format(ic,
+                        "expired currentFrame={0} untilFrame={1}",
+                        currentFrame,
+                        setVesselPopupIntentUntilFrame));
+                return false;
+            }
+
+            if (ghostPid != setVesselPopupIntentGhostPid)
+            {
+                ClearSetVesselPopupIntent(
+                    string.Format(ic,
+                        "different-ghost requestedPid={0}",
+                        ghostPid));
+                return false;
+            }
+
+            source = setVesselPopupIntentSource ?? "vessel icon click";
+            ParsekLog.Verbose("GhostMap",
+                string.Format(ic,
+                    "Applied Tracking Station ghost popup intent to SetVessel: pid={0} source={1} currentFrame={2} untilFrame={3}",
+                    ghostPid,
+                    source,
+                    currentFrame,
+                    setVesselPopupIntentUntilFrame));
+            return true;
+        }
+
+        private static void ClearSetVesselPopupIntent(string reason)
+        {
+            if (setVesselPopupIntentGhostPid != 0)
+            {
+                ParsekLog.Verbose("GhostMap",
+                    string.Format(ic,
+                        "Cleared Tracking Station ghost popup intent: pid={0} source={1} reason={2}",
+                        setVesselPopupIntentGhostPid,
+                        setVesselPopupIntentSource ?? "(none)",
+                        reason ?? "(unknown)"));
+            }
+
+            setVesselPopupIntentGhostPid = 0;
+            setVesselPopupIntentUntilFrame = 0;
+            setVesselPopupIntentSource = null;
+        }
 
         internal static void SelectGhost(Vessel vessel, string source, bool showPopup = false)
         {
@@ -699,6 +797,8 @@ namespace Parsek.Patches
 
         internal static void ClearSelectedGhost(string reason)
         {
+            ClearSetVesselPopupIntent(
+                "ghost-selection-cleared " + (reason ?? "(none)"));
             if (!hasSelectedGhost)
                 return;
 
@@ -778,6 +878,7 @@ namespace Parsek.Patches
         {
             selectedGhost = default;
             hasSelectedGhost = false;
+            ClearSetVesselPopupIntent("testing reset");
         }
 
         private static Recording TryGetRecording(string recordingId, int recordingIndex)
@@ -867,6 +968,77 @@ namespace Parsek.Patches
 
             button.interactable = false;
             return true;
+        }
+
+        internal static bool TryFocusGhostMapObject(
+            Vessel vessel,
+            string source,
+            out string error)
+        {
+            error = null;
+            if (vessel == null)
+            {
+                error = "vessel-null";
+                ParsekLog.Warn("GhostMap",
+                    string.Format(ic,
+                        "Failed to focus Tracking Station ghost via {0}: {1}",
+                        source ?? "(unknown)",
+                        error));
+                return false;
+            }
+
+            if (PlanetariumCamera.fetch == null)
+            {
+                error = "camera-null";
+                ParsekLog.Warn("GhostMap",
+                    string.Format(ic,
+                        "Failed to focus Tracking Station ghost '{0}' pid={1} via {2}: {3}",
+                        vessel.vesselName ?? "(unknown)",
+                        vessel.persistentId,
+                        source ?? "(unknown)",
+                        error));
+                return false;
+            }
+
+            if (vessel.mapObject == null)
+            {
+                error = "map-object-null";
+                ParsekLog.Warn("GhostMap",
+                    string.Format(ic,
+                        "Failed to focus Tracking Station ghost '{0}' pid={1} via {2}: {3}",
+                        vessel.vesselName ?? "(unknown)",
+                        vessel.persistentId,
+                        source ?? "(unknown)",
+                        error));
+                return false;
+            }
+
+            try
+            {
+                PlanetariumCamera.fetch.SetTarget(vessel.mapObject);
+                ParsekLog.Info("GhostMap",
+                    string.Format(ic,
+                        "Focused Tracking Station ghost '{0}' pid={1} via {2}",
+                        vessel.vesselName ?? "(unknown)",
+                        vessel.persistentId,
+                        source ?? "(unknown)"));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "{0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                ParsekLog.Warn("GhostMap",
+                    string.Format(ic,
+                        "Failed to focus Tracking Station ghost '{0}' pid={1} via {2}: {3}",
+                        vessel.vesselName ?? "(unknown)",
+                        vessel.persistentId,
+                        source ?? "(unknown)",
+                        error));
+                return false;
+            }
         }
 
         // Mirror the deselection-only part of SpaceTracking.SetVessel without

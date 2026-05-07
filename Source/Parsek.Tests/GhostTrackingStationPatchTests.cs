@@ -456,6 +456,123 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowPopupForSetVessel_UsesMatchingIconClickIntentWithinWindow()
+        {
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 100);
+
+            Assert.True(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 110,
+                out string source));
+            Assert.Equal("vessel icon click", source);
+
+            Assert.True(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 130,
+                out source));
+            Assert.Equal("vessel icon click", source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Remembered Tracking Station ghost popup intent")
+                && line.Contains("pid=365"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Applied Tracking Station ghost popup intent to SetVessel")
+                && line.Contains("pid=365"));
+        }
+
+        [Fact]
+        public void ShouldShowPopupForSetVessel_ExpiredOrDifferentGhost_ReturnsFalseAndClears()
+        {
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 100);
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 131,
+                out string source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("expired currentFrame=131 untilFrame=130"));
+
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 200);
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 999u,
+                currentFrame: 201,
+                out source));
+            Assert.Null(source);
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 202,
+                out source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("different-ghost requestedPid=999"));
+        }
+
+        [Fact]
+        public void ClearSelectedGhost_ClearsPendingPopupIntent()
+        {
+            GhostTrackingStationSelection.SetSelectedGhostForTesting(
+                new TrackingStationGhostSelectionInfo(
+                    365u,
+                    "Ghost: Test",
+                    0,
+                    "rec-test",
+                    0,
+                    10,
+                    TerminalState.Landed,
+                    false,
+                    0u,
+                    hasRecording: true));
+            GhostTrackingStationSelection.RememberSetVesselPopupIntent(
+                ghostPid: 365u,
+                source: "vessel icon click",
+                currentFrame: 10);
+
+            GhostTrackingStationSelection.ClearSelectedGhost("unit test clear");
+
+            Assert.False(GhostTrackingStationSelection.ShouldShowPopupForSetVessel(
+                ghostPid: 365u,
+                currentFrame: 11,
+                out string source));
+            Assert.Null(source);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Cleared Tracking Station ghost popup intent")
+                && line.Contains("ghost-selection-cleared unit test clear"));
+        }
+
+        [Fact]
+        public void TryFocusGhostMapObject_NullVessel_ReturnsFalseAndLogs()
+        {
+            bool focused = GhostTrackingStationSelection.TryFocusGhostMapObject(
+                vessel: null,
+                source: "unit test",
+                error: out string error);
+
+            Assert.False(focused);
+            Assert.Equal("vessel-null", error);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("Failed to focus Tracking Station ghost via unit test")
+                && line.Contains("vessel-null"));
+        }
+
+        [Fact]
         public void BuildActionContext_WithChainSuppressedRecording_DisablesMaterialize()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "rec-claimed", pid: 555);
