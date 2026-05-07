@@ -701,6 +701,8 @@ namespace Parsek
                 recording,
                 "atmospheric marker");
             LockStockActionsForAtmosphericGhostSelection("atmospheric marker");
+            if (GhostTrackingStationSelection.HasSelectedGhost)
+                FocusSelectedGhost(GhostTrackingStationSelection.SelectedGhost);
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
@@ -844,19 +846,16 @@ namespace Parsek
         {
             double currentUT = ghostActionCurrentUT;
             Vessel vessel = FindGhostVessel(selection.GhostPid);
-            bool canFocus = CanFocusSelection(selection, vessel, currentUT);
             TrackingStationGhostActionContext context =
                 GhostTrackingStationSelection.BuildActionContext(
                     selection,
                     hasGhostVessel: vessel != null,
-                    canFocus: canFocus,
+                    canFocus: false,
                     canSetTarget: false,
                     currentUT: currentUT,
                     chains: ghostActionChains);
             TrackingStationGhostActionState[] actions =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
-            TrackingStationGhostActionState focus =
-                FindAction(actions, TrackingStationGhostActionKind.Focus);
             TrackingStationGhostActionState materialize =
                 FindAction(actions, TrackingStationGhostActionKind.Materialize);
 
@@ -864,20 +863,6 @@ namespace Parsek
             // popup reference first so lifecycle code does not touch a stale dialog.
             var options = new DialogGUIBase[]
             {
-                new DialogGUIButton(
-                    () => focus.Label,
-                    () =>
-                    {
-                        currentGhostPopup = null;
-                        currentGhostPopupKey = null;
-                        FocusSelectedGhost(selection);
-                        GhostTrackingStationSelection.ClearSelectedGhost("tracking-station focus action");
-                    },
-                    () => focus.Enabled,
-                    160f,
-                    30f,
-                    true,
-                    (DialogGUIBase[])null),
                 new DialogGUIButton(
                     () => BuildMaterializeButtonLabel(
                         materialize.Label,
@@ -903,7 +888,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekTrackingStationGhostMenu",
                     BuildGhostPopupText(selection, currentUT),
-                    "Parsek Ghost",
+                    "Ghost",
                     HighLogic.UISkin,
                     GhostPopupWidth,
                     options),
@@ -915,35 +900,11 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} focus={3} materialize={4}",
+                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} materialize={3}",
                     key ?? "(none)",
                     selection.GhostPid,
                     selection.RecordingId ?? "(none)",
-                    focus.Enabled,
                     materialize.Enabled));
-        }
-
-        private bool CanFocusSelection(
-            TrackingStationGhostSelectionInfo selection,
-            Vessel vessel,
-            double currentUT)
-        {
-            if (PlanetariumCamera.fetch == null)
-                return false;
-            if (vessel != null && vessel.mapObject != null)
-                return true;
-            if (!selection.HasRecording)
-                return false;
-
-            int cached = atmosphericFocusCachedIndex;
-            return TryResolveSelectionWorldPosition(
-                selection,
-                currentUT,
-                ref cached,
-                out _,
-                out _,
-                out _,
-                out _);
         }
 
         private void DismissCurrentGhostPopup(string reason, bool clearSelection = false)
@@ -1059,9 +1020,7 @@ namespace Parsek
             TrackingStationGhostSelectionInfo selection,
             double currentUT)
         {
-            string vesselName = string.IsNullOrEmpty(selection.VesselName)
-                ? "(ghost)"
-                : selection.VesselName;
+            string vesselName = FormatGhostPopupVesselName(selection.VesselName);
             string recordingStatus = BuildGhostPopupRecordingStatus(selection, currentUT);
             string endState = selection.TerminalState.HasValue
                 ? selection.TerminalState.Value.ToString()
@@ -1069,10 +1028,23 @@ namespace Parsek
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Ghost: {0}\nRecording: {1}\nEnd state: {2}",
+                "Name: {0}\nRecording: {1}\nEnd state: {2}",
                 vesselName,
                 recordingStatus,
                 endState);
+        }
+
+        internal static string FormatGhostPopupVesselName(string vesselName)
+        {
+            string name = string.IsNullOrEmpty(vesselName)
+                ? "(ghost)"
+                : vesselName.Trim();
+            const string stockGhostPrefix = "Ghost:";
+
+            while (name.StartsWith(stockGhostPrefix, System.StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(stockGhostPrefix.Length).TrimStart();
+
+            return string.IsNullOrEmpty(name) ? "(ghost)" : name;
         }
 
         internal static string BuildMaterializeButtonLabel(

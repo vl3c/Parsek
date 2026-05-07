@@ -318,7 +318,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildActionStates_WithEligibleRecording_EnablesSafeActionsAndOmitsBlockedStockActions()
+        public void BuildActionStates_WithEligibleRecording_EnablesOnlyMaterializeAndOmitsNonTsActions()
         {
             var context = new TrackingStationGhostActionContext(
                 hasGhostVessel: true,
@@ -333,24 +333,23 @@ namespace Parsek.Tests
             TrackingStationGhostActionState[] states =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
 
-            TrackingStationGhostActionState focus = FindState(states, TrackingStationGhostActionKind.Focus);
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
-            Assert.True(focus.Enabled);
-            Assert.Equal(TrackingStationGhostActionSafety.SafeOnGhost, focus.Safety);
             Assert.True(materialize.Enabled);
             Assert.Equal(TrackingStationGhostActionSafety.SafeWhenEligible, materialize.Safety);
 
-            // Permanently-disabled stock actions are no longer rendered, so
+            // Native Tracking Station selection already focuses the ghost, and
+            // permanently-disabled stock actions are no longer rendered, so
             // BuildActionStates must not return them at all — callers iterate
             // the array, so leftover entries would re-introduce the dead
             // button row.
+            Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Focus);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Fly);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Delete);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.Recover);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.SetTarget);
             Assert.DoesNotContain(states, s => s.Kind == TrackingStationGhostActionKind.ShowRecording);
-            Assert.Equal(2, states.Length);
+            Assert.Single(states);
         }
 
         [Fact]

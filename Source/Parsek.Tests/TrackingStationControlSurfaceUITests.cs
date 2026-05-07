@@ -76,7 +76,7 @@ namespace Parsek.Tests
         {
             var selection = new TrackingStationGhostSelectionInfo(
                 42u,
-                "Mun Return",
+                "Ghost: Mun Return",
                 1,
                 "rec-popup",
                 100.0,
@@ -88,10 +88,20 @@ namespace Parsek.Tests
 
             string text = ParsekTrackingStation.BuildGhostPopupText(selection, currentUT: 250.0);
 
-            Assert.Contains("Ghost: Mun Return", text);
+            Assert.Contains("Name: Mun Return", text);
             Assert.Contains("Recording: endpoint reached", text);
             Assert.Contains("End state: Landed", text);
+            Assert.DoesNotContain("Ghost: Ghost:", text);
             Assert.DoesNotContain("Terminal", text);
+        }
+
+        [Fact]
+        public void FormatGhostPopupVesselName_StripsStockGhostPrefixes()
+        {
+            Assert.Equal(
+                "Mun Return",
+                ParsekTrackingStation.FormatGhostPopupVesselName("Ghost: Ghost: Mun Return"));
+            Assert.Equal("(ghost)", ParsekTrackingStation.FormatGhostPopupVesselName("Ghost: "));
         }
 
         [Fact]

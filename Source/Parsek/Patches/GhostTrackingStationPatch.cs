@@ -89,8 +89,10 @@ namespace Parsek.Patches
         // Stock Fly / Delete / Recover are intentionally absent from the
         // ghost popup: they remain disabled by the GhostTracking{Fly,Delete,
         // Recover} patches until materialization selects the real vessel.
-        // Tracking Station also omits Set As Target and the old details button;
-        // the popup text carries the status line instead.
+        // Native Tracking Station list/icon selection already focuses the
+        // selected object, so the popup only needs the materialization action.
+        // Set As Target and the old details button also stay out; the popup text
+        // carries the status line instead.
         internal static TrackingStationGhostActionState[] BuildActionStates(
             TrackingStationGhostActionContext context)
         {
@@ -102,15 +104,6 @@ namespace Parsek.Patches
 
             return new[]
             {
-                new TrackingStationGhostActionState(
-                    TrackingStationGhostActionKind.Focus,
-                    "Focus",
-                    TrackingStationGhostActionSafety.SafeOnGhost,
-                    context.CanFocus,
-                    context.CanFocus
-                        ? "Center the Tracking Station camera on this ghost."
-                        : "Tracking Station camera or ghost focus target is not ready."),
-
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.Materialize,
                     "Materialize",
