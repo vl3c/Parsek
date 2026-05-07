@@ -1436,6 +1436,8 @@ namespace Parsek
                 return true;
             }
 
+            // Empty absolute sections are not a safety block; let callers try
+            // the nearest section or the legacy flat Points list.
             return false;
         }
 
