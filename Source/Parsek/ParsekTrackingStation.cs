@@ -52,6 +52,10 @@ namespace Parsek
         private float pendingMaterializedFocusDeadlineTime;
         private float nextMaterializedFocusAttemptTime;
         private int pendingMaterializedFocusAttempts;
+        private bool pendingMaterializedFocusBaselineHasSelectedGhost;
+        private uint pendingMaterializedFocusBaselineGhostPid;
+        private bool pendingMaterializedFocusBaselineSelectedPidAvailable;
+        private uint pendingMaterializedFocusBaselineSelectedPid;
 
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
@@ -1662,6 +1666,7 @@ namespace Parsek
                 Time.time + MaterializedFocusRetryDurationSec;
             nextMaterializedFocusAttemptTime = Time.time;
             pendingMaterializedFocusAttempts = 0;
+            CaptureMaterializedFocusSelectionBaseline(spawnedPid);
 
             ParsekLog.Info(Tag,
                 string.Format(
@@ -1671,6 +1676,49 @@ namespace Parsek
                     pendingMaterializedFocusReason,
                     MaterializedFocusRetryDurationSec,
                     MaterializedFocusRetryIntervalSec));
+        }
+
+        private void CaptureMaterializedFocusSelectionBaseline(uint spawnedPid)
+        {
+            pendingMaterializedFocusBaselineHasSelectedGhost =
+                GhostTrackingStationSelection.HasSelectedGhost;
+            pendingMaterializedFocusBaselineGhostPid =
+                pendingMaterializedFocusBaselineHasSelectedGhost
+                    ? GhostTrackingStationSelection.SelectedGhost.GhostPid
+                    : 0u;
+            pendingMaterializedFocusBaselineSelectedPidAvailable = false;
+            pendingMaterializedFocusBaselineSelectedPid = 0;
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            string selectedError = null;
+            if (tracking != null
+                && GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                    tracking,
+                    out uint selectedPid,
+                    out selectedError))
+            {
+                pendingMaterializedFocusBaselineSelectedPidAvailable = true;
+                pendingMaterializedFocusBaselineSelectedPid = selectedPid;
+            }
+            else if (tracking != null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
+                        spawnedPid,
+                        selectedError ?? "(none)"));
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} stockAvailable={3} stockPid={4}",
+                    spawnedPid,
+                    pendingMaterializedFocusBaselineHasSelectedGhost,
+                    pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineSelectedPidAvailable,
+                    pendingMaterializedFocusBaselineSelectedPid));
         }
 
         private void UpdatePendingMaterializedFocus()
@@ -1757,9 +1805,15 @@ namespace Parsek
                 : 0u;
             if (ShouldAbortMaterializedFocusRetryForUserSelection(
                     spawnedPid,
+                    pendingMaterializedFocusBaselineHasSelectedGhost,
+                    pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineSelectedPidAvailable,
+                    pendingMaterializedFocusBaselineSelectedPid,
                     GhostTrackingStationSelection.HasSelectedGhost,
                     selectedGhostPid,
                     selectedGhostPid != 0,
+                    false,
+                    0u,
                     out abortReason))
             {
                 return true;
@@ -1785,39 +1839,78 @@ namespace Parsek
                 return false;
             }
 
+            if (!pendingMaterializedFocusBaselineSelectedPidAvailable)
+            {
+                pendingMaterializedFocusBaselineSelectedPidAvailable = true;
+                pendingMaterializedFocusBaselineSelectedPid = selectedPid;
+                ParsekLog.Verbose(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Captured deferred materialized Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
+                        spawnedPid,
+                        selectedPid));
+                return false;
+            }
+
             return ShouldAbortMaterializedFocusRetryForUserSelection(
                 spawnedPid,
+                pendingMaterializedFocusBaselineHasSelectedGhost,
+                pendingMaterializedFocusBaselineGhostPid,
+                pendingMaterializedFocusBaselineSelectedPidAvailable,
+                pendingMaterializedFocusBaselineSelectedPid,
                 false,
+                0u,
+                false,
+                true,
                 selectedPid,
-                selectedPid != 0,
                 out abortReason);
         }
 
         internal static bool ShouldAbortMaterializedFocusRetryForUserSelection(
             uint pendingPid,
-            bool hasSelectedGhost,
-            uint selectedPid,
-            bool selectedPidAvailable,
+            bool baselineHasSelectedGhost,
+            uint baselineGhostPid,
+            bool baselineSelectedPidAvailable,
+            uint baselineSelectedPid,
+            bool currentHasSelectedGhost,
+            uint currentGhostPid,
+            bool currentGhostPidAvailable,
+            bool currentSelectedPidAvailable,
+            uint currentSelectedPid,
             out string reason)
         {
             reason = null;
             if (pendingPid == 0)
                 return false;
 
-            if (hasSelectedGhost)
+            if (currentHasSelectedGhost)
             {
-                reason = "ghost-selected";
-                return true;
+                if (!baselineHasSelectedGhost
+                    || !currentGhostPidAvailable
+                    || currentGhostPid != baselineGhostPid)
+                {
+                    reason = string.Format(
+                        CultureInfo.InvariantCulture,
+                        "ghost-selection-changed ghostPid={0} baselineGhostPid={1}",
+                        currentGhostPid,
+                        baselineGhostPid);
+                    return true;
+                }
+
+                return false;
             }
 
-            if (selectedPidAvailable
-                && selectedPid != 0
-                && selectedPid != pendingPid)
+            if (currentSelectedPidAvailable
+                && baselineSelectedPidAvailable
+                && currentSelectedPid != 0
+                && currentSelectedPid != pendingPid
+                && currentSelectedPid != baselineSelectedPid)
             {
                 reason = string.Format(
                     CultureInfo.InvariantCulture,
-                    "stock-selection-changed selectedPid={0}",
-                    selectedPid);
+                    "stock-selection-changed selectedPid={0} baselinePid={1}",
+                    currentSelectedPid,
+                    baselineSelectedPid);
                 return true;
             }
 
@@ -1831,6 +1924,10 @@ namespace Parsek
             pendingMaterializedFocusDeadlineTime = 0f;
             nextMaterializedFocusAttemptTime = 0f;
             pendingMaterializedFocusAttempts = 0;
+            pendingMaterializedFocusBaselineHasSelectedGhost = false;
+            pendingMaterializedFocusBaselineGhostPid = 0;
+            pendingMaterializedFocusBaselineSelectedPidAvailable = false;
+            pendingMaterializedFocusBaselineSelectedPid = 0;
         }
 
         internal static bool ShouldAttemptMaterializedFocusRetry(
