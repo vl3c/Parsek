@@ -50,6 +50,7 @@ All notable changes to Parsek are documented here.
 
 - New `SceneExitInterceptorTests` covering the decision matrix and `SafeWritePersistent` test seam.
 - New journal-active-guard tests for `MergeDiscard`, `MergeDiscardWithResult`, and `TryDiscardActiveReFlyAttempt`.
+- New `Source/Parsek.Tests/Harness/` resolver-level regression harness (PR 1 of the recording & ghost policies refactor — see `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md`). Hashes `RelativeAnchorResolver.TryResolveRecordingPose` outputs over a UT span (default N=32 samples) as a SHA-256 baseline so any future change that perturbs a sample (different position/rotation, resolved-vs-unresolved flip) flips the hash and fails the test. Ships scenarios 1, 2, 6, 9 (Absolute single, Relative fixed-anchor, Re-Fly walk-back via frozen pre-Re-Fly snapshot, loop-anchor live-PID rejection) — these baselines must remain stable across the upcoming PRs 3a/3b/3c. Debris baselines (scenarios 4, 5, 7, 10) ship in PR 2.
 
 ---
 
