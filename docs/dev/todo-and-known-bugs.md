@@ -59,6 +59,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Status:** OPEN 2026-05-06. PRs 1 + 2 (harness + baselines) committed 2026-05-07; PR 3a/3b/3c (schema + recorder + legacy gate), PR 4 (cleanups) outstanding.
 
+**PR progress:**
+- PR 3a (schema, this branch): adds `Recording.DebrisParentRecordingId : string` (default null), the matching `IPlaybackTrajectory.DebrisParentRecordingId` interface property + explicit-interface bridge on `Recording`, the ConfigNode codec read/write (sparse: only written when non-null so non-debris recordings stay byte-identical), and the format-version bump to `DebrisParentRecordingFormatVersion = 12 = CurrentRecordingFormatVersion` in `RecordingStore.cs`. The binary `.prec` layout is unchanged at v12 (this is a top-level Recording field, not trajectory data); the binary stamp `CurrentBinaryVersion` is bumped to 12 so freshly-written sidecars round-trip the recording's format version. No recorder change and no playback change land in this PR — PR 3b populates the field at recording time and PR 3c reads it at playback time. See `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md` §"3a. Schema (PR 3a)".
+
 ---
 
 ## Open - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)

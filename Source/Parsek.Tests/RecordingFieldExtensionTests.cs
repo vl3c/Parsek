@@ -115,6 +115,98 @@ namespace Parsek.Tests
             Assert.Null(node.GetValue("isDebris"));
         }
 
+        // --- Round-trip: DebrisParentRecordingId (PR 3a, format v12) ---
+
+        [Fact]
+        public void DebrisParentRecordingId_Set_RoundTripsViaSaveLoad()
+        {
+            var rec = new Recording();
+            rec.RecordingId = "test_debris_parent_set";
+            rec.IsDebris = true;
+            rec.DebrisParentRecordingId = "parent-id";
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Equal("parent-id", node.GetValue("debrisParentRecordingId"));
+
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+
+            Assert.True(restored.IsDebris);
+            Assert.Equal("parent-id", restored.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void DebrisParentRecordingId_NullOnNonDebris_NotWrittenToConfigNode()
+        {
+            // Non-debris v12 recording: byte-identical-on-disk requirement —
+            // no debrisParentRecordingId line should appear.
+            var rec = new Recording();
+            rec.RecordingId = "test_non_debris_v12";
+            rec.IsDebris = false;
+            rec.DebrisParentRecordingId = null; // default
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetValue("debrisParentRecordingId"));
+        }
+
+        [Fact]
+        public void DebrisParentRecordingId_NullOnDebris_NotWrittenToConfigNode()
+        {
+            // Debris recording with no parent (e.g. legacy v11 path before PR 3b
+            // populates the field): sparse serialization keeps the line absent.
+            var rec = new Recording();
+            rec.RecordingId = "test_debris_no_parent";
+            rec.IsDebris = true;
+            rec.DebrisParentRecordingId = null;
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+
+            Assert.Null(node.GetValue("debrisParentRecordingId"));
+        }
+
+        [Fact]
+        public void BackwardCompat_LegacyV11Debris_LoadsAsNullDebrisParent()
+        {
+            // Simulate a legacy v11 RECORDING node that has isDebris=True but
+            // no debrisParentRecordingId key. Field defaults to null and PR 3c's
+            // playback gate fires for these legacy recordings.
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy_v11_debris");
+            node.AddValue("vesselName", "LegacyDebris");
+            node.AddValue("isDebris", "True");
+
+            var rec = new Recording();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.True(rec.IsDebris);
+            Assert.Null(rec.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void DebrisParentRecordingId_ExposedViaInterfaceBridge()
+        {
+            // C# fields cannot satisfy interface properties, so Recording uses
+            // an explicit-interface bridge for DebrisParentRecordingId. Verify
+            // the bridge returns the field value.
+            var rec = new Recording
+            {
+                RecordingId = "test_iface_bridge",
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-via-iface"
+            };
+
+            IPlaybackTrajectory traj = rec;
+            Assert.Equal("parent-via-iface", traj.DebrisParentRecordingId);
+
+            rec.DebrisParentRecordingId = null;
+            Assert.Null(traj.DebrisParentRecordingId);
+        }
+
         // --- Backward compat: no CONTROLLER nodes ---
 
         [Fact]

@@ -213,6 +213,12 @@ namespace Parsek
             }
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
+            // Sparse on disk: only written when non-null so non-debris recordings stay
+            // byte-identical across the v11 -> v12 upgrade. Legacy v11 debris sidecars
+            // omit this key and load back with DebrisParentRecordingId = null, which
+            // PR 3c uses as the legacy-debris signal at playback time.
+            if (rec.DebrisParentRecordingId != null)
+                recNode.AddValue("debrisParentRecordingId", rec.DebrisParentRecordingId);
             if (rec.IsGhostOnly)
                 recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
 
@@ -743,6 +749,13 @@ namespace Parsek
                 if (bool.TryParse(isDebrisStr, out isDebris))
                     rec.IsDebris = isDebris;
             }
+
+            // v12+ debris parent recording id (sparse on disk). Missing key on legacy
+            // v11 debris and on non-debris recordings — both default to null. PR 3c's
+            // playback gate fires when IsDebris && DebrisParentRecordingId == null.
+            string debrisParentRecordingIdStr = recNode.GetValue("debrisParentRecordingId");
+            if (debrisParentRecordingIdStr != null)
+                rec.DebrisParentRecordingId = debrisParentRecordingIdStr;
 
             string isGhostOnlyStr = recNode.GetValue("isGhostOnly");
             if (isGhostOnlyStr != null)
