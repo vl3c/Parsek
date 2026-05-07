@@ -36,7 +36,7 @@ So the strategy is: **add tripwires (regression harness, scoped to what we can t
 4. **Step 4 cleanups:** defer to a separate PR after the debris fix lands.
 5. **Recording-time distance source for `ShouldUseRelativeFrame`:** Option C — when `recording.AnchorRecordingId != null`, always record Relative, skip the 2300/2500m hysteresis at recording time. Playback fallback handles parent-far / parent-gone cases. Simplest, fewest moving parts.
 6. **Primary bug surface:** focused-vessel debris (booster decouples during ascent / staging). Background-vessel debris is secondary. This means `ParsekFlight.CreateBreakupChildRecording` is the **highest-priority** of the three creation sites — Step 3b prioritizes it.
-7. **Loop-debris and control-transfer:** no special cases. Contract is simply `child.AnchorRecordingId = parent.RecordingId` for any debris child. Loop recordings aren't realistic parents (they're authored via Gloops, not produced by flights with decouple events); if it ever happens, the resolver's existing loop-anchor rejection plus the new debris fallback combine to produce Absolute playback for free. Debris vessels by definition have no controller and can't be focused-and-flown.
+7. **Loop-debris and control-transfer:** no special cases. Contract is simply `child.AnchorRecordingId = parent.RecordingId` for any debris child. If a parent recording happens to have `LoopAnchorVesselId != 0`, the resolver's existing loop-anchor rejection (`RelativeAnchorResolver.cs:154`) plus the new debris fallback combine to produce Absolute playback for free — no special-case code, no dependency on which subsystem set the loop field. Debris vessels by definition have no controller and can't be focused-and-flown.
 
 ---
 
@@ -129,7 +129,7 @@ Today's playback already renders a vessel ghost together with its debris childre
 | Parent re-flied (supersede chain) | Re-Fly resolver chases anchor through chain, but also through any other anchor the debris picked up during sample time → unpredictable | Anchor is always parent; resolver only chases parent supersedes |
 | Debris of debris | Silently dropped (cascade cap) | Still silently dropped — same behavior, but now explicitly contracted |
 | Parent destroyed mid-debris-life | Debris ghost may continue rendering with stale anchor pose | Defined fallback: Absolute from parent's last known pose |
-| **Parent ghost is in loop replay** (rare — loop ghosts are usually authored via Gloops, not produced by flights with decouple events) | Resolver rejects loop recording as anchor → debris falls back via the new Absolute fallback path | Same: fallback fires uniformly; debris renders at parent's last known Absolute pose + offset. No special case needed in the contract; the resolver's loop-anchor rejection plus the new fallback compose correctly. |
+| **Parent recording has `LoopAnchorVesselId != 0`** | Resolver rejects loop recording as anchor → debris falls back via the new Absolute fallback path | Same: fallback fires uniformly; debris renders at parent's last known Absolute pose + offset. No special case in the contract — the resolver's existing loop-anchor rejection (`RelativeAnchorResolver.cs:154`) plus the new fallback compose correctly. The contract doesn't need to know how `LoopAnchorVesselId` came to be set on the parent. |
 | **Cross-tree anchor** | Today's `IsRecordingAnchorDAGOrderEligible` allows cross-tree | Debris is always same-tree (parent is by construction). Contract is no-op for this case but harness scenario should verify |
 
 ### Defining "parent's last known pose" precisely
@@ -281,7 +281,7 @@ The audit also called the playback dispatch "single" — it isn't; it's disperse
 | Step 3 misses a debris registration site | **Was high in v1; medium now** | Three sites enumerated. Helper function reduces drift. Harness scenarios 4 + 5 + 7 cover all three paths. |
 | Step 3c fallback fires on non-debris recordings → breaks Re-Fly | **High if guard is wrong** | Triple-conjunction guard (`IsDebris && AnchorRecordingId != null && resolution-failed`). Unit tests exercise non-debris chains and assert fallback never invoked. |
 | "Parent's last known pose" reads a Relative point as Absolute | **High if not specified** | Binding definition in Step 2: walk back to last Absolute point only. Refuse to fallback if no Absolute point exists. Do NOT reinterpret Relative lat/lon as body-fixed. |
-| Loop-parent debris becomes unrenderable | Low (rare in practice; loop ghosts are Gloops-authored without decouple events) | If it occurs, resolver's existing loop-anchor rejection (`RelativeAnchorResolver.cs:154`) drops through to the new debris fallback, which renders Absolute. No special-case code in the recorder. |
+| Loop-parent debris becomes unrenderable | Defensive; severity bounded by the fallback | If it occurs, resolver's existing loop-anchor rejection (`RelativeAnchorResolver.cs:154`) drops through to the new debris fallback, which renders Absolute. No special-case code in the recorder. The contract doesn't depend on assumptions about which code paths produce loop recordings. |
 | Format-version bump corrupts legacy saves | Low | ConfigNode codec only. Standard load-time default-on-legacy. |
 | Recording-time parent-pose resolution introduces recursion / performance issues | Medium | Option C in Step 3b (always Relative when contract applies, skip hysteresis at recording time) sidesteps the problem entirely. Sign-off needed. |
 | Harness mock infrastructure is harder than estimated | Medium | Initial PR 1 includes `IPlaybackBody` mock setup. If it bogs down, fall back to "test resolver math against pre-computed expected outputs" without the body abstraction. |
@@ -330,10 +330,11 @@ None remaining. All decisions confirmed by user 2026-05-07. Plan is implementati
   - Split PR 3 into 3a (schema) / 3b (recorder) / 3c (resolver) for safer revert.
   - Clarified that the binary codec does NOT need a version bump (top-level field is ConfigNode-only).
   - Added scenarios 9 (loop) and 10 (same-chain continuation) to the harness.
-- **2026-05-07, v3 (this revision):** Post-discussion-with-user simplifications. User clarified: (a) loop ghosts are authored via Gloops and don't realistically have decouple-event-derived debris children; (b) debris vessels by definition have no controller and can't be focused-and-flown; (c) playback already renders parent ghost together with debris children visually linked — what's broken is the spatial data, not the linkage.
-  - Removed loop-parent exception from contract item 1 — no special case needed; resolver's existing loop-anchor rejection composes correctly with the new fallback.
-  - Removed "debris becomes focused vessel" edge case — doesn't happen.
+- **2026-05-07, v3 (commit `5fe7048`):** Post-discussion-with-user simplifications. User clarified: (a) debris vessels by definition have no controller and can't be focused-and-flown; (b) playback already renders parent ghost together with debris children visually linked — what's broken is the spatial data, not the linkage.
+  - Removed loop-parent exception from contract item 1.
+  - Removed "debris becomes focused vessel" edge case.
   - Confirmed Option C for recording-time frame decision (Decision §5).
   - Marked focused-vessel debris as the highest-priority creation site in Step 3b (Decision §6).
-  - Added the rendering-link background to Step 2 — clarifies *why* the contract makes sense (visual link already exists; we're fixing the spatial data to match).
+  - Added the rendering-link background to Step 2.
   - Cleared the Open Questions section.
+- **2026-05-07, v4 (this revision):** Stripped Gloops-specific reasoning. User flagged that Gloops module separation and dev is incomplete; the plan should not depend on assumptions about which code paths produce loop recordings. The loop-parent simplification stands but is now justified solely by the resolver-rejection + new-fallback composition — Gloops-independent. No behavior or schema changes vs v3.
