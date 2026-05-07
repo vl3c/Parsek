@@ -713,12 +713,30 @@ namespace Parsek
                     $"parentPid={parentPid} parentRec={parentRec.DebugName}");
             }
 
-            // Add each child recording to tree and BackgroundMap
-            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT, parentRecordingId, parentEngineState);
+            // PR 3b review follow-up: when the parent vessel still exists, the
+            // continuation recording (`parentContRec`) is the one that will keep
+            // receiving samples for the parent's ongoing trajectory — the original
+            // `parentRecordingId` was just closed by `CloseParentRecording` above
+            // (its `ChildBranchPointId` is set, `ExplicitEndUT == branchUT`).
+            // Anchoring debris to the closed pre-split id would render every
+            // post-`branchUT` debris sample unresolvable at playback and trigger an
+            // immediate "parent recording finalized" exit from `CheckDebrisTTL`.
+            //
+            // When no continuation was created (parent vessel destroyed at the same
+            // frame as the split, the "Skipping parent continuation" branch above),
+            // fall back to the original parent id — debris in that case will be
+            // ended quickly by the parent-vessel-destroyed branch in CheckDebrisTTL,
+            // and the closed-parent fallback is the only id available.
+            string anchorParentRecordingId = parentContRec != null
+                ? parentContRec.RecordingId
+                : parentRecordingId;
+            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT, anchorParentRecordingId, parentEngineState);
 
             ParsekLog.Info("BgRecorder",
                 $"Background split branch complete: bp={bp.Id} type={branchType} " +
-                $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
+                $"parentRecId={parentRecordingId} " +
+                $"anchorParentRecId={anchorParentRecordingId} " +
+                $"children={bp.ChildRecordingIds.Count} " +
                 $"({continuationCount} parent continuation + {newVesselInfos.Count} new vessels)");
 
             // Phase 4 (Rewind-to-Staging, design §5.1 + §7.1): if the background split
@@ -1299,19 +1317,27 @@ namespace Parsek
                     continue;
                 }
 
-                // Parent finalized while still loaded (the §"Bug evidence"
-                // closed-coverage-hole case at UT 1213.398/1228.435): end the debris
-                // too — its Relative samples beyond the parent's end UT cannot
-                // resolve at playback time.
-                if (!double.IsNaN(parentRec.ExplicitEndUT)
-                    && parentRec.ExplicitEndUT < currentUT)
+                // Parent recording closed/superseded while the vessel may still be
+                // loaded (the §"Bug evidence" closed-coverage-hole case at UT
+                // 1213.398/1228.435): end the debris too — its Relative samples
+                // beyond the parent's recorded UT range cannot resolve at playback.
+                //
+                // PR 3b review follow-up: predicate extracted to
+                // DebrisParentStateGate.IsParentRecordingClosedOrSuperseded so xUnit
+                // can validate the truth table. Do NOT regress to
+                // parentRec.ExplicitEndUT < currentUT — active background recordings
+                // update ExplicitEndUT only at sample boundaries, so that signal
+                // lags by the sample interval and would end every v12 debris on
+                // the next TTL tick.
+                if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
                 {
                     if (expired == null) expired = new List<uint>();
                     expired.Add(vesselPid);
+                    bool parentClosedAtSplit = !string.IsNullOrEmpty(parentRec.ChildBranchPointId);
                     ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: parent recording finalized, ending recording: " +
+                        $"Debris TTL: parent recording closed/superseded, ending recording: " +
                         $"parentRecId={childRec.DebrisParentRecordingId} " +
-                        $"parentEndUT={parentRec.ExplicitEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"parentClosedAtSplit={parentClosedAtSplit} " +
                         $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                         $"childPid={vesselPid}");
                     continue;
