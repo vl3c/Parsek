@@ -2647,13 +2647,39 @@ namespace Parsek
                 && PlanetariumCamera.fetch != null
                 && spawned.mapObject != null)
             {
-                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
-                ParsekLog.Info(Tag,
+                if (TryProbeMapObjectName(
+                        () => spawned.mapObject.GetName(),
+                        out string mapObjectName,
+                        out string mapObjectError))
+                {
+                    try
+                    {
+                        PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} mapObject='{2}' reason={3}",
+                                handoffState.GhostPid,
+                                spawnedPid,
+                                mapObjectName ?? "(null)",
+                                reason));
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        mapObjectError = string.Format(ic,
+                            "SetTarget threw {0}: {1}",
+                            ex.GetType().Name,
+                            ex.Message);
+                    }
+                }
+
+                ParsekLog.Warn(Tag,
                     string.Format(ic,
-                        "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} reason={2}",
+                        "Tracking-station handoff could not restore map focus for ghostPid={0} spawnedPid={1} reason={2}: {3}",
                         handoffState.GhostPid,
                         spawnedPid,
-                        reason));
+                        reason,
+                        mapObjectError ?? "map object probe failed"));
                 return;
             }
 
@@ -2666,6 +2692,35 @@ namespace Parsek
                     MapView.MapIsEnabled,
                     PlanetariumCamera.fetch != null,
                     spawned.mapObject != null));
+        }
+
+        internal static bool TryProbeMapObjectName(
+            Func<string> getName,
+            out string name,
+            out string error)
+        {
+            name = null;
+            error = null;
+
+            if (getName == null)
+            {
+                error = "getName-null";
+                return false;
+            }
+
+            try
+            {
+                name = getName();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "GetName threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
         }
 
         internal static bool TrySelectTrackingStationVessel(

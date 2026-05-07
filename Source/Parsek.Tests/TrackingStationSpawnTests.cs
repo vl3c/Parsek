@@ -335,6 +335,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryProbeMapObjectName_ReturnsName()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                () => "Learstar A1",
+                out string name,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TryProbeMapObjectName_WhenGetterThrows_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                () => throw new InvalidOperationException("map object not ready"),
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Null(name);
+            Assert.Equal("GetName threw InvalidOperationException: map object not ready", error);
+        }
+
+        [Fact]
+        public void TryProbeMapObjectName_NullGetter_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                null,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Null(name);
+            Assert.Equal("getName-null", error);
+        }
+
+        [Fact]
         public void GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "lookup");
