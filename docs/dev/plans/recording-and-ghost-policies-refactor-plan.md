@@ -1,7 +1,7 @@
 # Recording & Ghost Rendering — Refactor Plan
 
 Date: 2026-05-07
-Last amended: 2026-05-07 (v8 — post-Opus-review-of-v7 fixes)
+Last amended: 2026-05-07 (v9 — post-Opus-review-of-v8 fixes)
 Branch: `claude/investigate-recording-policies-6tMZ9`
 Companion documents:
 - `recording-and-ghost-policies-audit-2026-05-07.md` — read-only audit of current behavior
@@ -76,10 +76,12 @@ So the strategy is: **add tripwires (regression harness, scoped to what we can t
 9. **Legacy v11 debris gets a retroactive playback-only fix (PR 3c).** Existing broken saves contain v11 debris recordings whose `section.anchorRecordingId` was chosen by the nearest-vessel-at-sample-time rule and is often wrong. These recordings cannot be repaired in place (sidecar mutation on read is rejected as too risky), but their `section.absoluteFrames` shadows are intact and represent the actual world position at sample time. Playback dispatch prefers `absoluteFrames` over the resolver chain whenever `recording.IsDebris && recording.DebrisParentRecordingId == null && section.referenceFrame == Relative && section.absoluteFrames` is non-empty. This fires for legacy v11 debris only — for v12+ debris, `DebrisParentRecordingId` is always set so the gate is skipped and Decision §7 holds. Reasoning: the user has existing broken saves; without this, "fix" means "stop creating new broken data" and the existing data stays broken until overwritten.
 10. **Parent goes on-rails → end debris recording.** When a debris recording's parent vessel transitions to `packed` / `!loaded` (mid-debris-life timewarp / scene boundary), the debris recording is finalized via the existing `EndDebrisRecording` path. Implementation hooks into `CheckDebrisTTL` (`BackgroundRecorder.cs:1191`); see Step 3b §"Parent on-rails" for details. Composes with Decision §7 — the same "debris bound to parent visibility" rule, applied at recording time instead of playback.
 
-   **Parent-continuation propagation:** the `BackgroundRecorder.cs:673` parent-continuation site creates a new Recording when a parent vessel itself is continued post-split. Per the secondary-propagation enumeration, that new continuation inherits `DebrisParentRecordingId` from `parentRec`. If the inherited anchor (the original parent of the original parent) has since ended, the on-rails hook in `CheckDebrisTTL` ends the continuation too — the lookup at the loop entry (`tree.Recordings.TryGetValue(child.DebrisParentRecordingId, out parentRec)`) returns false or finds an ended recording, and the defensive end-the-debris path triggers. So Decision §10 transitively covers continuation chains.
+   **Parent-continuation propagation (only relevant if cascade cap raised).** The `BackgroundRecorder.cs:673` parent-continuation site creates a new Recording when a parent vessel itself is continued post-split. With today's `MaxRecordingGeneration = 1`, this site never creates a *debris* continuation — debris-of-debris is dropped at the cap, so no Generation=2 debris recording exists to inherit `DebrisParentRecordingId`. The propagation line `IsDebris = parentRec.IsDebris` at line 673 will copy `false` for non-debris continuations and never copy `true` for debris continuations. So under current code, the chain composition this paragraph describes is unreachable.
+
+   The propagation line for `DebrisParentRecordingId` is still required at line 673 (per the secondary-propagation enumeration) for forward compatibility: if Step 4a (or a future PR) raises the cascade cap, the propagation must already be in place. When that happens, the `CheckDebrisTTL` hook described above transitively covers continuation chains — `tree.Recordings.TryGetValue(child.DebrisParentRecordingId, out parentRec)` will resolve to whatever the inherited anchor is, and the three end-conditions (parent recording finalized / parent vessel destroyed / parent on-rails) compose along the chain.
 11. **Re-Fly settle gap → suppress debris sampling while parent is suppressed.** During the ~1–2 s post-load Re-Fly settle window, the focused vessel's `FlightRecorder` blocks trajectory writes via private `ShouldSuppressReFlyPostLoadTrajectoryWrite(double ut, string source)`. Debris created during that window mirrors the parent: skip the per-frame Relative sample. The debris recording's first emitted Relative section starts at parent-settle-release UT, anchored to parent's live pose at that UT. Net effect: brand-new debris created during a Re-Fly load is invisible for ~1–2 s, then appears. Acceptable per the visibility-bound-to-parent contract.
 
-   Mechanism (the predicate is private to `FlightRecorder` instance state; `BackgroundRecorder` cannot call it directly): expose a small static accessor — e.g. `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(string recordingId)` — that returns `true` when the active recorder's `reFlyPostLoadSettleActive == true` AND `reFlyPostLoadSettleRecordingId == recordingId`. The settle is exclusive to the focused-vessel `FlightRecorder` (only one settle session active at a time, set in `BeginReFlyPostLoadSettle` around `FlightRecorder.cs:5667`), so the accessor returns false when no settle is active or when the queried recording isn't the settle target. `BackgroundRecorder` consults this accessor for parent-suppression checks; for background-vessel debris (parent is itself a non-focused background recording, never the settle target), the accessor returns false and debris sampling proceeds normally. See Step 3b §"Re-Fly settle window" for the call site.
+   Mechanism (the predicate is private to `FlightRecorder` instance state; `BackgroundRecorder` cannot call it directly): expose a static accessor `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(string recordingId)` that reads `Patches.PhysicsFramePatch.ActiveRecorder` (the static handle to the live focus recorder; set at `FlightRecorder.cs:5463, 6382` and cleared at `5466, 6086, 6655, 8940`) and returns `true` iff the handle is non-null AND its instance state has `reFlyPostLoadSettleActive == true` AND `reFlyPostLoadSettleRecordingId == recordingId`. The accessor is read-only on the recorder's state (no mutation, no concurrency hazard). Re-Fly settle is exclusive to the focus recorder — `Patches.PhysicsFramePatch.GloopsRecorderInstance` (a separate static handle for the Gloops recorder, see `FlightRecorder.cs:175, 5461`) is intentionally NOT consulted, because Gloops sessions don't go through the Re-Fly post-load settle path. The accessor returns false when no focus recorder is active, no settle is in progress, or the queried recording isn't the settle target. For background-vessel debris (parent is itself a non-focused background recording, never the settle target), the accessor always returns false and debris sampling proceeds normally. See Step 3b §"Re-Fly settle window" for the call site.
 
 ---
 
@@ -283,7 +285,18 @@ internal static void ApplyDebrisAnchorContract(Recording child, string parentRec
 #### Primary creation sites — invocation and ordering
 
 1. `ParsekFlight.CreateBreakupChildRecording` (`ParsekFlight.cs:5103`) — **adds a parameter**: the function does not currently receive parent-recording information (its parameters are `tree, breakupBp, pid, vessel, isDebris, fallbackName, fallbackSnapshot, fallbackTrajectoryPoint, parentGeneration`). Add `string parentRecordingId = null` (default null for non-breaking signature change). Both call sites (`ParsekFlight.cs:5497` for the controlled path, `ParsekFlight.cs:5552` for the debris path) have `activeRec` in scope and already pass `parentGeneration: activeRec.Generation` — extend each call to also pass `parentRecordingId: activeRec.RecordingId`. Inside `CreateBreakupChildRecording`, call `ApplyDebrisAnchorContract(childRec, parentRecordingId)` immediately after the `new Recording { ... }` initializer at line 5113 (before the trim at line 5143). Alternative read-from-breakupBp approach (`breakupBp.ParentRecordingIds[0]`) is rejected: the breakup branch point can have multiple parent recording IDs in chain-merge cases, and the focused recording is unambiguously the right anchor — passing it explicitly avoids that ambiguity.
-2. `BackgroundRecorder.RegisterChildRecordingsFromSplit` (`BackgroundRecorder.cs:1059`) — **ordering matters** (per review §S3). Today the code at lines 1097-1115 registers the recording in the tree and initializes sampling state *before* setting `IsDebris = true` at line 1115. The helper must be moved earlier so `DebrisParentRecordingId` is set **before** `tree.AddOrReplaceRecording(child)` (line 1097) and before `OnVesselBackgrounded(...)` (line 1108). Concretely: refactor lines 1097-1129 so the `IsDebris` and `DebrisParentRecordingId` assignments happen at the top of the per-child loop iteration, then registration, then sampling init.
+2. `BackgroundRecorder.RegisterChildRecordingsFromSplit` (`BackgroundRecorder.cs:1059`) — **ordering matters** (per review §S3). Today's per-child loop body at lines 1067-1129 has this order: (a) snapshot capture, (b) `tree.AddOrReplaceRecording(child)` at line 1097, (c) `tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId` at line 1098, (d) build `childInitialPoint` via `CreateAbsoluteTrajectoryPointFromVessel` at line 1104, (e) `OnVesselBackgrounded(...)` at line 1108, (f) `IsDebris = true` and TTL setup at line 1115 inside the `if (!hasController)` branch. The new orchestration requires `IsDebris` and `DebrisParentRecordingId` to be set on the child Recording before step (b), since `OnVesselBackgrounded` → `InitializeLoadedState` (per the seed-point orchestration above) reads `recording.DebrisParentRecordingId` to decide whether to open the first section as `Relative` or `Absolute`. Concrete final order:
+
+   1. Determine `hasController = newVesselInfos[i].hasController` (currently read at line 1111).
+   2. Set `child.IsDebris = !hasController` immediately on the Recording (move this assignment from the `if (!hasController)` branch at line 1115 to the top of the per-child iteration).
+   3. Call `ApplyDebrisAnchorContract(child, parentRecordingId)` — where `parentRecordingId` is the `parentRecordingId` parameter of `RegisterChildRecordingsFromSplit`'s caller, surfaced as a new parameter (today the function is called from `HandleBackgroundVesselSplit` and from the post-coalescer path; both have parent's recording ID in scope).
+   4. Continue with snapshot capture (today's lines 1071-1095).
+   5. `tree.AddOrReplaceRecording(child)` and `tree.BackgroundMap[...]` writes.
+   6. Build `childInitialPoint` via `CreateAbsoluteTrajectoryPointFromVessel`.
+   7. `OnVesselBackgrounded(child.VesselPersistentId, inherited, initialTrajectoryPoint: childInitialPoint)` — this now triggers the seed-point Relative transform inside `InitializeLoadedState` per Step 3b §"Initial seed point coordinate transform."
+   8. TTL setup (today's `debrisTTLExpiry[child.VesselPersistentId] = branchUT + DebrisTTLSeconds` at line 1116) and the existing `Info` / `Warn` log lines.
+
+   Net delta: hoist the `IsDebris = !hasController` line out of the `if (!hasController)` branch (it becomes the contract gate inside `ApplyDebrisAnchorContract`), add the `ApplyDebrisAnchorContract` call, surface `parentRecordingId` as a parameter on `RegisterChildRecordingsFromSplit`. The TTL setup stays gated on `!hasController`.
 3. `BackgroundRecorder.BuildBackgroundSplitBranchData` (`BackgroundRecorder.cs:1143`) — call helper inside the loop at lines 1163-1180, immediately after the constructor sets `IsDebris`.
 
 #### Secondary propagation sites
@@ -315,19 +328,25 @@ In `BackgroundRecorder.ApplyBackgroundRelativeOffset` (called from `OnBackground
 
 `RegisterChildRecordingsFromSplit` builds the seed point via `CreateAbsoluteTrajectoryPointFromVessel` (body-fixed `lat/lon/alt`) and stores it in `pendingInitialTrajectoryPoints[child.VesselPersistentId]` for `OnVesselBackgrounded` to consume one frame later. For debris with `DebrisParentRecordingId != null`, the seed must be transformed from body-fixed to anchor-local **before it enters the first track section**. The transform reuses `ApplyBackgroundRelativeOffsetForAnchorPose` (`BackgroundRecorder.cs:3832`), but that helper requires a fully-initialized `BackgroundVesselState` plus an `AnchorPose`, neither of which exists at `RegisterChildRecordingsFromSplit` time (state is created inside `OnVesselBackgrounded` one frame later).
 
-**Call order** (the orchestration the implementer needs to set up — this is where the implementation does have non-trivial work):
+**Call order** (the orchestration the implementer needs to set up — this is where the implementation does have non-trivial work).
+
+The state IS NOT created in `OnVesselBackgrounded` directly: that function dispatches to `InitializeLoadedState` (`BackgroundRecorder.cs:2849+`) for loaded vessels, which is where the `BackgroundVesselState` is constructed. Today, `InitializeLoadedState` opens its first track section as `ReferenceFrame.Absolute` (line 2909, `StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ...)`) and then appends the seed via `ApplyInitialTrajectoryPoint` (line 2918) or `AppendFrameToCurrentTrackSection` (line 2920). The on-rails branch (`InitializeOnRailsState`, line 2732+) flat-appends without sectioning — debris is unlikely to enter that path on creation, but worth noting that the orchestration only applies to the loaded path.
+
+The fix lives **inside `InitializeLoadedState`**, branching on `recording.DebrisParentRecordingId != null` before the section is opened:
 
 1. `RegisterChildRecordingsFromSplit` continues to call `CreateAbsoluteTrajectoryPointFromVessel` and stash the body-fixed seed in `pendingInitialTrajectoryPoints` (today's behavior, unchanged).
-2. `OnVesselBackgrounded` creates the `BackgroundVesselState` for the new child (today's behavior, unchanged).
-3. **NEW** — immediately after state creation, when the recording has `DebrisParentRecordingId != null`:
-   a. Resolve `parentVessel = FlightRecorder.FindVesselByPid(parent.VesselPersistentId)` — the live parent vessel.
-   b. If `parentVessel == null` (parent destroyed in the same frame), abandon the transform: the recording is going to be ended on the next `CheckDebrisTTL` tick anyway. Skip writing any initial section. (Defensive — should be rare since the joint break that produced this debris just happened.)
+2. `OnVesselBackgrounded` dispatches to `InitializeLoadedState` (today's behavior, unchanged).
+3. **NEW** in `InitializeLoadedState`, after state is constructed but BEFORE `StartBackgroundTrackSection` opens the first section (around line 2909): branch on `treeRec?.DebrisParentRecordingId != null` (where `treeRec` is the recording in scope). When the contract applies:
+   a. Resolve `parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)` after a `tree.Recordings.TryGetValue(treeRec.DebrisParentRecordingId, out parentRec)` lookup — the live parent vessel.
+   b. If `parentRec` is missing OR `parentVessel == null` (parent destroyed in the same frame), abandon the transform: open the section as `Absolute` per today's path and let the next `CheckDebrisTTL` tick end the recording. (Defensive — should be rare since the joint break producing this debris just happened, parent vessel is still around.)
    c. Build an `AnchorPose` from `parentVessel.transform.position` and `parentVessel.transform.rotation` at `seed.ut`.
-   d. Set `state.currentAnchorRecordingId = recording.DebrisParentRecordingId`, `state.currentAnchorPid = parentVessel.persistentId`, `state.isRelativeMode = true`. (These mirror the focused recorder's `ClearCurrentRecordingAnchor` / `SetCurrentRecordingAnchor` symmetry — confirm the helper exists or extract one.)
-   e. Open the first `TrackSection` as `ReferenceFrame.Relative` with `anchorRecordingId = recording.DebrisParentRecordingId`.
-   f. Run `ApplyBackgroundRelativeOffsetForAnchorPose(state, ref seed, parentVessel, anchorPose, ...)` to mutate the seed's `latitude/longitude/altitude` into anchor-local `(dx, dy, dz)` and `rotation` into anchor-local form. The helper also sets `section.anchorRecordingId` via `ApplyBackgroundCurrentAnchorToTrackSection`.
-   g. Append the (now-Relative) seed as the first frame.
+   d. Set `state.currentAnchorRecordingId = treeRec.DebrisParentRecordingId`, `state.currentAnchorPid = parentVessel.persistentId`, `state.isRelativeMode = true`. (These mirror the focused recorder's `ClearCurrentRecordingAnchor` / `SetCurrentRecordingAnchor` pattern — extract a small helper `SetBackgroundCurrentAnchorForDebris(state, parentRecordingId, parentPid)` if a symmetric setter doesn't already exist.)
+   e. Call `StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative, seed.ut)` — same call as line 2909 but with `Relative` instead of `Absolute`.
+   f. Run `ApplyBackgroundRelativeOffsetForAnchorPose(state, ref seed, parentVessel, anchorPose, treeRec.DebrisParentRecordingId, AnchorCandidateSource.Live, parentVessel.persistentId, logSample: true)` to mutate the seed's `latitude/longitude/altitude` into anchor-local `(dx, dy, dz)` and `rotation` into anchor-local form. The helper also sets `section.anchorRecordingId` via `ApplyBackgroundCurrentAnchorToTrackSection`.
+   g. Append the (now-Relative) seed via `ApplyInitialTrajectoryPoint(state, treeRec, seed)` — same call as today's line 2918 but the seed is already in anchor-local form.
 4. Subsequent per-frame samples flow through the existing `OnBackgroundPhysicsFrame` → `ApplyBackgroundRelativeOffset` path with `state.isRelativeMode == true` already set; the per-frame anchor-write rule in §"Per-frame anchor write" handles the rest.
+
+**Implementation note.** This is a real branch inside `InitializeLoadedState`, not a one-line patch. Estimate: ~30-40 lines of new code in `BackgroundRecorder.cs`, plus the small helper for the anchor-setter symmetry. The on-rails path (`InitializeOnRailsState`) does not need this branch — debris created from a loaded breakup never enters on-rails state on the same frame as the split, and CheckDebrisTTL will end it via Decision §10 if the debris vessel ever transitions to packed.
 
 **Without this transform**, the body-fixed seed lands in a Relative section whose downstream interpretation expects metres-as-`(dx, dy, dz)` — the CLAUDE.md "metres-as-degrees" gotcha in reverse. The seed would then read as a wildly off-scale anchor offset.
 
@@ -353,6 +372,19 @@ if (!tree.Recordings.TryGetValue(child.DebrisParentRecordingId, out Recording pa
         $"parentRecId={child.DebrisParentRecordingId} childPid={vesselPid}");
     continue;
 }
+// Parent recording finalized while vessel still alive (the §"Bug evidence"
+// closed-coverage-hole case at UT 1213.398/1228.435): end the debris too.
+if (!double.IsNaN(parentRec.ExplicitEndUT) && parentRec.ExplicitEndUT < currentUT)
+{
+    if (expired == null) expired = new List<uint>();
+    expired.Add(vesselPid);
+    ParsekLog.Info("BgRecorder",
+        $"Debris TTL: parent recording finalized, ending recording: " +
+        $"parentRecId={child.DebrisParentRecordingId} " +
+        $"parentEndUT={parentRec.ExplicitEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} childPid={vesselPid}");
+    continue;
+}
 Vessel parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId);
 if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
 {
@@ -367,11 +399,26 @@ if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
 }
 ```
 
-Distinct log lines so the existing "vessel destroyed/despawned" path remains diagnosable independently. The new branch is keyed on `child.DebrisParentRecordingId != null` — legacy v11 debris (without the field) keeps its original lifetime contract. The `tree.Recordings.TryGetValue` lookup is O(1) and the parent vessel lookup mirrors the existing `FindVesselByPid` pattern used for the debris vessel itself.
+Distinct log lines so the existing "vessel destroyed/despawned" path remains diagnosable independently. The new branches are keyed on `child.DebrisParentRecordingId != null` — legacy v11 debris (without the field) keeps its original lifetime contract. The `tree.Recordings.TryGetValue` lookup is O(1) and the parent vessel lookup mirrors the existing `FindVesselByPid` pattern used for the debris vessel itself.
+
+**Why three end-conditions and not two.** The `parentRec.ExplicitEndUT` check is what catches the §"Bug evidence" closed-coverage-hole case (parent finalized while still loaded). The `parentVessel == null || packed || !loaded` check catches scene-transition / timewarp / vessel destruction. Without the first check, a parent that finalizes its recording mid-life (e.g. the user manually stops recording the parent, or the parent's chain ends at a branch point) would let the debris keep recording Relative against an empty tail of parent data — exactly the failure mode evidenced by 49× `anchor-out-of-recorded-range` in the investigation bundle.
 
 #### Re-Fly settle window hook (per Decision §11)
 
-**Accessor to add** (PR 3b includes this): expose a static `IsReFlyPostLoadSettleActiveForRecording(string recordingId)` on `FlightRecorder` that reads the singleton focused-vessel recorder's instance state and returns true iff `reFlyPostLoadSettleActive && reFlyPostLoadSettleRecordingId == recordingId`. The accessor returns false when no recorder exists, no settle is active, or the recording ID doesn't match the settle target. Trivial implementation — five lines including the null guard.
+**Accessor to add** (PR 3b includes this): expose a static `IsReFlyPostLoadSettleActiveForRecording(string recordingId)` on `FlightRecorder` that reads `Patches.PhysicsFramePatch.ActiveRecorder` (the focus-recorder static handle) and returns true iff that handle is non-null AND its `reFlyPostLoadSettleActive == true` AND `reFlyPostLoadSettleRecordingId == recordingId`. Returns false when no focus recorder is active, no settle is running, or the recording ID doesn't match the settle target. Does NOT consult `PhysicsFramePatch.GloopsRecorderInstance` — Gloops sessions don't enter Re-Fly settle. Implementation:
+
+```
+internal static bool IsReFlyPostLoadSettleActiveForRecording(string recordingId)
+{
+    var focus = Patches.PhysicsFramePatch.ActiveRecorder;
+    return focus != null
+        && focus.reFlyPostLoadSettleActive
+        && string.Equals(focus.reFlyPostLoadSettleRecordingId, recordingId,
+            StringComparison.Ordinal);
+}
+```
+
+Five lines plus null guard. The two private fields stay private; the accessor is a friend that exposes a derived predicate without leaking the underlying state.
 
 In `OnBackgroundPhysicsFrame`'s entry for a recording with `DebrisParentRecordingId != null`, before `UpdateBackgroundAnchorDetection` / `ApplyBackgroundRelativeOffset`:
 
@@ -692,3 +739,10 @@ Replaying `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (or 
   - **Conditional codec-write.** PR 3a now requires writing `DebrisParentRecordingId` only when non-null, mirroring `IsDebris`. Non-debris recordings remain byte-identical on disk across the upgrade.
   - **Three-times-per-frame logging key composition** now mirrors the existing `RELATIVE recorded-anchor fallback to absolute shadow` pattern (composite key `legacy-debris-shadow-preferred|<recordingId>|<sectionIndex>`).
   - **Nits:** Bug-evidence bundle path made absolute and described. v6 commit hash added. Recording-cost row in §"Considered alternatives" corrected (both approaches are O(1)).
+- **2026-05-07, v9 (this revision):** Post-Opus-review-of-v8 precision fixes. v8's review confirmed the four hard v7 errors were addressed but flagged four remaining precision gaps where the plan would mislead a literal-reader implementer:
+  - **Static accessor handle named.** Decision §11 + Step 3b §"Re-Fly settle window hook" now reference `Patches.PhysicsFramePatch.ActiveRecorder` explicitly (the static handle to the focus recorder, set at `FlightRecorder.cs:5463, 6382` and cleared at `5466, 6086, 6655, 8940`). Disambiguates `PhysicsFramePatch.GloopsRecorderInstance` (the separate Gloops handle) — Re-Fly settle is exclusive to the focus recorder, so the Gloops handle is intentionally NOT consulted. Spelled out the 5-line implementation body so the implementer doesn't have to invent it.
+  - **Seed-point orchestration relocated to `InitializeLoadedState`.** v8 said "immediately after state creation in `OnVesselBackgrounded`," but state creation is actually inside `InitializeLoadedState` (`BackgroundRecorder.cs:2849+`), which is what `OnVesselBackgrounded` dispatches to. v9 moves the orchestration into `InitializeLoadedState` and explicitly notes the `StartBackgroundTrackSection` call at line 2909 must flip `Absolute → Relative` for debris. Estimate updated to ~30-40 lines of new code (not the localized one-line patch v8 implied). On-rails branch (`InitializeOnRailsState`) declared out-of-scope for the orchestration since debris-on-rails is unreachable on creation.
+  - **On-rails hook now also catches "parent recording finalized while still loaded."** v8's pseudocode only checked `parentVessel == null || packed || !loaded` — fine for scene transitions but missed the §"Bug evidence" closed-coverage-hole case (parent recording's `ExplicitEndUT` set while parent vessel still alive). v9 adds an explicit `!double.IsNaN(parentRec.ExplicitEndUT) && parentRec.ExplicitEndUT < currentUT` check ahead of the vessel-state check, with a distinct log line. This is what closes the gap on the 49× `anchor-out-of-recorded-range` failure mode at recording time (in addition to PR 3c's playback-time fix for legacy data).
+  - **Decision §10 parent-continuation propagation reframed as forward-compat.** v8's paragraph implied the chain composition was reachable today, but with `MaxRecordingGeneration = 1` debris can't have continuations. v9 restates as: propagation line is required at `BackgroundRecorder.cs:673` for forward compatibility, but the chain composition only matters once Step 4a (or a later PR) raises the cascade cap.
+  - **`RegisterChildRecordingsFromSplit` ordering spelled out** as an eight-step final order (today's order has `IsDebris = true` at line 1115 inside an `if (!hasController)` branch — the new order hoists it to the top of the per-child iteration so the seed-point orchestration in `InitializeLoadedState` can read it). Surfaces a new `parentRecordingId` parameter on the function.
+  - **`IsReFlyPostLoadSettleActiveForRecording` body included verbatim** in Step 3b so the implementer doesn't have to re-derive it from the Decision §11 prose.
