@@ -1607,15 +1607,34 @@ namespace Parsek
                 && spawned.mapObject != null
                 && PlanetariumCamera.fetch != null)
             {
-                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
-                ParsekLog.Info(Tag,
+                if (GhostMapPresence.TrySetReadyMapObjectTarget(
+                        () => spawned.mapObject.GetName(),
+                        () => PlanetariumCamera.fetch.SetTarget(spawned.mapObject),
+                        out string mapObjectName,
+                        out string mapObjectError))
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3}",
+                            spawned.vesselName ?? "(unknown)",
+                            spawned.persistentId,
+                            mapObjectName ?? "(null)",
+                            reason ?? "(none)"));
+                    return true;
+                }
+
+                ParsekLog.Warn(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Focused materialized Tracking Station vessel '{0}' pid={1} reason={2}",
-                        spawned.vesselName ?? "(unknown)",
-                        spawned.persistentId,
-                        reason ?? "(none)"));
-                return true;
+                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
+                        spawnedPid,
+                        reason ?? "(none)",
+                        true,
+                        true,
+                        true,
+                        mapObjectError ?? "map object focus failed"));
+                return false;
             }
 
             ParsekLog.Warn(Tag,

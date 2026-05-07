@@ -2647,30 +2647,20 @@ namespace Parsek
                 && PlanetariumCamera.fetch != null
                 && spawned.mapObject != null)
             {
-                if (TryProbeMapObjectName(
+                if (TrySetReadyMapObjectTarget(
                         () => spawned.mapObject.GetName(),
+                        () => PlanetariumCamera.fetch.SetTarget(spawned.mapObject),
                         out string mapObjectName,
                         out string mapObjectError))
                 {
-                    try
-                    {
-                        PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
-                        ParsekLog.Info(Tag,
-                            string.Format(ic,
-                                "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} mapObject='{2}' reason={3}",
-                                handoffState.GhostPid,
-                                spawnedPid,
-                                mapObjectName ?? "(null)",
-                                reason));
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        mapObjectError = string.Format(ic,
-                            "SetTarget threw {0}: {1}",
-                            ex.GetType().Name,
-                            ex.Message);
-                    }
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} mapObject='{2}' reason={3}",
+                            handoffState.GhostPid,
+                            spawnedPid,
+                            mapObjectName ?? "(null)",
+                            reason));
+                    return;
                 }
 
                 ParsekLog.Warn(Tag,
@@ -2692,6 +2682,36 @@ namespace Parsek
                     MapView.MapIsEnabled,
                     PlanetariumCamera.fetch != null,
                     spawned.mapObject != null));
+        }
+
+        internal static bool TrySetReadyMapObjectTarget(
+            Func<string> getName,
+            Action setTarget,
+            out string name,
+            out string error)
+        {
+            if (!TryProbeMapObjectName(getName, out name, out error))
+                return false;
+
+            if (setTarget == null)
+            {
+                error = "setTarget-null";
+                return false;
+            }
+
+            try
+            {
+                setTarget();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "SetTarget threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
         }
 
         internal static bool TryProbeMapObjectName(

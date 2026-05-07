@@ -374,6 +374,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrySetReadyMapObjectTarget_ReturnsNameAndRunsSetter()
+        {
+            bool setTargetCalled = false;
+
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                () => setTargetCalled = true,
+                out string name,
+                out string error);
+
+            Assert.True(ok);
+            Assert.True(setTargetCalled);
+            Assert.Equal("Learstar A1", name);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_WhenGetterThrows_DoesNotRunSetter()
+        {
+            bool setTargetCalled = false;
+
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => throw new InvalidOperationException("map object not ready"),
+                () => setTargetCalled = true,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.False(setTargetCalled);
+            Assert.Null(name);
+            Assert.Equal("GetName threw InvalidOperationException: map object not ready", error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_WhenSetterThrows_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                () => throw new InvalidOperationException("camera target rejected"),
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Equal("SetTarget threw InvalidOperationException: camera target rejected", error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_NullSetter_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                null,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Equal("setTarget-null", error);
+        }
+
+        [Fact]
         public void GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices()
         {
             var rec = MakeEligibleTrackingStationRecording(id: "lookup");
