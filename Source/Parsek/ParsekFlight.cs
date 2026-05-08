@@ -22189,7 +22189,7 @@ namespace Parsek
             string callsite)
         {
             if (!ReferenceEquals(ghost, null))
-                ghost.SetActive(false);
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (retireSignalState != null)
                 retireSignalState.anchorRetiredThisFrame = true;
 

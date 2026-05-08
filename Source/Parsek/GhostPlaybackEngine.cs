@@ -2529,7 +2529,7 @@ namespace Parsek
 
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
-                SetGhostInactiveForParentAnchorRetirement(ghost);
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (state != null)
                 state.anchorRetiredThisFrame = true;
 
@@ -2553,11 +2553,6 @@ namespace Parsek
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
             return true;
-        }
-
-        private static void SetGhostInactiveForParentAnchorRetirement(GameObject ghost)
-        {
-            ghost.SetActive(false);
         }
 
         private void PositionLoopAtPlaybackUT(

@@ -755,6 +755,8 @@ namespace Parsek
             t = 0f;
             if (points == null || points.Count == 0 || maxSpanSeconds < 0.0)
                 return false;
+            if (!FlatPointUTsAreFiniteAndMonotonic(points))
+                return false;
 
             int afterIndex = FindFirstFlatPointAtOrAfterUT(points, ut);
             if (afterIndex < points.Count)
@@ -823,6 +825,20 @@ namespace Parsek
                     high = mid;
             }
             return low;
+        }
+
+        private static bool FlatPointUTsAreFiniteAndMonotonic(List<TrajectoryPoint> points)
+        {
+            double previousUT = double.NegativeInfinity;
+            for (int i = 0; i < points.Count; i++)
+            {
+                double pointUT = points[i].ut;
+                if (!IsFinite(pointUT) || pointUT < previousUT - UtEpsilon)
+                    return false;
+                previousUT = pointUT;
+            }
+
+            return true;
         }
 
         private static bool TryResolveAbsoluteBracketPose(

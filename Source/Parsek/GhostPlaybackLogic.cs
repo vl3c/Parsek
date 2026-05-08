@@ -38,6 +38,23 @@ namespace Parsek
         internal delegate ExplosionOneShotAudioCandidate ResolveExplosionOneShotAudioCandidateDelegate();
         internal delegate void PlayExplosionOneShotAudioDelegate(Vector3 worldPosition, ExplosionOneShotAudioCandidate candidate);
 
+        internal static void HideGhostForRetire(GameObject ghost)
+        {
+            if (ReferenceEquals(ghost, null))
+                return;
+
+            try
+            {
+                if (ghost.activeSelf)
+                    ghost.SetActive(false);
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Headless xUnit can construct state that references UnityEngine
+                // types without a Unity runtime. Runtime KSP hides normally.
+            }
+        }
+
         internal enum StockExplosionFxWithAudioGateResult
         {
             StockQueued,
