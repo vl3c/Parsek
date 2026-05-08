@@ -1187,6 +1187,8 @@ namespace Parsek
                         + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s absoluteBridgeMax="
                         + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s debrisSeedBridgeMax="
+                        + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s minFrames="
                         + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
@@ -4714,6 +4716,22 @@ namespace Parsek
                 && playbackUT <= primerEndUT + 1e-6;
         }
 
+        internal static bool ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT <= bridgeEndUT + 1e-6;
+        }
+
         private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
             IPlaybackTrajectory traj,
             out double activationStartUT,
@@ -4825,16 +4843,22 @@ namespace Parsek
             if (state == null)
                 return false;
 
-            bool withinRelativeWindow = ShouldHoldInitialRelativeActivationHidden(
+            bool withinDebrisSeedBridge = ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, playbackUT);
-            bool withinAbsoluteBridge = !withinRelativeWindow
+            bool withinRelativeWindow = !withinDebrisSeedBridge
+                && ShouldHoldInitialRelativeActivationHidden(
+                    traj, state, playbackUT);
+            bool withinAbsoluteBridge = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && ShouldHoldInitialAbsoluteBridgeActivationHidden(
                     traj, state, playbackUT);
-            bool withinAbsoluteToRelativePrimer = !withinRelativeWindow
+            bool withinAbsoluteToRelativePrimer = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && !withinAbsoluteBridge
                 && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
                     traj, state, playbackUT);
-            bool withinUtWindow = withinRelativeWindow
+            bool withinUtWindow = withinDebrisSeedBridge
+                || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
             bool withinActivationSettle = !withinUtWindow
@@ -4852,13 +4876,15 @@ namespace Parsek
 
             if (shouldPrimeHiddenFrames)
             {
-                reason = withinRelativeWindow
-                    ? "relative-start"
-                    : (withinAbsoluteBridge
-                        ? "absolute-seed-bridge"
-                        : (withinAbsoluteToRelativePrimer
-                            ? "absolute-primer-to-relative"
-                            : "activation-settle"));
+                reason = withinDebrisSeedBridge
+                    ? "debris-seed-bridge"
+                    : (withinRelativeWindow
+                        ? "relative-start"
+                        : (withinAbsoluteBridge
+                            ? "absolute-seed-bridge"
+                            : (withinAbsoluteToRelativePrimer
+                                ? "absolute-primer-to-relative"
+                                : "activation-settle")));
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }

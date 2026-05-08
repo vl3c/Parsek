@@ -195,6 +195,13 @@ namespace Parsek
         internal const double InitialAbsoluteBridgeActivationHiddenMaxSeconds = 1.0;
 
         /// <summary>
+        /// Maximum synthetic structural-seed to first ordinary sample span that
+        /// parent-anchored debris may stay hidden on fresh activation. Wider
+        /// spans are real recorded motion and must remain visible.
+        /// </summary>
+        internal const double InitialDebrisSeedBridgeActivationHiddenMaxSeconds = 1.0;
+
+        /// <summary>
         /// Minimum rendered-frame hold for fresh activation and predicted
         /// orbit-tail handoff hides. This keeps the guard effective under
         /// time warp, where the UT window can elapse inside one render tick.
