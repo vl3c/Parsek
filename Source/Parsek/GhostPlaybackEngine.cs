@@ -4647,6 +4647,21 @@ namespace Parsek
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
+
+            if (DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double debrisSeedBridgeEndUT))
+            {
+                double debrisSeedBridgeOvershoot = playbackUT - debrisSeedBridgeEndUT;
+                if (debrisSeedBridgeOvershoot > 0.0
+                    && debrisSeedBridgeOvershoot <= GhostPlayback.InitialVisibleFrameClampWindowSeconds)
+                {
+                    return debrisSeedBridgeEndUT;
+                }
+            }
+
             if (activationLead <= 0.0 || activationLead > GhostPlayback.InitialVisibleFrameClampWindowSeconds)
                 return playbackUT;
 
@@ -4729,7 +4744,22 @@ namespace Parsek
                     GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
                     out double bridgeEndUT)
                 && playbackUT >= activationStartUT - 1e-6
-                && playbackUT <= bridgeEndUT + 1e-6;
+                && playbackUT < bridgeEndUT - 1e-6;
+        }
+
+        private static bool IsInitialDebrisSeedBridgeEndFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && Math.Abs(playbackUT - bridgeEndUT) <= 1e-6;
         }
 
         private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
@@ -4863,6 +4893,7 @@ namespace Parsek
                 || withinAbsoluteToRelativePrimer;
             bool withinActivationSettle = !withinUtWindow
                 && CanEvaluateInitialActivationHidden(traj, state)
+                && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;
             bool shouldPrimeHiddenFrames = withinUtWindow || withinActivationSettle;
             if (shouldPrimeHiddenFrames && !state.initialRelativeActivationHiddenPrimed)
