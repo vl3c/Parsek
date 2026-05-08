@@ -2682,7 +2682,7 @@ namespace Parsek
         {
             if (ctx.protectedIndex != index)
                 return false;
-            if (ctx.protectedLoopCycleIndex < 0)
+            if (ctx.protectedLoopCycleIndex == -1)
                 return true;
             if (state == null)
                 return false;
@@ -2696,7 +2696,7 @@ namespace Parsek
         {
             if (ctx.protectedIndex != index)
                 return false;
-            return ctx.protectedLoopCycleIndex < 0
+            return ctx.protectedLoopCycleIndex == -1
                 || loopCycleIndex == ctx.protectedLoopCycleIndex;
         }
 

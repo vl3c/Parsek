@@ -1091,6 +1091,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CoverageRetiredCycle_NonLoopWatch_ExitsWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = -1,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.True(exitWatch);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_ExplosionHoldSentinel_DoesNotExitWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = -2,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.False(exitWatch);
+        }
+
+        [Fact]
         public void ClearLoadedVisualReferences_DoesNotClearCoverageRetiredFlag()
         {
             var state = new GhostPlaybackState
