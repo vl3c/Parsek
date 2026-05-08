@@ -24,6 +24,12 @@ All three cases are `Kerbal X Debris`, anchored to parent recording `33b64687`.
 
 Representative resolver warning: `relative-anchor-unresolved: reason=anchor-out-of-recorded-range recordingId=33b64687... sectionIndex=(none) ut=57.280000000003355`.
 
+All three concrete cases have matching `RELATIVE recorded-anchor fallback to absolute shadow` warnings in the log:
+
+- `078fa8d7`: recording `#1`, `frames=49`, `sectionUT=[57.3,71.4]`.
+- `5e7fea0a`: recording `#3`, `frames=42`, `sectionUT=[58.6,71.7]`.
+- `0ed97cde`: recording `#5`, `frames=35`, `sectionUT=[59.9,70.8]`.
+
 ## Root Cause
 
 This is one failure mode with two contributing layers.
@@ -115,7 +121,7 @@ This should be done after reading the exact breakup section emit path, because t
 
 ## Test Plan
 
-1. Unit test `TrajectoryMath.FindTrackSectionForUT` boundary behavior remains unchanged for normal sections, so the renderer fallback does not silently broaden section membership.
+1. Existing `TrajectoryMath.FindTrackSectionForUT` boundary tests must still pass. The compatibility fix should live above section lookup miss handling and must not broaden normal section membership.
 
 2. Unit test `RelativeAnchorResolver.TryResolveRecordingPose` with a synthetic anchor recording:
    - two absolute sections with a `0.04 s` metadata gap,
@@ -157,11 +163,11 @@ No mandatory in-game test is planned for the renderer fix: the resolver and play
 ## Open Questions
 
 - What exact recorder branch creates the `0.04 s` parent-section gaps at breakup UTs?
-- Is `0.10 s` the right fixed threshold, or should the guard use local sample cadence?
-- Does the map/tracking-station ghost path call `RelativeAnchorResolver` in a way that also benefits from the renderer fix, or does it need a parallel guard?
+- Is the cadence-based threshold formula tuned correctly under high-warp, low-fps, or sparse-sample runtime conditions?
+- Audit each flight/map/tracking-station/KSC Relative playback call site and tag it as covered by `RelativeAnchorResolver` or bypassing the resolver.
 - After the resolver compatibility fix, does the existing repro still ever select the section-start absolute-shadow list whose first sample is `57.800`? If yes, add a recorder-side section-start absolute shadow seed fix before declaring the slide fixed.
 
-## 5.5 XHigh Review Notes
+## Review Pass 1 Notes
 
 A GPT-5.5 xhigh review of this plan agreed with renderer-first ordering and the narrow two-part surface: `RelativeAnchorResolver` compatibility, then recorder prevention at the parent `FlightRecorder` split/resume seam. The review's required tightenings have been incorporated above:
 
