@@ -2959,10 +2959,13 @@ namespace Parsek
                     out busyUntilRealtimeSeconds))
             {
                 double remainingSeconds = Math.Max(0.0, busyUntilRealtimeSeconds - nowRealtimeSeconds);
+                string vesselContext = string.IsNullOrEmpty(state.vesselName)
+                    ? "Unknown"
+                    : state.vesselName;
                 ParsekLog.VerboseRateLimited("GhostAudio",
                     $"one-shot-busy-{eventType}",
-                    $"One-shot skipped: {eventType} clip='{clipPath}' previous explosion sound still active " +
-                    $"remaining={remainingSeconds.ToString("F2", CultureInfo.InvariantCulture)}s",
+                    $"One-shot skipped for ghost \"{vesselContext}\": {eventType} clip='{clipPath}' " +
+                    $"previous explosion sound still active remaining={remainingSeconds.ToString("F2", CultureInfo.InvariantCulture)}s",
                     1.0);
                 return;
             }
@@ -3055,6 +3058,9 @@ namespace Parsek
 
         internal static void ReleaseExplosionSoundReservation(double busyUntilRealtimeSeconds)
         {
+            // The returned value is expected to round-trip exactly; keep a tiny tolerance
+            // so test seams or future float-origin callers cannot clear a newer reservation
+            // after an insignificant precision wobble.
             if (Math.Abs(explosionOneShotBusyUntilRealtime - busyUntilRealtimeSeconds) <= 0.0001)
                 explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
         }
@@ -3105,6 +3111,8 @@ namespace Parsek
                 : ResolveExplosionOneShotDurationSeconds();
             TryReserveExplosionSoundDelegate reserveSound = reserveExplosionSound
                 ?? ((float length, out double busyUntil) => TryReserveExplosionSound(length, out busyUntil));
+            Action<Vector3, float> spawnCustom =
+                spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
             double explosionSoundReservedUntil;
             if (reserveSound(explosionSoundDuration, out explosionSoundReservedUntil))
             {
@@ -3120,8 +3128,6 @@ namespace Parsek
                 ParsekLog.Warn("ExplosionFx",
                     $"FXMonger.Explode did not queue stock FX for {context}; " +
                     $"falling back to custom FX: {stockFxFailure}");
-                Action<Vector3, float> spawnCustom =
-                    spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
                 spawnCustom(worldPosition, vesselLength);
                 return false;
             }
@@ -3130,9 +3136,7 @@ namespace Parsek
                 $"Stock explosion FX skipped for {context} because another explosion sound is still active; " +
                 "spawning custom visual FX only",
                 1.0);
-            Action<Vector3, float> spawnCustomBusy =
-                spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
-            spawnCustomBusy(worldPosition, vesselLength);
+            spawnCustom(worldPosition, vesselLength);
             return false;
         }
 
