@@ -37,7 +37,7 @@ namespace Parsek
         /// Conditions (all four required):
         /// <list type="number">
         /// <item><description><see cref="IPlaybackTrajectory.IsDebris"/> is true.</description></item>
-        /// <item><description><see cref="IPlaybackTrajectory.DebrisParentRecordingId"/> is null or empty (legacy v11; v12+ debris is skipped).</description></item>
+        /// <item><description><see cref="IPlaybackTrajectory.DebrisParentRecordingId"/> is null (legacy v11; v12+ debris is skipped).</description></item>
         /// <item><description><see cref="TrackSection.referenceFrame"/> is <see cref="ReferenceFrame.Relative"/> (Absolute sections need no special handling).</description></item>
         /// <item><description><c>absoluteFrames</c> is non-null and non-empty (graceful no-op when shadow data is unavailable).</description></item>
         /// </list>
@@ -48,7 +48,7 @@ namespace Parsek
         {
             if (traj == null) return false;
             if (!traj.IsDebris) return false;
-            if (!string.IsNullOrEmpty(traj.DebrisParentRecordingId)) return false;
+            if (traj.DebrisParentRecordingId != null) return false;
             if (section.referenceFrame != ReferenceFrame.Relative) return false;
             if (section.absoluteFrames == null) return false;
             if (section.absoluteFrames.Count == 0) return false;
