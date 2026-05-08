@@ -5639,6 +5639,31 @@ namespace Parsek
             reFlyPostLoadSettleRecordingId = recordingId;
         }
 
+        /// <summary>
+        /// PR 3b §"Re-Fly settle window hook" (Decision §11): expose the focus
+        /// recorder's private Re-Fly post-load settle state as a derived predicate
+        /// without leaking the underlying field. Returns true iff the focus
+        /// recorder is non-null AND its settle window is currently active AND its
+        /// settle target is the queried recording id.
+        ///
+        /// Reads <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/>, the
+        /// static handle to the focus recorder. Does NOT consult
+        /// <see cref="Patches.PhysicsFramePatch.GloopsRecorderInstance"/> —
+        /// Gloops sessions don't go through Re-Fly post-load settle, so they
+        /// would always return false. For background-vessel debris (parent is
+        /// itself a background recording, never the settle target), the
+        /// accessor returns false and the per-frame check is a no-op.
+        /// </summary>
+        internal static bool IsReFlyPostLoadSettleActiveForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            var focus = Patches.PhysicsFramePatch.ActiveRecorder;
+            return focus != null
+                && focus.reFlyPostLoadSettleActive
+                && string.Equals(focus.reFlyPostLoadSettleRecordingId, recordingId,
+                    StringComparison.Ordinal);
+        }
+
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
 
         private void ArmReFlyPostLoadSettleIfNeeded(Vessel v, bool isPromotion)

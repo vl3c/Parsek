@@ -575,6 +575,10 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            // Propagate the v12+ debris parent-anchor contract alongside IsDebris.
+            // Without this, every cloned debris recording would silently lose the
+            // contract — see plan §"`IsDebris` propagation surface" site #4.
+            DebrisParentRecordingId = source.DebrisParentRecordingId;
             IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
@@ -851,6 +855,32 @@ namespace Parsek
                 result.Add(copy);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Stamps the v12+ debris parent-anchor contract on <paramref name="child"/>:
+        /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
+        /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
+        /// recordings so callers can invoke unconditionally adjacent to their existing
+        /// `IsDebris = …` assignments. Per plan §3b §"Helper".
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parent?.RecordingId;
+        }
+
+        /// <summary>
+        /// String overload of <see cref="ApplyDebrisAnchorContract(Recording, Recording)"/>
+        /// for the pure-static factory path (`BuildBackgroundSplitBranchData`) where the
+        /// caller has the parent's recording id but no Recording object in scope.
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parentRecordingId;
         }
 
         /// <summary>
