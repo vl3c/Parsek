@@ -305,6 +305,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveRollback_CreatedUTFallsBackToRewindAdjustedUT_WhenClockUnavailable()
+        {
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            InstallCommittedTreeForTesting("tree-created-ut", a, b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(a.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+            RecordingStore.CurrentUniversalTimeForRewindRetirementOverrideForTesting =
+                () => throw new System.InvalidOperationException("clock unavailable");
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            Assert.Equal(1, dropped);
+            RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal(6.5, retirement.CreatedUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Rewind]")
+                && line.Contains("createdUT fallback to rewindAdjustedUT=6.5")
+                && line.Contains("InvalidOperationException"));
+        }
+
+        [Fact]
         public void CanFastForwardAtUT_RewindRetiredRecording_ReturnsFalse()
         {
             var rec = MakeRec("fork", startUT: 100.0);

@@ -148,6 +148,7 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+        internal static Func<double> CurrentUniversalTimeForRewindRetirementOverrideForTesting;
 
         // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
         // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
@@ -3387,6 +3388,7 @@ namespace Parsek
             pendingTreeState = PendingTreeState.Finalized;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
+            CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
@@ -4895,12 +4897,33 @@ namespace Parsek
         {
             try
             {
+                if (CurrentUniversalTimeForRewindRetirementOverrideForTesting != null)
+                    return CurrentUniversalTimeForRewindRetirementOverrideForTesting();
                 return Planetarium.GetUniversalTime();
             }
-            catch
+            catch (Exception ex)
             {
+                double fallback = RewindContext.RewindAdjustedUT;
+                if (RewindContext.IsRewinding && IsFinite(fallback))
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            "Retirement createdUT fallback to rewindAdjustedUT=" +
+                            fallback.ToString("F1", CultureInfo.InvariantCulture) +
+                            $" after UT read failed ({ex.GetType().Name})");
+                    return fallback;
+                }
+
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"Retirement createdUT unavailable; writing NaN after UT read failed ({ex.GetType().Name})");
                 return double.NaN;
             }
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static HashSet<string> BuildRewindStripNames(Recording owner)

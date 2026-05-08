@@ -236,6 +236,8 @@ namespace Parsek
             // warning on every load/save cycle.
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
+            // Step 10 below bumps SupersedeStateVersion once for the whole sweep,
+            // covering rewind-retirement removals without a second local bump.
             int orphanRewindRetirements = SweepOrphanRewindRetirements(scenario);
             if (markerValid)
             {
