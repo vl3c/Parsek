@@ -53,6 +53,7 @@ namespace Parsek
         // 0.1s covers scene-load physics tick variability across local framerates.
         internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
         internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
+        private const double SectionBoundaryUtEpsilon = 1e-6;
         internal static Func<float> TimeSinceLevelLoadProviderForTesting;
         private bool reFlyPostLoadSettleActive;
         private int reFlyPostLoadSettleUnpackedFrames;
@@ -6559,7 +6560,23 @@ namespace Parsek
                 absoluteBoundaryPoint = null;
             }
 
-            StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
+            double sectionStartUT = ut;
+            if (resumeRef != ReferenceFrame.OrbitalCheckpoint
+                && boundaryPoint.HasValue
+                && IsFinite(boundaryPoint.Value.ut)
+                && boundaryPoint.Value.ut <= ut + SectionBoundaryUtEpsilon)
+            {
+                sectionStartUT = boundaryPoint.Value.ut;
+                if (sectionStartUT < ut - SectionBoundaryUtEpsilon)
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"ResumeAfterFalseAlarm: aligning reopened TrackSection startUT " +
+                        $"from {ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                        $"to boundary seed UT={sectionStartUT.ToString("F3", CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            StartNewTrackSection(resumeEnv, resumeRef, sectionStartUT, resumeSource);
 
             if (resumeRef == ReferenceFrame.Relative)
             {

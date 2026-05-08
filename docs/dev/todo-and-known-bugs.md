@@ -43,12 +43,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - ghost initialization position issue (post-Rewind / Re-Fly playback)
+## Done - debris ghost initial-position slide during playback
 
-- Observed during the 2026-05-08 19:29 playtest of the debris-rendering + rewind-supersede-drop stack: ghost initialization position is off in some path. Specifics to be filed by the reporter; this is a placeholder so the issue isn't lost.
-- Likely candidates to investigate first: the seam between PR #771's `TryRefreshForkSnapshotsFromLiveVessel` (which replaces both `VesselSnapshot` and `GhostVisualSnapshot` from the live post-Strip vessel) and the playback engine's first-frame ghost positioning; the `recording-start-snapshot` spawn path in `GhostPlaybackEngine`; and the section-boundary off-by-ε bug already filed above.
+- ~~Observed during the 2026-05-08 20:19 playtest of the debris-rendering + rewind-supersede-drop stack: v12 `Kerbal X Debris` ghosts spawned for several frames through `mode=SinglePoint`, then snapped 50-60 m when recorded-anchor resolution began succeeding. Concrete cases: `078fa8d7` ghost #1 at UT 57.28 popped 62.43 m, `5e7fea0a` ghost #3 at UT 58.58 popped 57.71 m, and `0ed97cde` ghost #5 at UT 59.94 popped 54.79 m.~~
 
-**Status:** OPEN 2026-05-08. Separate investigation; details TBD.
+**Fix:** `RelativeAnchorResolver.TryResolveRecordingPose` now handles only proven small intra-recording gaps before warning unresolved: the gap must be between adjacent sections, within a cadence-based threshold, and backed by an exact flat point or consecutive local bracket. Relative recordings must supply safe `absoluteFrames` via `TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections`; raw `Recording.Points` are only allowed for Absolute-only recordings. `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` now starts the reopened section at the boundary seed UT so new false-alarm stop/resume seams do not leave `prev.endUT -> next.startUT` holes.
+
+**Remaining:** the separate `FindTrackSectionForUT` endUT ε issue and sparse-relative debris discontinuity remain open above; this fix targets the 50-60 m initial `SinglePoint` fallback slide.
 
 ---
 

@@ -243,7 +243,8 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.Atmospheric, reopened.environment);
             Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame);
             Assert.Equal(TrackSectionSource.Active, reopened.source);
-            Assert.Equal(110.0, reopened.startUT);
+            Assert.Equal(lastPoint.ut, reopened.startUT);
+            Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
             Assert.Equal(120.0, reopened.endUT);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
@@ -309,6 +310,8 @@ namespace Parsek.Tests
             var reopened = recorder.TrackSections[1];
             Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame); // downgraded
             Assert.Equal(0u, reopened.anchorVesselId);                       // anchor cleared
+            Assert.Equal(absoluteShadowPoint.ut, reopened.startUT);
+            Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
 
             // The seed must NOT be the relative-offset point (whose
             // lat/lon/alt are anchor-local metres). It must be either the
@@ -442,6 +445,8 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Relative, reopened.referenceFrame);
             Assert.Equal(anchorRecordingId, reopened.anchorRecordingId);
             Assert.Equal(0u, reopened.anchorVesselId);
+            Assert.Equal(lastPoint.ut, reopened.startUT);
+            Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
         }

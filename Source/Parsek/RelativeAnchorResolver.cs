@@ -76,6 +76,10 @@ namespace Parsek
     {
         internal const int RecordingAnchorChainFormatVersion =
             RecordingStore.RecordingAnchorChainFormatVersion;
+        private const double UtEpsilon = 1e-6;
+        private const double DefaultSmallSectionGapSeconds = 0.10;
+        private const double MinimumSmallSectionGapSeconds = 0.05;
+        private const double MaximumSmallSectionGapSeconds = 0.10;
 
         internal static bool TryResolveAnchorPose(
             RelativeAnchorResolverContext context,
@@ -166,6 +170,9 @@ namespace Parsek
                 int sectionIndex = TrajectoryMath.FindTrackSectionForUT(recording.TrackSections, ut);
                 if (sectionIndex < 0)
                 {
+                    if (TryResolveSmallSectionGapPose(context, recording, ut, out pose))
+                        return true;
+
                     if (TryResolveSameChainContinuationPose(
                             context,
                             recording,
@@ -537,6 +544,298 @@ namespace Parsek
                 out pose);
         }
 
+        private static bool TryResolveSmallSectionGapPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (recording?.TrackSections == null
+                || recording.TrackSections.Count < 2
+                || !IsFinite(ut))
+            {
+                return false;
+            }
+
+            if (!TryFindSmallSectionGap(
+                    recording.TrackSections,
+                    ut,
+                    out int previousSectionIndex,
+                    out int nextSectionIndex,
+                    out double gapSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            if (!TryGetSafeFlatPointsForSectionGap(recording, out List<TrajectoryPoint> flatPoints)
+                || flatPoints == null
+                || flatPoints.Count == 0)
+            {
+                return false;
+            }
+
+            if (!TryFindLocalFlatPointBracket(
+                    flatPoints,
+                    ut,
+                    thresholdSeconds,
+                    out TrajectoryPoint before,
+                    out TrajectoryPoint after,
+                    out float t))
+            {
+                return false;
+            }
+
+            if (!TryResolveAbsoluteBracketPose(
+                    context,
+                    recording.RecordingId,
+                    before,
+                    after,
+                    t,
+                    previousSectionIndex,
+                    out pose))
+            {
+                return false;
+            }
+
+            TrackSection previous = recording.TrackSections[previousSectionIndex];
+            TrackSection next = recording.TrackSections[nextSectionIndex];
+            ParsekLog.VerboseRateLimited(
+                "RelativeAnchorResolver",
+                "anchor-gap-flat-points-fallback|"
+                    + (recording.RecordingId ?? "(none)") + "|"
+                    + FormatDoubleR(previous.endUT) + "|"
+                    + FormatDoubleR(next.startUT),
+                "Anchor recording pose resolved from flat trajectory inside small section gap: "
+                + "recordingId=" + (recording.RecordingId ?? "(none)")
+                + " ut=" + FormatDoubleR(ut)
+                + " previousSectionIndex=" + previousSectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " nextSectionIndex=" + nextSectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " previousEndUT=" + FormatDoubleR(previous.endUT)
+                + " nextStartUT=" + FormatDoubleR(next.startUT)
+                + " gapSeconds=" + FormatDoubleR(gapSeconds)
+                + " thresholdSeconds=" + FormatDoubleR(thresholdSeconds)
+                + " frameCount=" + flatPoints.Count.ToString(CultureInfo.InvariantCulture)
+                + " bracketBeforeUT=" + FormatDoubleR(before.ut)
+                + " bracketAfterUT=" + FormatDoubleR(after.ut),
+                5.0);
+            return true;
+        }
+
+        private static bool TryFindSmallSectionGap(
+            List<TrackSection> sections,
+            double ut,
+            out int previousSectionIndex,
+            out int nextSectionIndex,
+            out double gapSeconds,
+            out double thresholdSeconds)
+        {
+            previousSectionIndex = -1;
+            nextSectionIndex = -1;
+            gapSeconds = 0.0;
+            thresholdSeconds = DefaultSmallSectionGapSeconds;
+
+            for (int i = 0; i < sections.Count - 1; i++)
+            {
+                TrackSection previous = sections[i];
+                TrackSection next = sections[i + 1];
+                if (!IsFinite(previous.endUT) || !IsFinite(next.startUT))
+                    continue;
+
+                double gap = next.startUT - previous.endUT;
+                if (gap <= UtEpsilon)
+                    continue;
+
+                double threshold = ResolveSmallSectionGapThreshold(previous, next);
+                if (gap > threshold + UtEpsilon)
+                    continue;
+
+                if (ut < previous.endUT - UtEpsilon || ut > next.startUT + UtEpsilon)
+                    continue;
+
+                previousSectionIndex = i;
+                nextSectionIndex = i + 1;
+                gapSeconds = gap;
+                thresholdSeconds = threshold;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static double ResolveSmallSectionGapThreshold(TrackSection previous, TrackSection next)
+        {
+            double cadenceSeconds = double.NaN;
+            ConsiderSampleRate(previous.sampleRateHz, ref cadenceSeconds);
+            ConsiderSampleRate(next.sampleRateHz, ref cadenceSeconds);
+
+            if (!IsFinite(cadenceSeconds))
+                return DefaultSmallSectionGapSeconds;
+
+            return Math.Min(
+                MaximumSmallSectionGapSeconds,
+                Math.Max(MinimumSmallSectionGapSeconds, 3.0 * cadenceSeconds));
+        }
+
+        private static void ConsiderSampleRate(float sampleRateHz, ref double cadenceSeconds)
+        {
+            if (float.IsNaN(sampleRateHz) || float.IsInfinity(sampleRateHz) || sampleRateHz <= 0f)
+                return;
+
+            double candidate = 1.0 / sampleRateHz;
+            if (!IsFinite(cadenceSeconds) || candidate > cadenceSeconds)
+                cadenceSeconds = candidate;
+        }
+
+        private static bool TryGetSafeFlatPointsForSectionGap(
+            Recording recording,
+            out List<TrajectoryPoint> flatPoints)
+        {
+            flatPoints = null;
+            if (recording == null)
+                return false;
+
+            if (RecordingContainsRelativeSections(recording))
+                return TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(recording, out flatPoints);
+
+            if (!RecordingContainsOnlyAbsoluteSections(recording)
+                || recording.Points == null
+                || recording.Points.Count == 0)
+            {
+                return false;
+            }
+
+            flatPoints = recording.Points;
+            return true;
+        }
+
+        private static bool RecordingContainsRelativeSections(Recording recording)
+        {
+            if (recording?.TrackSections == null)
+                return false;
+
+            for (int i = 0; i < recording.TrackSections.Count; i++)
+            {
+                if (recording.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool RecordingContainsOnlyAbsoluteSections(Recording recording)
+        {
+            if (recording?.TrackSections == null || recording.TrackSections.Count == 0)
+                return false;
+
+            for (int i = 0; i < recording.TrackSections.Count; i++)
+            {
+                if (recording.TrackSections[i].referenceFrame != ReferenceFrame.Absolute)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryFindLocalFlatPointBracket(
+            List<TrajectoryPoint> points,
+            double ut,
+            double maxSpanSeconds,
+            out TrajectoryPoint before,
+            out TrajectoryPoint after,
+            out float t)
+        {
+            before = default;
+            after = default;
+            t = 0f;
+            if (points == null || points.Count == 0 || maxSpanSeconds < 0.0)
+                return false;
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                TrajectoryPoint point = points[i];
+                if (!IsFinite(point.ut))
+                    continue;
+
+                if (Math.Abs(point.ut - ut) <= UtEpsilon)
+                {
+                    before = point;
+                    after = point;
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                TrajectoryPoint candidateBefore = points[i];
+                TrajectoryPoint candidateAfter = points[i + 1];
+                if (!IsFinite(candidateBefore.ut) || !IsFinite(candidateAfter.ut))
+                    continue;
+
+                double span = candidateAfter.ut - candidateBefore.ut;
+                if (span <= UtEpsilon || span > maxSpanSeconds + UtEpsilon)
+                    continue;
+
+                if (ut < candidateBefore.ut - UtEpsilon || ut > candidateAfter.ut + UtEpsilon)
+                    continue;
+
+                double rawT = (ut - candidateBefore.ut) / span;
+                if (rawT < 0.0)
+                    rawT = 0.0;
+                else if (rawT > 1.0)
+                    rawT = 1.0;
+
+                before = candidateBefore;
+                after = candidateAfter;
+                t = (float)rawT;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveAbsoluteBracketPose(
+            RelativeAnchorResolverContext context,
+            string resolvedRecordingId,
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            float t,
+            int resolvedSectionIndex,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (Math.Abs(before.ut - after.ut) <= UtEpsilon)
+                return TryBuildAbsolutePoseFromPoint(
+                    context,
+                    before,
+                    resolvedSectionIndex,
+                    resolvedRecordingId,
+                    out pose);
+
+            if (!TryResolveWorldPosition(context, before, out Vector3d beforeWorld)
+                || !TryResolveWorldPosition(context, after, out Vector3d afterWorld))
+            {
+                WarnUnresolved(
+                    "absolute-position-unresolved",
+                    resolvedRecordingId,
+                    resolvedRecordingId,
+                    before.ut + (after.ut - before.ut) * t,
+                    resolvedSectionIndex);
+                return false;
+            }
+
+            Quaternion bodyRotation = ResolveBodyWorldRotation(context, before);
+            Quaternion surfaceRotation = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
+            Quaternion worldRotation = TrajectoryMath.PureMultiply(bodyRotation, surfaceRotation);
+            pose = new AnchorPose(
+                Vector3d.Lerp(beforeWorld, afterWorld, t),
+                worldRotation,
+                resolvedSectionIndex,
+                resolvedRecordingId);
+            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+        }
+
         internal static bool TryResolveRelativeSectionPose(
             RelativeAnchorResolverContext context,
             Recording recording,
@@ -816,8 +1115,7 @@ namespace Parsek
             double sectionEndUT,
             double ut)
         {
-            const double epsilon = 1e-6;
-            if (Math.Abs(point.ut - ut) <= epsilon)
+            if (Math.Abs(point.ut - ut) <= UtEpsilon)
                 return true;
             if (double.IsNaN(sectionStartUT)
                 || double.IsNaN(sectionEndUT)
@@ -829,8 +1127,8 @@ namespace Parsek
 
             double start = Math.Min(sectionStartUT, sectionEndUT);
             double end = Math.Max(sectionStartUT, sectionEndUT);
-            return ut >= start - epsilon
-                && ut <= end + epsilon;
+            return ut >= start - UtEpsilon
+                && ut <= end + UtEpsilon;
         }
 
         private static bool FrameListCoversUT(
@@ -855,12 +1153,11 @@ namespace Parsek
             if (double.IsNaN(ut) || double.IsInfinity(ut))
                 return false;
 
-            const double epsilon = 1e-6;
             if (frames.Count == 1)
-                return Math.Abs(frames[0].ut - ut) <= epsilon;
+                return Math.Abs(frames[0].ut - ut) <= UtEpsilon;
 
-            return ut >= frames[0].ut - epsilon
-                && ut <= frames[frames.Count - 1].ut + epsilon;
+            return ut >= frames[0].ut - UtEpsilon
+                && ut <= frames[frames.Count - 1].ut + UtEpsilon;
         }
 
         private static bool TryResolveWorldPosition(
@@ -998,6 +1295,11 @@ namespace Parsek
         private static bool IsFinite(double value)
         {
             return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static string FormatDoubleR(double value)
+        {
+            return value.ToString("R", CultureInfo.InvariantCulture);
         }
 
         private static void WarnUnresolved(
