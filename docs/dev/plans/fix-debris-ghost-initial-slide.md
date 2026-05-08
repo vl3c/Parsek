@@ -57,13 +57,14 @@ This is one failure mode with two contributing layers.
 - Do not reinterpret Relative-section local-offset samples as body-fixed lat/lon/alt.
 - Preserve legacy v11 debris absolute-shadow behavior.
 - Stop creating this gap class in new recordings once the recorder path is understood.
-- Cover all playback surfaces that resolve Relative sections through `RelativeAnchorResolver` (flight, map/tracking-station, and KSC) unless a call site is proven to bypass this resolver.
+- Cover flight-scene playback paths that resolve Relative sections through `RelativeAnchorResolver`.
 
 ## Non-Goals
 
 - Do not redesign `AnchorCorrection`.
 - Do not change debris relative-local-offset semantics.
 - Do not remove the existing absolute-shadow fallback; keep it for cases where no safe anchor pose exists.
+- Do not fix map/tracking-station/KSC Relative rendering in this plan. Current code search finds `RelativeAnchorResolver` call sites only in `ParsekFlight.cs`; non-flight Relative rendering needs a separate probe if it exists or is missing.
 
 ## Proposed Fix Surface
 
@@ -85,8 +86,8 @@ private static bool TryResolveSmallSectionGapPose(
 
 Behavior:
 
-- Detect only proven intra-recording gaps: finite previous and next sections in the same recording, `prev.endUT <= ut <= next.startUT` with epsilon, positive `next.startUT - prev.endUT`, and gap width below a conservative threshold.
-- Threshold rule: use `min(0.10 s, max(0.05 s, 3 * sampleCadenceSeconds))` when cadence is available; otherwise use `0.10 s`. The observed parent gaps are about `0.04 s` and the trace cadence is about `0.02 s`, so this allows roughly two missed frames plus epsilon while hard-capping the compatibility window.
+- Detect only proven intra-recording gaps: finite previous and next sections in the same recording, `prev.endUT - 1e-6 <= ut <= next.startUT + 1e-6`, positive `next.startUT - prev.endUT`, and gap width below a conservative threshold.
+- Threshold rule: use `min(0.10 s, max(0.05 s, 3 * sampleCadenceSeconds))` when cadence is available; otherwise use `0.10 s`. The observed parent gaps are about `0.04 s` and the trace cadence is about `0.02 s`, so this allows about three frame intervals while hard-capping the compatibility window.
 - Resolve the pose from safe flat points:
   - If the recording contains any Relative sections, require `TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(recording, out safeRelativeFlatPoints)` and fail closed if it cannot build safe absolute shadows.
   - Use raw `recording.Points` only for recordings whose sections are known absolute/body-fixed.
@@ -97,6 +98,8 @@ Behavior:
 
 Ordering note: use the gap helper before same-chain continuation only when the miss is a proven small intra-recording gap. For an end-of-recording miss with no next section, keep same-chain continuation first.
 
+Field note: resolver lookup uses section-level `TrackSection.anchorRecordingId` (`RelativeAnchorResolver.TryResolveSectionAnchorRecordingId` / `TryResolveRelativeSectionPose`), not top-level `Recording.DebrisParentRecordingId`. `DebrisParentRecordingId` is a v12 parent-correlation / recorder-dispatch field; tests must assert the section-level anchor field is populated.
+
 ### 2. Recorder Prevention Fix
 
 Primary investigation targets:
@@ -104,7 +107,7 @@ Primary investigation targets:
 - `FlightRecorder.StopRecordingForChainBoundary`
 - `FlightRecorder.ResumeAfterFalseAlarm`
 - `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`
-- `FlightRecorder.ProcessBreakupEvent`
+- `ParsekFlight.ProcessBreakupEvent`
 - `BackgroundRecorder.InitializeLoadedState`
 - `StartBackgroundTrackSection`
 - `AppendFrameToCurrentTrackSection`
@@ -127,7 +130,7 @@ This should be done after reading the exact breakup section emit path, because t
    - two absolute sections with a `0.04 s` metadata gap,
    - flat points bracketing a UT inside the gap,
    - local bracket span below the small-gap threshold,
-   - assert resolution succeeds through the new fallback and logs `anchor-gap-flat-points-fallback`.
+   - assert resolution succeeds through the new fallback, logs `anchor-gap-flat-points-fallback`, and does not emit `relative-anchor-unresolved`.
 
 3. Unit test relative safety:
    - an anchor recording whose `Points` are not safe body-fixed absolute points must not be used directly as lat/lon/alt;
@@ -142,12 +145,14 @@ This should be done after reading the exact breakup section emit path, because t
 
 6. Regression test for debris playback composition:
    - child debris relative section references an anchor whose section lookup misses in a small gap;
+   - child section has `TrackSection.anchorRecordingId` set to the parent recording id; `DebrisParentRecordingId` alone is not sufficient;
    - child pose resolves through the resolver compatibility fallback;
-   - trace/postcondition shows `mode=RecordedRelative`, no `RELATIVE recorded-anchor fallback to absolute shadow`, and no `mode=SinglePoint` fallback from either `TryUseRelativeAbsoluteShadowFallback` or engine-level `PositionAtPoint`.
+   - trace/postcondition shows `mode=RecordedRelative`, no `relative-anchor-unresolved`, no `RELATIVE recorded-anchor fallback to absolute shadow`, and no `mode=SinglePoint` fallback from either `TryUseRelativeAbsoluteShadowFallback` or engine-level `PositionAtPoint`.
 
 7. Recorder-side tests after implementation details are confirmed:
    - synthetic breakup produces contiguous parent sections or covered seam samples;
    - stop/resume after false-alarm split produces adjacent sections with no uncovered UT interval;
+   - child debris section start, first Relative frame UT, and any absolute shadow / flat fallback first-frame UT are intentionally aligned or deliberately guarded from section-start playback;
    - if absolute shadow / flat fallback points are retained for v12 debris, they include a section-start seed or otherwise cannot be selected for the section-start compatibility window;
    - existing legacy/v11 debris behavior remains unchanged.
 
@@ -164,8 +169,8 @@ No mandatory in-game test is planned for the renderer fix: the resolver and play
 
 - What exact recorder branch creates the `0.04 s` parent-section gaps at breakup UTs?
 - Is the cadence-based threshold formula tuned correctly under high-warp, low-fps, or sparse-sample runtime conditions?
-- Audit each flight/map/tracking-station/KSC Relative playback call site and tag it as covered by `RelativeAnchorResolver` or bypassing the resolver.
 - After the resolver compatibility fix, does the existing repro still ever select the section-start absolute-shadow list whose first sample is `57.800`? If yes, add a recorder-side section-start absolute shadow seed fix before declaring the slide fixed.
+- Does the child debris recorder's first-frame UT intentionally line up with the parent's first post-breakup frame, or is there a second child-side start-window gap that needs a recorder seed fix?
 
 ## Review Pass 1 Notes
 
