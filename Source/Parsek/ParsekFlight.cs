@@ -22171,7 +22171,7 @@ namespace Parsek
             string callsite)
         {
             if (!ReferenceEquals(ghost, null))
-                HideRecordedRelativeRetiredGhost(ghost);
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (retireSignalState != null)
                 retireSignalState.anchorRetiredThisFrame = true;
 
@@ -22186,11 +22186,6 @@ namespace Parsek
                 $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
                 $"sectionIndex={target.SectionIndex} callsite={callsite}",
                 5.0);
-        }
-
-        private static void HideRecordedRelativeRetiredGhost(GameObject ghost)
-        {
-            if (ghost.activeSelf) ghost.SetActive(false);
         }
 
         void InterpolateAndPositionLoopRelative(

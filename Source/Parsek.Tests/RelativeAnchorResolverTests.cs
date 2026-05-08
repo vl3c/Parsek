@@ -433,6 +433,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_NonFiniteShadowUTFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeRelativeGapAnchor(
+                "relative-anchor",
+                tree.Id,
+                includeAbsoluteShadows: true);
+            anchor.TrackSections[0].absoluteFrames.Insert(
+                1,
+                MakePoint(double.NaN, GapWorld(200.0, 10.01), Quaternion.identity));
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=relative-anchor"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_RelativeAnchorSectionGap_WithoutAbsoluteShadowFailsClosed()
         {
             var tree = new RecordingTree { Id = "tree" };

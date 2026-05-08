@@ -446,6 +446,8 @@ namespace Parsek.Tests
             Assert.Equal(anchorRecordingId, reopened.anchorRecordingId);
             Assert.Equal(0u, reopened.anchorVesselId);
             Assert.Equal(lastPoint.ut, reopened.startUT);
+            // Existing payload sections resume at their last seed point, which
+            // may intentionally overlap the previous section's closed end.
             Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
@@ -485,6 +487,8 @@ namespace Parsek.Tests
             recorder.RestoreTrackSectionAfterFalseAlarm(110.0);
             recorder.CloseCurrentTrackSection(120.0);
 
+            // Empty discarded sections must not carry their Relative metadata
+            // into the resume section; the prior persisted section owns coverage.
             Assert.Equal(2, recorder.TrackSections.Count);
             var reopened = recorder.TrackSections[1];
             Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame);

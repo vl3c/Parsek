@@ -206,9 +206,9 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
         public double PendingJointBreakUT { get; private set; } = double.NaN;
-        // Bounded by structural-break part count. Stale entries are harmless because
-        // consumers require a matching new-vessel root PID and the cache is cleared on
-        // new recording starts / false-alarm resumes.
+        // Bounded by structural-break part count. Survives chain-boundary stops so
+        // ParsekFlight can hand the seed to the new child, then clears on normal
+        // stop/force-stop, new recording starts, or false-alarm resumes.
         private readonly Dictionary<uint, TrajectoryPoint> pendingJointChildPartOriginSeeds =
             new Dictionary<uint, TrajectoryPoint>();
 
@@ -1018,6 +1018,9 @@ namespace Parsek
                 latitude = body.GetLatitude(worldPos),
                 longitude = body.GetLongitude(worldPos),
                 altitude = body.GetAltitude(worldPos),
+                // Consumers accept this seed only when this part becomes the new
+                // vessel root, so the part's surface-relative rotation is the
+                // child vessel's initial srfRelRotation contract.
                 rotation = Quaternion.Inverse(body.bodyTransform.rotation) * part.transform.rotation,
                 velocity = velocity,
                 bodyName = body.name ?? "Unknown",
@@ -6382,6 +6385,7 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
                 VesselDestroyedDuringRecording);
+            pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -6680,9 +6684,11 @@ namespace Parsek
         private bool TryGetFalseAlarmResumeTrackSection(out TrackSection section)
         {
             // Prefer the recorder's most recently closed section snapshot only when it
-            // carries a payload we can seed or resume from. A discarded zero-frame
-            // section has metadata but no coverage, so using it would reopen at the
-            // later resume UT and leave the prior persisted section's boundary uncovered.
+            // carries a payload we can seed or resume from. Relative v7+ sections may
+            // carry only absolute-shadow frames, which are still valid resume payload.
+            // A discarded zero-frame section has metadata but no coverage, so using it
+            // would reopen at the later resume UT and leave the prior persisted
+            // section's boundary uncovered.
             if (TrackSectionHasResumePayload(currentTrackSection))
             {
                 section = currentTrackSection;
@@ -8974,6 +8980,7 @@ namespace Parsek
                 clearRelativeMode: false,
                 sampleBoundaryOnRails: false,
                 logTag: "force stop");
+            pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut

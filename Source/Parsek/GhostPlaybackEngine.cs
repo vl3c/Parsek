@@ -1197,6 +1197,8 @@ namespace Parsek
                         + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s absoluteBridgeMax="
                         + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s debrisSeedBridgeMax="
+                        + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s minFrames="
                         + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
@@ -1321,6 +1323,9 @@ namespace Parsek
                 if (endpointRetired)
                 {
                     double endpointCoverageUT = ResolveRecordingEndpointCoverageUT(traj);
+                    // endpointCoverageUT may be after the visible endpoint sample for
+                    // orbit/checkpoint tails; suppressing events/FX makes this a
+                    // teardown-only visual pass.
                     ApplyFrameVisuals(i, traj, state, endpointCoverageUT,
                         ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
                         allowTransientEffects: false);
@@ -1631,7 +1636,7 @@ namespace Parsek
             if (TryHandleParentAnchoredDebrisCoverageRetired(
                     index, traj, state, loopUT, ctx.currentUT, ctx.warpRate,
                     "GhostPlaybackEngine.UpdateLoopingPlayback.pre-spawn",
-                    ShouldExitWatchForCoverageRetiredState(index, state, ctx),
+                    ShouldExitWatchForCoverageRetiredCycle(index, cycleIndex, ctx),
                     out ghostActive))
                 return;
 
@@ -1868,7 +1873,7 @@ namespace Parsek
                 bool retiredBeforePrimarySpawn = TryHandleParentAnchoredDebrisCoverageRetired(
                     index, traj, primaryState, primaryLoopUT, ctx.currentUT, ctx.warpRate,
                     "GhostPlaybackEngine.UpdateOverlapPlayback.primary-pre-spawn",
-                    ShouldExitWatchForCoverageRetiredState(index, primaryState, ctx),
+                    ShouldExitWatchForCoverageRetiredCycle(index, lastCycle, ctx),
                     out _);
 
                 if (!retiredBeforePrimarySpawn)
@@ -2636,7 +2641,7 @@ namespace Parsek
         {
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
-                HideGhostForRetire(ghost);
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (state != null)
             {
                 state.anchorRetiredThisFrame = true;
@@ -2677,16 +2682,22 @@ namespace Parsek
         {
             if (ctx.protectedIndex != index)
                 return false;
-            if (state == null)
+            if (ctx.protectedLoopCycleIndex < 0)
                 return true;
-            return ctx.protectedLoopCycleIndex < 0
-                || state.loopCycleIndex == ctx.protectedLoopCycleIndex;
+            if (state == null)
+                return false;
+            return state.loopCycleIndex == ctx.protectedLoopCycleIndex;
         }
 
-        private static void HideGhostForRetire(GameObject ghost)
+        private static bool ShouldExitWatchForCoverageRetiredCycle(
+            int index,
+            long loopCycleIndex,
+            FrameContext ctx)
         {
-            if (ghost.activeSelf)
-                ghost.SetActive(false);
+            if (ctx.protectedIndex != index)
+                return false;
+            return ctx.protectedLoopCycleIndex < 0
+                || loopCycleIndex == ctx.protectedLoopCycleIndex;
         }
 
         private void PositionLoopAtPlaybackUT(
@@ -4194,6 +4205,9 @@ namespace Parsek
             => TryHandleParentAnchoredDebrisCoverageRetired(
                 index, traj, state, playbackUT, currentUT, warpRate,
                 "test", emitExitWatch, out ghostActive);
+        internal static bool ShouldExitWatchForCoverageRetiredCycleForTesting(
+            int index, long loopCycleIndex, FrameContext ctx)
+            => ShouldExitWatchForCoverageRetiredCycle(index, loopCycleIndex, ctx);
 
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring
@@ -4815,6 +4829,21 @@ namespace Parsek
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
+
+            if (DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double debrisSeedBridgeEndUT))
+            {
+                double debrisSeedBridgeOvershoot = playbackUT - debrisSeedBridgeEndUT;
+                if (debrisSeedBridgeOvershoot > 0.0
+                    && debrisSeedBridgeOvershoot <= GhostPlayback.InitialVisibleFrameClampWindowSeconds)
+                {
+                    return debrisSeedBridgeEndUT;
+                }
+            }
+
             if (activationLead <= 0.0 || activationLead > GhostPlayback.InitialVisibleFrameClampWindowSeconds)
                 return playbackUT;
 
@@ -4882,6 +4911,37 @@ namespace Parsek
                     out double primerEndUT)
                 && playbackUT >= activationStartUT - 1e-6
                 && playbackUT <= primerEndUT + 1e-6;
+        }
+
+        internal static bool ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT < bridgeEndUT - 1e-6;
+        }
+
+        private static bool IsInitialDebrisSeedBridgeEndFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && Math.Abs(playbackUT - bridgeEndUT) <= 1e-6;
         }
 
         private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
@@ -4995,20 +5055,27 @@ namespace Parsek
             if (state == null)
                 return false;
 
-            bool withinRelativeWindow = ShouldHoldInitialRelativeActivationHidden(
+            bool withinDebrisSeedBridge = ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, playbackUT);
-            bool withinAbsoluteBridge = !withinRelativeWindow
+            bool withinRelativeWindow = !withinDebrisSeedBridge
+                && ShouldHoldInitialRelativeActivationHidden(
+                    traj, state, playbackUT);
+            bool withinAbsoluteBridge = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && ShouldHoldInitialAbsoluteBridgeActivationHidden(
                     traj, state, playbackUT);
-            bool withinAbsoluteToRelativePrimer = !withinRelativeWindow
+            bool withinAbsoluteToRelativePrimer = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && !withinAbsoluteBridge
                 && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
                     traj, state, playbackUT);
-            bool withinUtWindow = withinRelativeWindow
+            bool withinUtWindow = withinDebrisSeedBridge
+                || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
             bool withinActivationSettle = !withinUtWindow
                 && CanEvaluateInitialActivationHidden(traj, state)
+                && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;
             bool shouldPrimeHiddenFrames = withinUtWindow || withinActivationSettle;
             if (shouldPrimeHiddenFrames && !state.initialRelativeActivationHiddenPrimed)
@@ -5022,13 +5089,15 @@ namespace Parsek
 
             if (shouldPrimeHiddenFrames)
             {
-                reason = withinRelativeWindow
-                    ? "relative-start"
-                    : (withinAbsoluteBridge
-                        ? "absolute-seed-bridge"
-                        : (withinAbsoluteToRelativePrimer
-                            ? "absolute-primer-to-relative"
-                            : "activation-settle"));
+                reason = withinDebrisSeedBridge
+                    ? "debris-seed-bridge"
+                    : (withinRelativeWindow
+                        ? "relative-start"
+                        : (withinAbsoluteBridge
+                            ? "absolute-seed-bridge"
+                            : (withinAbsoluteToRelativePrimer
+                                ? "absolute-primer-to-relative"
+                                : "activation-settle")));
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }

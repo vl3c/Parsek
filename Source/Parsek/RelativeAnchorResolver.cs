@@ -755,15 +755,13 @@ namespace Parsek
             t = 0f;
             if (points == null || points.Count == 0 || maxSpanSeconds < 0.0)
                 return false;
+            if (!FlatPointUTsAreFiniteAndMonotonic(points))
+                return false;
 
-            // This fallback only runs after section lookup misses inside a tiny
-            // proven gap, so the simple scans keep the guard easy to audit.
-            for (int i = 0; i < points.Count; i++)
+            int afterIndex = FindFirstFlatPointAtOrAfterUT(points, ut);
+            if (afterIndex < points.Count)
             {
-                TrajectoryPoint point = points[i];
-                if (!IsFinite(point.ut))
-                    continue;
-
+                TrajectoryPoint point = points[afterIndex];
                 if (Math.Abs(point.ut - ut) <= UtEpsilon)
                 {
                     before = point;
@@ -772,19 +770,31 @@ namespace Parsek
                 }
             }
 
-            for (int i = 0; i < points.Count - 1; i++)
+            int beforeIndex = afterIndex - 1;
+            if (beforeIndex >= 0)
             {
-                TrajectoryPoint candidateBefore = points[i];
-                TrajectoryPoint candidateAfter = points[i + 1];
+                TrajectoryPoint point = points[beforeIndex];
+                if (Math.Abs(point.ut - ut) <= UtEpsilon)
+                {
+                    before = point;
+                    after = point;
+                    return true;
+                }
+            }
+
+            if (beforeIndex >= 0 && afterIndex < points.Count)
+            {
+                TrajectoryPoint candidateBefore = points[beforeIndex];
+                TrajectoryPoint candidateAfter = points[afterIndex];
                 if (!IsFinite(candidateBefore.ut) || !IsFinite(candidateAfter.ut))
-                    continue;
+                    return false;
 
                 double span = candidateAfter.ut - candidateBefore.ut;
                 if (span <= UtEpsilon || span > maxSpanSeconds + UtEpsilon)
-                    continue;
+                    return false;
 
                 if (ut < candidateBefore.ut - UtEpsilon || ut > candidateAfter.ut + UtEpsilon)
-                    continue;
+                    return false;
 
                 double rawT = (ut - candidateBefore.ut) / span;
                 if (rawT < 0.0)
@@ -799,6 +809,36 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static int FindFirstFlatPointAtOrAfterUT(List<TrajectoryPoint> points, double ut)
+        {
+            int low = 0;
+            int high = points.Count;
+            while (low < high)
+            {
+                int mid = low + ((high - low) / 2);
+                double pointUT = points[mid].ut;
+                if (IsFinite(pointUT) && pointUT < ut)
+                    low = mid + 1;
+                else
+                    high = mid;
+            }
+            return low;
+        }
+
+        private static bool FlatPointUTsAreFiniteAndMonotonic(List<TrajectoryPoint> points)
+        {
+            double previousUT = double.NegativeInfinity;
+            for (int i = 0; i < points.Count; i++)
+            {
+                double pointUT = points[i].ut;
+                if (!IsFinite(pointUT) || pointUT < previousUT - UtEpsilon)
+                    return false;
+                previousUT = pointUT;
+            }
+
+            return true;
         }
 
         private static bool TryResolveAbsoluteBracketPose(

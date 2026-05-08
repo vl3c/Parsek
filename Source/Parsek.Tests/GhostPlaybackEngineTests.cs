@@ -1057,6 +1057,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CoverageRetiredCycle_WatchingDifferentOverlapCycle_DoesNotExitWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = 1,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.False(exitWatch);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_WatchingSameOverlapCycle_ExitsWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = 2,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.True(exitWatch);
+        }
+
+        [Fact]
         public void ClearLoadedVisualReferences_DoesNotClearCoverageRetiredFlag()
         {
             var state = new GhostPlaybackState
@@ -3383,6 +3417,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_ClampsFreshDebrisSeedBridgeFirstFrameToFirstOrdinarySample()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 100.538);
+
+            Assert.Equal(100.52, visibleUT, 3);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotClampDebrisSeedBridgeAfterClampWindow()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 100.56);
+
+            Assert.Equal(100.56, visibleUT, 3);
+        }
+
+        [Fact]
         public void ShouldHoldInitialRelativeActivationHidden_FreshRelativeStartWithinWindow_ReturnsTrue()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
@@ -3426,6 +3526,189 @@ namespace Parsek.Tests
             traj.TrackSections[0] = section;
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
                 traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_ParentAnchoredStructuralSeed_ReturnsTrueUntilFirstOrdinarySample()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.52));
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.53));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_RequiresParentAnchoredStructuralRelativeSeed()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = null;
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections[0].frames[0] = new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" };
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+
+            TrackSection section = traj.TrackSections[0];
+            section.referenceFrame = ReferenceFrame.Absolute;
+            section.frames[0] = new TrajectoryPoint
+            {
+                ut = 100.0,
+                bodyName = "Kerbin",
+                flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+            };
+            traj.TrackSections[0] = section;
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_LongSeedBridge_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 101.50, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ParentAnchoredDebrisSeedBridge_ReportsDebrisReason()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("debris-seed-bridge", reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_DebrisSeedBridgeEnd_AllowsFirstOrdinarySample()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.52, out string reason));
+            Assert.Null(reason);
         }
 
         [Fact]
