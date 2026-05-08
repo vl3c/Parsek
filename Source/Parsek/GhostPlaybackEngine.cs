@@ -5577,13 +5577,12 @@ namespace Parsek
                 $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                 10.0);
 
-            if (!GhostVisualBuilder.TryTriggerStockExplosionFx(worldPos, power, out string stockFxFailure))
-            {
-                ParsekLog.Warn("ExplosionFx",
-                    $"FXMonger.Explode did not queue stock FX for ghost #{recIdx} \"{traj.VesselName}\"; " +
-                    $"falling back to custom FX: {stockFxFailure}");
-                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
-            }
+            GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                worldPos,
+                power,
+                vesselLength,
+                $"ghost #{recIdx} \"{traj.VesselName}\"",
+                "stock-explosion-audio-busy");
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
