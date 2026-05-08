@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
+
+- During the 2026-05-08 playtest of the post-anchor-fix debris-rendering stack, the slot=0 Re-Fly playback emitted 22 `[WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` lines (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:55431-65652` and follow-ups). Every UT in the warns is exactly `section.endUT + 1e-13..3e-12` — double-precision rounding noise from per-frame UT accumulation pushing the playback query just past the section's recorded endUT. The resolver's `FindTrackSectionForUT` treats this as "past the last section" and returns the unresolved sentinel. Ghost #9 (the Probe fork) showed a 2.5 m positional discontinuity at the UT 50.10 section seam where two adjacent Relative sections each anchored their own offset.
+- **Fix direction:** make `FindTrackSectionForUT` tolerant of `ut ∈ [endUT, endUT + 1e-9]` mapping to the last sample of the matching section (or first of next). Add a regression scenario to PR #766's resolver harness pinning `ut == section.endUT` and `ut == section.endUT + 1e-12` to the expected pose.
+
+**Status:** OPEN 2026-05-08. Separate PR.
+
+---
+
+## Open - debris relative-playback discontinuity under sparse anchor samples
+
+- Same playtest, same log: `Kerbal X Debris` ghosts (`rec=3461390b…`, `311b452f…`, etc.) showed `dM=13.21 expectedDM=3.54` and similar 3-7× over-shoots between consecutive playback frames at the spawn window of the slot=1 Re-Fly. The recorded relative-frame samples around UT 31 have a ~2 s gap (UT 31.04 → 33.04) with a large local-offset change between adjacent samples; playback interpolation overshoots when the parent anchor (Kerbal X booster) is moving at ~150 m/s in the gap. This shows up visually as the user's "glitchy probe-booster ghost" complaint.
+- **Fix direction:** prefer the absolute-shadow path or reject/smooth large relative-offset discontinuities when an atmospheric debris section has sparse relative samples.
+
+**Status:** OPEN 2026-05-08. Separate PR. Note: PR #769's `LegacyDebrisShadowGate` does not catch these because the recordings' `DebrisParentRecordingId` is set (v12+ debris from PR #770).
+
+---
+
+## Done - Rewind-to-Launch left source recording's ghost suppressed after prior Re-Fly
+
+- ~~After two Re-Flys on a Kerbal X recording (slot=1 Probe at 17:33:30 then slot=0 booster at 17:34:42), the user clicked Rewind on the launch row and re-launched. The original Kerbal X recording (#0) AND the original Kerbal X Probe recording (#7) stayed skipped from playback with `reason=superseded-by-relation` (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:129371-129373`). The supersede rows from the prior Re-Flys persisted through Rewind, so the rewound recordings stayed under suppression even though the rewindUT (6.52) was well before the forks' StartUT (31.56).~~
+
+**Fix (partial — PR #774):** `RecordingStore.DropSupersedesRewoundOutOfExistence` runs at rewind time after `RewindContext.SetAdjustedUT`. Walks the rewound owner's whole tree (so branch rows like the Probe at #7 are caught) and drops `RecordingSupersedeRelation` entries whose `NewRecordingId.StartUT >= rewindAdjustedUT` AND whose `OldRecordingId` is in the rewound subtree. Multi-generational chains (A→B→C) collapse correctly via the tree-walk's transitive inclusion. A merge-journal precondition refuses the rewind outright when `ParsekScenario.Instance.ActiveMergeJournal.Phase != Complete` to avoid mutating the supersede ledger mid-merge. Cache-invalidation: live entry calls `ParsekScenario.BumpSupersedeStateVersion()` so `EffectiveState.ComputeERS()` rebuilds.
+
+**Note:** The user-visible bug (no launch ghost during a post-rewind re-launch) reduces to *just* the supersede-rewind interaction. The mainline `BuildRewindStripNames` strip-by-name + 15s wind-back + `LoadScene(SPACECENTER)` flow is unchanged — those mechanics work correctly on both main and the stack and are not the regression source. Rewind without a prior Re-Fly was always working (no supersedes existed to suppress).
+
+**Cross-LoadScene persistence:** the initial implementation only mutated the in-memory `ParsekScenario.Instance.RecordingSupersedes` list. KSP's scenario-state restoration across the LoadScene boundary repopulated the dropped rows (post-rewind log showed `RecordingSupersedes loaded: 1` despite the rewind save's `.sfs` having 0 RECORDING_SUPERSEDES entries on disk — `logs/2026-05-08_1929_rewind-supersede-drop-playtest`). PR #774 closes the gap with `RecordingStore.ReapplyRewindSupersedeDropAfterLoad()`, called from `ParsekScenario.OnLoad`'s new `supersede-rewind-reapply` phase right after `LoadRewindStagingState`. The owner's id survives LoadScene via the static `RewindReplayTargetRecordingId` (set in `BeginRewindForOwner`); after load, the owner is resolved from `committedRecordings`, the drop predicate re-runs against the freshly-loaded supersede list, and the version counter bumps so `EffectiveState.ComputeERS()` rebuilds.
+
+---
+
+---
+
+## Open - ghost initialization position issue (post-Rewind / Re-Fly playback)
+
+- Observed during the 2026-05-08 19:29 playtest of the debris-rendering + rewind-supersede-drop stack: ghost initialization position is off in some path. Specifics to be filed by the reporter; this is a placeholder so the issue isn't lost.
+- Likely candidates to investigate first: the seam between PR #771's `TryRefreshForkSnapshotsFromLiveVessel` (which replaces both `VesselSnapshot` and `GhostVisualSnapshot` from the live post-Strip vessel) and the playback engine's first-frame ghost positioning; the `recording-start-snapshot` spawn path in `GhostPlaybackEngine`; and the section-boundary off-by-ε bug already filed above.
+
+**Status:** OPEN 2026-05-08. Separate investigation; details TBD.
+
+---
+
 ## Open - splashed-then-rest tail keeps Splashed terminal even on high-velocity water impact
 
 - During the 2026-05-07 playtest of the debris-rendering stack, a Re-Fly of the upper-stage capsule splashed at ~UT 16746 and the recorder produced an `eb8a39dd…` "Kerbal X" surface tail (`startUT=16742.2`, `endUT=16751.4`) with `terminal=Splashed` that KSC then rendered as a capsule "floating on the water" after impact (`logs/2026-05-07_2251_refly-after-anchor-fix/KSP.log:188742`, `:188780`, `:190153`). The user's expectation was that a hard impact should classify as Destroyed and not spawn a floating ghost — KSP's water-impact lenience marks `vessel.situation=SPLASHED` even when the impact velocity well exceeds the part's `crashTolerance`, so Parsek faithfully recorded what KSP said but visually the outcome looks wrong.

@@ -4409,6 +4409,24 @@ namespace Parsek
                     $"Rewind via tree root: branch '{rec.VesselName}' -> root '{owner.VesselName}' " +
                     $"save={owner.RewindSaveFileName}");
 
+            // Refuse rewind during an active re-fly merge journal. The supersede drop
+            // below mutates the same RecordingSupersedes list the merge journal is in
+            // the middle of writing; running both concurrently could leave the ledger
+            // half-committed across the LoadGame boundary. Half-fix is worse than
+            // no-fix — let MergeJournalOrchestrator.RunFinisher resolve the journal
+            // on the next OnLoad first, then the user can rewind.
+            var scenarioForJournalCheck = ParsekScenario.Instance;
+            if (scenarioForJournalCheck?.ActiveMergeJournal != null
+                && scenarioForJournalCheck.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind",
+                        $"Cannot rewind during an active re-fly merge — finish the merge first " +
+                        $"(journalPhase={scenarioForJournalCheck.ActiveMergeJournal.Phase})");
+                ParsekLog.ScreenMessage("Cannot rewind during an active re-fly merge", 3f);
+                return;
+            }
+
             BeginRewindForOwner(owner);
 
             string tempCopyName = null;
@@ -4461,6 +4479,20 @@ namespace Parsek
                         $"Rewind: adjustedUT={RewindAdjustedUT:F1}, " +
                         $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
 
+                // Drop supersede relations whose forks are entirely in the rewound-out
+                // future. Without this, a rewound-to-launch source recording stays
+                // suppressed by `reason=superseded-by-relation` after re-launch even
+                // though the user has rewound past the moment the forks were created.
+                // Walk the whole rewound owner's tree so branch recordings (e.g. an
+                // upper-stage Probe) are unsuppressed too, not just the owner. Runs
+                // AFTER SetAdjustedUT so the comparison `fork.StartUT >= rewindAdjustedUT`
+                // uses the post-load UT.
+                int droppedSupersedes = DropSupersedesRewoundOutOfExistence(owner, RewindAdjustedUT);
+                if (droppedSupersedes > 0 && !SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
+                        $"(rewindUT={RewindAdjustedUT:F1} owner='{owner.VesselName}')");
+
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
 
@@ -4500,6 +4532,232 @@ namespace Parsek
                 ParsekLog.Info("Rewind",
                     $"Rewind initiated to UT {owner.StartUT} " +
                     $"(save: {owner.RewindSaveFileName})");
+        }
+
+        /// <summary>
+        /// Looks up a committed recording by id. Returns null when the id is null/empty
+        /// or no committed recording matches. O(N); used by post-LoadScene rewind
+        /// hooks where the owner reference doesn't survive but its id does
+        /// (<see cref="RewindReplayTargetRecordingId"/>).
+        /// </summary>
+        internal static Recording TryFindCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Re-applies the rewind-time supersede drop after <see cref="ParsekScenario.OnLoad"/>
+        /// has reloaded <see cref="ParsekScenario.RecordingSupersedes"/> from the scenario
+        /// node. Without this, the in-memory drop performed in <see cref="InitiateRewind"/>
+        /// is reverted by KSP's scenario-state restoration across the LoadScene boundary,
+        /// leaving the rewound source's branch ghosts (e.g. an upper-stage Probe at #7)
+        /// suppressed via <c>reason=superseded-by-relation</c> for the rest of the
+        /// session.
+        ///
+        /// <para>
+        /// Mechanism: the rewound owner's id is preserved across LoadScene in the static
+        /// <see cref="RewindReplayTargetRecordingId"/> (set by
+        /// <see cref="SetRewindReplayTargetScope"/> inside <see cref="BeginRewindForOwner"/>).
+        /// After load, we resolve the owner from committed state and re-run the drop
+        /// against the freshly-loaded supersede list using
+        /// <see cref="RewindContext.RewindAdjustedUT"/> as the threshold.
+        /// </para>
+        ///
+        /// <para>
+        /// Callers: <see cref="ParsekScenario.OnLoad"/>, immediately after
+        /// <see cref="ParsekScenario.LoadRewindStagingState"/>, gated on
+        /// <see cref="RewindContext.IsRewinding"/>.
+        /// </para>
+        ///
+        /// Returns the number of relations dropped on this re-apply pass.
+        /// </summary>
+        internal static int ReapplyRewindSupersedeDropAfterLoad()
+        {
+            if (!RewindContext.IsRewinding) return 0;
+            string ownerId = RewindReplayTargetRecordingId;
+            if (string.IsNullOrEmpty(ownerId)) return 0;
+            Recording owner = TryFindCommittedRecordingById(ownerId);
+            if (owner == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"ReapplyRewindSupersedeDropAfterLoad: skipped — owner id '{ownerId}' "
+                        + "not found in committed recordings post-load (recording deleted?).");
+                return 0;
+            }
+            int dropped = DropSupersedesRewoundOutOfExistence(owner, RewindContext.RewindAdjustedUT);
+            if (dropped > 0 && !SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Re-applied supersede drop after LoadScene: dropped {dropped} relation(s) "
+                    + $"(rewindUT={RewindContext.RewindAdjustedUT:F1} owner='{owner.VesselName}')");
+            return dropped;
+        }
+
+        /// <summary>
+        /// At rewind time, drops <see cref="RecordingSupersedeRelation"/> rows whose
+        /// fork (<c>NewRecordingId</c>) starts at or after <paramref name="rewindAdjustedUT"/>
+        /// AND whose source (<c>OldRecordingId</c>) belongs to the rewound owner's tree.
+        /// Walks the entire tree of the rewound owner so branch recordings (e.g. an
+        /// upper-stage Probe at index #7) are also unsuppressed — without this, only
+        /// the owner's row drops and the branch ghosts stay
+        /// <c>reason=superseded-by-relation</c> after the user re-launches.
+        ///
+        /// Pure-static: takes the supersede list as a parameter so it's directly unit
+        /// testable without Unity. Returns the number of relations dropped.
+        ///
+        /// Multi-generational chains (A → B → C with A as the rewound owner) collapse
+        /// correctly: <paramref name="ownerTreeRecordings"/> includes B (and B's
+        /// StartUT >= rewindUT, so B is in <c>rewoundOutOldIds</c>), so both A→B
+        /// and B→C drop.
+        /// </summary>
+        internal static int DropSupersedesRewoundOutOfExistencePure(
+            Recording owner,
+            double rewindAdjustedUT,
+            IReadOnlyList<Recording> ownerTreeRecordings,
+            IReadOnlyDictionary<string, Recording> liveRecordingsById,
+            List<RecordingSupersedeRelation> supersedes)
+        {
+            if (owner == null || supersedes == null || supersedes.Count == 0)
+                return 0;
+
+            // Build set of recording ids that are rewound out: the owner itself plus
+            // every recording in the owner's tree whose StartUT >= rewindAdjustedUT.
+            var rewoundOutOldIds = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(owner.RecordingId))
+                rewoundOutOldIds.Add(owner.RecordingId);
+            if (ownerTreeRecordings != null)
+            {
+                for (int i = 0; i < ownerTreeRecordings.Count; i++)
+                {
+                    var treeRec = ownerTreeRecordings[i];
+                    if (treeRec == null || string.IsNullOrEmpty(treeRec.RecordingId))
+                        continue;
+                    if (treeRec.StartUT >= rewindAdjustedUT)
+                        rewoundOutOldIds.Add(treeRec.RecordingId);
+                }
+            }
+
+            // Drop relations whose OldRecordingId belongs to the rewound subtree AND
+            // whose fork is "rewound out" — preferred signal is the fork's
+            // Recording.StartUT, but if the fork is missing from liveRecordingsById
+            // (orphaned/deleted out of band) we fall back to rel.UT (the merge time
+            // recorded on the relation itself, see RecordingSupersedeRelation.UT).
+            // Without the fallback, one-sided orphan rows would still suppress
+            // OldRecordingId through EffectiveState.IsVisible after rewind.
+            var pendingDrops = new List<RecordingSupersedeRelation>();
+            for (int i = 0; i < supersedes.Count; i++)
+            {
+                var rel = supersedes[i];
+                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId)) continue;
+                if (string.IsNullOrEmpty(rel.NewRecordingId)) continue;
+                if (!rewoundOutOldIds.Contains(rel.OldRecordingId)) continue;
+                Recording newRec = null;
+                if (liveRecordingsById != null)
+                    liveRecordingsById.TryGetValue(rel.NewRecordingId, out newRec);
+                double effectiveForkUT = newRec != null ? newRec.StartUT : rel.UT;
+                if (effectiveForkUT < rewindAdjustedUT) continue;
+                pendingDrops.Add(rel);
+            }
+
+            if (pendingDrops.Count == 0)
+                return 0;
+
+            for (int i = 0; i < pendingDrops.Count; i++)
+                supersedes.Remove(pendingDrops[i]);
+            return pendingDrops.Count;
+        }
+
+        /// <summary>
+        /// Live entry point that resolves the owner's tree + live-recordings dict from
+        /// the static <see cref="committedTrees"/> + <see cref="committedRecordings"/>
+        /// and the <see cref="ParsekScenario.Instance.RecordingSupersedes"/> list, then
+        /// delegates to <see cref="DropSupersedesRewoundOutOfExistencePure"/>.
+        /// </summary>
+        internal static int DropSupersedesRewoundOutOfExistence(
+            Recording owner, double rewindAdjustedUT)
+        {
+            if (owner == null) return 0;
+            var scenario = ParsekScenario.Instance;
+            if (scenario?.RecordingSupersedes == null
+                || scenario.RecordingSupersedes.Count == 0)
+                return 0;
+
+            // Resolve the owner's tree by id. If the owner is a pre-tree-mode
+            // standalone recording (null/empty TreeId — see `Recording.TreeId`'s
+            // "null = standalone (pre-tree recording)" doc), there is no tree to
+            // walk and the drop falls back to owner-only matching. Log it so the
+            // degradation is visible in playtest diagnostics rather than silently
+            // missing branch supersedes.
+            RecordingTree ownerTree = null;
+            if (string.IsNullOrEmpty(owner.TreeId))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"DropSupersedesRewoundOutOfExistence: owner '{owner.VesselName}' (id={owner.RecordingId}) "
+                        + "has no TreeId; falling back to owner-only supersede drop "
+                        + "(no tree-walk for branch recordings).");
+            }
+            else
+            {
+                for (int t = 0; t < committedTrees.Count; t++)
+                {
+                    if (committedTrees[t] == null) continue;
+                    if (string.Equals(committedTrees[t].Id, owner.TreeId, StringComparison.Ordinal))
+                    {
+                        ownerTree = committedTrees[t];
+                        break;
+                    }
+                }
+            }
+
+            List<Recording> ownerTreeRecordings = null;
+            if (ownerTree?.Recordings != null && ownerTree.Recordings.Count > 0)
+            {
+                ownerTreeRecordings = new List<Recording>(ownerTree.Recordings.Count);
+                foreach (var kvp in ownerTree.Recordings)
+                {
+                    if (kvp.Value != null)
+                        ownerTreeRecordings.Add(kvp.Value);
+                }
+            }
+
+            // Live-recordings dict is committed-only by design. Re-Fly forks
+            // commit before Rewind is reachable (the merge-journal precondition
+            // above refuses Rewind during an in-flight commit), so the committed
+            // list is the authoritative "currently visible" set for supersede
+            // compute. Pending/uncommitted recordings aren't yet superseding
+            // anything, so excluding them is the right behavior.
+            var liveById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var liveRec = committedRecordings[i];
+                if (liveRec != null && !string.IsNullOrEmpty(liveRec.RecordingId))
+                    liveById[liveRec.RecordingId] = liveRec;
+            }
+
+            int dropped = DropSupersedesRewoundOutOfExistencePure(
+                owner,
+                rewindAdjustedUT,
+                ownerTreeRecordings,
+                liveById,
+                scenario.RecordingSupersedes);
+
+            // Invalidate the EffectiveState ERS cache. EffectiveState.ComputeERS
+            // keys its cache on ParsekScenario.SupersedeStateVersion — without the
+            // bump, any cached effective view stays stale until a later load or
+            // unrelated mutation. Every other production supersede mutation
+            // (SupersedeCommit) bumps this counter; the rewind drop must too.
+            if (dropped > 0)
+                scenario.BumpSupersedeStateVersion();
+            return dropped;
         }
 
         private static HashSet<string> BuildRewindStripNames(Recording owner)
