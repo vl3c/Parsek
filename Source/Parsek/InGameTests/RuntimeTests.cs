@@ -9740,6 +9740,70 @@ namespace Parsek.InGameTests
                 "OneShotAudio pause/unpause cycle verified");
         }
 
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.SPACECENTER,
+            Description = "KSC terminal explosion fallback queues a fire-and-forget AudioSource; run from Ctrl+Shift+T in the Space Center scene")]
+        public IEnumerator KscExplosionFallbackAudio_FireAndForgetSourceSurvivesGhostDestroy()
+        {
+            GhostPlaybackLogic.ResetForTesting();
+            var ghostRoot = new GameObject("ParsekTest_KscExplosionAudioGhost");
+            runner.TrackForCleanup(ghostRoot);
+            ghostRoot.transform.position = Vector3.zero;
+            AudioClip clip = AudioClip.Create("parsek_test_ksc_explosion_silence", 44100, 1, 44100, false);
+
+            try
+            {
+                var existingSources = new HashSet<int>(
+                    UnityEngine.Object.FindObjectsOfType<AudioSource>()
+                        .Select(source => source.GetInstanceID()));
+
+                bool queued = GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                    ghostRoot.transform.position,
+                    atmosphereFactor: 1f,
+                    distanceMeters: 0.0,
+                    contextDescription: "KSC in-game fallback audio test",
+                    busyLogKey: "ksc-ingame-fallback-audio-busy",
+                    resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
+                    {
+                        canPlay = true,
+                        clipPath = "parsek_test_ksc_explosion_silence",
+                        clip = clip,
+                        clipLengthSeconds = clip.length,
+                        volume = 0.01f,
+                        priority = GhostAudioPresets.BaselineGameAudioPriority
+                    });
+
+                InGameAssert.IsTrue(queued,
+                    "KSC fallback explosion audio should queue when the global gate is free");
+                yield return null;
+
+                var createdSource = UnityEngine.Object.FindObjectsOfType<AudioSource>()
+                    .FirstOrDefault(source =>
+                        source != null
+                        && source.gameObject.name == GhostPlaybackLogic.ExplosionOneShotAudioObjectName
+                        && !existingSources.Contains(source.GetInstanceID()));
+                InGameAssert.IsNotNull(createdSource,
+                    "Fallback explosion audio must create an independent fire-and-forget AudioSource");
+                runner.TrackForCleanup(createdSource.gameObject);
+                InGameAssert.IsTrue(createdSource.transform.parent == null,
+                    "Fallback explosion audio must not be parented to the ghost that KSC may destroy immediately");
+                InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, createdSource.spatialBlend, 0.0001f,
+                    "Fallback explosion audio should use the same spatial blend as ghost one-shot audio");
+                InGameAssert.AreEqual(GhostAudioPresets.BaselineGameAudioPriority, createdSource.priority,
+                    "Fallback explosion audio should use the same baseline priority as explosion one-shots");
+
+                UnityEngine.Object.Destroy(ghostRoot);
+                yield return null;
+                InGameAssert.IsTrue(createdSource != null,
+                    "Fallback explosion audio source should survive immediate ghost destruction");
+            }
+            finally
+            {
+                if (clip != null)
+                    UnityEngine.Object.Destroy(clip);
+                GhostPlaybackLogic.ResetForTesting();
+            }
+        }
+
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
             Description = "#265: Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio iterates all ghost states")]
         public void EngineLevel_PauseUnpauseGhostAudio_NoCrash()
