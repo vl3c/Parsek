@@ -3644,7 +3644,7 @@ namespace Parsek
                             {
                                 ParsekLog.Warn("FastForward",
                                     $"Non-flight FF blocked for \"{capturedRec.VesselName}\" " +
-                                    $"id={capturedRec.RecordingId ?? "<none>"} — {ffReason}");
+                                    $"id={capturedRec.RecordingId ?? "<none>"}: {ffReason}");
                                 return;
                             }
                             double jumpDelta = capturedRec.StartUT - preJumpUT;

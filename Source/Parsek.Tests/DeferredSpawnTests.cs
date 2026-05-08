@@ -568,8 +568,11 @@ namespace Parsek.Tests
             var policy = new ParsekPlaybackPolicy(engine, host)
             {
                 CurrentRealTimeOverrideForTesting = () => 1f,
-                RelationSupersededIdsOverrideForTesting = committed =>
-                    new HashSet<string> { oldRec.RecordingId },
+                TimelineInactiveIdsOverrideForTesting = committed =>
+                    new Dictionary<string, TimelineInactiveReason>
+                    {
+                        { oldRec.RecordingId, TimelineInactiveReason.SupersededByRelation }
+                    },
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
                 DestroyGhostOverrideForTesting = (index, reason) =>
                 {
@@ -592,7 +595,7 @@ namespace Parsek.Tests
 
             Assert.Equal(0, spawnCalls);
             Assert.Equal(1, destroyCalls);
-            Assert.Equal("held-timeline-inactive", destroyReason);
+            Assert.Equal("held-superseded-by-relation", destroyReason);
             Assert.Empty(policy.heldGhosts);
             Assert.False(oldRec.VesselSpawned);
             Assert.Equal(0u, oldRec.SpawnedVesselPersistentId);
@@ -659,7 +662,7 @@ namespace Parsek.Tests
 
             Assert.Equal(0, spawnCalls);
             Assert.Equal(1, destroyCalls);
-            Assert.Equal("held-timeline-inactive", destroyReason);
+            Assert.Equal("held-rewind-retired", destroyReason);
             Assert.Empty(policy.heldGhosts);
             Assert.False(retired.VesselSpawned);
             Assert.Equal(0u, retired.SpawnedVesselPersistentId);

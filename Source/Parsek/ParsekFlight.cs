@@ -14684,12 +14684,11 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
-                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
-                    && timelineInactiveIds.TryGetValue(rec.RecordingId, out var inactiveReason)
-                    && inactiveReason == TimelineInactiveReason.SupersededByRelation;
-                bool rewindRetired = !string.IsNullOrEmpty(rec.RecordingId)
-                    && timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason)
-                    && inactiveReason == TimelineInactiveReason.RewindRetired;
+                TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
+                bool supersededByRelation = inactiveReason == TimelineInactiveReason.SupersededByRelation;
+                bool rewindRetired = inactiveReason == TimelineInactiveReason.RewindRetired;
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
@@ -23028,7 +23027,7 @@ namespace Parsek
             if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
             {
                 ParsekLog.Warn("Flight",
-                    $"FastForwardToRecording: '{rec.VesselName}' id={rec.RecordingId ?? "<none>"} blocked — {ffReason}");
+                    $"FastForwardToRecording: '{rec.VesselName}' id={rec.RecordingId ?? "<none>"} blocked: {ffReason}");
                 return;
             }
 

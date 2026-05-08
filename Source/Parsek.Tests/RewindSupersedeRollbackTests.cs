@@ -45,6 +45,7 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             RecordingStore.SuppressLogging = prevSuppress;
+            RewindContext.ResetForTesting();
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
         }
@@ -249,6 +250,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveRollback_DeduplicatesRetirement_WhenMultipleOldRowsPointToSameNew()
+        {
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            var c = MakeRec("C", startUT: 50.0);
+            InstallCommittedTreeForTesting("tree-dedup", a, b, c);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "C"),
+                    MakeRel("B", "C")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            Assert.Equal(2, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("C", retirement.RecordingId);
+            Assert.Equal("A", retirement.RestoredRecordingId);
+        }
+
+        [Fact]
+        public void ReapplyRewindSupersedeDropAfterLoad_RecreatesRetirement_WhenScenarioRestoresSupersede()
+        {
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            InstallCommittedTreeForTesting("tree-reapply", a, b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(a.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+            RecordingStore.SetRewindReplayTargetScope(a);
+
+            int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+
+            Assert.Equal(1, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("B", retirement.RecordingId);
+            Assert.Equal("A", retirement.RestoredRecordingId);
+        }
+
+        [Fact]
         public void CanFastForwardAtUT_RewindRetiredRecording_ReturnsFalse()
         {
             var rec = MakeRec("fork", startUT: 100.0);
@@ -432,6 +488,31 @@ namespace Parsek.Tests
 
             Assert.Equal(0, dropped);
             Assert.Single(supersedes);
+        }
+
+        private static void InstallCommittedTreeForTesting(string treeId, params Recording[] recordings)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = recordings != null && recordings.Length > 0
+                    ? recordings[0].RecordingId
+                    : null
+            };
+
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Length; i++)
+                {
+                    Recording rec = recordings[i];
+                    rec.TreeId = treeId;
+                    tree.AddOrReplaceRecording(rec);
+                    RecordingStore.AddCommittedInternal(rec);
+                }
+            }
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
         }
     }
 }
