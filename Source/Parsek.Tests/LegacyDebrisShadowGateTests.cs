@@ -74,19 +74,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Returns_True_When_DebrisParentRecordingId_Is_EmptyString()
+        public void Returns_False_For_EmptyString_DebrisParentRecordingId()
         {
-            // Defensive: the plan's predicate uses `string.IsNullOrEmpty`, so
-            // an empty-string DebrisParentRecordingId is treated identically
-            // to null (legacy-debris). This shouldn't normally happen — the
-            // recorder either sets a valid id (PR 3b) or leaves it null —
-            // but if a corrupt or migrated save lands with "" for some
-            // reason, the gate still fires and the absolute-shadow path
-            // runs. Whitespace-only strings pass through the same way.
+            // Defensive: the codec writes any non-null DebrisParentRecordingId.
+            // Empty string is malformed v12+ data, not legacy v11, so it must
+            // fail closed through the parent-anchored retire policy instead of
+            // enabling the legacy absolute-shadow path.
             var traj = MakeFake(isDebris: true, debrisParentRecordingId: "");
             TrackSection section = MakeRelativeSection(shadowFrames: 5);
 
-            Assert.True(LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, section));
+            Assert.False(LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, section));
+            Assert.True(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
         }
 
         [Fact]

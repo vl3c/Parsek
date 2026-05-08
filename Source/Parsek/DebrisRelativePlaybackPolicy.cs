@@ -11,13 +11,16 @@ namespace Parsek
         /// anchor cannot be resolved. The v7 absolute shadow is not an
         /// independent fallback for this case because it can continue stale
         /// motion after the debris has left the parent's resolvable range.
+        /// A non-null parent id is enough to select this contract; an empty
+        /// serialized id is malformed v12+ data and should fail closed rather
+        /// than be treated as legacy v11 debris.
         /// </summary>
         internal static bool ShouldRetireOnRecordedParentAnchorMiss(
             IPlaybackTrajectory traj)
         {
             return traj != null
                 && traj.IsDebris
-                && !string.IsNullOrEmpty(traj.DebrisParentRecordingId);
+                && traj.DebrisParentRecordingId != null;
         }
     }
 }

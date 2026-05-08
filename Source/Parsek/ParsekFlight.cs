@@ -21295,16 +21295,6 @@ namespace Parsek
                     return;
                 }
 
-                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
-                        ghost,
-                        recordingIndex,
-                        recordingVesselName,
-                        traj,
-                        target,
-                        retireSignalState,
-                        out interpResult))
-                    return;
-
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
                         traj,
@@ -21359,16 +21349,6 @@ namespace Parsek
                         pointAltitude);
                     return;
                 }
-
-                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
-                        ghost,
-                        recordingIndex,
-                        recordingVesselName,
-                        traj,
-                        target,
-                        retireSignalState,
-                        out interpResult))
-                    return;
 
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
@@ -21447,16 +21427,6 @@ namespace Parsek
 
             if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
             {
-                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
-                        ghost,
-                        recordingIndex,
-                        recordingVesselName,
-                        traj,
-                        target,
-                        retireSignalState,
-                        out interpResult))
-                    return;
-
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
                         traj,
@@ -21946,7 +21916,7 @@ namespace Parsek
         /// dispatches are diagnosable independently of the existing
         /// resolver-failure shadow path (which keeps emitting
         /// `RELATIVE recorded-anchor fallback to absolute shadow` for
-        /// non-debris / non-parent-anchored debris).
+        /// non-debris recordings).
         ///
         /// Caller must guard with
         /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
@@ -22036,8 +22006,20 @@ namespace Parsek
             bool suppressFallbackWarn = false)
         {
             interpResult = InterpolationResult.Zero;
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
-                return false;
+            // Parent-anchored v12+ debris has a strict recorded-relative
+            // contract: a parent-anchor miss hides the debris instead of
+            // replaying stale absolute-shadow frames. Keeping this guard inside
+            // the fallback helper prevents future callers from accidentally
+            // bypassing the retire path.
+            if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                    state?.ghost,
+                    recordingIndex,
+                    trajectory?.VesselName,
+                    trajectory,
+                    target,
+                    state,
+                    out interpResult))
+                return true;
 
             if (state?.ghost == null
                 || target.Section.referenceFrame != ReferenceFrame.Relative
@@ -22100,7 +22082,8 @@ namespace Parsek
             GhostPlaybackState retireSignalState,
             string callsite)
         {
-            if (ghost.activeSelf) ghost.SetActive(false);
+            if (!ReferenceEquals(ghost, null))
+                HideRecordedRelativeRetiredGhost(ghost);
             if (retireSignalState != null)
                 retireSignalState.anchorRetiredThisFrame = true;
 
@@ -22115,6 +22098,11 @@ namespace Parsek
                 $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
                 $"sectionIndex={target.SectionIndex} callsite={callsite}",
                 5.0);
+        }
+
+        private static void HideRecordedRelativeRetiredGhost(GameObject ghost)
+        {
+            if (ghost.activeSelf) ghost.SetActive(false);
         }
 
         void InterpolateAndPositionLoopRelative(
