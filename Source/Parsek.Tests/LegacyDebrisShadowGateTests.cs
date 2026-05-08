@@ -63,11 +63,14 @@ namespace Parsek.Tests
         {
             // Condition #2 fails: v12+ debris (where PR 3b has populated the
             // parent-anchor field) skips the gate, so the resolver chain
-            // handles its playback per the parent-anchor contract (Decision §7).
+            // handles its playback per the parent-anchor contract (Decision §7);
+            // if the parent anchor misses, the debris retires rather than falling
+            // back to the absolute shadow.
             var traj = MakeFake(isDebris: true, debrisParentRecordingId: "parent-id");
             TrackSection section = MakeRelativeSection(shadowFrames: 5);
 
             Assert.False(LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, section));
+            Assert.True(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
         }
 
         [Fact]
@@ -133,6 +136,28 @@ namespace Parsek.Tests
             section.absoluteFrames = new List<TrajectoryPoint>();
 
             Assert.False(LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, section));
+        }
+
+        [Fact]
+        public void ParentAnchoredDebrisRetirePolicy_ReturnsFalse_For_LegacyDebris()
+        {
+            var traj = MakeFake(isDebris: true, debrisParentRecordingId: null);
+
+            Assert.False(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
+        }
+
+        [Fact]
+        public void ParentAnchoredDebrisRetirePolicy_ReturnsFalse_For_NonDebris()
+        {
+            var traj = MakeFake(isDebris: false, debrisParentRecordingId: "parent-id");
+
+            Assert.False(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
+        }
+
+        [Fact]
+        public void ParentAnchoredDebrisRetirePolicy_ReturnsFalse_For_NullTrajectory()
+        {
+            Assert.False(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(null));
         }
 
         // --- Helpers ---

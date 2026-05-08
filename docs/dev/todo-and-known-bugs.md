@@ -23,9 +23,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 ## Open - debris relative-playback discontinuity under sparse anchor samples
 
 - Same playtest, same log: `Kerbal X Debris` ghosts (`rec=3461390b…`, `311b452f…`, etc.) showed `dM=13.21 expectedDM=3.54` and similar 3-7× over-shoots between consecutive playback frames at the spawn window of the slot=1 Re-Fly. The recorded relative-frame samples around UT 31 have a ~2 s gap (UT 31.04 → 33.04) with a large local-offset change between adjacent samples; playback interpolation overshoots when the parent anchor (Kerbal X booster) is moving at ~150 m/s in the gap. This shows up visually as the user's "glitchy probe-booster ghost" complaint.
-- **Fix direction:** prefer the absolute-shadow path or reject/smooth large relative-offset discontinuities when an atmospheric debris section has sparse relative samples.
+- **Fix direction:** reject/smooth large in-range relative-offset discontinuities or tighten atmospheric debris sampling. Parent-anchor misses are a separate playback contract: v12+ debris should retire rather than use stale absolute-shadow frames once the parent anchor is no longer resolvable.
 
-**Status:** OPEN 2026-05-08. Separate PR. Note: PR #769's `LegacyDebrisShadowGate` does not catch these because the recordings' `DebrisParentRecordingId` is set (v12+ debris from PR #770).
+**Status:** OPEN 2026-05-08. Separate PR. Note: PR #769's `LegacyDebrisShadowGate` does not catch these because the recordings' `DebrisParentRecordingId` is set (v12+ debris from PR #770); the parent-anchor-miss retirement follow-up only handles out-of-coverage disappearance, not sparse in-range local-offset smoothing.
+
+---
+
+## Done - v12 debris stayed visible through absolute-shadow fallback after parent-anchor miss
+
+- ~~Fresh follow-up logs from `logs/2026-05-08_2208_ghost-rendering-recording-followups` showed parent-anchored debris continuing through `RELATIVE recorded-anchor fallback to absolute shadow` after the parent recording stopped resolving. The stale shadow kept debris visible for a few frames with wrong motion instead of disappearing when it left the parent's recorded-relative coverage.~~
+
+**Fix:** `DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss` makes `IsDebris && DebrisParentRecordingId != null` a strict parent-relative playback contract. `ParsekFlight.InterpolateAndPositionRecordedRelative` now retires those ghosts before the generic absolute-shadow fallback at all recorded-relative failure sites, while legacy v11 debris with no parent id keeps the existing `LegacyDebrisShadowGate` shadow path.
 
 ---
 

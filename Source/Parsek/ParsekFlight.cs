@@ -21295,6 +21295,16 @@ namespace Parsek
                     return;
                 }
 
+                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                        ghost,
+                        recordingIndex,
+                        recordingVesselName,
+                        traj,
+                        target,
+                        retireSignalState,
+                        out interpResult))
+                    return;
+
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
                         traj,
@@ -21349,6 +21359,16 @@ namespace Parsek
                         pointAltitude);
                     return;
                 }
+
+                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                        ghost,
+                        recordingIndex,
+                        recordingVesselName,
+                        traj,
+                        target,
+                        retireSignalState,
+                        out interpResult))
+                    return;
 
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
@@ -21427,6 +21447,16 @@ namespace Parsek
 
             if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
             {
+                if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                        ghost,
+                        recordingIndex,
+                        recordingVesselName,
+                        traj,
+                        target,
+                        retireSignalState,
+                        out interpResult))
+                    return;
+
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
                         traj,
@@ -21916,7 +21946,7 @@ namespace Parsek
         /// dispatches are diagnosable independently of the existing
         /// resolver-failure shadow path (which keeps emitting
         /// `RELATIVE recorded-anchor fallback to absolute shadow` for
-        /// non-debris and v12+ debris).
+        /// non-debris / non-parent-anchored debris).
         ///
         /// Caller must guard with
         /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
@@ -21972,6 +22002,29 @@ namespace Parsek
             return true;
         }
 
+        private bool TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+            GameObject ghost,
+            int recordingIndex,
+            string recordingVesselName,
+            IPlaybackTrajectory trajectory,
+            RelativeSectionPlaybackTarget target,
+            GhostPlaybackState retireSignalState,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
+                return false;
+
+            RetireUnresolvedRecordedRelative(
+                ghost,
+                recordingIndex,
+                recordingVesselName,
+                target,
+                retireSignalState,
+                "InterpolateAndPositionRecordedRelative.parent-anchored-debris");
+            return true;
+        }
+
         private bool TryUseRelativeAbsoluteShadowFallback(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
@@ -21983,6 +22036,9 @@ namespace Parsek
             bool suppressFallbackWarn = false)
         {
             interpResult = InterpolationResult.Zero;
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
+                return false;
+
             if (state?.ghost == null
                 || target.Section.referenceFrame != ReferenceFrame.Relative
                 || target.Section.absoluteFrames == null
