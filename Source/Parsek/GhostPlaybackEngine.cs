@@ -1314,7 +1314,8 @@ namespace Parsek
                     ApplyFrameVisuals(i, traj, state, endpointCoverageUT,
                         ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
                         allowTransientEffects: false);
-                    if (ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(traj))
+                    if (ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+                            traj, endpointCoverageUT))
                     {
                         ParsekLog.VerboseRateLimited("Engine", $"past-end-coverage-retired-{i}",
                             $"past-end completion finalized: parent-anchored debris outside relative coverage #{i} \"{traj?.VesselName}\"");
@@ -2243,7 +2244,6 @@ namespace Parsek
                     "GhostPlaybackEngine.PositionGhostAtRecordingEndpoint"))
                 return;
 
-            double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
             if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, orbitEndpointUT);
@@ -2257,6 +2257,7 @@ namespace Parsek
                 return;
             }
 
+            double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
             if (TryGetCheckpointBackedOrbitEndpointUT(
                     traj, endpointUT, out double checkpointOrbitEndpointUT, out int checkpointSectionIndex))
             {
@@ -2314,8 +2315,16 @@ namespace Parsek
         internal static bool ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
             IPlaybackTrajectory traj)
         {
-            return ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            return ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
                 traj, ResolveRecordingEndpointCoverageUT(traj));
+        }
+
+        internal static bool ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+            IPlaybackTrajectory traj,
+            double endpointCoverageUT)
+        {
+            return ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj, endpointCoverageUT);
         }
 
         internal static double ResolveRecordingEndpointPlaybackUT(IPlaybackTrajectory traj)
@@ -2517,6 +2526,8 @@ namespace Parsek
                 recordingId,
                 "|",
                 index.ToString(CultureInfo.InvariantCulture));
+            // Warn (not Verbose): no covering Relative section is a recording
+            // coverage gap, not the transient anchor-miss handled in ParsekFlight.
             ParsekLog.WarnRateLimited(
                 "Anchor",
                 key,
