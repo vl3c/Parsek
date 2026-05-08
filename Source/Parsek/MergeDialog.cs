@@ -28,7 +28,7 @@ namespace Parsek
         {
             /// <summary>"Merge to Timeline" / "Discard"</summary>
             Default,
-            /// <summary>"Merge Re-Fly to Timeline" / "Discard Re-Fly attempt"</summary>
+            /// <summary>"Merge" / "Discard"</summary>
             ReFlyAttempt,
         }
 
@@ -283,8 +283,8 @@ namespace Parsek
             if (labels == MergeDialogButtonLabels.ReFlyAttempt)
             {
                 title = "Re-Fly attempt - leaving flight";
-                mergeLabel = "Merge Re-Fly to Timeline";
-                discardLabel = "Discard Re-Fly attempt";
+                mergeLabel = "Merge";
+                discardLabel = "Discard";
                 Recording reFlyRec = marker != null
                     ? FindReFlyRecording(marker, liveTree)
                     : null;
