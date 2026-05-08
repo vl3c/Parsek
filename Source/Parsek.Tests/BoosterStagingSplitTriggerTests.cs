@@ -86,6 +86,89 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrySelectDecouplePartOriginSeed_MatchesRootPartPid()
+        {
+            var expected = new TrajectoryPoint
+            {
+                ut = 113.34,
+                latitude = 12.3,
+                longitude = 45.6,
+                altitude = 78.9
+            };
+
+            bool selected = ParsekFlight.TrySelectDecouplePartOriginSeed(
+                2057942744u,
+                (uint pid, out TrajectoryPoint point) =>
+                {
+                    Assert.Equal(2057942744u, pid);
+                    point = expected;
+                    return true;
+                },
+                out TrajectoryPoint seed);
+
+            Assert.True(selected);
+            Assert.Equal(expected.ut, seed.ut);
+            Assert.Equal(expected.latitude, seed.latitude);
+            Assert.Equal(expected.longitude, seed.longitude);
+            Assert.Equal(expected.altitude, seed.altitude);
+        }
+
+        [Fact]
+        public void TrySelectDecouplePartOriginSeed_IgnoresMissingRootPartPid()
+        {
+            bool invoked = false;
+
+            bool selected = ParsekFlight.TrySelectDecouplePartOriginSeed(
+                0u,
+                (uint pid, out TrajectoryPoint point) =>
+                {
+                    invoked = true;
+                    point = new TrajectoryPoint();
+                    return true;
+                },
+                out _);
+
+            Assert.False(selected);
+            Assert.False(invoked);
+        }
+
+        [Fact]
+        public void TrySelectDecouplePartOriginSeed_FallsBackWhenSeedMissing()
+        {
+            bool selected = ParsekFlight.TrySelectDecouplePartOriginSeed(
+                3027027466u,
+                (uint pid, out TrajectoryPoint point) =>
+                {
+                    Assert.Equal(3027027466u, pid);
+                    point = default;
+                    return false;
+                },
+                out _);
+
+            Assert.False(selected);
+        }
+
+        [Fact]
+        public void ShouldUseUndockPartOriginSeed_OnlyWhenUndockedPartIsRoot()
+        {
+            Assert.True(ParsekFlight.ShouldUseUndockPartOriginSeed(
+                undockedPartPersistentId: 9001u,
+                rootPartPersistentId: 9001u));
+
+            Assert.False(ParsekFlight.ShouldUseUndockPartOriginSeed(
+                undockedPartPersistentId: 9001u,
+                rootPartPersistentId: 9002u));
+
+            Assert.False(ParsekFlight.ShouldUseUndockPartOriginSeed(
+                undockedPartPersistentId: 0u,
+                rootPartPersistentId: 9001u));
+
+            Assert.False(ParsekFlight.ShouldUseUndockPartOriginSeed(
+                undockedPartPersistentId: 9001u,
+                rootPartPersistentId: 0u));
+        }
+
+        [Fact]
         public void ResolveDeferredSplitBranchUT_PrefersCapturedDecoupleSeedUT()
         {
             var captured = new Dictionary<uint, TrajectoryPoint>

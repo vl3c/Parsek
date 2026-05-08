@@ -206,6 +206,8 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
         public double PendingJointBreakUT { get; private set; } = double.NaN;
+        private readonly Dictionary<uint, TrajectoryPoint> pendingJointChildPartOriginSeeds =
+            new Dictionary<uint, TrajectoryPoint>();
 
         // Exact terminal events appended by the most recent FinalizeRecordingState call with
         // emitTerminalEvents=true. ResumeAfterFalseAlarm uses this list to remove the orphaned
@@ -225,6 +227,19 @@ namespace Parsek
             HasPendingJointBreakCheck = false;
             PendingJointBreakUT = double.NaN;
             return was;
+        }
+
+        internal bool TryConsumePendingJointChildPartOriginSeed(uint partPersistentId, out TrajectoryPoint point)
+        {
+            point = default;
+            if (partPersistentId == 0u
+                || !pendingJointChildPartOriginSeeds.TryGetValue(partPersistentId, out point))
+            {
+                return false;
+            }
+
+            pendingJointChildPartOriginSeeds.Remove(partPersistentId);
+            return true;
         }
 
         /// <summary>
@@ -974,6 +989,39 @@ namespace Parsek
             return PartEventType.Destroyed;
         }
 
+        internal static bool TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+            Part part,
+            double ut,
+            out TrajectoryPoint point)
+        {
+            point = default;
+            Vessel vessel = part?.vessel;
+            CelestialBody body = vessel?.mainBody;
+            if (part?.transform == null || body?.bodyTransform == null)
+                return false;
+
+            Vector3 velocity = vessel.packed
+                ? (Vector3)vessel.obt_velocity
+                : (Vector3)(vessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+            Vector3d worldPos = part.transform.position;
+
+            point = new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = body.GetLatitude(worldPos),
+                longitude = body.GetLongitude(worldPos),
+                altitude = body.GetAltitude(worldPos),
+                rotation = Quaternion.Inverse(body.bodyTransform.rotation) * part.transform.rotation,
+                velocity = velocity,
+                bodyName = body.name ?? "Unknown",
+                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
+                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                recordedGroundClearance = double.NaN
+            };
+            return true;
+        }
+
         private void OnPartJointBreak(PartJoint joint, float breakForce)
         {
             if (!IsRecording) return;
@@ -1005,6 +1053,23 @@ namespace Parsek
             decoupledPartIds.Add(joint.Child.persistentId);
 
             double jointBreakUT = Planetarium.GetUniversalTime();
+            if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+                    joint.Child,
+                    jointBreakUT,
+                    out TrajectoryPoint childPartOriginSeed))
+            {
+                pendingJointChildPartOriginSeeds[joint.Child.persistentId] = childPartOriginSeed;
+                ParsekLog.Verbose("Recorder",
+                    $"Joint child part-origin seed captured: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Recorder",
+                    $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
+                    $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
 
             PartEvents.Add(new PartEvent
             {
@@ -5598,6 +5663,7 @@ namespace Parsek
             highFidelitySamplingReason = null;
             reFlyTreeSamplingProximityMeters = double.NaN;
             reFlyTreeSamplingProximitySource = null;
+            pendingJointChildPartOriginSeeds.Clear();
             ResetReFlyPostLoadSettle();
             highFidelityProximityVesselPids.Clear();
 
@@ -6403,6 +6469,7 @@ namespace Parsek
 
             CaptureAtStop = null;
             HasPendingJointBreakCheck = false;
+            pendingJointChildPartOriginSeeds.Clear();
 
             // Re-register the Harmony patch and part event hooks
             Patches.PhysicsFramePatch.ActiveRecorder = this;
