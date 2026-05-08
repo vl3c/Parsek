@@ -1099,6 +1099,7 @@ namespace Parsek
 
             var state = new GhostPlaybackState
             {
+                vesselName = rec.VesselName ?? "Unknown",
                 ghost = ghost,
                 // cameraPivot intentionally null — RecalculateCameraPivot no-ops
                 // reentryFxInfo intentionally null — RebuildReentryMeshes no-ops
@@ -1886,10 +1887,32 @@ namespace Parsek
                 $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
-            // KSC scene has no FXMonger instance (it's a flight-scene MonoBehaviour); keep the custom FX here.
-            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
-            if (explosion != null)
-                Destroy(explosion, 6f);
+            double power = Mathf.Clamp01(vesselLength / 20f);
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-explode-{recIdx}",
+                $"Stock FXMonger.Explode for KSC ghost #{recIdx} \"{rec.VesselName}\" " +
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                10.0);
+
+            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult =
+                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+            GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                worldPos,
+                power,
+                vesselLength,
+                $"KSC ghost #{recIdx} \"{rec.VesselName}\"",
+                $"ksc-stock-explosion-audio-busy-{recIdx}",
+                recordResult: result => stockResult = result);
+
+            if (stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
+            {
+                GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                    worldPos,
+                    state.atmosphereFactor,
+                    GhostPlaybackLogic.ResolveAudioPriorityDistance(state),
+                    $"KSC ghost #{recIdx} \"{rec.VesselName}\"",
+                    $"ksc-explicit-explosion-audio-busy-{recIdx}");
+            }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
         }
