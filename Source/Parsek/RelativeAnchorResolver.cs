@@ -684,6 +684,8 @@ namespace Parsek
                 return;
 
             double candidate = 1.0 / sampleRateHz;
+            // Adjacent sections can report different rates; use the slower
+            // cadence so the gap threshold survives an asymmetric pair.
             if (!IsFinite(cadenceSeconds) || candidate > cadenceSeconds)
                 cadenceSeconds = candidate;
         }
@@ -825,6 +827,9 @@ namespace Parsek
                 return false;
             }
 
+            // Match normal absolute interpolation: interpolate recorded
+            // surface-relative rotation, and sample body rotation at the
+            // bracket start. Gap fallback spans are capped at <= 0.10 s.
             Quaternion bodyRotation = ResolveBodyWorldRotation(context, before);
             Quaternion surfaceRotation = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
             Quaternion worldRotation = TrajectoryMath.PureMultiply(bodyRotation, surfaceRotation);

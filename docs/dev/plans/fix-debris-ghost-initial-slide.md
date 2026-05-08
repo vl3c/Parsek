@@ -165,14 +165,14 @@ No mandatory in-game test is planned for the renderer fix: the resolver and play
 - Recorder-only fix is insufficient for existing saves; renderer compatibility is required.
 - Renderer-only fix leaves future logs noisy and permits new gaps; recorder prevention should follow.
 
-## Open Questions
+## Implemented Decisions And Follow-Ups
 
-- What exact recorder branch creates the `0.04 s` parent-section gaps at breakup UTs?
-- Is the cadence-based threshold formula tuned correctly under high-warp, low-fps, or sparse-sample runtime conditions?
-- After the resolver compatibility fix, does the existing repro still ever select the section-start absolute-shadow list whose first sample is `57.800`? If yes, add a recorder-side section-start absolute shadow seed fix before declaring the slide fixed.
-- Does the child debris recorder's first-frame UT intentionally line up with the parent's first post-breakup frame, or is there a second child-side start-window gap that needs a recorder seed fix?
+- Renderer compatibility landed in `RelativeAnchorResolver.TryResolveRecordingPose` as the guarded small-gap fallback described above.
+- Recorder prevention landed in `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`: reopened sections start at the payload seed UT, and discarded zero-frame sections no longer hide the last persisted payload section during resume.
+- Remaining follow-ups stay tracked in `docs/dev/todo-and-known-bugs.md`: generic section-boundary endUT epsilon handling and sparse relative-sample debris discontinuities.
+- Threshold tuning under unusual high-warp / low-fps sampling remains a telemetry question; the implementation keeps the hard `0.10 s` cap and logs each fallback window.
 
-## Review Pass 1 Notes
+## Review Notes
 
 A GPT-5.5 xhigh review of this plan agreed with renderer-first ordering and the narrow two-part surface: `RelativeAnchorResolver` compatibility, then recorder prevention at the parent `FlightRecorder` split/resume seam. The review's required tightenings have been incorporated above:
 

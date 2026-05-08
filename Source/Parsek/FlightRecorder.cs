@@ -6605,9 +6605,11 @@ namespace Parsek
 
         private bool TryGetFalseAlarmResumeTrackSection(out TrackSection section)
         {
-            // Prefer the recorder's most recently closed section snapshot even when it was
-            // discarded instead of persisted (e.g. a <1s zero-frame RELATIVE flicker).
-            if (currentTrackSection.frames != null || currentTrackSection.checkpoints != null)
+            // Prefer the recorder's most recently closed section snapshot only when it
+            // carries a payload we can seed or resume from. A discarded zero-frame
+            // section has metadata but no coverage, so using it would reopen at the
+            // later resume UT and leave the prior persisted section's boundary uncovered.
+            if (TrackSectionHasResumePayload(currentTrackSection))
             {
                 section = currentTrackSection;
                 return true;
@@ -6621,6 +6623,13 @@ namespace Parsek
 
             section = default;
             return false;
+        }
+
+        private static bool TrackSectionHasResumePayload(TrackSection section)
+        {
+            return (section.frames != null && section.frames.Count > 0)
+                || (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                || (section.checkpoints != null && section.checkpoints.Count > 0);
         }
 
         /// <summary>
