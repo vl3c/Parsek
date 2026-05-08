@@ -29,7 +29,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Partial - Rewind-to-Launch left source recording's ghost suppressed after prior Re-Fly
+## Done - Rewind-to-Launch left source recording's ghost suppressed after prior Re-Fly
 
 - ~~After two Re-Flys on a Kerbal X recording (slot=1 Probe at 17:33:30 then slot=0 booster at 17:34:42), the user clicked Rewind on the launch row and re-launched. The original Kerbal X recording (#0) AND the original Kerbal X Probe recording (#7) stayed skipped from playback with `reason=superseded-by-relation` (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:129371-129373`). The supersede rows from the prior Re-Flys persisted through Rewind, so the rewound recordings stayed under suppression even though the rewindUT (6.52) was well before the forks' StartUT (31.56).~~
 
@@ -37,13 +37,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Note:** The user-visible bug (no launch ghost during a post-rewind re-launch) reduces to *just* the supersede-rewind interaction. The mainline `BuildRewindStripNames` strip-by-name + 15s wind-back + `LoadScene(SPACECENTER)` flow is unchanged — those mechanics work correctly on both main and the stack and are not the regression source. Rewind without a prior Re-Fly was always working (no supersedes existed to suppress).
 
-**Residual gap (`logs/2026-05-08_1929_rewind-supersede-drop-playtest`):** the in-memory drop fires correctly (`Dropped 1 supersede relation(s) rewound out of existence` log line confirms), but post-`LoadScene(SPACECENTER)` `RecordingSupersedes loaded: 1` shows the ledger restored to the pre-drop count. The rewind save's `.sfs` has 0 RECORDING_SUPERSEDES entries on disk, yet the post-load count is 1, so a KSP scenario-state path bypasses the on-disk ConfigNode (likely the in-memory ScenarioModule data carry-over across same-scene transitions). Persistent.sfs at session end still contains the supersede row. This means a Probe ghost (#7) whose `OldRecordingId` row survives the LoadScene boundary stays suppressed during post-rewind playback (`KSP.log:81027+` show repeated `GuardSkip ... reason=superseded-by-relation` for `recId=bb483f09…` at ~120 frames/sec). The booster ghost (#0) replays correctly only because it has no supersede row of its own in this playtest; the original two-Re-Fly failure case (where both #0 and #7 carry supersede rows) was not reproduced in the smoke test.
-
-**Fix direction (separate PR):** the in-memory drop must be made stick across `LoadScene`. Two candidate approaches:
-1. **Mutate `game.scenarios[parsek].dataNode` directly** before `LoadScene` — find the `RECORDING_SUPERSEDES` node inside the loaded Game's scenario node and remove the dropped entries there too, so the new ScenarioModule's OnLoad reads the post-drop state.
-2. **Move the drop to a post-load hook** (e.g. inside `ParsekScenario.OnLoad`'s rewind-staging branch when `RewindContext.IsRewinding`). Persist a `RewindContext.PendingSupersedeDrops` static set bridging the LoadScene boundary, apply it after `LoadRewindStagingState` runs.
-
-Option 1 is closer to the existing `PreProcessRewindSave` pattern (mutate the loaded data before KSP parses it). Option 2 is more general but adds a new bridging mechanism.
+**Cross-LoadScene persistence:** the initial implementation only mutated the in-memory `ParsekScenario.Instance.RecordingSupersedes` list. KSP's scenario-state restoration across the LoadScene boundary repopulated the dropped rows (post-rewind log showed `RecordingSupersedes loaded: 1` despite the rewind save's `.sfs` having 0 RECORDING_SUPERSEDES entries on disk — `logs/2026-05-08_1929_rewind-supersede-drop-playtest`). PR #774 closes the gap with `RecordingStore.ReapplyRewindSupersedeDropAfterLoad()`, called from `ParsekScenario.OnLoad`'s new `supersede-rewind-reapply` phase right after `LoadRewindStagingState`. The owner's id survives LoadScene via the static `RewindReplayTargetRecordingId` (set in `BeginRewindForOwner`); after load, the owner is resolved from `committedRecordings`, the drop predicate re-runs against the freshly-loaded supersede list, and the version counter bumps so `EffectiveState.ComputeERS()` rebuilds.
 
 ---
 

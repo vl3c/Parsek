@@ -289,6 +289,59 @@ namespace Parsek.Tests
             Assert.Empty(supersedes);
         }
 
+        // ---- Cross-LoadScene re-apply path coverage ----
+
+        [Fact]
+        public void TryFindCommittedRecordingById_ReturnsRecording_WhenIdMatches()
+        {
+            var rec = MakeRec("foo", startUT: 6.5);
+            RecordingStore.AddCommittedInternal(rec);
+            try
+            {
+                var found = RecordingStore.TryFindCommittedRecordingById("foo");
+                Assert.Same(rec, found);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void TryFindCommittedRecordingById_ReturnsNull_OnNullEmptyOrUnknownId()
+        {
+            Assert.Null(RecordingStore.TryFindCommittedRecordingById(null));
+            Assert.Null(RecordingStore.TryFindCommittedRecordingById(""));
+            Assert.Null(RecordingStore.TryFindCommittedRecordingById("missing"));
+        }
+
+        [Fact]
+        public void ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenNotRewinding()
+        {
+            // Defensive: outside an active rewind, the re-apply must NOT mutate state.
+            // RewindContext.IsRewinding defaults to false in xUnit.
+            int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+            Assert.Equal(0, dropped);
+        }
+
+        [Fact]
+        public void ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenOwnerIdEmpty()
+        {
+            // Sanity: even if RewindContext.IsRewinding is true, with no owner id the
+            // re-apply must early-return without touching anything.
+            try
+            {
+                RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
+                // RewindReplayTargetRecordingId left null intentionally.
+                int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+                Assert.Equal(0, dropped);
+            }
+            finally
+            {
+                RewindContext.EndRewind();
+            }
+        }
+
         [Fact]
         public void OrphanRow_KeptWhenRelUT_BeforeRewindUT()
         {

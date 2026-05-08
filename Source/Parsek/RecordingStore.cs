@@ -4535,6 +4535,73 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Looks up a committed recording by id. Returns null when the id is null/empty
+        /// or no committed recording matches. O(N); used by post-LoadScene rewind
+        /// hooks where the owner reference doesn't survive but its id does
+        /// (<see cref="RewindReplayTargetRecordingId"/>).
+        /// </summary>
+        internal static Recording TryFindCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Re-applies the rewind-time supersede drop after <see cref="ParsekScenario.OnLoad"/>
+        /// has reloaded <see cref="ParsekScenario.RecordingSupersedes"/> from the scenario
+        /// node. Without this, the in-memory drop performed in <see cref="InitiateRewind"/>
+        /// is reverted by KSP's scenario-state restoration across the LoadScene boundary,
+        /// leaving the rewound source's branch ghosts (e.g. an upper-stage Probe at #7)
+        /// suppressed via <c>reason=superseded-by-relation</c> for the rest of the
+        /// session.
+        ///
+        /// <para>
+        /// Mechanism: the rewound owner's id is preserved across LoadScene in the static
+        /// <see cref="RewindReplayTargetRecordingId"/> (set by
+        /// <see cref="SetRewindReplayTargetScope"/> inside <see cref="BeginRewindForOwner"/>).
+        /// After load, we resolve the owner from committed state and re-run the drop
+        /// against the freshly-loaded supersede list using
+        /// <see cref="RewindContext.RewindAdjustedUT"/> as the threshold.
+        /// </para>
+        ///
+        /// <para>
+        /// Callers: <see cref="ParsekScenario.OnLoad"/>, immediately after
+        /// <see cref="ParsekScenario.LoadRewindStagingState"/>, gated on
+        /// <see cref="RewindContext.IsRewinding"/>.
+        /// </para>
+        ///
+        /// Returns the number of relations dropped on this re-apply pass.
+        /// </summary>
+        internal static int ReapplyRewindSupersedeDropAfterLoad()
+        {
+            if (!RewindContext.IsRewinding) return 0;
+            string ownerId = RewindReplayTargetRecordingId;
+            if (string.IsNullOrEmpty(ownerId)) return 0;
+            Recording owner = TryFindCommittedRecordingById(ownerId);
+            if (owner == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"ReapplyRewindSupersedeDropAfterLoad: skipped — owner id '{ownerId}' "
+                        + "not found in committed recordings post-load (recording deleted?).");
+                return 0;
+            }
+            int dropped = DropSupersedesRewoundOutOfExistence(owner, RewindContext.RewindAdjustedUT);
+            if (dropped > 0 && !SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Re-applied supersede drop after LoadScene: dropped {dropped} relation(s) "
+                    + $"(rewindUT={RewindContext.RewindAdjustedUT:F1} owner='{owner.VesselName}')");
+            return dropped;
+        }
+
+        /// <summary>
         /// At rewind time, drops <see cref="RecordingSupersedeRelation"/> rows whose
         /// fork (<c>NewRecordingId</c>) starts at or after <paramref name="rewindAdjustedUT"/>
         /// AND whose source (<c>OldRecordingId</c>) belongs to the rewound owner's tree.

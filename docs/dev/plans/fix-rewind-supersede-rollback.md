@@ -99,14 +99,26 @@ Call site in `RecordingStore.InitiateRewind`:
 2. **Drop call** AFTER `RewindContext.SetAdjustedUT(game.flightState.universalTime)`
    and before `LoadScene(SPACECENTER)`. The drop has to run after `SetAdjustedUT`
    because the comparison uses `RewindAdjustedUT` (post-load value, with the
-   15 s wind-back applied). The drop also has to run before LoadScene so the
-   updated supersede list is visible to the post-load OnSave that persists
-   the rewind-staging state.
+   15 s wind-back applied).
 
-Persistence: `RecordingSupersedes` is saved via `ParsekScenario`'s
-rewind-staging persist path (`OnSave: rewind-staging persist`). The drop is
-in-memory; the next OnSave (triggered by the scene transition) persists the
-new list automatically. No explicit force-save needed.
+**Cross-LoadScene re-apply** (load-bearing — discovered via 2026-05-08 19:29
+playtest): the in-memory mutation alone is not enough. KSP's scenario-state
+restoration across the `LoadScene(SPACECENTER)` boundary repopulates the
+dropped rows. The rewind save's `.sfs` had 0 RECORDING_SUPERSEDES entries on
+disk, yet post-load `RecordingSupersedes loaded: 1` (some KSP scenario-state
+path bypasses the on-disk ConfigNode). To close the gap:
+
+3. **Static `RewindReplayTargetRecordingId`** already preserves the owner's
+   id across LoadScene (set in `BeginRewindForOwner` →
+   `SetRewindReplayTargetScope`).
+4. **`ReapplyRewindSupersedeDropAfterLoad()`** in `RecordingStore.cs` runs
+   inside `ParsekScenario.OnLoad`'s new `supersede-rewind-reapply` phase,
+   immediately after `LoadRewindStagingState`. Resolves the owner via
+   `TryFindCommittedRecordingById(RewindReplayTargetRecordingId)`, re-runs
+   the drop predicate against the freshly-loaded supersede list using
+   `RewindContext.RewindAdjustedUT` as the threshold, and bumps the cache
+   version. Gated on `RewindContext.IsRewinding` so non-rewind loads are a
+   no-op.
 
 ## Files touched
 

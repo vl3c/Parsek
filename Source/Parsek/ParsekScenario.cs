@@ -1177,6 +1177,17 @@ namespace Parsek
                 loadPhase = "rewind-staging";
                 LoadRewindStagingState(node);
 
+                // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
+                // performed in RecordingStore.InitiateRewind. The in-memory mutation
+                // there is reverted by KSP's scenario-state restoration across the
+                // LoadScene boundary, so without this re-apply the dropped rows return
+                // and downstream branch ghosts stay suppressed by
+                // `reason=superseded-by-relation` for the rest of the session. Gated
+                // internally on `RewindContext.IsRewinding` so non-rewind loads are
+                // a no-op.
+                loadPhase = "supersede-rewind-reapply";
+                RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 loadPhase = "game-state-recorder";
                 stateRecorder?.Unsubscribe();
