@@ -52,6 +52,8 @@ namespace Parsek
         private bool pauseMenuOpen;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
+        internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
+        internal static Func<int> UnpauseExplosionOneShotAudioAction = GhostPlaybackLogic.UnpauseExplosionOneShotAudio;
 
         // Tunables live in ParsekConfig.cs. KSC reuses the flight cap
         // (GhostPlayback.MaxOverlapGhostsPerRecording) so the two scenes stay
@@ -60,6 +62,9 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
+        // KSC playback is a Kerbin-surface scene; do not read GhostPlaybackState.atmosphereFactor
+        // here because flight's per-frame atmosphere refresh does not run in KSC.
+        private const float KscExplosionAtmosphereFactor = 1f;
 
         private readonly struct AutoLoopQueueCandidate
         {
@@ -612,10 +617,18 @@ namespace Parsek
             return !pauseMenuOpen && inCullRange;
         }
 
+        internal static bool ShouldQueueKscExplicitExplosionAudio(
+            bool pauseMenuOpen,
+            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult)
+        {
+            return !pauseMenuOpen
+                && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+        }
+
         void PauseGhostAudioIfMenuOpen(GhostPlaybackState state)
         {
             if (!pauseMenuOpen) return;
-            GhostPlaybackLogic.PauseAllAudio(state);
+            PauseGhostAudioAction(state);
         }
 
         /// <summary>
@@ -625,6 +638,11 @@ namespace Parsek
         {
             pauseMenuOpen = true;
             ApplyAudioActionToActiveGhosts(PauseGhostAudioAction, "OnGamePause");
+            int pausedOneShots = PauseExplosionOneShotAudioAction != null
+                ? PauseExplosionOneShotAudioAction()
+                : 0;
+            ParsekLog.Verbose("GhostAudio",
+                $"KSC OnGamePause: paused {pausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -634,6 +652,11 @@ namespace Parsek
         {
             pauseMenuOpen = false;
             ApplyAudioActionToActiveGhosts(UnpauseGhostAudioAction, "OnGameUnpause");
+            int unpausedOneShots = UnpauseExplosionOneShotAudioAction != null
+                ? UnpauseExplosionOneShotAudioAction()
+                : 0;
+            ParsekLog.Verbose("GhostAudio",
+                $"KSC OnGameUnpause: resumed {unpausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -1883,37 +1906,58 @@ namespace Parsek
             // returns the actual vessel mesh size (not inflated by engine plume particles).
             float vesselLength = GhostVisualBuilder.ComputeGhostLength(state.ghost);
 
+            string vesselName = rec.VesselName ?? "Unknown";
+            string context = $"KSC ghost #{recIdx} \"{vesselName}\"";
+
             ParsekLog.Info("KSCGhost",
-                $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
+                $"Explosion for ghost #{recIdx} \"{vesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
             double power = Mathf.Clamp01(vesselLength / 20f);
-            ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-explode-{recIdx}",
-                $"Stock FXMonger.Explode for KSC ghost #{recIdx} \"{rec.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
-                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
-                10.0);
-
             GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult =
                 GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
-            GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
-                worldPos,
-                power,
-                vesselLength,
-                $"KSC ghost #{recIdx} \"{rec.VesselName}\"",
-                $"ksc-stock-explosion-audio-busy-{recIdx}",
-                recordResult: result => stockResult = result);
 
-            // Only stock-unavailable failures get explicit audio. The audio-busy branch
-            // already means another explosion sound is active, so it stays visual-only.
-            if (stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
+            if (GhostVisualBuilder.IsFxMongerLive())
             {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-explode-{recIdx}",
+                    $"Stock FXMonger.Explode for {context} " +
+                    $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                    $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                    10.0);
+
+                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    worldPos,
+                    power,
+                    vesselLength,
+                    context,
+                    $"ksc-stock-explosion-audio-busy-{recIdx}",
+                    recordResult: result => stockResult = result);
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-unavailable-{recIdx}",
+                    $"Stock explosion FX unavailable for {context}; spawning custom visual FX and using explicit gated audio",
+                    10.0);
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            }
+
+            if (ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult))
+            {
+                // If a live stock controller fails after reserving the gate, the helper releases
+                // before this explicit fallback. KSC playback runs on Unity's single update thread,
+                // so no other ghost can interleave between result capture and this reservation.
                 GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
                     worldPos,
-                    state.atmosphereFactor,
+                    KscExplosionAtmosphereFactor,
                     GhostPlaybackLogic.ResolveAudioPriorityDistance(state),
-                    $"KSC ghost #{recIdx} \"{rec.VesselName}\"",
+                    context,
                     $"ksc-explicit-explosion-audio-busy-{recIdx}");
+            }
+            else if (pauseMenuOpen && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
+            {
+                ParsekLog.VerboseRateLimited("GhostAudio", $"ksc-explicit-explosion-audio-paused-{recIdx}",
+                    $"Explosion one-shot skipped for {context} because the pause menu is open",
+                    1.0);
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);

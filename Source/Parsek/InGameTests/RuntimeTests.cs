@@ -9748,7 +9748,7 @@ namespace Parsek.InGameTests
             var ghostRoot = new GameObject("ParsekTest_KscExplosionAudioGhost");
             runner.TrackForCleanup(ghostRoot);
             ghostRoot.transform.position = Vector3.zero;
-            AudioClip clip = AudioClip.Create("parsek_test_ksc_explosion_silence", 44100, 1, 44100, false);
+            AudioClip clip = AudioClip.Create("parsek_test_ksc_explosion_silence", 88200, 1, 44100, false);
 
             try
             {
@@ -9790,6 +9790,22 @@ namespace Parsek.InGameTests
                     "Fallback explosion audio should use the same spatial blend as ghost one-shot audio");
                 InGameAssert.AreEqual(GhostAudioPresets.BaselineGameAudioPriority, createdSource.priority,
                     "Fallback explosion audio should use the same baseline priority as explosion one-shots");
+                InGameAssert.IsTrue(createdSource.isPlaying,
+                    "Fallback explosion audio source should be playing before pause");
+
+                int paused = GhostPlaybackLogic.PauseExplosionOneShotAudio();
+                yield return null;
+                InGameAssert.IsTrue(paused >= 1,
+                    "PauseExplosionOneShotAudio should pause the independent fallback source");
+                InGameAssert.IsFalse(createdSource.isPlaying,
+                    "Fallback explosion audio source should stop playing while paused");
+
+                int unpaused = GhostPlaybackLogic.UnpauseExplosionOneShotAudio();
+                yield return null;
+                InGameAssert.IsTrue(unpaused >= 1,
+                    "UnpauseExplosionOneShotAudio should resume the independent fallback source");
+                InGameAssert.IsTrue(createdSource.isPlaying,
+                    "Fallback explosion audio source should resume after unpause");
 
                 UnityEngine.Object.Destroy(ghostRoot);
                 yield return null;

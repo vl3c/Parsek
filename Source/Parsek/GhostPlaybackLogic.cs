@@ -27,6 +27,10 @@ namespace Parsek
         private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
         private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
         private static double explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
+        private static readonly List<AudioSource> activeExplosionOneShotAudioSources =
+            new List<AudioSource>();
+        private static readonly List<AudioSource> pausedExplosionOneShotAudioSources =
+            new List<AudioSource>();
         internal const string ExplosionOneShotAudioObjectName = "GhostExplosionAudio";
         internal static Func<GhostPlaybackState, bool> EnforceLoopedAudioPlaybackCapOverrideForTesting;
         internal delegate bool TryReserveExplosionSoundDelegate(float clipLengthSeconds, out double busyUntilRealtimeSeconds);
@@ -658,6 +662,8 @@ namespace Parsek
             loopIntervalClampWarned.Clear();
             ResetFlagReplayOverridesForTesting();
             explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
+            activeExplosionOneShotAudioSources.Clear();
+            pausedExplosionOneShotAudioSources.Clear();
             EnforceLoopedAudioPlaybackCapOverrideForTesting = null;
         }
 
@@ -3316,6 +3322,7 @@ namespace Parsek
                 source.loop = false;
                 source.playOnAwake = false;
                 source.volume = 1f;
+                TrackExplosionOneShotAudioSource(source);
                 source.PlayOneShot(candidate.clip, candidate.volume);
                 UnityEngine.Object.Destroy(
                     sourceObject,
@@ -3327,6 +3334,78 @@ namespace Parsek
                     UnityEngine.Object.Destroy(sourceObject);
                 throw;
             }
+        }
+
+        internal static int PauseExplosionOneShotAudio()
+        {
+            PruneExplosionOneShotAudioSources();
+            int paused = 0;
+            for (int i = 0; i < activeExplosionOneShotAudioSources.Count; i++)
+            {
+                AudioSource source = activeExplosionOneShotAudioSources[i];
+                if (source != null && source.isPlaying)
+                {
+                    source.Pause();
+                    if (!ContainsAudioSourceReference(pausedExplosionOneShotAudioSources, source))
+                        pausedExplosionOneShotAudioSources.Add(source);
+                    paused++;
+                }
+            }
+
+            return paused;
+        }
+
+        internal static int UnpauseExplosionOneShotAudio()
+        {
+            PruneExplosionOneShotAudioSources();
+            int unpaused = 0;
+            for (int i = 0; i < pausedExplosionOneShotAudioSources.Count; i++)
+            {
+                AudioSource source = pausedExplosionOneShotAudioSources[i];
+                if (source != null)
+                {
+                    source.UnPause();
+                    unpaused++;
+                }
+            }
+
+            pausedExplosionOneShotAudioSources.Clear();
+            return unpaused;
+        }
+
+        private static void TrackExplosionOneShotAudioSource(AudioSource source)
+        {
+            if (source == null)
+                return;
+
+            PruneExplosionOneShotAudioSources();
+            activeExplosionOneShotAudioSources.Add(source);
+        }
+
+        private static void PruneExplosionOneShotAudioSources()
+        {
+            PruneMissingAudioSources(activeExplosionOneShotAudioSources);
+            PruneMissingAudioSources(pausedExplosionOneShotAudioSources);
+        }
+
+        private static void PruneMissingAudioSources(List<AudioSource> sources)
+        {
+            for (int i = sources.Count - 1; i >= 0; i--)
+            {
+                if (sources[i] == null)
+                    sources.RemoveAt(i);
+            }
+        }
+
+        private static bool ContainsAudioSourceReference(List<AudioSource> sources, AudioSource source)
+        {
+            for (int i = 0; i < sources.Count; i++)
+            {
+                if (object.ReferenceEquals(sources[i], source))
+                    return true;
+            }
+
+            return false;
         }
 
         internal static float NormalizeOneShotDurationSeconds(float clipLengthSeconds)

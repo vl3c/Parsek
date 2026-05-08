@@ -22,6 +22,10 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekKSC.PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
+            ParsekKSC.UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
+            ParsekKSC.PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
+            ParsekKSC.UnpauseExplosionOneShotAudioAction = GhostPlaybackLogic.UnpauseExplosionOneShotAudio;
             RecordingStore.ResetForTesting();
         }
 
@@ -1302,6 +1306,21 @@ namespace Parsek.Tests
                 ParsekKSC.ShouldApplyRuntimeGhostEvents(pauseMenuOpen, inCullRange));
         }
 
+        [Theory]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, true)]
+        [InlineData(true, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned, false)]
+        public void ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed(
+            bool pauseMenuOpen,
+            int stockResultValue,
+            bool expected)
+        {
+            var stockResult = (GhostPlaybackLogic.StockExplosionFxWithAudioGateResult)stockResultValue;
+            Assert.Equal(expected,
+                ParsekKSC.ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult));
+        }
+
         [Fact]
         public void ApplyAudioActionToActiveGhosts_LogsVisitedCounts()
         {
@@ -1343,6 +1362,8 @@ namespace Parsek.Tests
             var onGamePause = typeof(ParsekKSC)
                 .GetMethod("OnGamePause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var previousPauseAction = ParsekKSC.PauseGhostAudioAction;
+            var previousExplosionPauseAction = ParsekKSC.PauseExplosionOneShotAudioAction;
+            int pausedIndependentOneShots = 0;
 
             typeof(ParsekKSC)
                 .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
@@ -1357,20 +1378,30 @@ namespace Parsek.Tests
             try
             {
                 ParsekKSC.PauseGhostAudioAction = state => visited.Add(state);
+                ParsekKSC.PauseExplosionOneShotAudioAction = () =>
+                {
+                    pausedIndependentOneShots++;
+                    return 3;
+                };
                 onGamePause.Invoke(host, null);
             }
             finally
             {
                 ParsekKSC.PauseGhostAudioAction = previousPauseAction;
+                ParsekKSC.PauseExplosionOneShotAudioAction = previousExplosionPauseAction;
             }
 
             Assert.True((bool)pauseField.GetValue(host));
             Assert.Equal(2, visited.Count);
+            Assert.Equal(1, pausedIndependentOneShots);
             Assert.Contains(primary, visited);
             Assert.Contains(overlap, visited);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostAudio]") &&
                 line.Contains("KSC OnGamePause: 1 primary + 1 overlap ghost(s)"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGamePause: paused 3 independent explosion one-shot source(s)"));
         }
 
         [Fact]
@@ -1385,6 +1416,8 @@ namespace Parsek.Tests
             var onGameUnpause = typeof(ParsekKSC)
                 .GetMethod("OnGameUnpause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var previousUnpauseAction = ParsekKSC.UnpauseGhostAudioAction;
+            var previousExplosionUnpauseAction = ParsekKSC.UnpauseExplosionOneShotAudioAction;
+            int unpausedIndependentOneShots = 0;
 
             typeof(ParsekKSC)
                 .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
@@ -1400,20 +1433,30 @@ namespace Parsek.Tests
             try
             {
                 ParsekKSC.UnpauseGhostAudioAction = state => visited.Add(state);
+                ParsekKSC.UnpauseExplosionOneShotAudioAction = () =>
+                {
+                    unpausedIndependentOneShots++;
+                    return 2;
+                };
                 onGameUnpause.Invoke(host, null);
             }
             finally
             {
                 ParsekKSC.UnpauseGhostAudioAction = previousUnpauseAction;
+                ParsekKSC.UnpauseExplosionOneShotAudioAction = previousExplosionUnpauseAction;
             }
 
             Assert.False((bool)pauseField.GetValue(host));
             Assert.Equal(2, visited.Count);
+            Assert.Equal(1, unpausedIndependentOneShots);
             Assert.Contains(primary, visited);
             Assert.Contains(overlap, visited);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostAudio]") &&
                 line.Contains("KSC OnGameUnpause: 1 primary + 1 overlap ghost(s)"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGameUnpause: resumed 2 independent explosion one-shot source(s)"));
         }
 
         #endregion
