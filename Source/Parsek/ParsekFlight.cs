@@ -13564,13 +13564,12 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    if (!GhostVisualBuilder.TryTriggerStockExplosionFx(pos, power, out string stockFxFailure))
-                    {
-                        ParsekLog.Warn("ExplosionFx",
-                            $"FXMonger.Explode did not queue stock FX for manual preview " +
-                            $"\"{previewRecording.VesselName}\"; falling back to custom FX: {stockFxFailure}");
-                        GhostVisualBuilder.SpawnExplosionFx(pos, len);
-                    }
+                    GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                        pos,
+                        power,
+                        len,
+                        $"manual preview \"{previewRecording.VesselName}\"",
+                        "manual-preview-stock-explosion-audio-busy");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);
