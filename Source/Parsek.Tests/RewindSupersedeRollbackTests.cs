@@ -38,6 +38,7 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -45,6 +46,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             RecordingStore.SuppressLogging = prevSuppress;
             RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         private static Recording MakeRec(string id, double startUT)
@@ -213,6 +215,66 @@ namespace Parsek.Tests
 
             Assert.Equal(2, dropped);
             Assert.Empty(supersedes);
+        }
+
+        [Fact]
+        public void DetailedRollback_MultiGenerationalChain_RetiresForksAndRestoresOnlyOrigin()
+        {
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            var c = MakeRec("C", startUT: 50.0);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }, { "C", c }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B"),
+                MakeRel("B", "C")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                a,
+                rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { a, b, c },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(2, result.DroppedRelationCount);
+            Assert.Contains("B", result.RetiredForkRecordingIds);
+            Assert.Contains("C", result.RetiredForkRecordingIds);
+            Assert.Contains("A", result.RestoredRecordingIds);
+            Assert.DoesNotContain("B", result.RestoredRecordingIds);
+            Assert.Empty(supersedes);
+        }
+
+        [Fact]
+        public void CanFastForwardAtUT_RewindRetiredRecording_ReturnsFalse()
+        {
+            var rec = MakeRec("fork", startUT: 100.0);
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 101.0 });
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_fork",
+                        RecordingId = "fork",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            });
+
+            bool canFastForward = RecordingStore.CanFastForwardAtUT(
+                rec,
+                now: 10.0,
+                out string reason,
+                isRecording: false);
+
+            Assert.False(canFastForward);
+            Assert.Contains("rewound out", reason);
         }
 
         [Fact]

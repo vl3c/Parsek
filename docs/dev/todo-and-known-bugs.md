@@ -49,6 +49,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Watch mode rendered both restored probe source and rewound-out Re-Fly fork
+
+- ~~Fresh logs from `logs/2026-05-09_0002_double-ghost-probe-booster` showed watch mode rendering two `Kerbal X Probe` ghosts after the PR #776/#777 stack: original probe branch `#8` (`038909d34c0846cf83f778cc982aab35`) and Re-Fly continuation `#11` (`rec_21dfc05ffb3e42288735ee9bf0ebfb66`). Both shared the same vessel/root part identity. The earlier supersede rollback restored #8 by dropping `#8 -> #11`, but #11 remained a committed, playback-enabled future fork, so both recordings were effective at once.~~
+
+**Fix:** Rewind supersede rollback now writes a persisted `RecordingRewindRetirement` row for each distinct dropped fork `NewRecordingId`. The retirement ledger is separate from `RecordingSupersedeRelation`: relation drop restores the old source, retirement hides the future fork that the player rewound out of the active timeline. `EffectiveState.ComputeERS`, flight/watch playback flags, KSC ghosts, Tracking Station ghost/map presence and materialize handoffs, deferred/held spawn queues, group hierarchy cleanup, recordings-table display, and fast-forward action guards all consume the combined timeline-inactive state. Scenario save/load and `ReconciliationBundle` round-trip retirements; `LoadTimeSweep` removes orphan retirements whose retired recording vanished, and `TreeDiscardPurge` removes retirements scoped to a discarded tree. Logs now distinguish `rewind-retired` from `superseded-by-relation`. Retirement is one-way for v1: a later similar future records a new fork rather than reactivating the retired one.
+
 ---
 
 ## Done - debris ghost initial-position slide during playback

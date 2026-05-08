@@ -242,11 +242,12 @@ namespace Parsek
             // TODO(phase 6+): migrate ParsekKSC to EffectiveRecordingId-keyed ghost dicts.
             var committed = RecordingStore.CommittedRecordings;
             var supersedes = CurrentRecordingSupersedes();
+            var retirements = CurrentRecordingRewindRetirements();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 string termKey = rec.TerminalStateValue?.ToString() ?? "<null>";
-                if (ShouldShowInKSC(rec, supersedes))
+                if (ShouldShowInKSC(rec, supersedes, retirements))
                 {
                     ghostCount++;
                     if (rec.LoopPlayback) loopingCount++;
@@ -324,6 +325,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
             var supersedes = CurrentRecordingSupersedes();
+            var retirements = CurrentRecordingRewindRetirements();
 
             double currentUT = Planetarium.GetUniversalTime();
 
@@ -339,12 +341,14 @@ namespace Parsek
             {
                 var rec = committed[i];
 
-                if (EffectiveState.IsSupersededByRelation(rec, supersedes))
+                TimelineInactiveReason inactiveReason;
+                bool inactive = IsTimelineInactiveForKsc(rec, supersedes, retirements, out inactiveReason);
+                if (inactive)
                 {
                     if (kscGhosts.ContainsKey(i))
                     {
                         ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{i} \"{rec.VesselName}\" superseded by relation - destroying");
+                            $"Ghost #{i} \"{rec.VesselName}\" inactive timeline reason={inactiveReason} - destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
                         loggedGhostSpawn.Remove(i);
@@ -1073,13 +1077,15 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldShowInKSC(Recording rec)
         {
-            return ShouldShowInKSC(rec, CurrentRecordingSupersedes());
+            return ShouldShowInKSC(rec, CurrentRecordingSupersedes(), CurrentRecordingRewindRetirements());
         }
 
         internal static bool ShouldShowInKSC(
-            Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
-            return !EffectiveState.IsSupersededByRelation(rec, supersedes)
+            return !IsTimelineInactiveForKsc(rec, supersedes, retirements, out _)
                 && IsKscStructurallyEligible(rec)
                 && rec.PlaybackEnabled;
         }
@@ -1090,6 +1096,36 @@ namespace Parsek
             return object.ReferenceEquals(null, scenario)
                 ? null
                 : scenario.RecordingSupersedes;
+        }
+
+        private static IReadOnlyList<RecordingRewindRetirement> CurrentRecordingRewindRetirements()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingRewindRetirements;
+        }
+
+        private static bool IsTimelineInactiveForKsc(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements,
+            out TimelineInactiveReason reason)
+        {
+            if (EffectiveState.IsSupersededByRelation(rec, supersedes))
+            {
+                reason = TimelineInactiveReason.SupersededByRelation;
+                return true;
+            }
+
+            if (EffectiveState.IsRewindRetired(rec, retirements))
+            {
+                reason = TimelineInactiveReason.RewindRetired;
+                return true;
+            }
+
+            reason = TimelineInactiveReason.None;
+            return false;
         }
 
         /// <summary>

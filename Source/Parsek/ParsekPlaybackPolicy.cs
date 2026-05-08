@@ -136,18 +136,18 @@ namespace Parsek
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
 
             int detected = 0;
             int abandoned = 0;
-            int skippedSuperseded = 0;
+            int skippedTimelineInactive = 0;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (IsRelationSuperseded(rec, relationSupersededIds))
+                if (IsTimelineInactive(rec, timelineInactiveIds))
                 {
-                    skippedSuperseded++;
+                    skippedTimelineInactive++;
                     continue;
                 }
 
@@ -221,9 +221,9 @@ namespace Parsek
             if (detected > 0)
                 ParsekLog.Info("Policy",
                     $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned");
-            if (skippedSuperseded > 0)
-                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-superseded-by-relation",
-                    $"RunSpawnDeathChecks: skipped {skippedSuperseded} superseded-by-relation recording(s)");
+            if (skippedTimelineInactive > 0)
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
+                    $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
         }
 
         /// <summary>
@@ -248,8 +248,8 @@ namespace Parsek
                 ? IsWarpActiveOverrideForTesting()
                 : GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
             var committed = RecordingStore.CommittedRecordings;
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
-            PurgeRelationSupersededDeferredQueues(relationSupersededIds);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
+            PurgeTimelineInactiveDeferredQueues(timelineInactiveIds);
 
             if (!GhostPlaybackLogic.ShouldFlushDeferredSpawns(
                     pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count,
@@ -266,7 +266,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (IsRelationSuperseded(rec, relationSupersededIds))
+                if (IsTimelineInactive(rec, timelineInactiveIds))
                     continue;
 
                 bool pendingSpawn = pendingSpawnRecordingIds.Contains(rec.RecordingId);
@@ -419,33 +419,35 @@ namespace Parsek
                 pendingWatchRecordingId = null;
         }
 
-        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+        private static HashSet<string> CurrentTimelineInactiveRecordingIds(
             IReadOnlyList<Recording> committed)
         {
             var scenario = ParsekScenario.Instance;
-            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            var inactive = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
+            return new HashSet<string>(inactive.Keys, StringComparer.Ordinal);
         }
 
-        private static bool IsRelationSuperseded(
+        private static bool IsTimelineInactive(
             Recording rec,
-            HashSet<string> relationSupersededIds)
+            HashSet<string> timelineInactiveIds)
         {
             return rec != null
                 && !string.IsNullOrEmpty(rec.RecordingId)
-                && relationSupersededIds != null
-                && relationSupersededIds.Contains(rec.RecordingId);
+                && timelineInactiveIds != null
+                && timelineInactiveIds.Contains(rec.RecordingId);
         }
 
-        private void PurgeRelationSupersededDeferredQueues(
-            HashSet<string> relationSupersededIds)
+        private void PurgeTimelineInactiveDeferredQueues(
+            HashSet<string> timelineInactiveIds)
         {
-            if (relationSupersededIds == null || relationSupersededIds.Count == 0)
+            if (timelineInactiveIds == null || timelineInactiveIds.Count == 0)
                 return;
 
             var purged = new HashSet<string>();
-            foreach (var id in relationSupersededIds)
+            foreach (var id in timelineInactiveIds)
             {
                 if (pendingSpawnRecordingIds.Remove(id))
                     purged.Add(id);
@@ -456,7 +458,7 @@ namespace Parsek
             }
 
             bool clearedWatch = !string.IsNullOrEmpty(pendingWatchRecordingId)
-                && relationSupersededIds.Contains(pendingWatchRecordingId);
+                && timelineInactiveIds.Contains(pendingWatchRecordingId);
             if (clearedWatch)
                 pendingWatchRecordingId = null;
 
@@ -464,7 +466,7 @@ namespace Parsek
             {
                 ParsekLog.Info("Policy",
                     $"Purged {purged.Count} deferred spawn/flag replay id(s) " +
-                    $"supersededByRelation; clearedWatch={clearedWatch}");
+                    $"timelineInactive; clearedWatch={clearedWatch}");
             }
         }
 
@@ -693,7 +695,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             var relationSupersededIds = RelationSupersededIdsOverrideForTesting != null
                 ? RelationSupersededIdsOverrideForTesting(committed)
-                : CurrentRelationSupersededRecordingIds(committed);
+                : CurrentTimelineInactiveRecordingIds(committed);
             float now = CurrentRealTimeOverrideForTesting != null
                 ? CurrentRealTimeOverrideForTesting()
                 : CurrentUnityRealTime();
@@ -762,10 +764,10 @@ namespace Parsek
 
                     case HeldGhostAction.ReleaseSupersededByRelation:
                         ParsekLog.Info("Policy",
-                            $"Held ghost released (superseded by relation): #{index} \"{info.vesselName}\" " +
+                            $"Held ghost released (timeline inactive): #{index} \"{info.vesselName}\" " +
                             $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
                         if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
-                        toRelease.Add(new KeyValuePair<int, string>(index, "held-superseded-by-relation"));
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-timeline-inactive"));
                         break;
 
                     case HeldGhostAction.Timeout:

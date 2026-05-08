@@ -19,6 +19,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.ClockOverrideForTesting = () => 1000.0;
             RecordingStore.SuppressLogging = true;
         }
 

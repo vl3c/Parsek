@@ -356,6 +356,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneUnusedHierarchyEntries_RewindRetiredGroupsStillPruned()
+        {
+            GroupHierarchyStore.groupParents["Retired Mission / Debris"] = "Retired Mission";
+            GroupHierarchyStore.hiddenGroups.Add("Retired Mission / Debris");
+
+            var retired = MakeTreeRecording("retired-fork", "Retired Booster", "tree-retired-groups");
+            retired.RecordingGroups = new List<string> { "Retired Mission / Debris" };
+            var restored = MakeTreeRecording("restored-origin", "Restored Booster", "tree-retired-groups");
+            restored.RecordingGroups = new List<string> { "Restored Mission" };
+            RecordingStore.AddRecordingWithTreeForTesting(retired);
+            RecordingStore.AddRecordingWithTreeForTesting(restored);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_retired_fork",
+                        RecordingId = retired.RecordingId,
+                        RestoredRecordingId = restored.RecordingId,
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            });
+
+            int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test-retired");
+
+            Assert.Equal(2, removed);
+            Assert.False(GroupHierarchyStore.HasGroupParent("Retired Mission / Debris"));
+            Assert.DoesNotContain("Retired Mission / Debris", GroupHierarchyStore.HiddenGroups);
+        }
+
+        [Fact]
         public void ClearCommitted_PrunesGroupHierarchy()
         {
             GroupHierarchyStore.groupParents["Stale / Debris"] = "Stale";

@@ -236,6 +236,7 @@ namespace Parsek
             // warning on every load/save cycle.
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
+            int orphanRewindRetirements = SweepOrphanRewindRetirements(scenario);
             if (markerValid)
             {
                 ParsekLog.Verbose("GroupHierarchy",
@@ -271,6 +272,7 @@ namespace Parsek
                 $"selfSupersedes={selfSupersedes.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanSupersedes={orphanSupersedes.RetainedOrphans.ToString(CultureInfo.InvariantCulture)} " +
                 $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
+                $"removedOrphanRewindRetirements={orphanRewindRetirements.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
@@ -565,6 +567,58 @@ namespace Parsek
                 result.RetainedOrphans++;
             }
             return result;
+        }
+
+        private static int SweepOrphanRewindRetirements(ParsekScenario scenario)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RecordingRewindRetirements == null
+                || scenario.RecordingRewindRetirements.Count == 0)
+                return 0;
+
+            var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
+            int removed = 0;
+            int retainedWithMissingRestored = 0;
+            for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
+            {
+                var retirement = scenario.RecordingRewindRetirements[i];
+                if (retirement == null || string.IsNullOrEmpty(retirement.RecordingId))
+                {
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    continue;
+                }
+
+                bool retiredResolved = RecordingExists(retirement.RecordingId, knownRecordingIds);
+                if (!retiredResolved)
+                {
+                    ParsekLog.Info(SupersedeTag,
+                        $"Orphan rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                        $"recording={retirement.RecordingId}; removing");
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    continue;
+                }
+
+                bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                    && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
+                if (restoredMissing)
+                    retainedWithMissingRestored++;
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    "orphan rewind-retirement row(s); persists on next OnSave");
+            }
+            if (retainedWithMissingRestored > 0)
+            {
+                ParsekLog.Warn(SupersedeTag,
+                    $"Retained {retainedWithMissingRestored.ToString(CultureInfo.InvariantCulture)} " +
+                    "rewind-retirement row(s) whose restored recording no longer exists");
+            }
+            return removed;
         }
 
         // ------------------------------------------------------------------

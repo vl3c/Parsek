@@ -1115,6 +1115,7 @@ namespace Parsek
             // TODO(phase 6+): migrate recording table to recording-id-keyed rows.
             var committed = RecordingStore.CommittedRecordings;
             var supersedes = CurrentRecordingSupersedesForDisplay();
+            var retirements = CurrentRecordingRewindRetirementsForDisplay();
             double now = Planetarium.GetUniversalTime();
             recordingsWindowTooltipText = string.Empty;
 
@@ -1177,7 +1178,7 @@ namespace Parsek
                 HashSet<string> rootChainIds;
                 BuildGroupTreeData(committed, sortedIndices, KnownEmptyGroups,
                     out grpToRecs, out chainToRecs, out grpChildren,
-                    out rootGrps, out rootChainIds, supersedes);
+                    out rootGrps, out rootChainIds, supersedes, retirements);
 
                 // -- Build unified sorted root items --
                 var rootItems = new List<RootDrawItem>();
@@ -1215,7 +1216,7 @@ namespace Parsek
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
-                    if (IsSupersededForDisplay(rec, supersedes)) continue;
+                    if (IsInactiveForDisplay(rec, supersedes, retirements)) continue;
                     // Skip recordings that belong to groups (drawn inside group trees)
                     if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0) continue;
 
@@ -1334,7 +1335,10 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             var rec = committed[ri];
-            if (IsSupersededForDisplay(rec, supersedes ?? CurrentRecordingSupersedesForDisplay())) return false;
+            if (IsInactiveForDisplay(
+                    rec,
+                    supersedes ?? CurrentRecordingSupersedesForDisplay(),
+                    CurrentRecordingRewindRetirementsForDisplay())) return false;
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
 
             // Cross-link: detect target row during draw pass
@@ -2968,7 +2972,10 @@ namespace Parsek
             }
 
             if (!IsEffectiveReplacementForLaunchRewindOwner(
-                    rec, owner, CurrentRecordingSupersedesForDisplay()))
+                    rec,
+                    owner,
+                    CurrentRecordingSupersedesForDisplay(),
+                    CurrentRecordingRewindRetirementsForDisplay()))
             {
                 owner = null;
                 return false;
@@ -2985,11 +2992,14 @@ namespace Parsek
         internal static bool IsEffectiveReplacementForLaunchRewindOwner(
             Recording rec,
             Recording owner,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
             if (rec == null || owner == null) return false;
             if (string.IsNullOrEmpty(rec.RecordingId)
                 || string.IsNullOrEmpty(owner.RecordingId))
+                return false;
+            if (EffectiveState.IsRewindRetired(rec, retirements))
                 return false;
             if (supersedes == null || supersedes.Count == 0)
                 return false;
@@ -3626,6 +3636,17 @@ namespace Parsek
                             // flight path has additional steps (NotifyRecorder, recorder state)
                             // that don't apply outside flight.
                             double preJumpUT = Planetarium.GetUniversalTime();
+                            if (!RecordingStore.CanFastForwardAtUT(
+                                    capturedRec,
+                                    preJumpUT,
+                                    out string ffReason,
+                                    isRecording: false))
+                            {
+                                ParsekLog.Warn("FastForward",
+                                    $"Non-flight FF blocked for \"{capturedRec.VesselName}\" " +
+                                    $"id={capturedRec.RecordingId ?? "<none>"} — {ffReason}");
+                                return;
+                            }
                             double jumpDelta = capturedRec.StartUT - preJumpUT;
                             ParsekLog.Info("FastForward",
                                 string.Format(ic,
@@ -4948,7 +4969,8 @@ namespace Parsek
             out Dictionary<string, List<string>> grpChildren,
             out List<string> rootGrps,
             out HashSet<string> rootChainIds,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
             GroupHierarchyStore.EnsurePermanentRootGroupsAreRoot();
 
@@ -4957,12 +4979,13 @@ namespace Parsek
             // chainId -> list of recording indices
             chainToRecs = new Dictionary<string, List<int>>();
             supersedes = supersedes ?? CurrentRecordingSupersedesForDisplay();
+            retirements = retirements ?? CurrentRecordingRewindRetirementsForDisplay();
 
             for (int row = 0; row < sortedIndices.Length; row++)
             {
                 int ri = sortedIndices[row];
                 var rec = committed[ri];
-                if (IsSupersededForDisplay(rec, supersedes))
+                if (IsInactiveForDisplay(rec, supersedes, retirements))
                     continue;
 
                 // Multi-group: recording appears in each group it belongs to
@@ -5053,11 +5076,28 @@ namespace Parsek
                 : scenario.RecordingSupersedes;
         }
 
+        private static IReadOnlyList<RecordingRewindRetirement> CurrentRecordingRewindRetirementsForDisplay()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingRewindRetirements;
+        }
+
         private static bool IsSupersededForDisplay(
             Recording rec,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             return EffectiveState.IsSupersededByRelation(rec, supersedes);
+        }
+
+        private static bool IsInactiveForDisplay(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            return IsSupersededForDisplay(rec, supersedes)
+                || EffectiveState.IsRewindRetired(rec, retirements);
         }
     }
 }
