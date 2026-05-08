@@ -3,7 +3,7 @@
 ## Problem
 
 When the player ends a Re-Fly attempt at KSC / TS / Main Menu and clicks
-"Merge Re-Fly to Timeline" in the pre-transition merge dialog, a hidden
+"Merge" in the pre-transition merge dialog, a hidden
 policy decides whether the slot stays re-flyable or is **auto-sealed**
 (slot becomes immutable; the line of flight cannot be Re-Flown again).
 
