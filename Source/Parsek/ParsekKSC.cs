@@ -1904,6 +1904,8 @@ namespace Parsek
                 $"ksc-stock-explosion-audio-busy-{recIdx}",
                 recordResult: result => stockResult = result);
 
+            // Only stock-unavailable failures get explicit audio. The audio-busy branch
+            // already means another explosion sound is active, so it stays visual-only.
             if (stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
             {
                 GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(

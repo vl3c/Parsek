@@ -3299,24 +3299,34 @@ namespace Parsek
             if (candidate.clip == null)
                 throw new InvalidOperationException("candidate has no AudioClip");
 
-            var sourceObject = new GameObject(ExplosionOneShotAudioObjectName);
-            sourceObject.transform.position = worldPosition;
-            var source = sourceObject.AddComponent<AudioSource>();
-            source.clip = candidate.clip;
-            source.spatialBlend = GhostVisualBuilder.GhostAudioSpatialBlend;
-            source.panStereo = 0f;
-            source.dopplerLevel = 0f;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
-            source.minDistance = DistanceThresholds.GhostAudio.RolloffMinDistanceMeters;
-            source.maxDistance = DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters;
-            source.priority = candidate.priority;
-            source.loop = false;
-            source.playOnAwake = false;
-            source.volume = 1f;
-            source.PlayOneShot(candidate.clip, candidate.volume);
-            UnityEngine.Object.Destroy(
-                sourceObject,
-                NormalizeOneShotDurationSeconds(candidate.clipLengthSeconds) + 0.25f);
+            GameObject sourceObject = null;
+            try
+            {
+                sourceObject = new GameObject(ExplosionOneShotAudioObjectName);
+                sourceObject.transform.position = worldPosition;
+                var source = sourceObject.AddComponent<AudioSource>();
+                source.clip = candidate.clip;
+                source.spatialBlend = GhostVisualBuilder.GhostAudioSpatialBlend;
+                source.panStereo = 0f;
+                source.dopplerLevel = 0f;
+                source.rolloffMode = AudioRolloffMode.Logarithmic;
+                source.minDistance = DistanceThresholds.GhostAudio.RolloffMinDistanceMeters;
+                source.maxDistance = DistanceThresholds.GhostAudio.RolloffMaxDistanceMeters;
+                source.priority = candidate.priority;
+                source.loop = false;
+                source.playOnAwake = false;
+                source.volume = 1f;
+                source.PlayOneShot(candidate.clip, candidate.volume);
+                UnityEngine.Object.Destroy(
+                    sourceObject,
+                    NormalizeOneShotDurationSeconds(candidate.clipLengthSeconds) + 0.25f);
+            }
+            catch
+            {
+                if (sourceObject != null)
+                    UnityEngine.Object.Destroy(sourceObject);
+                throw;
+            }
         }
 
         internal static float NormalizeOneShotDurationSeconds(float clipLengthSeconds)
