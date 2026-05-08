@@ -23,9 +23,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 ## Open - debris relative-playback discontinuity under sparse anchor samples
 
 - Same playtest, same log: `Kerbal X Debris` ghosts (`rec=3461390b…`, `311b452f…`, etc.) showed `dM=13.21 expectedDM=3.54` and similar 3-7× over-shoots between consecutive playback frames at the spawn window of the slot=1 Re-Fly. The recorded relative-frame samples around UT 31 have a ~2 s gap (UT 31.04 → 33.04) with a large local-offset change between adjacent samples; playback interpolation overshoots when the parent anchor (Kerbal X booster) is moving at ~150 m/s in the gap. This shows up visually as the user's "glitchy probe-booster ghost" complaint.
-- **Fix direction:** prefer the absolute-shadow path or reject/smooth large relative-offset discontinuities when an atmospheric debris section has sparse relative samples.
+- **Fix direction:** reject/smooth large in-range relative-offset discontinuities or tighten atmospheric debris sampling. Parent-anchor misses are a separate playback contract: v12+ debris should retire rather than use stale absolute-shadow frames once the parent anchor is no longer resolvable.
 
-**Status:** OPEN 2026-05-08. Separate PR. Note: PR #769's `LegacyDebrisShadowGate` does not catch these because the recordings' `DebrisParentRecordingId` is set (v12+ debris from PR #770).
+**Status:** OPEN 2026-05-08. Separate PR. Note: PR #769's `LegacyDebrisShadowGate` does not catch these because the recordings' `DebrisParentRecordingId` is set (v12+ debris from PR #770); the parent-anchor-miss retirement follow-up only handles out-of-coverage disappearance, not sparse in-range local-offset smoothing.
+
+---
+
+## Done - v12 debris stayed visible through absolute-shadow fallback after parent-anchor miss
+
+- ~~Fresh follow-up logs from `logs/2026-05-08_2208_ghost-rendering-recording-followups` showed parent-anchored debris continuing through `RELATIVE recorded-anchor fallback to absolute shadow` after the parent recording stopped resolving. The stale shadow kept debris visible for a few frames with wrong motion instead of disappearing when it left the parent's recorded-relative coverage.~~
+
+**Fix:** `DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss` makes `IsDebris && DebrisParentRecordingId != null` a strict parent-relative playback contract. `ParsekFlight.InterpolateAndPositionRecordedRelative` now retires those ghosts before the generic absolute-shadow fallback at all recorded-anchor failure sites, and `GhostPlaybackEngine` retires them when no Relative section covers the normal, loop, watch-sync, or endpoint playback UT. Endpoint holds probe the actual selected orbit/checkpoint endpoint UT, so terminal orbit tails cannot outlive the relative coverage either; deterministic endpoint coverage misses complete cleanup without stale endpoint FX instead of retrying the hidden past-end path every frame. Legacy v11 debris with `DebrisParentRecordingId == null` keeps the existing `LegacyDebrisShadowGate` shadow path.
 
 ---
 
@@ -43,12 +51,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - ghost initialization position issue (post-Rewind / Re-Fly playback)
+## Done - debris ghost initial-position slide during playback
 
-- Observed during the 2026-05-08 19:29 playtest of the debris-rendering + rewind-supersede-drop stack: ghost initialization position is off in some path. Specifics to be filed by the reporter; this is a placeholder so the issue isn't lost.
-- Likely candidates to investigate first: the seam between PR #771's `TryRefreshForkSnapshotsFromLiveVessel` (which replaces both `VesselSnapshot` and `GhostVisualSnapshot` from the live post-Strip vessel) and the playback engine's first-frame ghost positioning; the `recording-start-snapshot` spawn path in `GhostPlaybackEngine`; and the section-boundary off-by-ε bug already filed above.
+- ~~Observed during the 2026-05-08 20:19 playtest of the debris-rendering + rewind-supersede-drop stack: v12 `Kerbal X Debris` ghosts spawned for several frames through `mode=SinglePoint`, then snapped 50-60 m when recorded-anchor resolution began succeeding. Concrete cases: `078fa8d7` ghost #1 at UT 57.28 popped 62.43 m, `5e7fea0a` ghost #3 at UT 58.58 popped 57.71 m, and `0ed97cde` ghost #5 at UT 59.94 popped 54.79 m.~~
 
-**Status:** OPEN 2026-05-08. Separate investigation; details TBD.
+**Fix:** `RelativeAnchorResolver.TryResolveRecordingPose` now handles only proven small intra-recording gaps before warning unresolved: the gap must be between adjacent sections, within a cadence-based threshold, and backed by an exact flat point or consecutive local bracket. Relative recordings must supply safe `absoluteFrames` via `TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections`; raw `Recording.Points` are only allowed for Absolute-only recordings. `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` now starts the reopened section at the boundary seed UT so new false-alarm stop/resume seams do not leave `prev.endUT -> next.startUT` holes.
+
+**Follow-up:** the 2026-05-08 22:17 Watch-mode log showed the old `SinglePoint` fallback was gone, but fresh breakup debris still initialized from a point tens of metres forward of the parent decoupler/attach origin. `FlightRecorder.OnPartJointBreak` now captures the pre-split `joint.Child` part origin as an absolute seed keyed by child part persistent ID, and `ParsekFlight.OnDecoupleNewVesselDuringSplitCheck` prefers that seed when the new debris vessel root part matches. `OnPartUndock` also carries an exact part-origin seed to the background branch only when the undocked part is the new vessel root; if the docking port is not the root, the seed is deliberately skipped because playback positions the vessel root, not an arbitrary port origin. Packed-vessel part-origin capture fails closed rather than mixing orbital-frame velocity into the seed. This is intentionally recorder-side only; old recordings keep their existing offsets.
+
+**Watch-mode hide follow-up:** the 2026-05-08 23:59 retained log showed `mode=SinglePoint` was gone, but parent-anchored debris still appeared during the recorded structural seed bridge. Example: recording `61573dc3...` starts its first Relative section at UT `226.54518554690023` with a `StructuralEventSnapshot` local offset near 77 m and reaches the first ordinary sample at UT `227.06518554690049` near 10 m. Revealing at UT `226.656` exposes that seed-to-sample interpolation as a visible back-to-front slide. `DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT` now identifies only v12+ parent-anchored debris with a first Relative structural seed and a first ordinary sample within one second, and `GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame` keeps those ghosts hidden with reason `debris-seed-bridge` until the bridge has elapsed. The 2026-05-09 `debris-init-position-inexact` follow-up showed first appearance could still land one render tick after the bridge end (`f44b52af` / `cf08fb37`: first ordinary sample `230.105`, appearance `230.123`, about 3.8 m forward). `ResolveVisiblePlaybackUT` now clamps that first visible debris frame to the bridge-end UT when the overshoot is inside the existing 0.02 s first-frame clamp window.
+
+**Remaining:** the separate `FindTrackSectionForUT` endUT ε issue and sparse-relative debris discontinuity remain open above; this fix targets the 50-60 m initial `SinglePoint` fallback slide plus the fresh Watch-mode structural seed bridge reveal. Existing recordings whose first ordinary sample is already offset from the true decoupler origin can still be intrinsically inexact; this gate only prevents showing the bridge motion into that sample.
 
 ---
 

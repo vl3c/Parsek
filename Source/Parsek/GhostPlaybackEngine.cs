@@ -1092,43 +1092,50 @@ namespace Parsek
             // is unresolvable.
             state.anchorRetiredThisFrame = false;
 
-            // Position the ghost
-            bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+            // Position the ghost. Parent-anchored v12+ debris is only valid
+            // while a recorded Relative section covers the playback UT; outside
+            // that coverage, hide instead of falling through to flat points,
+            // surface, or orbit-tail playback.
+            if (!TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
+            {
+                bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
 
-            if (hasInterpolatedPoints)
-            {
-                if (orbitTailPlayback)
+                if (hasInterpolatedPoints)
+                {
+                    if (orbitTailPlayback)
+                    {
+                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    }
+                    else if (!TryPositionRelativeSectionAtPlaybackUT(
+                                 i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                    {
+                        positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
+                    }
+                }
+                else if (hasPointData)
+                {
+                    // Relative single-point sections store metre offsets in
+                    // latitude/longitude/altitude fields; never fall through to
+                    // PositionAtPoint for them.
+                    if (orbitTailPlayback)
+                    {
+                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    }
+                    else if (!TryPositionRelativeSectionAtPlaybackUT(
+                                 i, traj, state, visiblePlaybackUT, suppressVisualFx))
+                    {
+                        positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
+                    }
+                }
+                else if (hasSurfaceData)
+                {
+                    positioner.PositionAtSurface(i, traj, state);
+                }
+                else if (hasOrbitData)
                 {
                     positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
                 }
-                else if (!TryPositionRelativeSectionAtPlaybackUT(
-                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
-                {
-                    positioner.InterpolateAndPosition(i, traj, state, visiblePlaybackUT, suppressVisualFx);
-                }
-            }
-            else if (hasPointData)
-            {
-                // Relative single-point sections store metre offsets in
-                // latitude/longitude/altitude fields; never fall through to
-                // PositionAtPoint for them.
-                if (orbitTailPlayback)
-                {
-                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
-                }
-                else if (!TryPositionRelativeSectionAtPlaybackUT(
-                             i, traj, state, visiblePlaybackUT, suppressVisualFx))
-                {
-                    positioner.PositionAtPoint(i, traj, state, traj.Points[0]);
-                }
-            }
-            else if (hasSurfaceData)
-            {
-                positioner.PositionAtSurface(i, traj, state);
-            }
-            else if (hasOrbitData)
-            {
-                positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
             }
 
             // Bug #613 (PR #594 P1): when the relative positioner retired the
@@ -1180,6 +1187,8 @@ namespace Parsek
                         + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s absoluteBridgeMax="
                         + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s debrisSeedBridgeMax="
+                        + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s minFrames="
                         + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
@@ -1287,12 +1296,13 @@ namespace Parsek
                     state != null,
                     "ghostActive implies an existing GhostPlaybackState");
 
-                // Bug #613 follow-up: endpoint retirement is frame-local.
+                // Bug #613 follow-up: most endpoint retirement is frame-local.
                 // A RELATIVE anchor can resolve again through the recorded
                 // fallback path on a later frame, so keep the ghost alive and
                 // retry instead of marking completion or destroying state.
-                // While retired, policy must not observe the stale endpoint
-                // transform; FX are suppressed and the log below is rate-limited.
+                // Parent-anchored debris outside endpoint Relative coverage is
+                // deterministic; that branch completes below after suppressing
+                // stale endpoint side effects.
                 state.anchorRetiredThisFrame = false;
 
                 // Position ghost at the true recording endpoint.
@@ -1302,9 +1312,35 @@ namespace Parsek
                     state.anchorRetiredThisFrame);
                 if (endpointRetired)
                 {
-                    ApplyFrameVisuals(i, traj, state, ResolveRecordingEndpointPlaybackUT(traj),
+                    double endpointCoverageUT = ResolveRecordingEndpointCoverageUT(traj);
+                    // endpointCoverageUT may be after the visible endpoint sample for
+                    // orbit/checkpoint tails; suppressing events/FX makes this a
+                    // teardown-only visual pass.
+                    ApplyFrameVisuals(i, traj, state, endpointCoverageUT,
                         ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
                         allowTransientEffects: false);
+                    if (ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+                            traj, endpointCoverageUT))
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"past-end-coverage-retired-{i}",
+                            $"past-end completion finalized: parent-anchored debris outside relative coverage #{i} \"{traj?.VesselName}\"");
+                        DestroyGhost(i, traj, f,
+                            reason: "parent-anchored debris outside relative coverage at endpoint");
+                        completedEventFired.Add(i);
+                        deferredCompletedEvents.Add(new PlaybackCompletedEvent
+                        {
+                            Index = i,
+                            Trajectory = traj,
+                            State = state,
+                            Flags = f,
+                            GhostWasActive = false,
+                            PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
+                            LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
+                            CurrentUT = ctx.currentUT
+                        });
+                        return;
+                    }
+
                     ParsekLog.VerboseRateLimited("Engine", $"past-end-suppressed-{i}",
                         $"past-end completion suppressed: anchor retired ghost #{i} \"{traj?.VesselName}\"");
                     return;
@@ -1689,7 +1725,9 @@ namespace Parsek
                 traj, index, ctx.currentUT, loopUT, "loop-primary");
 
             // Position the loop ghost
-            positioner.PositionLoop(index, traj, state, loopUT, effectiveSuppressVisualFx);
+            PositionLoopAtPlaybackUT(
+                index, traj, state, loopUT, effectiveSuppressVisualFx,
+                "GhostPlaybackEngine.UpdateLoopPlayback");
 
             // Apply visual events
             bool loopRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -1905,7 +1943,9 @@ namespace Parsek
                         primaryState.anchorRetiredThisFrame = false;
                         GhostRenderTrace.BeginFrame(
                             traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
-                        positioner.PositionLoop(index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx);
+                        PositionLoopAtPlaybackUT(
+                            index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx,
+                            "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
                         bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             primaryState.anchorRetiredThisFrame);
                         GhostRenderTrace.EmitPostUpdate(
@@ -2075,7 +2115,9 @@ namespace Parsek
                 GhostRenderTrace.BeginFrame(
                     traj, index, ctx.currentUT, loopUT,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
-                positioner.PositionLoop(index, traj, ovState, loopUT, effectiveSuppressVisualFx);
+                PositionLoopAtPlaybackUT(
+                    index, traj, ovState, loopUT, effectiveSuppressVisualFx,
+                    "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps");
                 bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     ovState.anchorRetiredThisFrame);
                 GhostRenderTrace.EmitPostUpdate(
@@ -2190,13 +2232,21 @@ namespace Parsek
             if (state?.ghost == null || traj == null || positioner == null)
                 return;
 
-            positioner.PositionLoop(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true);
+            PositionLoopAtPlaybackUT(
+                index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true,
+                "GhostPlaybackEngine.PositionGhostAtLoopEndpoint");
         }
 
         private void PositionGhostAtRecordingEndpoint(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state)
         {
             if (state?.ghost == null || traj == null || positioner == null)
+                return;
+
+            double endpointCoverageUT = ResolveRecordingEndpointCoverageUT(traj);
+            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, endpointCoverageUT,
+                    "GhostPlaybackEngine.PositionGhostAtRecordingEndpoint"))
                 return;
 
             if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
@@ -2249,6 +2299,37 @@ namespace Parsek
 
             if (traj.HasOrbitSegments)
                 positioner.PositionFromOrbit(index, traj, state, traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT);
+        }
+
+        /// <summary>
+        /// Mirrors endpoint positioning order for relative-coverage checks.
+        /// Orbit tails and checkpoint-backed endpoints are positioned at their
+        /// selected orbit UT, not necessarily the last sampled point UT.
+        /// </summary>
+        internal static double ResolveRecordingEndpointCoverageUT(IPlaybackTrajectory traj)
+        {
+            double endpointUT = ResolveRecordingEndpointPlaybackUT(traj);
+            if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
+                return orbitEndpointUT;
+            if (TryGetCheckpointBackedOrbitEndpointUT(
+                    traj, endpointUT, out double checkpointOrbitEndpointUT, out _))
+                return checkpointOrbitEndpointUT;
+            return endpointUT;
+        }
+
+        internal static bool ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+            IPlaybackTrajectory traj)
+        {
+            return ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+                traj, ResolveRecordingEndpointCoverageUT(traj));
+        }
+
+        internal static bool ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(
+            IPlaybackTrajectory traj,
+            double endpointCoverageUT)
+        {
+            return ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj, endpointCoverageUT);
         }
 
         internal static double ResolveRecordingEndpointPlaybackUT(IPlaybackTrajectory traj)
@@ -2394,6 +2475,23 @@ namespace Parsek
             return true;
         }
 
+        internal static bool ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            IPlaybackTrajectory traj,
+            double playbackUT)
+        {
+            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj))
+                return false;
+
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return true;
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIdx < 0)
+                return true;
+
+            return traj.TrackSections[sectionIdx].referenceFrame != ReferenceFrame.Relative;
+        }
+
         private bool TryPositionRelativeSectionAtPlaybackUT(
             int index,
             IPlaybackTrajectory traj,
@@ -2402,11 +2500,66 @@ namespace Parsek
             bool suppressFx)
         {
             if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
-                return false;
+                return TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, playbackUT,
+                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT");
 
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
             return true;
+        }
+
+        private bool TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string callsite)
+        {
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+                return false;
+
+            GameObject ghost = state != null ? state.ghost : null;
+            if (!ReferenceEquals(ghost, null))
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
+            if (state != null)
+                state.anchorRetiredThisFrame = true;
+
+            string recordingId = traj?.RecordingId ?? "(none)";
+            string key = string.Concat(
+                "parent-anchored-debris-outside-relative-coverage|",
+                recordingId,
+                "|",
+                index.ToString(CultureInfo.InvariantCulture));
+            // Warn (not Verbose): no covering Relative section is a recording
+            // coverage gap, not the transient anchor-miss handled in ParsekFlight.
+            ParsekLog.WarnRateLimited(
+                "Anchor",
+                key,
+                "recorded-relative-retired: " +
+                "reason=parent-anchored-debris-outside-relative-coverage " +
+                $"recording=#{index.ToString(CultureInfo.InvariantCulture)} " +
+                $"vessel=\"{traj?.VesselName ?? state?.vesselName ?? "(unknown)"}\" " +
+                $"recordingId={recordingId} " +
+                $"playbackUT={playbackUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"callsite={callsite ?? "(unknown)"}",
+                5.0);
+            return true;
+        }
+
+        private void PositionLoopAtPlaybackUT(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double loopUT,
+            bool suppressFx,
+            string callsite)
+        {
+            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, loopUT, callsite))
+                return;
+
+            positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
         }
 
         #endregion
@@ -4289,6 +4442,11 @@ namespace Parsek
             if (!HasLoadedGhostVisuals(state) || traj == null || positioner == null)
                 return;
 
+            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, playbackUT,
+                    "GhostPlaybackEngine.PositionLoadedGhostAtPlaybackUT"))
+                return;
+
             if (ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
@@ -4486,6 +4644,21 @@ namespace Parsek
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
+
+            if (DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double debrisSeedBridgeEndUT))
+            {
+                double debrisSeedBridgeOvershoot = playbackUT - debrisSeedBridgeEndUT;
+                if (debrisSeedBridgeOvershoot > 0.0
+                    && debrisSeedBridgeOvershoot <= GhostPlayback.InitialVisibleFrameClampWindowSeconds)
+                {
+                    return debrisSeedBridgeEndUT;
+                }
+            }
+
             if (activationLead <= 0.0 || activationLead > GhostPlayback.InitialVisibleFrameClampWindowSeconds)
                 return playbackUT;
 
@@ -4553,6 +4726,37 @@ namespace Parsek
                     out double primerEndUT)
                 && playbackUT >= activationStartUT - 1e-6
                 && playbackUT <= primerEndUT + 1e-6;
+        }
+
+        internal static bool ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && playbackUT >= activationStartUT - 1e-6
+                && playbackUT < bridgeEndUT - 1e-6;
+        }
+
+        private static bool IsInitialDebrisSeedBridgeEndFrame(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT(
+                    traj,
+                    activationStartUT,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds,
+                    out double bridgeEndUT)
+                && Math.Abs(playbackUT - bridgeEndUT) <= 1e-6;
         }
 
         private static bool TryResolveInitialAbsoluteBridgeActivationEndUT(
@@ -4666,20 +4870,27 @@ namespace Parsek
             if (state == null)
                 return false;
 
-            bool withinRelativeWindow = ShouldHoldInitialRelativeActivationHidden(
+            bool withinDebrisSeedBridge = ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, playbackUT);
-            bool withinAbsoluteBridge = !withinRelativeWindow
+            bool withinRelativeWindow = !withinDebrisSeedBridge
+                && ShouldHoldInitialRelativeActivationHidden(
+                    traj, state, playbackUT);
+            bool withinAbsoluteBridge = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && ShouldHoldInitialAbsoluteBridgeActivationHidden(
                     traj, state, playbackUT);
-            bool withinAbsoluteToRelativePrimer = !withinRelativeWindow
+            bool withinAbsoluteToRelativePrimer = !withinDebrisSeedBridge
+                && !withinRelativeWindow
                 && !withinAbsoluteBridge
                 && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
                     traj, state, playbackUT);
-            bool withinUtWindow = withinRelativeWindow
+            bool withinUtWindow = withinDebrisSeedBridge
+                || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
             bool withinActivationSettle = !withinUtWindow
                 && CanEvaluateInitialActivationHidden(traj, state)
+                && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;
             bool shouldPrimeHiddenFrames = withinUtWindow || withinActivationSettle;
             if (shouldPrimeHiddenFrames && !state.initialRelativeActivationHiddenPrimed)
@@ -4693,13 +4904,15 @@ namespace Parsek
 
             if (shouldPrimeHiddenFrames)
             {
-                reason = withinRelativeWindow
-                    ? "relative-start"
-                    : (withinAbsoluteBridge
-                        ? "absolute-seed-bridge"
-                        : (withinAbsoluteToRelativePrimer
-                            ? "absolute-primer-to-relative"
-                            : "activation-settle"));
+                reason = withinDebrisSeedBridge
+                    ? "debris-seed-bridge"
+                    : (withinRelativeWindow
+                        ? "relative-start"
+                        : (withinAbsoluteBridge
+                            ? "absolute-seed-bridge"
+                            : (withinAbsoluteToRelativePrimer
+                                ? "absolute-primer-to-relative"
+                                : "activation-settle")));
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }

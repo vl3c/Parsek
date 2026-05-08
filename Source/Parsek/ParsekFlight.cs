@@ -3846,7 +3846,8 @@ namespace Parsek
         /// and starts a new FlightRecorder for the active child.
         /// </summary>
         void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
-            double branchUT, string evaCrewName = null, uint evaVesselPid = 0)
+            double branchUT, string evaCrewName = null, uint evaVesselPid = 0,
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
             ParsekLog.RecState("CreateSplitBranch:entry", CaptureRecorderState());
             if (pendingSplitRecorder == null)
@@ -3957,7 +3958,8 @@ namespace Parsek
                 activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
                 backgroundRecorder?.OnVesselBackgrounded(
                     backgroundVessel.persistentId,
-                    initialEnvironmentOverride: initialBackgroundEnvOverride);
+                    initialEnvironmentOverride: initialBackgroundEnvOverride,
+                    initialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)
@@ -3994,6 +3996,7 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Tree branch created: type={branchType}, " +
                 $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
+                (backgroundInitialTrajectoryPoint.HasValue ? ", bgInitialSeed=part-origin" : "") +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
             ParsekLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
 
@@ -4460,7 +4463,9 @@ namespace Parsek
             return true;
         }
 
-        IEnumerator DeferredUndockBranch(uint newVesselPid)
+        IEnumerator DeferredUndockBranch(
+            uint newVesselPid,
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
             yield return null; // defer one frame for KSP to finalize the split
 
@@ -4494,14 +4499,21 @@ namespace Parsek
                 // Debris filter
                 if (!IsTrackableVessel(newVessel))
                 {
-                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording");
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording " +
+                        $"capturedSeed={backgroundInitialTrajectoryPoint.HasValue}");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel is debris");
                     yield break;
                 }
 
                 // Player stays on remaining vessel (active), undocked vessel goes to background
                 Vessel activeVessel = FlightGlobals.ActiveVessel;
-                CreateSplitBranch(BranchPointType.Undock, activeVessel, newVessel, branchUT);
+                CreateSplitBranch(
+                    BranchPointType.Undock,
+                    activeVessel,
+                    newVessel,
+                    branchUT,
+                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
             finally
             {
@@ -7913,6 +7925,31 @@ namespace Parsek
             }
             recorder.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
             backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
+            uint undockedPartPid = undockedPart.persistentId;
+            uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
+            TrajectoryPoint? undockRootPartSeed = null;
+            if (ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
+                && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+                    undockedPart,
+                    undockEventUT,
+                    out TrajectoryPoint capturedUndockSeed))
+            {
+                undockRootPartSeed = capturedUndockSeed;
+                ParsekLog.Verbose("Flight",
+                    $"Undock root part-origin seed captured: part='{undockedPart.partInfo?.name}' " +
+                    $"pid={undockedPartPid} vesselPid={newPid} " +
+                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                string reason = ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
+                    ? "capture-failed"
+                    : "undocked-part-not-root";
+                ParsekLog.Verbose("Flight",
+                    $"Undock part-origin seed skipped: reason={reason} " +
+                    $"undockedPartPid={undockedPartPid} rootPartPid={undockedRootPartPid} " +
+                    $"vesselPid={newPid}");
+            }
 
             // Tree mode: create branch instead of chain segment.
             // Stop recorder synchronously to prevent OnPhysicsFrame interference.
@@ -7921,7 +7958,7 @@ namespace Parsek
             recorder = null;
             pendingSplitInProgress = true;
             Log($"onPartUndock: vessel split off (otherPid={newPid}) — starting deferred tree branch");
-            StartCoroutine(DeferredUndockBranch(newPid));
+            StartCoroutine(DeferredUndockBranch(newPid, undockRootPartSeed));
         }
 
         void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
@@ -9065,6 +9102,29 @@ namespace Parsek
             return recordedVesselPid != 0 && originalVesselPid == recordedVesselPid;
         }
 
+        internal delegate bool TryResolveTrajectoryPoint(uint persistentId, out TrajectoryPoint point);
+
+        internal static bool TrySelectDecouplePartOriginSeed(
+            uint rootPartPersistentId,
+            TryResolveTrajectoryPoint resolvePartOriginSeed,
+            out TrajectoryPoint seed)
+        {
+            seed = default;
+            if (rootPartPersistentId == 0u || resolvePartOriginSeed == null)
+                return false;
+
+            return resolvePartOriginSeed(rootPartPersistentId, out seed);
+        }
+
+        internal static bool ShouldUseUndockPartOriginSeed(
+            uint undockedPartPersistentId,
+            uint rootPartPersistentId)
+        {
+            return undockedPartPersistentId != 0u
+                && rootPartPersistentId != 0u
+                && undockedPartPersistentId == rootPartPersistentId;
+        }
+
         internal static double ResolveDeferredSplitBranchUT(
             double fallbackUT,
             double exactTriggerUT,
@@ -9173,17 +9233,44 @@ namespace Parsek
             if (decoupleControllerStatus != null)
                 decoupleControllerStatus[newVessel.persistentId] = hasController;
             double splitUT = Planetarium.GetUniversalTime();
+            uint rootPartPersistentId = newVessel.rootPart?.persistentId ?? 0u;
+            string seedSource = "none";
             if (decoupleCreatedTrajectoryPoints != null
                 && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
             {
-                decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
-                    BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                        newVessel, splitUT, preferRootPartSurfacePose: true);
+                FlightRecorder seedRecorder = recorder ?? pendingSplitRecorder;
+                TryResolveTrajectoryPoint resolvePartOriginSeed = null;
+                if (seedRecorder != null)
+                    resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
+                // On stock decoupler splits, KSP roots the new debris vessel at
+                // joint.Child; if it chooses a different root, this misses cleanly and
+                // falls back to the post-split root-part sample below.
+                if (TrySelectDecouplePartOriginSeed(
+                        rootPartPersistentId,
+                        resolvePartOriginSeed,
+                        out TrajectoryPoint partOriginSeed))
+                {
+                    decoupleCreatedTrajectoryPoints[newVessel.persistentId] = partOriginSeed;
+                    seedSource = "joint-child-part-origin";
+                }
+                else
+                {
+                    decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
+                        BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                            newVessel, splitUT, preferRootPartSurfacePose: true);
+                    seedSource = "new-vessel-root-part";
+                }
+            }
+            else if (decoupleCreatedTrajectoryPoints != null
+                     && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
+            {
+                seedSource = "already-captured";
             }
             ParsekLog.Info("Flight",
                 $"Decouple created vessel during recording: pid={newVessel.persistentId} " +
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
                 $"parts={newVessel.parts?.Count ?? 0} hasController={hasController} " +
+                $"rootPartPid={rootPartPersistentId} seedSource={seedSource} " +
                 $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"capturedSeed={(decoupleCreatedTrajectoryPoints != null && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId) ? "T" : "F")}");
         }
@@ -21916,7 +22003,7 @@ namespace Parsek
         /// dispatches are diagnosable independently of the existing
         /// resolver-failure shadow path (which keeps emitting
         /// `RELATIVE recorded-anchor fallback to absolute shadow` for
-        /// non-debris and v12+ debris).
+        /// non-debris recordings).
         ///
         /// Caller must guard with
         /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
@@ -21972,6 +22059,29 @@ namespace Parsek
             return true;
         }
 
+        private bool TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+            GameObject ghost,
+            int recordingIndex,
+            string recordingVesselName,
+            IPlaybackTrajectory trajectory,
+            RelativeSectionPlaybackTarget target,
+            GhostPlaybackState retireSignalState,
+            out InterpolationResult interpResult)
+        {
+            interpResult = InterpolationResult.Zero;
+            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
+                return false;
+
+            RetireUnresolvedRecordedRelative(
+                ghost,
+                recordingIndex,
+                recordingVesselName,
+                target,
+                retireSignalState,
+                "InterpolateAndPositionRecordedRelative.parent-anchored-debris");
+            return true;
+        }
+
         private bool TryUseRelativeAbsoluteShadowFallback(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
@@ -21983,6 +22093,21 @@ namespace Parsek
             bool suppressFallbackWarn = false)
         {
             interpResult = InterpolationResult.Zero;
+            // Parent-anchored v12+ debris has a strict recorded-relative
+            // contract: a parent-anchor miss hides the debris instead of
+            // replaying stale absolute-shadow frames. Keeping this guard inside
+            // the fallback helper prevents future callers from accidentally
+            // bypassing the retire path.
+            if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                    state?.ghost,
+                    recordingIndex,
+                    trajectory?.VesselName,
+                    trajectory,
+                    target,
+                    state,
+                    out interpResult))
+                return true;
+
             if (state?.ghost == null
                 || target.Section.referenceFrame != ReferenceFrame.Relative
                 || target.Section.absoluteFrames == null
@@ -22044,7 +22169,8 @@ namespace Parsek
             GhostPlaybackState retireSignalState,
             string callsite)
         {
-            if (ghost.activeSelf) ghost.SetActive(false);
+            if (!ReferenceEquals(ghost, null))
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (retireSignalState != null)
                 retireSignalState.anchorRetiredThisFrame = true;
 
