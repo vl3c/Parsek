@@ -374,7 +374,9 @@ The fix lives **inside `InitializeLoadedState`**, branching on `recording.Debris
 
 #### Parent on-rails hook (per Decision §10)
 
-Extend `CheckDebrisTTL` (`BackgroundRecorder.cs:1191-1242`). The existing loop iterates `kvp` over `debrisTTLExpiry` and uses `vesselPid = kvp.Key`, looking up `Vessel v = FlightRecorder.FindVesselByPid(vesselPid)` for the debris vessel itself. The new check needs to additionally look up the parent recording and parent vessel:
+> **Review-pass amendment (post-PR-3b).** The pseudocode below shows the v9 design. **Two of its end-conditions were rewritten during PR 3b review** because their original signals were buggy. The actual shipped implementation extracts the "parent closed/superseded" check into the pure-static `DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree)` predicate. See the "Why three end-conditions and not two" subsection below for the corrected logic and the rejected signals.
+
+Extend `CheckDebrisTTL` (`BackgroundRecorder.cs:1191-1242`). The existing loop iterates `kvp` over `debrisTTLExpiry` and uses `vesselPid = kvp.Key`, looking up `Vessel v = FlightRecorder.FindVesselByPid(vesselPid)` for the debris vessel itself. The new check needs to additionally look up the parent recording and parent vessel. **The shipped implementation:**
 
 ```
 // After the existing "v == null" / "TTL expired" / "!v.loaded" checks (which
@@ -392,17 +394,22 @@ if (!tree.Recordings.TryGetValue(child.DebrisParentRecordingId, out Recording pa
         $"parentRecId={child.DebrisParentRecordingId} childPid={vesselPid}");
     continue;
 }
-// Parent recording finalized while vessel still alive (the §"Bug evidence"
-// closed-coverage-hole case at UT 1213.398/1228.435): end the debris too.
-if (!double.IsNaN(parentRec.ExplicitEndUT) && parentRec.ExplicitEndUT < currentUT)
+// Parent recording closed/superseded (the §"Bug evidence" closed-coverage-hole
+// case): end the debris too. The DebrisParentStateGate predicate accepts the
+// parent as still-active iff it is tree.ActiveRecordingId OR
+// BackgroundMap[parent.VesselPersistentId] == parent.RecordingId. Anything
+// that fails BOTH active-pool checks is closed/superseded.
+if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
 {
     if (expired == null) expired = new List<uint>();
     expired.Add(vesselPid);
+    bool parentClosedAtSplit = !string.IsNullOrEmpty(parentRec.ChildBranchPointId);
     ParsekLog.Info("BgRecorder",
-        $"Debris TTL: parent recording finalized, ending recording: " +
+        $"Debris TTL: parent recording closed/superseded, ending recording: " +
         $"parentRecId={child.DebrisParentRecordingId} " +
-        $"parentEndUT={parentRec.ExplicitEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} childPid={vesselPid}");
+        $"parentClosedAtSplit={parentClosedAtSplit} " +
+        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+        $"childPid={vesselPid}");
     continue;
 }
 Vessel parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId);
@@ -421,7 +428,9 @@ if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
 
 Distinct log lines so the existing "vessel destroyed/despawned" path remains diagnosable independently. The new branches are keyed on `child.DebrisParentRecordingId != null` — legacy v11 debris (without the field) keeps its original lifetime contract. The `tree.Recordings.TryGetValue` lookup is O(1) and the parent vessel lookup mirrors the existing `FindVesselByPid` pattern used for the debris vessel itself.
 
-**Why three end-conditions and not two.** The `parentRec.ExplicitEndUT` check is what catches the §"Bug evidence" closed-coverage-hole case (parent finalized while still loaded). The `parentVessel == null || packed || !loaded` check catches scene-transition / timewarp / vessel destruction. Without the first check, a parent that finalizes its recording mid-life (e.g. the user manually stops recording the parent, or the parent's chain ends at a branch point) would let the debris keep recording Relative against an empty tail of parent data — exactly the failure mode evidenced by 49× `anchor-out-of-recorded-range` in the investigation bundle.
+**Why three end-conditions and not two.** The `DebrisParentStateGate` check is what catches the §"Bug evidence" closed-coverage-hole case (parent recording closed by a split, with the continuation owning the live vessel — the closed parent's `RecordingId` no longer matches `BackgroundMap[pid]` and isn't `ActiveRecordingId` either). The `parentVessel == null || packed || !loaded` check catches scene-transition / timewarp / vessel destruction. Without the first check, a parent whose recording is closed mid-life would let the debris keep recording Relative against a closed-and-superseded parent — exactly the failure mode evidenced by 49× `anchor-out-of-recorded-range` in the investigation bundle.
+
+**Two rejected signals during PR 3b review.** The original v9 design used `parentRec.ExplicitEndUT < currentUT` as the "finalized" signal. That's a real bug: active background recordings update `ExplicitEndUT` only at sample boundaries, so it lags the current frame by the sample interval. Treating that lag as "finalized" would have ended every v12 debris on the next TTL tick. A first replacement used `!string.IsNullOrEmpty(parentRec.ChildBranchPointId)` as the closed signal, but `ParsekFlight.ProcessBreakupEvent:5427` sets that field on the **active focused recording** for breakup-continuous design — the recording keeps growing past the breakup. So `ChildBranchPointId`-set is a chain-topology marker, not a recording-state marker. The shipped predicate uses positive evidence of "still active" (membership in `ActiveRecordingId` or `BackgroundMap`) rather than negative evidence of "closed." `ChildBranchPointId` remains a diagnostic-only hint logged via `parentClosedAtSplit` when the predicate fires on a non-active recording.
 
 #### Re-Fly settle window hook (per Decision §11)
 
@@ -815,7 +824,7 @@ Replaying `logs/2026-05-07_0113_debris-trajectory-rendering-investigation/` (or 
 - **2026-05-07, v9 (this revision):** Post-Opus-review-of-v8 precision fixes. v8's review confirmed the four hard v7 errors were addressed but flagged four remaining precision gaps where the plan would mislead a literal-reader implementer:
   - **Static accessor handle named.** Decision §11 + Step 3b §"Re-Fly settle window hook" now reference `Patches.PhysicsFramePatch.ActiveRecorder` explicitly (the static handle to the focus recorder, set at `FlightRecorder.cs:5463, 6382` and cleared at `5466, 6086, 6655, 8940`). Disambiguates `PhysicsFramePatch.GloopsRecorderInstance` (the separate Gloops handle) — Re-Fly settle is exclusive to the focus recorder, so the Gloops handle is intentionally NOT consulted. Spelled out the 5-line implementation body so the implementer doesn't have to invent it.
   - **Seed-point orchestration relocated to `InitializeLoadedState`.** v8 said "immediately after state creation in `OnVesselBackgrounded`," but state creation is actually inside `InitializeLoadedState` (`BackgroundRecorder.cs:2849+`), which is what `OnVesselBackgrounded` dispatches to. v9 moves the orchestration into `InitializeLoadedState` and explicitly notes the `StartBackgroundTrackSection` call at line 2909 must flip `Absolute → Relative` for debris. Estimate updated to ~30-40 lines of new code (not the localized one-line patch v8 implied). On-rails branch (`InitializeOnRailsState`) declared out-of-scope for the orchestration since debris-on-rails is unreachable on creation.
-  - **On-rails hook now also catches "parent recording finalized while still loaded."** v8's pseudocode only checked `parentVessel == null || packed || !loaded` — fine for scene transitions but missed the §"Bug evidence" closed-coverage-hole case (parent recording's `ExplicitEndUT` set while parent vessel still alive). v9 adds an explicit `!double.IsNaN(parentRec.ExplicitEndUT) && parentRec.ExplicitEndUT < currentUT` check ahead of the vessel-state check, with a distinct log line. This is what closes the gap on the 49× `anchor-out-of-recorded-range` failure mode at recording time (in addition to PR 3c's playback-time fix for legacy data).
+  - **On-rails hook now also catches "parent recording finalized while still loaded."** v8's pseudocode only checked `parentVessel == null || packed || !loaded` — fine for scene transitions but missed the §"Bug evidence" closed-coverage-hole case (parent recording's `ExplicitEndUT` set while parent vessel still alive). v9 adds an explicit `!double.IsNaN(parentRec.ExplicitEndUT) && parentRec.ExplicitEndUT < currentUT` check ahead of the vessel-state check, with a distinct log line. This is what closes the gap on the 49× `anchor-out-of-recorded-range` failure mode at recording time (in addition to PR 3c's playback-time fix for legacy data). **Superseded during PR 3b review (post-v12) — the `ExplicitEndUT < currentUT` signal was rejected because active background recordings update `ExplicitEndUT` only at sample boundaries, so it lags by the sample interval and would end every v12 debris on the next TTL tick. The shipped predicate is `DebrisParentStateGate.IsParentRecordingClosedOrSuperseded` — see §"Parent on-rails hook" above for the corrected logic.**
   - **Decision §10 parent-continuation propagation reframed as forward-compat.** v8's paragraph implied the chain composition was reachable today, but with `MaxRecordingGeneration = 1` debris can't have continuations. v9 restates as: propagation line is required at `BackgroundRecorder.cs:673` for forward compatibility, but the chain composition only matters once Step 4a (or a later PR) raises the cascade cap.
   - **`RegisterChildRecordingsFromSplit` ordering spelled out** as an eight-step final order (today's order has `IsDebris = true` at line 1115 inside an `if (!hasController)` branch — the new order hoists it to the top of the per-child iteration so the seed-point orchestration in `InitializeLoadedState` can read it). Surfaces a new `parentRecordingId` parameter on the function.
   - **`IsReFlyPostLoadSettleActiveForRecording` body included verbatim** in Step 3b so the implementer doesn't have to re-derive it from the Decision §11 prose.
