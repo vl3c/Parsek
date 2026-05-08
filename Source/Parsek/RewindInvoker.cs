@@ -261,6 +261,99 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Refreshes <see cref="Recording.VesselSnapshot"/> and
+        /// <see cref="Recording.GhostVisualSnapshot"/> on an in-place Re-Fly
+        /// fork from the live post-Strip vessel, if available, replacing the
+        /// stale copies inherited via <see cref="CopyInheritedIdentityForFork"/>.
+        ///
+        /// <para>
+        /// Why this is needed: the inheritance source's
+        /// <c>GhostVisualSnapshot</c> was captured exactly once when the
+        /// recording first started (see
+        /// <c>FlightRecorder.captureInitialGhostSnapshot</c>) and is never
+        /// refreshed by mid-flight events. <c>ProcessBreakupEvent</c> only
+        /// refreshes <c>VesselSnapshot</c> on each breakup. So a fork created
+        /// at a UT after staging or breakups inherits the pre-staging
+        /// full-vessel ghost snapshot, and any subsequent ghost render of the
+        /// fork shows the whole rocket instead of the current sub-assembly
+        /// (issue surfaced in 2026-05-07 playtest: lower-stage Re-Fly spawned
+        /// an 84-part Kerbal X ghost where the actual upper-stage capsule had
+        /// shed all but a handful of parts).
+        /// </para>
+        ///
+        /// <para>
+        /// The strip selects exactly the vessel rooted at the slot's selected
+        /// root part; <c>inPlaceContinuation</c> already gates on
+        /// <c>inheritFrom.VesselPersistentId == stripResult.SelectedPid</c> so
+        /// the live vessel is the right thing to snapshot. If
+        /// <see cref="VesselSpawner.TryBackupSnapshot"/> fails (or the live
+        /// vessel handle is null in tests), we leave the inherited copies in
+        /// place — strictly no worse than before.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns <c>true</c> when both snapshots were replaced from the
+        /// live vessel, <c>false</c> when the inherited copies remain. The
+        /// caller uses that flag to log <c>vesselSnapshot=live-refresh</c>
+        /// vs <c>vesselSnapshot=copied</c> for diagnostic clarity.
+        /// </para>
+        /// </summary>
+        internal static bool TryRefreshForkSnapshotsFromLiveVessel(
+            Recording provisional, Vessel liveVessel, string sessionId)
+        {
+            if (provisional == null) return false;
+            if (liveVessel == null)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"TryRefreshForkSnapshotsFromLiveVessel: live vessel null — keeping inherited snapshots " +
+                    $"rec={provisional.RecordingId} sess={sessionId ?? "<none>"}");
+                return false;
+            }
+
+            ConfigNode freshSnap = VesselSpawner.TryBackupSnapshot(liveVessel);
+            if (freshSnap == null)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"TryRefreshForkSnapshotsFromLiveVessel: TryBackupSnapshot returned null — keeping inherited snapshots " +
+                    $"rec={provisional.RecordingId} pid={liveVessel.persistentId} sess={sessionId ?? "<none>"}");
+                return false;
+            }
+
+            int liveParts = liveVessel.parts != null ? liveVessel.parts.Count : 0;
+            int inheritedVesselParts = CountSnapshotParts(provisional.VesselSnapshot);
+            int inheritedGhostParts = CountSnapshotParts(provisional.GhostVisualSnapshot);
+
+            provisional.VesselSnapshot = freshSnap;
+            provisional.GhostVisualSnapshot = freshSnap.CreateCopy();
+
+            ParsekLog.Info(InvokeTag,
+                $"TryRefreshForkSnapshotsFromLiveVessel: refreshed fork snapshots from live vessel " +
+                $"rec={provisional.RecordingId} pid={liveVessel.persistentId} liveParts={liveParts} " +
+                $"replaced(vesselSnapshotParts={inheritedVesselParts} ghostSnapshotParts={inheritedGhostParts}) " +
+                $"sess={sessionId ?? "<none>"}");
+            return true;
+        }
+
+        /// <summary>
+        /// Counts <c>PART</c> child nodes of a backed-up vessel ConfigNode for
+        /// diagnostic logging. Returns 0 for null/malformed snapshots —
+        /// purely informational, no behavioural impact.
+        /// </summary>
+        internal static int CountSnapshotParts(ConfigNode snap)
+        {
+            if (snap == null) return 0;
+            try
+            {
+                var parts = snap.GetNodes("PART");
+                return parts != null ? parts.Length : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// Spawns the "Rewind?" confirmation PopupDialog. On accept, starts
         /// the <see cref="StartInvoke"/> pre-load phase; the post-load phase
         /// is driven by <see cref="ParsekScenario.OnLoad"/> calling
@@ -1004,10 +1097,13 @@ namespace Parsek
                     // marker-swap is gated on inPlaceContinuation), and the
                     // live vessel stays as the original full assembly.
                     CopyInheritedIdentityForFork(provisional, inheritFrom);
+                    bool snapshotRefreshedFromLive = TryRefreshForkSnapshotsFromLiveVessel(
+                        provisional, stripResult.SelectedVessel, sessionId);
                     provisional.CapturePreReFlyAnchorTrajectoryFrom(inheritFrom, sessionId);
                     pendingTreeForFork = FindTreeForReFlyFork(inheritFrom.TreeId);
                     bool inheritedFromChainTip = !object.ReferenceEquals(inheritFrom, originChild)
                         && inheritFrom != null;
+                    string snapshotProvenance = snapshotRefreshedFromLive ? "live-refresh" : "copied";
                     ParsekLog.Info(InvokeTag,
                         $"AtomicMarkerWrite: in-place continuation forked — fork " +
                         $"{provisional.RecordingId} supersedes priorTip {priorTip ?? "<none>"} " +
@@ -1015,8 +1111,8 @@ namespace Parsek
                         $"inheritedFrom={(inheritedFromChainTip ? "chain-tip" : "origin")} " +
                         $"sourceRec={inheritFrom.RecordingId ?? "<no-id>"}; " +
                         $"source not mutated; pre-Re-Fly anchor snapshot captured on the fork; " +
-                        $"vesselSnapshot={(provisional.VesselSnapshot != null ? "copied" : "<none>")}; " +
-                        $"ghostSnapshot={(provisional.GhostVisualSnapshot != null ? "copied" : "<none>")}; " +
+                        $"vesselSnapshot={(provisional.VesselSnapshot != null ? snapshotProvenance : "<none>")}; " +
+                        $"ghostSnapshot={(provisional.GhostVisualSnapshot != null ? snapshotProvenance : "<none>")}; " +
                         $"generation={provisional.Generation}; " +
                         $"treeAttach={(pendingTreeForFork != null ? "eager" : "deferred-to-restore")})");
                 }
