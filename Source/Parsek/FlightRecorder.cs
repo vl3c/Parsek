@@ -1003,9 +1003,13 @@ namespace Parsek
             if (part?.transform == null || body?.bodyTransform == null)
                 return false;
 
-            Vector3 velocity = vessel.packed
-                ? (Vector3)vessel.obt_velocity
-                : (Vector3)(vessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+            // Part-origin seeds are used for physics-frame separation events. Packed
+            // vessels expose orbital velocity in a different frame contract, so fail
+            // closed rather than mixing inertial velocity into a body-fixed seed.
+            if (vessel.packed)
+                return false;
+
+            Vector3 velocity = (Vector3)(vessel.rb_velocityD + Krakensbane.GetFrameVelocity());
             Vector3d worldPos = part.transform.position;
 
             point = new TrajectoryPoint

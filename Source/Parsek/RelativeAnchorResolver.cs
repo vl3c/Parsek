@@ -77,6 +77,8 @@ namespace Parsek
         internal const int RecordingAnchorChainFormatVersion =
             RecordingStore.RecordingAnchorChainFormatVersion;
         private const double UtEpsilon = 1e-6;
+        // Default applies when section cadence is unavailable; maximum clamps the
+        // cadence-derived threshold so sparse recordings cannot broaden the fallback.
         private const double DefaultSmallSectionGapSeconds = 0.10;
         private const double MinimumSmallSectionGapSeconds = 0.05;
         private const double MaximumSmallSectionGapSeconds = 0.10;
@@ -754,6 +756,8 @@ namespace Parsek
             if (points == null || points.Count == 0 || maxSpanSeconds < 0.0)
                 return false;
 
+            // This fallback only runs after section lookup misses inside a tiny
+            // proven gap, so the simple scans keep the guard easy to audit.
             for (int i = 0; i < points.Count; i++)
             {
                 TrajectoryPoint point = points[i];
