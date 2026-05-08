@@ -2521,7 +2521,7 @@ namespace Parsek
 
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
-                ghost.SetActive(false);
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (state != null)
                 state.anchorRetiredThisFrame = true;
 
