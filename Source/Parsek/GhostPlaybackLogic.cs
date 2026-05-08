@@ -26,7 +26,10 @@ namespace Parsek
         private static readonly HashSet<string> loopIntervalClampWarned = new HashSet<string>(StringComparer.Ordinal);
         private static Func<FlagEvent, bool> flagExistsOverrideForTesting;
         private static Func<FlagEvent, bool> spawnFlagOverrideForTesting;
+        private static double explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
         internal static Func<GhostPlaybackState, bool> EnforceLoopedAudioPlaybackCapOverrideForTesting;
+        internal delegate bool TryReserveExplosionSoundDelegate(float clipLengthSeconds, out double busyUntilRealtimeSeconds);
+        internal delegate bool TryTriggerStockExplosionFxDelegate(Vector3 worldPosition, double power, out string failureReason);
 
         internal readonly struct AutoLoopLaunchSchedule
         {
@@ -633,6 +636,7 @@ namespace Parsek
         {
             loopIntervalClampWarned.Clear();
             ResetFlagReplayOverridesForTesting();
+            explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
             EnforceLoopedAudioPlaybackCapOverrideForTesting = null;
         }
 
@@ -2945,12 +2949,212 @@ namespace Parsek
             float vol = ComputeGhostAudioVolume(GhostAudioPresets.OneShotVolumeScale, state.atmosphereFactor);
             if (vol <= 0f) return;
 
+            double nowRealtimeSeconds = GetAudioRealtimeSinceStartup();
+            double busyUntilRealtimeSeconds;
+            if (!TryReserveOneShotSound(
+                    eventType,
+                    state.oneShotAudio.audioSource.isPlaying,
+                    clip.length,
+                    nowRealtimeSeconds,
+                    out busyUntilRealtimeSeconds))
+            {
+                double remainingSeconds = Math.Max(0.0, busyUntilRealtimeSeconds - nowRealtimeSeconds);
+                ParsekLog.VerboseRateLimited("GhostAudio",
+                    $"one-shot-busy-{eventType}",
+                    $"One-shot skipped: {eventType} clip='{clipPath}' previous explosion sound still active " +
+                    $"remaining={remainingSeconds.ToString("F2", CultureInfo.InvariantCulture)}s",
+                    1.0);
+                return;
+            }
+
             state.oneShotAudio.audioSource.priority = GhostAudioPresets.ComputeRuntimePriority(
                 GhostAudioPresets.ClassifyOneShotPriority(eventType),
                 ResolveAudioPriorityDistance(state));
             state.oneShotAudio.audioSource.PlayOneShot(clip, vol);
             ParsekLog.Verbose("GhostAudio",
                 $"One-shot played: {eventType} clip='{clipPath}' vol={vol:F2}");
+        }
+
+        internal static bool ShouldStartOneShotSound(
+            PartEventType eventType,
+            bool sourceIsPlaying,
+            double nowRealtimeSeconds,
+            double explosionBusyUntilRealtimeSeconds)
+        {
+            if (eventType != PartEventType.Destroyed)
+                return true;
+            if (sourceIsPlaying)
+                return false;
+            return !IsExplosionOneShotSoundBusy(nowRealtimeSeconds, explosionBusyUntilRealtimeSeconds);
+        }
+
+        internal static bool TryReserveOneShotSound(
+            PartEventType eventType,
+            bool sourceIsPlaying,
+            float clipLengthSeconds,
+            out double busyUntilRealtimeSeconds)
+        {
+            return TryReserveOneShotSound(
+                eventType,
+                sourceIsPlaying,
+                clipLengthSeconds,
+                GetAudioRealtimeSinceStartup(),
+                out busyUntilRealtimeSeconds);
+        }
+
+        internal static bool TryReserveOneShotSound(
+            PartEventType eventType,
+            bool sourceIsPlaying,
+            float clipLengthSeconds,
+            double nowRealtimeSeconds,
+            out double busyUntilRealtimeSeconds)
+        {
+            busyUntilRealtimeSeconds = explosionOneShotBusyUntilRealtime;
+            if (!ShouldStartOneShotSound(
+                    eventType,
+                    sourceIsPlaying,
+                    nowRealtimeSeconds,
+                    explosionOneShotBusyUntilRealtime))
+            {
+                return false;
+            }
+
+            if (eventType == PartEventType.Destroyed)
+            {
+                float durationSeconds = NormalizeOneShotDurationSeconds(clipLengthSeconds);
+                explosionOneShotBusyUntilRealtime = nowRealtimeSeconds + durationSeconds;
+                busyUntilRealtimeSeconds = explosionOneShotBusyUntilRealtime;
+            }
+
+            return true;
+        }
+
+        internal static bool TryReserveExplosionSound(
+            float clipLengthSeconds,
+            out double busyUntilRealtimeSeconds)
+        {
+            return TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                false,
+                clipLengthSeconds,
+                out busyUntilRealtimeSeconds);
+        }
+
+        internal static bool TryReserveExplosionSound(
+            float clipLengthSeconds,
+            double nowRealtimeSeconds,
+            out double busyUntilRealtimeSeconds)
+        {
+            return TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                false,
+                clipLengthSeconds,
+                nowRealtimeSeconds,
+                out busyUntilRealtimeSeconds);
+        }
+
+        internal static void ReleaseExplosionSoundReservation(double busyUntilRealtimeSeconds)
+        {
+            if (Math.Abs(explosionOneShotBusyUntilRealtime - busyUntilRealtimeSeconds) <= 0.0001)
+                explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
+        }
+
+        internal static float ResolveExplosionOneShotDurationSeconds()
+        {
+            string clipPath = GhostAudioPresets.ResolveOneShotClip(PartEventType.Destroyed);
+            if (clipPath == null)
+                return GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds;
+
+            try
+            {
+                AudioClip clip = GameDatabase.Instance != null
+                    ? GameDatabase.Instance.GetAudioClip(clipPath)
+                    : null;
+                if (clip != null)
+                    return NormalizeOneShotDurationSeconds(clip.length);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("GhostAudio",
+                    "explosion-duration-fallback",
+                    $"Explosion sound duration lookup failed for clip='{clipPath}': {ex.Message}; " +
+                    $"using {GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds.ToString("F2", CultureInfo.InvariantCulture)}s fallback",
+                    10.0);
+            }
+
+            return GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds;
+        }
+
+        internal static bool TryTriggerStockExplosionFxWithAudioGate(
+            Vector3 worldPosition,
+            double power,
+            float vesselLength,
+            string contextDescription,
+            string busyLogKey,
+            Func<float> resolveExplosionSoundDuration = null,
+            TryReserveExplosionSoundDelegate reserveExplosionSound = null,
+            Action<double> releaseExplosionSoundReservation = null,
+            TryTriggerStockExplosionFxDelegate triggerStockExplosionFx = null,
+            Action<Vector3, float> spawnExplosionFx = null)
+        {
+            string context = string.IsNullOrEmpty(contextDescription)
+                ? "ghost explosion"
+                : contextDescription;
+            float explosionSoundDuration = resolveExplosionSoundDuration != null
+                ? resolveExplosionSoundDuration()
+                : ResolveExplosionOneShotDurationSeconds();
+            TryReserveExplosionSoundDelegate reserveSound = reserveExplosionSound
+                ?? ((float length, out double busyUntil) => TryReserveExplosionSound(length, out busyUntil));
+            double explosionSoundReservedUntil;
+            if (reserveSound(explosionSoundDuration, out explosionSoundReservedUntil))
+            {
+                TryTriggerStockExplosionFxDelegate triggerStock = triggerStockExplosionFx
+                    ?? ((Vector3 pos, double pwr, out string failure) =>
+                        GhostVisualBuilder.TryTriggerStockExplosionFx(pos, pwr, out failure));
+                if (triggerStock(worldPosition, power, out string stockFxFailure))
+                    return true;
+
+                Action<double> releaseReservation =
+                    releaseExplosionSoundReservation ?? ReleaseExplosionSoundReservation;
+                releaseReservation(explosionSoundReservedUntil);
+                ParsekLog.Warn("ExplosionFx",
+                    $"FXMonger.Explode did not queue stock FX for {context}; " +
+                    $"falling back to custom FX: {stockFxFailure}");
+                Action<Vector3, float> spawnCustom =
+                    spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
+                spawnCustom(worldPosition, vesselLength);
+                return false;
+            }
+
+            ParsekLog.VerboseRateLimited("GhostAudio", busyLogKey ?? "stock-explosion-audio-busy",
+                $"Stock explosion FX skipped for {context} because another explosion sound is still active; " +
+                "spawning custom visual FX only",
+                1.0);
+            Action<Vector3, float> spawnCustomBusy =
+                spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
+            spawnCustomBusy(worldPosition, vesselLength);
+            return false;
+        }
+
+        internal static float NormalizeOneShotDurationSeconds(float clipLengthSeconds)
+        {
+            if (float.IsNaN(clipLengthSeconds) || float.IsInfinity(clipLengthSeconds) || clipLengthSeconds <= 0f)
+                return GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds;
+            return clipLengthSeconds;
+        }
+
+        private static bool IsExplosionOneShotSoundBusy(
+            double nowRealtimeSeconds,
+            double busyUntilRealtimeSeconds)
+        {
+            if (double.IsNaN(nowRealtimeSeconds) || double.IsNaN(busyUntilRealtimeSeconds))
+                return false;
+            return nowRealtimeSeconds < busyUntilRealtimeSeconds;
+        }
+
+        private static double GetAudioRealtimeSinceStartup()
+        {
+            return Time.realtimeSinceStartup;
         }
 
         /// <summary>
