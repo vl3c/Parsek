@@ -9242,6 +9242,9 @@ namespace Parsek
                 TryResolveTrajectoryPoint resolvePartOriginSeed = null;
                 if (seedRecorder != null)
                     resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
+                // On stock decoupler splits, KSP roots the new debris vessel at
+                // joint.Child; if it chooses a different root, this misses cleanly and
+                // falls back to the post-split root-part sample below.
                 if (TrySelectDecouplePartOriginSeed(
                         rootPartPersistentId,
                         resolvePartOriginSeed,

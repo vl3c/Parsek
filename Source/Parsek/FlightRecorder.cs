@@ -206,6 +206,9 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
         public double PendingJointBreakUT { get; private set; } = double.NaN;
+        // Bounded by structural-break part count. Stale entries are harmless because
+        // consumers require a matching new-vessel root PID and the cache is cleared on
+        // new recording starts / false-alarm resumes.
         private readonly Dictionary<uint, TrajectoryPoint> pendingJointChildPartOriginSeeds =
             new Dictionary<uint, TrajectoryPoint>();
 
