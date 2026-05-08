@@ -1313,6 +1313,9 @@ namespace Parsek
                 if (endpointRetired)
                 {
                     double endpointCoverageUT = ResolveRecordingEndpointCoverageUT(traj);
+                    // endpointCoverageUT may be after the visible endpoint sample for
+                    // orbit/checkpoint tails; suppressing events/FX makes this a
+                    // teardown-only visual pass.
                     ApplyFrameVisuals(i, traj, state, endpointCoverageUT,
                         ctx.warpRate, skipPartEvents: true, suppressVisualFx: true,
                         allowTransientEffects: false);
@@ -2518,7 +2521,7 @@ namespace Parsek
 
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
-                HideGhostForRetire(ghost);
+                ghost.SetActive(false);
             if (state != null)
                 state.anchorRetiredThisFrame = true;
 
@@ -2542,12 +2545,6 @@ namespace Parsek
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
             return true;
-        }
-
-        private static void HideGhostForRetire(GameObject ghost)
-        {
-            if (ghost.activeSelf)
-                ghost.SetActive(false);
         }
 
         private void PositionLoopAtPlaybackUT(

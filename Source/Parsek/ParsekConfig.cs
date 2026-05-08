@@ -198,6 +198,7 @@ namespace Parsek
         /// Maximum synthetic structural-seed to first ordinary sample span that
         /// parent-anchored debris may stay hidden on fresh activation. Wider
         /// spans are real recorded motion and must remain visible.
+        /// Kept separate from the Absolute bridge cap so field tuning can diverge.
         /// </summary>
         internal const double InitialDebrisSeedBridgeActivationHiddenMaxSeconds = 1.0;
 
