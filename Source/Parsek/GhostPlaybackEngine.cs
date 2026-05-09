@@ -5447,6 +5447,8 @@ namespace Parsek
             }
             catch (Exception)
             {
+                // Headless xUnit can trip FlightGlobals static initialization; the
+                // appearance diagnostic should degrade to world=unresolved instead.
                 return null;
             }
         }

@@ -1132,7 +1132,8 @@ namespace Parsek
                 childAttachMatchesJoint,
                 childAttachJointPresent);
             double jointBreakUT = Planetarium.GetUniversalTime();
-            ParsekLog.Verbose("Recorder",
+            ParsekLog.VerboseRateLimited("Recorder",
+                $"joint-break-diag-{joint.Child.persistentId}",
                 $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"structural={(structuralJointBreak ? "T" : "F")} " +
@@ -1143,7 +1144,8 @@ namespace Parsek
                 $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
                 $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
                 $"hostAnchor={FormatVector3ForDiagnostics(joint.HostAnchor)} " +
-                $"targetAnchor={FormatVector3ForDiagnostics(joint.TgtAnchor)}");
+                $"targetAnchor={FormatVector3ForDiagnostics(joint.TgtAnchor)}",
+                2.0);
             if (!structuralJointBreak)
             {
                 ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",

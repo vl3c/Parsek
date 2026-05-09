@@ -388,7 +388,7 @@ and record the blocker clearly.
 
 ## Branch Hygiene
 
-This worktree currently has only the untracked investigation plan. Before opening a docs PR, either commit this plan on a fresh branch off `origin/main` or keep this worktree as the implementation branch and move the plan into the implementation branch that will own the diagnostics. Do not edit or commit this plan in the main `Parsek/` checkout.
+This plan was committed on the investigation/diagnostics branch, separate from the main `Parsek/` checkout. Continue follow-up implementation in this worktree or a fresh sibling worktree, and keep the main checkout clean unless a task explicitly approves editing it.
 
 ## Non-Goals
 

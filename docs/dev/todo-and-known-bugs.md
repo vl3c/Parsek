@@ -11,6 +11,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - radial booster debris origin alignment remains inexact after initial-slide fix
+
+- The retained `logs/2026-05-09_0042_radial-booster-position-inexact` bundle shows PR #776's hide/clamp path working (`firstFrameClamped=T`, first visible frames are Relative, no `SinglePoint` fallback), but radial side-booster debris still appears a few metres offset from the expected decoupler/booster contact. The concrete recordings (`61573dc3`, `5679c491`, `f44b52af`, `cf08fb37`) all root their ghost craft at `radialDecoupler1-2`, while the visible booster tank is a child offset from that root. See `docs/dev/plans/investigate-radial-debris-origin.md`.
+- **Fix direction:** diagnostics first. Log joint child/root PID correspondence, radial decoupler and booster-child `srfAttachNode` candidates, seed-to-Relative conversion, and the first ordinary background sample before deciding whether the correct target is the contact node, joint anchor, or simply a later first-frame sample. Avoid COM alignment and broad render-side legacy correction until the target point is proven.
+
+**Status:** OPEN 2026-05-09. PR #780 adds the investigation plan and bounded diagnostics.
+
+---
+
 ## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
 
 - During the 2026-05-08 playtest of the post-anchor-fix debris-rendering stack, the slot=0 Re-Fly playback emitted 22 `[WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` lines (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:55431-65652` and follow-ups). Every UT in the warns is exactly `section.endUT + 1e-13..3e-12` — double-precision rounding noise from per-frame UT accumulation pushing the playback query just past the section's recorded endUT. The resolver's `FindTrackSectionForUT` treats this as "past the last section" and returns the unresolved sentinel. Ghost #9 (the Probe fork) showed a 2.5 m positional discontinuity at the UT 50.10 section seam where two adjacent Relative sections each anchored their own offset.

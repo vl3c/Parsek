@@ -192,6 +192,7 @@ namespace Parsek
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
             public double highFidelitySamplingUntilUT = double.NaN;
             public string highFidelitySamplingReason;
+            public bool loggedFirstDebrisOrdinarySample;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -1931,6 +1932,14 @@ namespace Parsek
                 "physics-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
+            LogFirstDebrisOrdinarySampleDiagnostics(
+                state,
+                treeRec,
+                bgVessel,
+                absolutePoint,
+                point,
+                relativeApplied,
+                ut);
 
             // Phase 7 (design doc §13, §18 Phase 7): for surface sections
             // recorded by the loaded-background sampler, capture per-sample
@@ -3093,7 +3102,10 @@ namespace Parsek
                         $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
                         $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
                         $"parentRecResolved={parentRec != null} " +
-                        $"parentVesselResolved={parentVessel != null}");
+                        $"parentVesselResolved={parentVessel != null} " +
+                        $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                        $"seed={DescribeTrajectoryPointForDiagnostics(initialTrajectoryPoint)} " +
+                        $"{DescribeVesselRootForDiagnostics("child", v)}");
                 }
                 else
                 {
@@ -3117,15 +3129,28 @@ namespace Parsek
 
                     StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative,
                         initialTrajectoryPoint.ut);
-                    if (!ApplyBackgroundRelativeOffsetForAnchorPose(
-                            state,
-                            ref initialTrajectoryPoint,
-                            v,
-                            anchorPose,
-                            treeRecForDebris.DebrisParentRecordingId,
-                            AnchorCandidateSource.Live,
-                            parentVessel.persistentId,
-                            logSample: true))
+                    TrajectoryPoint absoluteSeedPoint = initialTrajectoryPoint;
+                    bool seedRelativeApplied = ApplyBackgroundRelativeOffsetForAnchorPose(
+                        state,
+                        ref initialTrajectoryPoint,
+                        v,
+                        anchorPose,
+                        treeRecForDebris.DebrisParentRecordingId,
+                        AnchorCandidateSource.Live,
+                        parentVessel.persistentId,
+                        logSample: true);
+                    LogDebrisSeedRelativeConversionDiagnostics(
+                        vesselPid,
+                        recordingId,
+                        treeRecForDebris.DebrisParentRecordingId,
+                        v,
+                        parentVessel,
+                        absoluteSeedPoint,
+                        initialTrajectoryPoint,
+                        anchorPose,
+                        seedRelativeApplied,
+                        ut);
+                    if (!seedRelativeApplied)
                     {
                         ParsekLog.Warn("BgRecorder",
                             $"InitializeLoadedState: debris seed transform failed, " +
@@ -3550,6 +3575,234 @@ namespace Parsek
             altitude = v.mainBody.GetAltitude(worldPos);
             rotation = Quaternion.Inverse(v.mainBody.bodyTransform.rotation) * v.rootPart.transform.rotation;
             return true;
+        }
+
+        private static void LogDebrisSeedRelativeConversionDiagnostics(
+            uint vesselPid,
+            string recordingId,
+            string parentRecordingId,
+            Vessel childVessel,
+            Vessel parentVessel,
+            TrajectoryPoint absoluteSeedPoint,
+            TrajectoryPoint relativeSeedPoint,
+            AnchorPose anchorPose,
+            bool relativeApplied,
+            double initUT)
+        {
+            bool hasSeedWorld = TryResolveTrajectoryPointWorldPosition(
+                absoluteSeedPoint,
+                childVessel,
+                out Vector3d seedWorld);
+            string seedAnchorDelta = hasSeedWorld
+                ? FormatVector3dForDiagnostics(seedWorld - anchorPose.WorldPos)
+                : "unresolved";
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Debris seed relative conversion diagnostics: pid={vesselPid} " +
+                $"recId={recordingId} parentRecId={parentRecordingId} " +
+                $"relativeApplied={(relativeApplied ? "T" : "F")} " +
+                $"initUT={initUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"seedUT={absoluteSeedPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"init-seed-dt={(initUT - absoluteSeedPoint.ut).ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"seedAbs={DescribeTrajectoryPointForDiagnostics(absoluteSeedPoint)} " +
+                $"seedWorld={(hasSeedWorld ? FormatVector3dForDiagnostics(seedWorld) : "unresolved")} " +
+                $"anchorWorld={FormatVector3dForDiagnostics(anchorPose.WorldPos)} " +
+                $"seed-anchor={seedAnchorDelta} " +
+                $"relativeOffset={FormatVector3dForDiagnostics(new Vector3d(relativeSeedPoint.latitude, relativeSeedPoint.longitude, relativeSeedPoint.altitude))} " +
+                $"{DescribeVesselRootForDiagnostics("child", childVessel)} " +
+                $"{DescribeVesselRootForDiagnostics("parent", parentVessel)}");
+        }
+
+        private static void LogFirstDebrisOrdinarySampleDiagnostics(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel bgVessel,
+            TrajectoryPoint absolutePoint,
+            TrajectoryPoint recordedPoint,
+            bool relativeApplied,
+            double sampleUT)
+        {
+            if (state == null
+                || treeRec == null
+                || string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
+                || state.loggedFirstDebrisOrdinarySample)
+            {
+                return;
+            }
+
+            state.loggedFirstDebrisOrdinarySample = true;
+            bool hasAbsoluteWorld = TryResolveTrajectoryPointWorldPosition(
+                absolutePoint,
+                bgVessel,
+                out Vector3d absoluteWorld);
+            Vector3d rootWorld = bgVessel?.rootPart?.transform != null
+                ? (Vector3d)bgVessel.rootPart.transform.position
+                : Vector3d.zero;
+            bool hasRootWorld = bgVessel?.rootPart?.transform != null;
+            string absoluteRootDelta = hasAbsoluteWorld && hasRootWorld
+                ? FormatVector3dForDiagnostics(absoluteWorld - rootWorld)
+                : "unresolved";
+            string seedToSampleDt = IsFiniteUT(state.lastRecordedUT)
+                ? (sampleUT - state.lastRecordedUT).ToString("F3", CultureInfo.InvariantCulture)
+                : "n/a";
+
+            ParsekLog.Verbose("BgRecorder",
+                $"First debris ordinary sample diagnostics: pid={state.vesselPid} " +
+                $"recId={treeRec.RecordingId} parentRecId={treeRec.DebrisParentRecordingId} " +
+                $"sampleUT={sampleUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"prevRecordedUT={(IsFiniteUT(state.lastRecordedUT) ? state.lastRecordedUT.ToString("F3", CultureInfo.InvariantCulture) : "n/a")} " +
+                $"sample-prev-dt={seedToSampleDt} " +
+                $"relativeApplied={(relativeApplied ? "T" : "F")} " +
+                $"absolutePoint={DescribeTrajectoryPointForDiagnostics(absolutePoint)} " +
+                $"recordedPoint={DescribeTrajectoryPointForDiagnostics(recordedPoint)} " +
+                $"absoluteWorld={(hasAbsoluteWorld ? FormatVector3dForDiagnostics(absoluteWorld) : "unresolved")} " +
+                $"rootWorld={(hasRootWorld ? FormatVector3dForDiagnostics(rootWorld) : "unresolved")} " +
+                $"absolute-root={absoluteRootDelta} " +
+                $"{DescribeVesselRootForDiagnostics("sampleVessel", bgVessel)}");
+        }
+
+        private static bool TryResolveTrajectoryPointWorldPosition(
+            TrajectoryPoint point,
+            Vessel contextVessel,
+            out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            CelestialBody body = contextVessel?.mainBody;
+            if ((body == null || !string.Equals(body.name, point.bodyName, StringComparison.Ordinal))
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, point.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null)
+                return false;
+
+            try
+            {
+                worldPosition = body.GetWorldSurfacePosition(
+                    point.latitude,
+                    point.longitude,
+                    point.altitude);
+                return true;
+            }
+            catch (Exception)
+            {
+                worldPosition = Vector3d.zero;
+                return false;
+            }
+        }
+
+        private static string DescribeVesselRootForDiagnostics(string label, Vessel vessel)
+        {
+            if (vessel == null)
+                return label + "=null";
+
+            Part rootPart = vessel.rootPart;
+            string vesselWorld = SafeFormatVesselWorldPosition(vessel);
+            if (rootPart == null)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}Vessel pid={1} name='{2}' vesselWorld={3} root=null",
+                    label,
+                    vessel.persistentId,
+                    vessel.vesselName ?? "unknown",
+                    vesselWorld);
+            }
+
+            string rootWorld = rootPart.transform != null
+                ? FormatVector3dForDiagnostics(rootPart.transform.position)
+                : "no-transform";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}Vessel pid={1} name='{2}' vesselWorld={3} root='{4}' rootPid={5} rootWorld={6} srfAttach={7}",
+                label,
+                vessel.persistentId,
+                vessel.vesselName ?? "unknown",
+                vesselWorld,
+                rootPart.partInfo?.name ?? rootPart.name ?? "unknown",
+                rootPart.persistentId,
+                rootWorld,
+                DescribeSurfaceAttachNodeForDiagnostics(rootPart));
+        }
+
+        private static string SafeFormatVesselWorldPosition(Vessel vessel)
+        {
+            try
+            {
+                return vessel != null
+                    ? FormatVector3dForDiagnostics(vessel.GetWorldPos3D())
+                    : "null";
+            }
+            catch (Exception)
+            {
+                return "unresolved";
+            }
+        }
+
+        private static string DescribeSurfaceAttachNodeForDiagnostics(Part part)
+        {
+            AttachNode node = part?.srfAttachNode;
+            if (node == null)
+                return "none";
+
+            string world = part.transform != null
+                ? FormatVector3dForDiagnostics(part.transform.TransformPoint(node.position))
+                : "no-transform";
+            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "local={0} world={1} orient={2} attachedPid={3}",
+                FormatVector3ForDiagnostics(node.position),
+                world,
+                FormatVector3ForDiagnostics(node.orientation),
+                attachedPid);
+        }
+
+        private static string DescribeTrajectoryPointForDiagnostics(TrajectoryPoint point)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "ut={0:F3} body={1} lla=({2:F4},{3:F4},{4:F2}) rot={5} vel={6}",
+                point.ut,
+                point.bodyName ?? "unknown",
+                point.latitude,
+                point.longitude,
+                point.altitude,
+                FormatQuaternionForDiagnostics(point.rotation),
+                FormatVector3ForDiagnostics(point.velocity));
+        }
+
+        private static string FormatVector3ForDiagnostics(Vector3 value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static string FormatVector3dForDiagnostics(Vector3d value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static string FormatQuaternionForDiagnostics(Quaternion value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3},{3:F3})",
+                value.x,
+                value.y,
+                value.z,
+                value.w);
         }
 
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
