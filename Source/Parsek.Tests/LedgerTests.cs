@@ -793,6 +793,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_FutureContractAccept_NullRecordingId_PrunedAsLifecycle()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "contract-future-ksc",
+                AdvanceFunds = 1500f
+            });
+
+            var valid = new HashSet<string>();
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned contract lifecycle")
+                && l.Contains("ContractAccept")
+                && l.Contains("contract-future-ksc")
+                && l.Contains("recordingId='(null)'")
+                && l.Contains("maxUT=18000"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedOther=1"));
+        }
+
+        [Fact]
         public void Reconcile_FundsInitial_AlwaysKept()
         {
             Ledger.AddAction(new GameAction
